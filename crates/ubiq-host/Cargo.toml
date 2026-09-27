@@ -114,6 +114,18 @@ hostname = "0.4"
 # with the interface so the host's index and the window's optimistic cache split a document by the
 # same rules (T-114). `plan::blocks` matches ids on top of it and parses nothing itself.
 
+# **`harness` and `listener` are not independently buildable, and nothing below says otherwise.**
+# Each feature is *written* as if it stood alone, and the gates read that way, but the lib does not
+# compile with only one of the pair turned on: `connectors/store.rs` names `agent_manager` and so
+# needs `harness` even though `connectors` sits behind `listener`, and `assist/` names
+# `crate::connectors` and so needs `listener` even though `assist` sits behind `harness`. Verified
+# against this tree (T-235): `--no-default-features --features listener` and `--features harness`
+# each fail the lib.
+#
+# So the configurations this crate really builds in are: nothing, `git`, `index`, `desktop`, the
+# `harness` + `listener` pair, and `full` — and a `[[test]]` needing either half of that pair must
+# name **both**, the way `tasksrc_sync` and `tasksrc_outbound` already do. Untangling it is not
+# this table's job; when it is worth doing it will be a card of its own.
 [features]
 default = ["full"]
 # Version control: `git/`, `repos/`, and a project's diff.
@@ -171,6 +183,10 @@ required-features = ["harness"]
 
 [[test]]
 name = "work"
+required-features = ["harness"]
+
+[[test]]
+name = "mission"
 required-features = ["harness"]
 
 [[test]]

@@ -694,7 +694,20 @@ impl AppState {
             // window no longer holds the panel for is a tab the mode's own blob can never bring
             // back — and `Self::sync_chat_panels` reads the same map and would queue an `Open`
             // for a kind missing from it, putting the tab back in by the other door.
-            if kind.chat_id().is_some() {
+            //
+            // **A mission panel is the same rule** (`T-256`). Both its shapes are `Free` and both
+            // are opened by a gesture — the side panel on the right, the full view in the centre —
+            // so one left open in Agents mode was a leftover in every other mode, added to the
+            // incoming mode's right or centre group by the branch below. `dock::add` joins a group
+            // as its displayed tab, so the mission covered whatever the user had left there — the
+            // chat tab, the agents columns — and the dock's own `LayoutChanged` then wrote it into
+            // that mode's blob as if the user had asked for it. The mode that *was* arranged to
+            // hold it names it in its own blob and the restore above brings it back there, which
+            // is the only way it comes.
+            //
+            // The panel is kept for the chat's second reason one step weaker: a mission panel is
+            // rebuildable from its payload, but keeping the entity keeps what it had scrolled to.
+            if kind.chat_id().is_some() || kind.mission_id().is_some() {
                 kept.insert(kind, panel);
                 continue;
             }

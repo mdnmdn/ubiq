@@ -41,12 +41,67 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
     Picker, PickerStyle, choice_pill, field, filter_bar, ghost_button, icon_button, modal_sized,
-    mono, panel, popover, primary_button, removable_tag, section_label, tag, toggle_pill,
+    mono, panel, pill, popover, primary_button, removable_tag, section_label, tag, toggle_pill,
 };
+use crate::ui::tasksrc::{PULL_ONLY_NOTE, pull_only};
 // The kit's text-entry box, under a name that does not collide with the `Field` a control is
 // editing — both are called `field` in this file's vocabulary, and only one can keep the word.
 use crate::ui::kit::field as field_box;
 use crate::ui::{eid, eid2, handler, indexed};
+
+/// Whether this task is the provider's copy, and so takes no edit to a field the sync pass owns —
+/// [`crate::ui::tasksrc::pull_only`] is where the rule lives and why.
+///
+/// **Which fields those are is the sync pass's list, not a guess.** `outbound::FIELDS` covers
+/// title, description, status, labels, assignee, kind, priority, key and link; `checklist` and
+/// `comments` are deliberately outside it, so sub-tasks and comments stay Ubiq's own annotations
+/// and stay editable here. So do shape, level, complexity, colour, session, parent, references,
+/// prerequisites and attachments, none of which the remote has ever heard of.
+fn locked(app: &AppState, task: &TaskRecord) -> bool {
+    pull_only(app, task.id)
+}
+
+/// A value a locked task reports and will not take a change to.
+///
+/// Inert by construction rather than by refusal: no click handler, no hover, no text cursor — and
+/// the reason in a tooltip, so the control says *why* it will not take typing instead of quietly
+/// doing nothing. The faint pill is the shape `ui::tasksrc`'s own `greyed` draws for "settled
+/// elsewhere and not yours to change", which is the precedent this follows rather than replaces.
+fn locked_chip(id: impl Into<ElementId>, label: impl Into<SharedString>) -> AnyElement {
+    let label: SharedString = label.into();
+    pill(theme::border())
+        .h(px(22.))
+        .px_2()
+        .child(
+            div()
+                .id(id)
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::text_faint())
+                .child(label)
+                .tooltip(|window, cx| {
+                    gpui_component::tooltip::Tooltip::new(PULL_ONLY_NOTE).build(window, cx)
+                }),
+        )
+        .into_any_element()
+}
+
+/// [`locked_chip`] for a line of text rather than a pill — a locked title, key, link, assignee or
+/// description. `empty` is a value nobody filled, which is faint for its own reason.
+fn locked_line(id: impl Into<ElementId>, text: String, empty: bool, role: Role) -> AnyElement {
+    div()
+        .id(id)
+        .text_size(theme::font(Family::Chrome, role))
+        .text_color(if empty {
+            theme::text_faint()
+        } else {
+            theme::text_muted()
+        })
+        .child(SharedString::from(text))
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new(PULL_ONLY_NOTE).build(window, cx)
+        })
+        .into_any_element()
+}
 
 /// The title: what the task is called, and the one field that cannot be emptied.
 pub fn title(
@@ -55,6 +110,10 @@ pub fn title(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    if locked(app, task) {
+        return locked_line("board-title", task.title.clone(), false, Role::Title);
+    }
+
     let editing = app
         .board(cx)
         .is_some_and(|board| board.is_editing(Field::Title));
@@ -111,7 +170,16 @@ pub fn title(
 ///
 /// No heading over it. It sits at the end of the line the status chip starts, where three words in
 /// a row with one of them lit say what they are without being told.
-pub fn priority_pills(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+pub fn priority_pills(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    // A synced field: the binding maps the provider's own word onto this one, so on a pull-only
+    // task the row reports the value it was given and offers nothing.
+    if locked(app, task) {
+        return locked_chip(
+            "board-priority-locked",
+            task.priority.label().unwrap_or("normal"),
+        );
+    }
+
     let priorities: Vec<AnyElement> = Priority::all()
         .into_iter()
         .map(|priority| {
@@ -169,7 +237,16 @@ pub fn shape_pills(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement 
 }
 
 /// What kind of work it is: four fixed values behind the same `not set`, for the same reason.
-pub fn kind_pills(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+pub fn kind_pills(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    // Synced, like the priority beside it and for the same reason: the binding's kind map is what
+    // filled it.
+    if locked(app, task) {
+        return locked_chip(
+            "board-kind-locked",
+            task.kind.map_or("not set", |kind| kind.label()),
+        );
+    }
+
     let kinds: Vec<AnyElement> = Kind::all()
         .into_iter()
         .map(|kind| {
@@ -264,6 +341,7 @@ pub fn key(
         task.key.as_deref(),
         "no key",
         AppState::commit_task_key,
+        locked(app, task),
         window,
         cx,
     )
@@ -285,6 +363,7 @@ pub fn link(
         task.link.as_deref(),
         "no link",
         AppState::commit_task_link,
+        locked(app, task),
         window,
         cx,
     )
@@ -306,6 +385,7 @@ pub fn assigned_to(
         task.assigned_to.as_deref(),
         "unassigned",
         AppState::commit_task_assigned,
+        locked(app, task),
         window,
         cx,
     )
@@ -326,9 +406,21 @@ fn typed_fact(
     value: Option<&str>,
     empty: &'static str,
     commit: fn(&mut AppState, &mut Context<AppState>),
+    locked: bool,
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    // A locked field never opens, whatever the board still remembers about it: a field left
+    // mid-edit when the projection locked the task falls straight back to reporting, and the
+    // uncommitted draft goes with it — the same thing leaving the project already does to one.
+    if locked {
+        let (text, blank) = match value.map(str::trim).filter(|text| !text.is_empty()) {
+            Some(text) => (text.to_string(), false),
+            None => (empty.to_string(), true),
+        };
+        return locked_line((id, 3u32), text, blank, Role::Body);
+    }
+
     let editing = app.board(cx).is_some_and(|board| board.is_editing(field));
 
     if !editing {
@@ -384,6 +476,13 @@ fn typed_fact(
 /// no registry, so what the picker offers is what the other tasks in this project already say.
 /// Clicking a tag narrows the board to it, which is the question a label on a panel raises.
 pub fn labels(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    // Labels are synced, so a locked task's row loses both writes — the `×` and the `+` — and
+    // keeps the one thing that is not a write: clicking a label still narrows the board to it,
+    // exactly as `blocks()`'s read-only chips still navigate.
+    if locked(app, task) {
+        return locked_labels(task, cx);
+    }
+
     let open = app.workbench.open_menu == Some(MenuId::TaskLabels);
 
     let tags: Vec<AnyElement> = task
@@ -436,6 +535,46 @@ pub fn labels(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> 
     }
 
     root.into_any_element()
+}
+
+/// The label row of a task the board may not write to: the same tags, still narrowing the board
+/// when clicked, with no `×` on any of them and no `+` after them.
+fn locked_labels(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
+    let tags: Vec<AnyElement> = task
+        .labels
+        .iter()
+        .map(|label| {
+            let colour = theme::project_colour(label.colour);
+            let lit = label.name.clone();
+            tag(
+                eid("board-label", label.name.clone()),
+                label.name.clone(),
+                format!("Show only {}", label.name),
+                theme::surface(),
+                colour,
+                colour,
+                false,
+                cx.listener(move |this, _, _, cx| this.toggle_board_label(&lit, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1p5()
+        .children(task.labels.is_empty().then(|| {
+            locked_line(
+                "board-labels-locked",
+                "no labels".to_string(),
+                true,
+                Role::Body,
+            )
+        }))
+        .children(tags)
+        .into_any_element()
 }
 
 /// What the `+` opens: the labels this project already uses, and a name that does not exist yet.
@@ -1179,7 +1318,10 @@ pub fn description(
     let Some(board) = app.board(cx) else {
         return div().into_any_element();
     };
-    let editing = board.is_editing(Field::Description);
+    // Synced as the remote's `body`. A locked task never counts as editing, so a description left
+    // mid-write when the task locked falls back to the rendered record and the draft is dropped.
+    let shut = locked(app, task);
+    let editing = board.is_editing(Field::Description) && !shut;
     let preview = board.preview;
 
     let header = div()
@@ -1197,7 +1339,7 @@ pub fn description(
                 cx.listener(|this, _, _, cx| this.toggle_description_preview(cx)),
             )
         }))
-        .children((!editing).then(|| {
+        .children((!editing && !shut).then(|| {
             ghost_button(
                 "board-desc-write",
                 Some(IconName::Replace),
@@ -1248,7 +1390,7 @@ pub fn description(
         } else {
             task.description.clone()
         };
-        rendered(task, source, cx)
+        rendered(task, source, shut, cx)
     };
 
     let mut root = div().flex().flex_col().gap_1p5().child(header).child(body);
@@ -1282,8 +1424,21 @@ pub fn description(
 /// An absent description is drawn as absent rather than by dropping the section, on the rule the
 /// status bar and the explorer's git marks both follow: a fact nobody has filled in is still worth
 /// showing a space for.
-fn rendered(task: &TaskRecord, source: String, cx: &mut Context<AppState>) -> AnyElement {
+fn rendered(
+    task: &TaskRecord,
+    source: String,
+    locked: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     if source.trim().is_empty() {
+        if locked {
+            return locked_line(
+                "board-desc-empty",
+                "No description yet.".to_string(),
+                true,
+                Role::Body,
+            );
+        }
         return div()
             .id("board-desc-empty")
             .text_size(theme::font(Family::Chrome, Role::Body))
@@ -1293,6 +1448,21 @@ fn rendered(task: &TaskRecord, source: String, cx: &mut Context<AppState>) -> An
             .on_click(cx.listener(|this, _, window, cx| {
                 this.begin_task_edit(Field::Description, window, cx)
             }))
+            .into_any_element();
+    }
+
+    if locked {
+        // The prose is still prose — only the click that would open an editor over it is gone.
+        return div()
+            .id("board-desc-read")
+            .child(
+                TextView::markdown(eid("task-md", task.id), source)
+                    .on_link_click(crate::ui::on_link(cx.entity(), None))
+                    .text_size(theme::font(Family::Content, Role::Body)),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(PULL_ONLY_NOTE).build(window, cx)
+            })
             .into_any_element();
     }
 

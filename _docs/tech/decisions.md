@@ -3464,6 +3464,19 @@ a mode settles, and an unattached tab goes in only where the right region is ope
 which is `toggle_region`'s own gesture. It used to go in wherever that region happened to be open,
 which is how Git's blob acquired a chat tab beside its changes panel.
 
+**A mission panel is placed by the user, never by a switch** (`T-256`), for the chat tab's reason
+one kind along. Both of its shapes are `Free` and both are opened by a gesture — the side panel into
+the right region, the full view into the centre — so one left open in Agents mode was a leftover in
+every other, and the leftover loop was adding it to the incoming mode's right or centre group.
+`dock::add` joins a group as its *displayed* tab, so the mission covered whatever the user had left
+there — the chat tab, the agents columns — and the next `LayoutChanged` wrote it into that mode's
+blob as though the user had asked for it. The leftover loop keeps the panel and drops only its
+placement, exactly as it does for a chat: the entity is rebuildable from its payload, so keeping it
+buys only what the panel had scrolled to, and the mode that *was* arranged to hold it names it in
+its own blob, which is the only way it comes back. A saved leaf naming a mission the project no
+longer holds is not dropped — the panel draws its own "no mission here" page, since unlike a pane
+the record may still arrive.
+
 **A region the settle closed is not the user's choice and is not written down as one.**
 `collapse_empty_regions` closing an empty region is a dock edit like any other, so `LayoutChanged`
 fired and the subscription wrote the closure into the mode's blob — the stale blob rewritten rather
@@ -4585,6 +4598,95 @@ preference rather than a side effect of the last thing they clicked. `ViewerKind
 coercion for `set_viewer_kind` rather than for a restore. And the per-document override has no
 second home: there is no per-file position in `ViewPrefs` either, deliberately, because a second
 persisted position would be the same contradiction under another name.
+
+### D191 — A parked ask gives up in 45 seconds and hands the dialog to the armed table
+
+`D175` removed the wait for the agents that can stop and come back. `ask_user_question` is what is
+left for the ones that cannot — a pause mid-sequence — and it still lost the race it always lost:
+the harness in front of it keeps a tool timeout of its own, every one of them far shorter than
+`ASK_TIMEOUT_SECS`, so the call failed to the model while the modal was still open and the user was
+still deciding, and the answer they then gave had nowhere to go (`G360`, T-87).
+
+**The bound moves under the harness's, and the give-up becomes a result.** A silent parked call
+waits `ASK_PARK_SECS` — 45 seconds, chosen to sit under the shortest tool timeout this tree knows
+of any harness keeping, Codex's `tool_timeout_sec` default of 60. Ubiq is then the one that gives
+up, and it can say so in a form a model acts on: an ordinary tool result, `{"answered": [],
+"timedOut": true, …}`, not an `isError`. The bound is a property of the *call* rather than of
+`Asks`, which is why `Asks::wait_for` exists beside `Asks::wait`.
+
+**The dialog outlives the call, which is what makes 45 seconds free.** Giving up sends no
+`AskEnded`: the row moves to `crates/ubiq-host/src/armed.rs` under the same `AskId` in the raised
+state, and the coordinator's `AnswerAsk` arm asks that table first. So a late answer takes the
+arm-and-fire route and arrives as the agent's next turn, in prose that says which of the two it was.
+`Asks::give_up` reads the channel once more when the row is gone from under it, so an answer that
+raced the deadline by a lock still becomes the tool result.
+
+**Progress notifications are the second arm, and they are best-effort by construction.** A
+`tools/call` carrying a `_meta.progressToken` and an `Accept` admitting `text/event-stream` is
+answered as an event stream: `notifications/progress` every ten seconds, then the response, then
+closed. A client that honours them never starts its timer and the call may wait the full hour; a
+client that asks for neither gets plain JSON and the 45-second bound, with no code path in common
+past the one `if`. This is one response to one `POST` — no session id, no standing `GET` stream —
+so `mcp/server.rs`'s statelessness is unchanged. `elicitation/create` is *not* built and is not
+reachable this way: it needs the server→client request direction, which needs the session layer
+that header argues against.
+
+Both arms also bound the thread. A parked call still gets a thread of its own — the listener serves
+every agent and cannot park on one — but the silent arm holds it for 45 seconds rather than an
+hour, so a looping agent can no longer accumulate hour-long threads; the streaming arm's thread is
+writing to an open connection the whole time it lives.
+
+**Cost.** A user who walks away mid-question gets their answer delivered as a *prompt* rather than
+as the tool result, so the agent cannot resume the half-finished sequence it parked in the middle
+of — it has to re-derive, exactly as `D175` costs. A model that reads `timedOut` and carries on
+regardless may then be told the answer a turn later, out of order with what it did meanwhile; the
+summary says so, but nothing enforces it. 45 seconds is short for a human, and is only defensible
+because the question survives. And the give-up has two shapes to keep true to each other, which
+is why `settle` is shared by both arms rather than written twice.
+
+### D192 — Every dialog one turn registered is answered separately and submitted as one prompt
+
+`D175` made a registered dialog's answer the agent's *next turn*. Nothing stopped an agent
+registering twice in one turn, and `Armed::fire` duly raised both at the turn boundary — at which
+point answering the first opened a turn while the second modal was still on screen, and the second
+answer prompted a conversation that was mid-turn. What a harness does with a prompt mid-turn
+is the harness's business, not Ubiq's, so the tree had a path it could not reason about (`G362`).
+
+**The raising is the unit, not the row.** Every row one `Armed::fire` puts on screen shares a
+`Batch`. Each dialog is answered on its own, in any order; the host records what each one said and
+submits nothing while any of them is still open; the answer that settles the last row carries all of
+them into a single prompt, in the order they were raised, under an opening line that says there were
+several. The alternative — raise one dialog at a time and the next when the first is answered — was
+considered and not taken: it hides from the user how many questions are waiting, and it makes the
+turn boundary a queue with a state machine instead of a list.
+
+**A settled row stays in the table.** `Armed` holds each row until its whole batch is in, with
+`Row::said` as the only reading of "still open". That is what makes the completion check a count
+rather than a side table, and what keeps the raise order — the order `rows` holds — as the
+prompt's order for free.
+
+**Every row has the same three exits, which is what keeps one from wedging the rest.** The user
+answers it; the window gives it up (`AskEnded` *settles* the row with nothing to say rather than
+forgetting it, so the batch finishes without it); or the conversation stops being
+reachable and `close_for_agent` forgets the whole batch, answers included — a half-answered set
+submits nothing, which is the point. `AskOutcome::Chat` settles a row the same way a dismissal does.
+A batch nobody said anything to opens no turn at all: `prose` answers `None`. Nothing here is on a
+clock — `ASK_PARK_SECS` bounds a *call* and never an armed row — so no timeout can take one row of a
+batch out from under the others. A dialog handed over by a parked call that gave up (`D191`) is a
+batch of one, because it was raised alone, mid-turn, and its tool result told the agent the answer
+is coming.
+
+**The user is told.** `Message::AskUser` grew `batch_at`/`batch_of` — additive, `#[serde(default)]`,
+`0`/`0` for every ask raised on its own — and the dialog draws "Question 2 of 3 the agent registered
+this turn. Nothing is sent until all 3 are answered", with the footer saying that Confirm holds the
+answer rather than sending it. Without that, confirming and seeing nothing happen is
+indistinguishable from a confirmation that was lost.
+
+**Cost.** The agent waits on the slowest question in the set rather than the first, and a user who
+answers one and walks away holds the rest — there is no clock to rescue them, only closing the
+conversation or typing instead. The prompt is longer and the agent reads all its questions answered
+at once rather than in the order it thought to ask them. And `Armed` holds answers, not only
+questions, so a conversation going takes real user input with it.
 
 ## Related docs
 

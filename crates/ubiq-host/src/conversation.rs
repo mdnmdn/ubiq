@@ -1085,6 +1085,7 @@ fn map_event(event: AgentEvent) -> Option<ConvUpdate> {
                 cache_creation: spend.cache_creation,
             }),
             subagent: origin.subagent_type,
+            subagent_id: origin.parent_tool_use_id,
         }),
 
         AgentEvent::RateLimitUpdate {
@@ -1267,12 +1268,18 @@ fn fire_armed(fire: Option<&AskFire>, id: AgentId, stop_reason: StopReason, erro
         }
         return;
     }
-    for (ask_id, questions) in fire.armed.fire(id) {
+    for raising in fire.armed.fire(id) {
+        let ask_id = raising.ask_id;
         tracing::debug!(agent = %id, ask = %ask_id, "raising a dialog registered during the turn");
+        // Everything this turn armed goes up as one set, and each dialog carries its place in it:
+        // they are answered separately and submitted together, so the window has to be able to
+        // say that nothing reaches the agent until the last one is in (`G362`).
         fire.voice.say(Message::AskUser {
             agent_id: id,
             ask_id,
-            questions,
+            questions: raising.questions,
+            batch_at: raising.at,
+            batch_of: raising.of,
         });
     }
 }
@@ -1529,7 +1536,44 @@ mod tests {
         assert_eq!(usage.spend.map(|spend| spend.total()), Some(1_300));
         assert_eq!(usage.spend.map(|spend| spend.cached()), Some(900));
         assert_eq!(usage.subagent, None);
+        assert_eq!(usage.subagent_id, None);
         assert_eq!(usage.context_pct(), Some(0));
+    }
+
+    /// **Which delegate spent it crosses the wire, not just what kind.** Two delegates of one type
+    /// report the same `subagent` and two different `subagent_id`s; a translation that kept only
+    /// the type left every card of that type reading one shared bucket (`T-259`).
+    #[test]
+    fn a_delegates_usage_carries_the_instance_as_well_as_the_type() {
+        let report = |call: &str| {
+            let update = map_event(AgentEvent::UsageUpdate {
+                used: 218_336,
+                size: 1_000_000,
+                cost: None,
+                model: Some("claude-haiku-4-5".to_string()),
+                spend: Some(agent_manager::io::Spend {
+                    input: 10,
+                    ..Default::default()
+                }),
+                origin: agent_manager::io::Origin {
+                    parent_tool_use_id: Some(call.to_string()),
+                    subagent_type: Some("general-purpose".to_string()),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+            let ConvUpdate::Usage(usage) = update else {
+                panic!("expected usage");
+            };
+            usage
+        };
+
+        let first = report("toolu_first");
+        let second = report("toolu_second");
+        assert_eq!(first.subagent.as_deref(), Some("general-purpose"));
+        assert_eq!(second.subagent.as_deref(), Some("general-purpose"));
+        assert_eq!(first.subagent_id.as_deref(), Some("toolu_first"));
+        assert_eq!(second.subagent_id.as_deref(), Some("toolu_second"));
     }
 
     #[test]
@@ -1655,6 +1699,8 @@ mod tests {
             model: Some(model.to_string()),
             spend: Some(spend),
             subagent: subagent.map(str::to_string),
+            // The meter buckets by type; which instance spent it is the transcript's question.
+            subagent_id: None,
         }
     }
 
@@ -1672,6 +1718,7 @@ mod tests {
             model: Some("claude-sonnet-5".to_string()),
             spend: None,
             subagent: None,
+            subagent_id: None,
         };
 
         assert!(usage_row(&meter, &record).is_none());

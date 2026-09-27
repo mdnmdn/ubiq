@@ -123,14 +123,29 @@ impl Fixture {
         cx.run_until_parked();
     }
 
-    /// The host raises a question, exactly as a parked tool call does.
+    /// The host raises a question, exactly as a parked tool call does — on its own, with no set
+    /// behind it.
     fn asks(&self, ask_id: AskId, questions: Vec<AskQuestion>, cx: &mut TestAppContext) {
+        self.asks_of(ask_id, questions, 0, 0, cx);
+    }
+
+    /// The same, as one of the dialogs a turn boundary raised together (`G362`).
+    fn asks_of(
+        &self,
+        ask_id: AskId,
+        questions: Vec<AskQuestion>,
+        batch_at: usize,
+        batch_of: usize,
+        cx: &mut TestAppContext,
+    ) {
         self.host.send(
             To::Everyone,
             Message::AskUser {
                 agent_id: self.agent,
                 ask_id,
                 questions,
+                batch_at,
+                batch_of,
             },
         );
         cx.run_until_parked();
@@ -203,6 +218,8 @@ fn an_ask_for_an_agent_this_window_does_not_hold_says_it_is_gone(cx: &mut TestAp
             agent_id: stranger,
             ask_id,
             questions: vec![a_question("Direction", false)],
+            batch_at: 0,
+            batch_of: 0,
         },
     );
     cx.run_until_parked();
@@ -263,6 +280,8 @@ fn deleting_the_conversation_takes_the_dialog_with_it(cx: &mut TestAppContext) {
             agent_id: other,
             ask_id: next,
             questions: vec![a_question("Direction", false)],
+            batch_at: 0,
+            batch_of: 0,
         },
     );
     cx.run_until_parked();
@@ -460,6 +479,36 @@ fn a_second_ask_never_replaces_the_dialog_already_up(cx: &mut TestAppContext) {
             .any(|message| matches!(message, Message::RaiseNotification { .. })),
         "the second one rang the bell instead"
     );
+}
+
+/// `G362`: two dialogs raised at one turn boundary each carry their place in the set, so the
+/// dialog can say that confirming one sends nothing on its own. An ask raised alone carries no
+/// set at all.
+#[gpui::test]
+fn a_dialog_raised_as_one_of_a_set_knows_its_place_in_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.show(cx);
+
+    let first = AskId::generate();
+    let second = AskId::generate();
+    fixture.asks_of(first, vec![a_question("First", false)], 1, 2, cx);
+    fixture.asks_of(second, vec![a_question("Second", false)], 2, 2, cx);
+    let alone = AskId::generate();
+    fixture.asks(alone, vec![a_question("Alone", false)], cx);
+
+    let batched = fixture.state.read_with(cx, |state, cx| {
+        state
+            .open_project(cx)
+            .unwrap()
+            .conversations
+            .get(&fixture.agent)
+            .unwrap()
+            .asks
+            .iter()
+            .map(|ask| (ask.batch_at, ask.batch_of, ask.batched()))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(batched, vec![(1, 2, true), (2, 2, true), (0, 0, false)]);
 }
 
 /// Escape puts the dialog away and sends nothing; what was filled in is the record's, so the

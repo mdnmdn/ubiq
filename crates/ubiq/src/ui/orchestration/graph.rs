@@ -36,7 +36,7 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::canvas::{self, Link};
-use crate::ui::kit::{UbiqIcon, card, ghost_button, mono, state_chip};
+use crate::ui::kit::{UbiqIcon, card, mono, state_chip};
 use crate::ui::work::{activity_colour, role_mark};
 
 /// What the pointer is carrying. It holds only what was picked up: where the thing is belongs to
@@ -73,9 +73,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 
     if visible.is_empty() {
         // Two different emptinesses, and saying which is the whole value of the message: a project
-        // with no agents has nothing to offer, while a filter that hid them all has a way back.
+        // with no agents has nothing to offer, while a filter hid an existing set instead.
         let filtered = graph.filtered() && !work.agents.is_empty();
-        let mut said = div()
+        let said = div()
             .flex()
             .flex_1()
             .min_w(px(0.))
@@ -95,14 +95,6 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                         "No agent is running in this project."
                     }),
             );
-        if filtered {
-            said = said.child(ghost_button(
-                "orch-empty-clear",
-                None,
-                "Show everything",
-                cx.listener(|this, _, _, cx| this.clear_graph_filters(cx)),
-            ));
-        }
         return said.into_any_element();
     }
 

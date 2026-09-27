@@ -71,6 +71,16 @@ pub struct AskRecord {
     /// faces. Read off who was speaking when the ask landed; see
     /// [`Conversation::asking_subagent`](crate::state::conversation::Conversation::asking_subagent).
     pub subagent: Option<String>,
+    /// Which of the dialogs raised together this one is, counting from one, and how many were
+    /// raised with it (`G362`). `0`/`0` for an ask that stands alone, which is every parked one.
+    ///
+    /// **Nothing the user confirms here reaches the agent until the whole set is in.** An agent
+    /// may register several questions in a turn and they all go up when the turn ends; the host
+    /// holds each answer and submits one prompt when the last dialog settles. The dialog says so,
+    /// because confirming and seeing nothing happen is otherwise indistinguishable from a
+    /// confirmation that was lost.
+    pub batch_at: usize,
+    pub batch_of: usize,
 }
 
 impl AskRecord {
@@ -79,6 +89,8 @@ impl AskRecord {
         questions: Vec<AskQuestion>,
         at_block: usize,
         subagent: Option<String>,
+        batch_at: usize,
+        batch_of: usize,
     ) -> Self {
         let drafts = vec![AskDraft::default(); questions.len()];
         Self {
@@ -88,7 +100,15 @@ impl AskRecord {
             stage: AskStage::Waiting,
             at_block,
             subagent,
+            batch_at,
+            batch_of,
         }
+    }
+
+    /// Whether this ask was raised as one of a set, so the dialog has to say that confirming it
+    /// sends nothing on its own.
+    pub fn batched(&self) -> bool {
+        self.batch_of > 1
     }
 
     /// Whether anything the user does still reaches the agent. A dialog reopened after this is a

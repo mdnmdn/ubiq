@@ -17,6 +17,7 @@ use ubiq_proto::files::RelatedFile;
 use ubiq_proto::ids::{KbSourceId, PaneId, ProjectId, TaskId};
 use ubiq_proto::mcp::McpInfo;
 use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, ShellInfo};
+use ubiq_proto::projects::StorageMode;
 use ubiq_proto::tools::ListedTool;
 use ubiq_proto::work::AgentId;
 
@@ -222,6 +223,20 @@ pub struct ProjectSettings {
     /// definition written is what makes the answer outlive the dialog. `G-` in `_docs/backlog.md`
     /// is where a project that wants *only* its own, with no global on offer, is filed.
     pub definitions_use_global: bool,
+    /// The storage mode a `SetProjectStorage` has been sent for and not answered yet.
+    ///
+    /// **A move is asked for, never assumed.** The host refuses one while a pane or a conversation
+    /// is running in the project, so the row keeps drawing the record's own mode and names this one
+    /// as what it is waiting for; the record changes only when `ProjectStorageMoved` and the
+    /// `ProjectChanged` beside it arrive.
+    pub storage_pending: Option<StorageMode>,
+    /// Where the host says the project's data is now, from the last `ProjectStorageMoved`.
+    ///
+    /// A string the host handed over for this window to show, not a path the interface resolved —
+    /// the UI derives no location of its own.
+    pub storage_dir: Option<String>,
+    /// Why the last move was refused or failed. Cleared by the next ask.
+    pub storage_error: Option<String>,
 }
 
 /// The "All projects" modal, while it is up.

@@ -213,13 +213,39 @@ const MISSION_OVERVIEW: ToolSpec = ToolSpec {
 };
 const READ_BRIEF: ToolSpec = ToolSpec {
     name: "read_brief",
-    description: "The mission's brief: the anchor task's title, key and description, its attachments, and the titles and keys of the tasks it references. What the mission is for, in the words it was written with.",
+    description: "The mission's brief: the anchor task's title, key and description, the documents attached to it, and the titles and keys of the tasks it references. What the mission is for, in the words it was written with. Attach another document with attach_document.",
     schema: r#"{"type": "object", "properties": {}}"#,
 };
 const LIST_DOCUMENTS: ToolSpec = ToolSpec {
     name: "list_documents",
     description: "The names of the mission's documents. The plan is not one of them — read that with ubiq-plan's read_plan.",
     schema: r#"{"type": "object", "properties": {}}"#,
+};
+/// The reference one attachment carries — the same two forms a task attachment takes, because an
+/// attached document *is* a task attachment on the mission's anchor (M7). Nothing resolves it here.
+const ATTACH_TARGET_SCHEMA: &str = r#"{
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "description": "A project-relative path such as 'docs/spec.md', or a knowledge-base address 'kb:{source}:{path}' as list_kb_documents gives it."},
+        "label": {"type": "string", "description": "What to call it. Optional — without one the file's own name is shown."}
+    },
+    "required": ["target"]
+}"#;
+const ATTACH_DOCUMENT: ToolSpec = ToolSpec {
+    name: "attach_document",
+    description: "Attach an existing document to the mission's brief, so everyone on the mission can find it: a file in the project, or a knowledge-base entry. This does not write or copy anything — it stores the reference, and read_brief lists it. Not the same as write_document, which creates a document of the mission's own. Attaching something already attached only updates its label.",
+    schema: ATTACH_TARGET_SCHEMA,
+};
+const DETACH_DOCUMENT: ToolSpec = ToolSpec {
+    name: "detach_document",
+    description: "Remove a document attachment from the mission's brief, by the exact target attach_document was given. The document itself is untouched.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "target": {"type": "string", "description": "The target exactly as read_brief gives it."}
+        },
+        "required": ["target"]
+    }"#,
 };
 const READ_DOCUMENT: ToolSpec = ToolSpec {
     name: "read_document",
@@ -980,6 +1006,8 @@ pub const SERVERS: &[ServerSpec] = &[
             READ_BRIEF,
             LIST_DOCUMENTS,
             READ_DOCUMENT,
+            ATTACH_DOCUMENT,
+            DETACH_DOCUMENT,
             ToolSpec {
                 name: "write_document",
                 description: "Create or replace one of the mission's documents. Pass expected_revision with the revision read_document gave you, and the write is refused if anything changed underneath — read it again, redo your edit, and write with the revision the refusal names. Omit it only for a document nobody has written yet.",

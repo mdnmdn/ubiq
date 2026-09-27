@@ -245,7 +245,7 @@ or not its signature moved. `TranscriptScroll::force_relayout` asks the next fra
 that unconditionally, and `AppState::new` (`app/boot.rs`) runs one such pass per composer slot every
 four seconds, reading back through `TranscriptScroll::take_force_result` whether anything actually
 moved: a pass that changes nothing ends that slot's loop, one that does keeps it going. This is a
-mitigation for an unexplained symptom, not a fix for a known cause — `backlog.md`'s `G354`.
+mitigation for an unexplained symptom, not a fix for a known cause — `backlog.md`'s `G372`.
 
 **Two things in the transcript fold, and their rules differ.** A run of same-kind tool calls needs
 three before folding pays and keeps its last card out; a run of reasoning folds unconditionally into
@@ -365,6 +365,23 @@ that prose. Typing into the composer instead closes the dialog: answering it and
 same turn are the same act, and the user may do either once. A turn that fails after registering
 raises nothing — the user is left with the error. The transport contract states both modes; `D175`
 is the choice.
+
+**An agent may register more than one dialog in a turn, and they are answered as a set.** Everything
+the turn armed goes up together when it ends, each dialog is answered on its own and in any order,
+and **nothing reaches the agent until every one of them is answered** — then one prompt carries all
+the answers, in the order the questions were raised. The dialog says so: a note above the tab strip
+reads "Question 2 of 3 the agent registered this turn. Nothing is sent until all 3 are answered",
+the footer says Confirm is holding the answer rather than sending it, and a dialog already confirmed
+says it is waiting on the rest. Giving one up rather than answering it — "Chat about this", or a
+dialog the window can no longer draw — costs that question and nothing else: the set finishes
+without it. `D192` is the choice, and it is the reason answering the first of three never opens a
+turn while the other two are still on screen.
+
+**A parked question stays answerable after its tool call has given up.** The parked call waits 45
+seconds and then returns to the agent without an answer — it has to, because the harness's own tool
+timeout is shorter than any wait worth offering a human — but the dialog is not closed and nothing
+in it changes. Answering it after that submits the prose as the next turn, exactly as a registered
+dialog does, so the only visible difference is where the answer lands. `D191` is the choice.
 
 **One ask is drawn in one transcript: the asking agent's.** A conversation and every subagent it
 spawns share one `AgentId` and one `ubiq-ask` endpoint, so the record carries who was speaking when
@@ -560,7 +577,7 @@ ring, `ctx`, `tot` with its per-way and per-subagent breakdown, and the composer
 model, thinking and mode chips. On the conversation's own transcript, `tot` also names the uncached
 part of it right beside the total — `X tot · Y in`, `in` being the fresh input tokens
 (`TokenSpend::input`) that were neither a cache read nor a cache write — the one figure the
-breakdown otherwise held back for the hover. A delegate's spend is banked by type with no such
+breakdown otherwise held back for the hover. A delegate's spend is banked with no such
 split behind it, so its `tot` stays a bare total. Every raw count in the row and its tooltips —
 `tot`, `ctx`, the cache ring's `cached X / Y` and the context ring's `X of Y tokens` — goes through
 `state::work::format_tokens`, the one place "how big is this number" is spelled: plain under a
@@ -575,17 +592,19 @@ on is [`workbench.md`](./workbench.md)'s.
 
 **The footer reports whoever is being read.** With a delegate's transcript up, `tot` and the cache
 ring are that delegate's spend rather than the conversation's, off
-`Conversation::subagent_tokens` — a reader looking at one agent's turns wants that agent's numbers,
-and the conversation's own total is a click away on the main agent's row. Two limits of the wire
-show through here, and the row states both rather than smoothing them. **A delegate's spend is
-banked per subagent *type*, not per instance**: `UsageRecord::subagent` is deliberately a type, so
-two `general-purpose` delegates share one bucket, which the `tot` tooltip says outright wherever
-several of a type have run — nothing divides a shared total between instances to make it look
-exact. **A delegate has no context level at all**: a subagent's usage report repeats the *parent's*
+`Conversation::delegate_tokens` — a reader looking at one agent's turns wants that agent's numbers,
+and the conversation's own total is a click away on the main agent's row. **A delegate's spend is
+that delegate's**: `UsageRecord::subagent_id` names the spawning `Task` call, so two
+`general-purpose` delegates are two buckets and two figures, while `UsageRecord::subagent` stays the
+*type* and remains what the `tot` tooltip's breakdown and the usage meter aggregate by. Where a
+harness identifies no instance behind its reports there is nothing to draw and nothing is drawn —
+the type's total on one instance's card is one number printed twice, which is what `T-259` was.
+One limit of the wire still shows through, and the row states it rather than smoothing it: **a
+delegate has no context level at all**: a subagent's usage report repeats the *parent's*
 occupancy, so there is no per-delegate window to draw, and the parent's ring beside a delegate's
 transcript would be a number about somebody else. The ring is dropped rather than borrowed, on the
 same rule that keeps a ring off a conversation whose harness named no window.
-[`../backlog.md`](../backlog.md) carries both as `G194` and `G195`.
+[`../backlog.md`](../backlog.md) carries it as `G195`.
 
 **Stop is there for the whole of a running turn, and it is a filled square.** The moment a message
 is sent is the moment a reader most wants it back, so a control that appears only while the field is
@@ -806,8 +825,8 @@ fall. `QuotaSnapshot::windows()` supplies up to two gauges in provider order for
 in `crates/ubiq/src/ui/kit/controls.rs`, falling back to `progress_ring_in` where only one is stated.
 It also reads
 `show_cache_ring` off the workbench's UI settings and draws the cache ring from `cached_tokens()`
-over `total_tokens()` — or, on a delegate's transcript, from `Conversation::subagent_tokens()`,
-with `delegate_spend_tip()` for the tooltip that says which grain the figure is banked at; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside
+over `total_tokens()` — or, on a delegate's transcript, from `Conversation::delegate_tokens()`,
+with `delegate_spend_tip()` for the tooltip that says whose figure it is; `stop_button()` is the composer's square, on `AppState::cancel_turn`, beside
 the `action_button()` the Send and Enqueue states share.
 `AppState::answer_permission` in `crates/ubiq/src/app/agents.rs` sends one answer and forgets that
 one request only, `answer_oldest_permission` is what the keyboard resolves through
@@ -876,6 +895,8 @@ field the filter. A grouped, searchable, partly-inert list was already what that
 | A conversation an ask belongs to ends, is unloaded, or its harness dies while the ask is still waiting | `AskEnded` closes it as `Gone`; the entry and a reopened dialog say so instead of offering a control that would send into nothing |
 | A registered dialog is on screen and the user types a prompt instead of answering it | The prompt is the turn; `AskEnded{Gone}` closes the dialog, and an answer that races it lands nowhere |
 | A turn fails, is cancelled or is refused after the agent registered a dialog | Nothing is raised: the armed row is dropped, and the transcript shows the error alone |
+| Two dialogs were registered in one turn and the user answers the first | It is held, not sent: the second is still on screen, and the prompt that carries both is opened when it is answered too (`D192`) |
+| Two were registered and the user answers one, then types instead of answering the other | The prompt is the turn; both dialogs close and the answer already given goes with them — a half-answered set never reaches the agent |
 | A delegate registers a dialog and the reader is on the main agent's transcript | The modal opens as usual; the transcript row is in the delegate's tab, where that delegate's turns are read |
 
 ## Related docs

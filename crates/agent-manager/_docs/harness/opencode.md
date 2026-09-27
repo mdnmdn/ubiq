@@ -347,6 +347,20 @@ opencode does **not** expose separate `sse` vs `http` types. Both are
 
 OAuth state is stored at `~/.local/share/opencode/mcp-auth.json`.
 
+### Tool-call timeout
+
+**The one documented number is `timeout`, default 5000 ms** — the shortest
+default of any harness here by two orders of magnitude. **What it bounds is
+unknown.** The `type: "local"` table above calls it the *tool-list fetch*
+timeout; the `type: "remote"` table says only "Default 5000" and names no
+operation, so whether a `tools/call` on a remote server is bounded by 5 s or by
+nothing at all is not documented either way. `am` writes no `timeout` key, so a
+provisioned server takes whichever meaning opencode gives the default.
+
+**Progress notifications: unknown.** The config surface says nothing about
+`_meta.progressToken` on a `tools/call`, nor about what `notifications/progress`
+does to any of these bounds.
+
 ### Per-agent gating
 
 MCP tools register as `<server-name>_<tool>`. Disable globally then

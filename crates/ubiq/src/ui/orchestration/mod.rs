@@ -43,9 +43,7 @@ use crate::state::orchestration::{Algo, ZOOM_STEP};
 use crate::state::{MenuId, Selection};
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::kit::{
-    Picker, ghost_button, icon_button, mono, section_label, stepper, toggle_pill,
-};
+use crate::ui::kit::{Picker, icon_button, mono, section_label, stepper, toggle_pill};
 use crate::ui::work::bucket_colour;
 use crate::ui::{eid, handler, indexed};
 
@@ -163,14 +161,6 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .child(div().w(px(12.)).flex_none())
         .children(filters)
         .child(div().flex_1().min_w(px(0.)))
-        .children(graph.filtered().then(|| {
-            ghost_button(
-                "orch-show-all",
-                None,
-                "Show everything",
-                cx.listener(|this, _, _, cx| this.clear_graph_filters(cx)),
-            )
-        }))
         .child(stepper(
             "orch-zoom",
             format!("{}%", graph.zoom_pct()),

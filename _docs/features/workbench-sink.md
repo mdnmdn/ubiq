@@ -242,8 +242,11 @@ list under it is a project's own definitions, which a page with no project has n
 so instead. Over the
 workbench the same dialog is the create and edit surface: only General is enabled, the path is
 immutable, Create sends `AddProject`, and Save sends `UpdateProject`. Its "Project data" row is
-`choice_pill` too, and it is the one control that only Create can work: it names where the project
-keeps its tasks and metadata, which is answered once and shown read-only afterwards. Its colour row is a strip of
+`choice_pill` too, and it is the one control whose two forms do different things: Create picks the
+mode the `AddProject` carries, and Edit asks the host to *move* the data with `SetProjectStorage`
+(`T-249`) — a migration that can be refused, so the row waits for an answer rather than swapping.
+It is drawn on the live panel only: the fixture has no project behind it to keep tasks for.
+Its colour row is a strip of
 swatches plus `kit::colour_picker` — saturation/value, a hue bar, and a `#RRGGBB` field — so a
 custom colour is chosen rather than only indexed. The picker is the kit's, not this dialog's: it
 reports a hue, a saturation and a value, and this form is the one that turns them into the

@@ -262,6 +262,7 @@ fn an_update_refreshes_the_agent_record(cx: &mut TestAppContext) {
             model: Some("claude-opus-5".to_string()),
             spend: None,
             subagent: None,
+            subagent_id: None,
         }),
         cx,
     );

@@ -598,7 +598,9 @@ pub(super) fn labels_from_names(
         .collect()
 }
 
-fn mutate(
+/// Also the mission server's, so a tool that writes a task field reaches the board and the
+/// windows the same way wherever it is called from.
+pub(super) fn mutate(
     access: &WorkAccess,
     run: impl FnOnce(&mut Work) -> Vec<Reply>,
 ) -> Result<Vec<Message>, String> {
@@ -757,7 +759,7 @@ fn comment_json(comment: &Comment) -> Value {
 
 /// One attachment as a model reads it. `kind` is the one thing the JSON says that the target does
 /// not spell out for a reader skimming it: whether to open the path or ask `ubiq-kb` for it.
-fn attachment_json(attachment: &Attachment) -> Value {
+pub(super) fn attachment_json(attachment: &Attachment) -> Value {
     json!({
         "target": attachment.target,
         "label": attachment.label,

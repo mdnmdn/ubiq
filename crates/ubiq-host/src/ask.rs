@@ -12,10 +12,17 @@
 //! a parked call knows its own id and nothing else about the host.
 //!
 //! **Every parked call ends, one way or another.** The user answers it, the user says they would
-//! rather talk ([`AskOutcome::Chat`]), the conversation goes ([`AskClosed::Gone`]), or
-//! [`ASK_TIMEOUT_SECS`] passes and it is released as [`AskClosed::Timeout`]. A tool call that
-//! never returns is a wedged agent, so the timeout is not optional: every wait is bounded by it,
-//! whatever else does or does not happen.
+//! rather talk ([`AskOutcome::Chat`]), the conversation goes ([`AskClosed::Gone`]), or the wait's
+//! bound passes and it is released as [`AskClosed::Timeout`]. A tool call that never returns is a
+//! wedged agent, so the bound is not optional: every wait is bounded, whatever else does or does
+//! not happen.
+//!
+//! **The bound belongs to the call, not to the table** (`D191`). A silent call gets
+//! [`ubiq_proto::ask::ASK_PARK_SECS`] — shorter than any tool timeout the harness in front of it
+//! keeps, so the give-up is Ubiq's and legible rather than the harness's and opaque. A call that
+//! is streaming MCP progress notifications gets [`ASK_TIMEOUT_SECS`], because the client's own
+//! timer is being reset while it waits. Giving up ends the *call*; the dialog is handed to
+//! [`crate::armed::Armed`] and stays answerable, which is what makes so short a bound free.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -89,25 +96,51 @@ impl Asks {
 
     /// Wait for whatever ends this ask, giving up after the timeout.
     ///
-    /// Called on a thread of its own, never on the listener's (`D138`). A timeout takes the row
-    /// out here rather than leaving it for a dialog that is still open to answer: once this has
-    /// returned, the tool call has already been answered and a late answer has nowhere to land —
-    /// which is why the caller tells the window about a timeout (`Message::AskEnded`), so the
-    /// dialog stops offering one.
+    /// Called on a thread of its own, never on the listener's (`D138`). Giving up takes the row
+    /// out here: once this has returned, the tool call has been answered and this table can do
+    /// nothing more with a late answer. What the caller then does with the still-open dialog is
+    /// [`crate::mcp::ask::settle`]'s business — it hands it to [`crate::armed::Armed`], and the
+    /// answer arrives as the agent's next turn (`D191`).
     pub fn wait(&self, ask_id: AskId, waiting: &Receiver<Ending>) -> Ending {
-        match waiting.recv_timeout(self.timeout) {
+        self.wait_for(ask_id, waiting, self.timeout)
+    }
+
+    /// The same, bounded by the caller rather than by the table.
+    ///
+    /// **The bound is a property of the call, not of the table** (`D191`). A silent parked call
+    /// gets [`ubiq_proto::ask::ASK_PARK_SECS`], which is shorter than any harness's own tool
+    /// timeout; one that is streaming MCP progress notifications gets the patient
+    /// [`ASK_TIMEOUT_SECS`], because the client's timer is being reset while it waits.
+    pub fn wait_for(&self, ask_id: AskId, waiting: &Receiver<Ending>, bound: Duration) -> Ending {
+        match waiting.recv_timeout(bound) {
             Ok(ending) => ending,
-            Err(RecvTimeoutError::Timeout) => {
-                self.lock().remove(&ask_id);
-                tracing::info!(ask = %ask_id, "an ask timed out with nobody answering");
-                Err(AskClosed::Timeout)
-            }
+            Err(RecvTimeoutError::Timeout) => self.give_up(ask_id, waiting),
             // Defensive only: in the running host the waiting thread holds the `Arc<Asks>` it is
             // waiting on, so the table cannot go out from under it, and every path that takes a
             // row out sends on it first. Read as `Gone` rather than panicking, because a wedged
             // tool call is the worse failure.
             Err(RecvTimeoutError::Disconnected) => Err(AskClosed::Gone),
         }
+    }
+
+    /// Stop waiting: take the row out and say the wait gave up — **unless an answer beat us to
+    /// the row**, in which case that answer is what this returns.
+    ///
+    /// The race is real and its window is a lock apart: [`Asks::answer`] removes the row and
+    /// *then* sends, so a wait whose deadline falls between the two sees a timeout with the
+    /// answer already on the channel. Reading the channel once more when the row is gone is how
+    /// a user who answered on the last millisecond gets the tool result they earned rather than
+    /// the give-up.
+    ///
+    /// Called by [`Asks::wait_for`] and directly by the streaming arm, which runs its own clock.
+    pub fn give_up(&self, ask_id: AskId, waiting: &Receiver<Ending>) -> Ending {
+        if self.lock().remove(&ask_id).is_none()
+            && let Ok(ending) = waiting.try_recv()
+        {
+            return ending;
+        }
+        tracing::info!(ask = %ask_id, "an ask gave up waiting with nobody answering");
+        Err(AskClosed::Timeout)
     }
 
     /// Release a parked call with what the user said. `false` when this ask is not being held —
@@ -265,6 +298,37 @@ mod tests {
         assert_eq!(asks.len(), 1);
         assert!(asks.answer(theirs, answered("Right")));
         assert_eq!(asks.wait(theirs, &still_waiting), Ok(answered("Right")));
+    }
+
+    /// The bound belongs to the call, not to the table: a patient table still gives up when the
+    /// caller says so. This is the shape the silent parked call runs in (`D191`).
+    #[test]
+    fn a_caller_can_bound_a_wait_shorter_than_the_table_would() {
+        let asks = Asks::new();
+        let (ask_id, waiting) = asks.raise(AgentId::generate(), &[question()]);
+
+        assert_eq!(
+            asks.wait_for(ask_id, &waiting, Duration::from_millis(20)),
+            Err(AskClosed::Timeout)
+        );
+        assert!(asks.is_empty());
+    }
+
+    /// The race the give-up has to survive: [`Asks::answer`] takes the row and *then* sends, so a
+    /// deadline falling between the two sees a timeout with the answer already on the channel.
+    /// Dropping it would lose an answer the user did give.
+    #[test]
+    fn an_answer_that_beat_the_give_up_by_a_lock_is_still_collected() {
+        let asks = Asks::new();
+        let (ask_id, waiting) = asks.raise(AgentId::generate(), &[question()]);
+
+        assert!(asks.answer(ask_id, answered("Left")));
+        assert_eq!(asks.give_up(ask_id, &waiting), Ok(answered("Left")));
+
+        // And a give-up with nothing on the channel is still a give-up.
+        let (ask_id, waiting) = asks.raise(AgentId::generate(), &[question()]);
+        assert_eq!(asks.give_up(ask_id, &waiting), Err(AskClosed::Timeout));
+        assert!(asks.is_empty());
     }
 
     /// Not a production path — the waiting thread holds the `Arc<Asks>`, so the table cannot be

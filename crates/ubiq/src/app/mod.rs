@@ -724,6 +724,14 @@ pub struct AppState {
     /// [`Self::clear_aim`]. A form that never started anything must not leave the next start,
     /// from anywhere, pointed at somebody else's project.
     pub new_agent_project: Option<ProjectId>,
+    /// Whether the task panel draws the fields nobody has filled in. Off at every start, flipped by
+    /// the eye in the panel's own bar, and one answer for every task the window opens — the run of
+    /// `no link` / `no parent` / `blocks nothing` placeholders is noise per panel, not per task, so
+    /// the choice belongs to the reader rather than to the record (T-255).
+    ///
+    /// In memory and never written to `ViewPrefs`: it is a way of reading, chosen for a sitting,
+    /// and hidden is the posture worth starting every sitting in.
+    pub task_show_empty: bool,
     /// The kitchen sink's own state: which page is open, and what its controls hold. It belongs to
     /// the window rather than to a project, because the sink has no project behind it.
     pub sink: SinkState,

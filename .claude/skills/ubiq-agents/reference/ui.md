@@ -231,11 +231,12 @@ than the accent ones (a second accent ring would read as the same fact twice), s
 how-is-this-turn-going one, and the footer row is glanced at.
 
 **The row reports whoever is being read.** On a delegate's transcript `tot` and the cache ring are
-that delegate's spend (`subagent_tokens`, `delegate_spend_tip`). Two wire limits show through, and
-neither is smoothed over: `UsageRecord::subagent` is a subagent **type**, so two `general-purpose`
-delegates share one bucket and the tooltip says so rather than dividing it to look exact (`G194`);
-and a subagent's usage report repeats the **parent's** occupancy, so there is no per-delegate
-context level to draw and **the context ring is dropped** rather than borrowed (`G195`).
+that delegate's spend (`delegate_tokens`, `delegate_spend_tip`), keyed by
+`UsageRecord::subagent_id` — the spawning `Task` call, so two `general-purpose` delegates are two
+figures and not one bucket read twice (`T-259`); `UsageRecord::subagent` stays the **type**, which
+is the usage meter's dimension. A wire limit still shows through and is not smoothed over: a
+subagent's usage report repeats the **parent's** occupancy, so there is no per-delegate context
+level to draw and **the context ring is dropped** rather than borrowed (`G195`).
 
 **Stop is there for the whole of a running turn, and it is a filled square.** The moment a message
 is sent is the moment a reader most wants it back, so a control that appears only while the field

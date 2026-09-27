@@ -6,7 +6,7 @@ status: current
 summary: Why the teams graph grows into a tower nobody can read in a rectangular viewport, what the two halves of the spike measured — a Python tool that renders an arrangement and scores it, and a teamsim section of the kitchen sink that drives the production arrangements from the same scenario file — what the measurements say to change, and what five further shapes (organic, multiradial, spider, hex, islands) came out at.
 read_when: you are changing how the teams graph arranges its blocks, adding an arrangement, or picking up what this spike left open
 updated: 2026-09-23
-verified: 2026-09-23
+verified: 2026-09-26
 code_anchors: [crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/teams/graph.rs, _tools/teamsim/algos.py, _tools/teamsim/shapes.py, _tools/teamsim/FORMAT.md]
 depends_on: [feat-workbench, tech-ui]
 ---

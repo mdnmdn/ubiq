@@ -707,6 +707,21 @@ impl AppState {
                 self.sync_projects(cx);
             }
 
+            // The two answers to `SetProjectStorage`. The record's own new mode rides on the
+            // `ProjectChanged` broadcast beside the first of them, so neither of these writes a
+            // record — they only stop the row waiting, and say what happened.
+            Message::ProjectStorageMoved {
+                project_id,
+                storage,
+                dir,
+            } => self.project_storage_moved(project_id, storage, dir, cx),
+
+            Message::ProjectStorageError {
+                project_id,
+                storage,
+                error,
+            } => self.project_storage_failed(project_id, storage, error, cx),
+
             Message::ProjectError { project_id, error } => {
                 tracing::error!("project {project_id:?}: {error}");
                 self.workbench.project_error = Some(error);
@@ -1455,6 +1470,11 @@ impl AppState {
                 self.workbench.work_error = None;
                 let open = self.projects.get_mut(&project_id)?;
                 open.work.replace_all(sessions, agents, tasks);
+                // A restored filter naming a session, label or mission this project no longer has
+                // would hide every card with nothing in the toolbar to say why (`T-169`). This is
+                // the first moment there is anything to check it against, and the check is cheap
+                // enough to repeat on every list.
+                open.board.prune(&open.work);
                 open.graph.relayout(&open.work);
                 // Pointing the screen at the first agent was the fixture constructor's job. It
                 // belongs to whoever first learns there is one to point at, and only then: a

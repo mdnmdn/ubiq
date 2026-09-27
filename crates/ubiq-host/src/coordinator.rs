@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ubiq_proto::ask::{AskClosed, AskOutcome};
+use ubiq_proto::ask::AskClosed;
 use ubiq_proto::assist::{AssistProvider, SuggestSubject};
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, MovingAddress, To};
 use ubiq_proto::conversation::{
@@ -2937,6 +2937,8 @@ impl Coordinator {
                 agent_id,
                 ask_id,
                 questions,
+                batch_at,
+                batch_of,
             } => {
                 match self.conversation_owners.get(&agent_id) {
                     Some((owner, _)) => self.host.send(
@@ -2945,6 +2947,8 @@ impl Coordinator {
                             agent_id,
                             ask_id,
                             questions,
+                            batch_at,
+                            batch_of,
                         },
                     ),
                     // Nobody to ask. Ended here rather than left to the timeout: a tool call that
@@ -2957,8 +2961,9 @@ impl Coordinator {
                         );
                         self.asks.end(ask_id, AskClosed::Gone);
                         // The same for the other mode, where there is no call to end and only a
-                        // row to forget.
-                        self.armed.close(ask_id);
+                        // row to forget. Whatever that does to the row's batch is moot: there is
+                        // no window to have answered the rest and no conversation to prompt.
+                        let _ = self.armed.close(ask_id);
                     }
                 }
             }
@@ -2978,14 +2983,25 @@ impl Coordinator {
                 // reads it as its own tool result; a registered dialog has no call left to
                 // release, so the outcome becomes the next turn instead (`D175`). `Chat` sends
                 // nothing either way: the user would rather type, and that is what they do next.
-                match self.armed.answer(ask_id) {
-                    Some(questions) => {
-                        if let AskOutcome::Answered(answers) = outcome {
-                            let text = crate::armed::prose(&questions, &answers);
+                //
+                // **The armed table is asked first, and that is what makes a late answer land.**
+                // A parked call that gave up on its bound hands its row over to the armed table
+                // under the same id (`D191`), so an answer arriving after the tool result has
+                // gone finds it here rather than falling through to a call nobody is holding.
+                //
+                // **And an armed answer may not be the whole of what is waiting.** Everything one
+                // turn registered is raised together, so answering the first of three settles a
+                // row and submits nothing — the prompt is opened once, by whichever answer
+                // completes the set, and carries all of them (`G362`). A set nobody said anything
+                // to opens no turn at all.
+                match self.armed.answer(ask_id, &outcome) {
+                    crate::armed::Answering::Settled(settled) => {
+                        if let Some(text) = crate::armed::prose(&settled) {
                             self.drive(client, agent_id, |conversation| conversation.prompt(text));
                         }
                     }
-                    None => {
+                    crate::armed::Answering::Waiting { .. } => {}
+                    crate::armed::Answering::NotOurs => {
                         self.asks.answer(ask_id, outcome);
                     }
                 }
@@ -3005,8 +3021,17 @@ impl Coordinator {
                     // An id the host is no longer holding — one that timed out first — is
                     // dropped quietly by the table. Both tables: a window that cannot draw a
                     // registered dialog leaves nothing to answer either.
+                    //
+                    // **Giving one dialog up settles its row rather than forgetting it**, so a
+                    // set raised together is not wedged by the one the user dismissed: it
+                    // contributes nothing, and if it was the last one still open the rest is
+                    // submitted here (`G362`).
                     self.asks.end(ask_id, why);
-                    self.armed.close(ask_id);
+                    if let crate::armed::Answering::Settled(settled) = self.armed.close(ask_id)
+                        && let Some(text) = crate::armed::prose(&settled)
+                    {
+                        self.drive(client, agent_id, |conversation| conversation.prompt(text));
+                    }
                 }
                 Some((owner, _)) => self.host.send(
                     To::Client(owner),
@@ -6675,6 +6700,7 @@ mod tests {
     use crate::store::memory::{
         MemoryPreferenceStore, MemoryProjectStore, MemorySettingsStore, MemoryTaskStore,
     };
+    use ubiq_proto::ask::AskOutcome;
     use ubiq_proto::bus;
     use ubiq_proto::ids::{ProjectId, SessionId};
     use ubiq_proto::work::{Activity, WorkAgent, WorkSession};
@@ -7486,6 +7512,113 @@ mod tests {
         assert!(said[0].contains("Direction — Which way?"), "{}", said[0]);
         assert!(said[0].contains("- Answer: Left"), "{}", said[0]);
         assert!(coordinator.armed.is_empty(), "the row is answered and gone");
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    /// `G362`: two dialogs registered in one turn are raised together and answered one at a time,
+    /// and the first answer must not open a turn while the second is still on screen. One prompt,
+    /// carrying both, when the last of them is in.
+    #[test]
+    fn two_dialogs_registered_in_one_turn_open_one_turn_between_them() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project, written) =
+            seed_live_conversation_writing(&mut coordinator, &client, 0);
+
+        let first = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        let second = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        assert_eq!(coordinator.armed.fire(agent_id).len(), 2, "the turn ended");
+
+        coordinator.dispatch(
+            client.id(),
+            Message::AnswerAsk {
+                agent_id,
+                ask_id: first,
+                outcome: AskOutcome::Answered(vec![ubiq_proto::ask::AskAnswer {
+                    question: 0,
+                    chosen: vec!["Left".to_string()],
+                    other: None,
+                    notes: None,
+                }]),
+            },
+        );
+        assert!(
+            prompts(&written).is_empty(),
+            "the second dialog is still on screen",
+        );
+
+        coordinator.dispatch(
+            client.id(),
+            Message::AnswerAsk {
+                agent_id,
+                ask_id: second,
+                outcome: AskOutcome::Answered(vec![ubiq_proto::ask::AskAnswer {
+                    question: 0,
+                    chosen: vec!["Right".to_string()],
+                    other: None,
+                    notes: None,
+                }]),
+            },
+        );
+
+        let said = prompts(&written);
+        assert_eq!(said.len(), 1, "one turn, out of both answers: {said:?}");
+        assert!(said[0].contains("- Answer: Left"), "{}", said[0]);
+        assert!(said[0].contains("- Answer: Right"), "{}", said[0]);
+        assert!(coordinator.armed.is_empty(), "both rows are gone");
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    /// The dismissal half of `G362`: a dialog the window gives up on settles its row rather than
+    /// wedging the set, so the answers that were given still reach the agent.
+    #[test]
+    fn dismissing_one_of_a_registered_set_still_submits_the_rest() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project, written) =
+            seed_live_conversation_writing(&mut coordinator, &client, 0);
+
+        let first = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        let second = coordinator.armed.arm(agent_id, vec![armed_question()]);
+        coordinator.armed.fire(agent_id);
+
+        coordinator.dispatch(
+            client.id(),
+            Message::AnswerAsk {
+                agent_id,
+                ask_id: first,
+                outcome: AskOutcome::Answered(vec![ubiq_proto::ask::AskAnswer {
+                    question: 0,
+                    chosen: vec!["Left".to_string()],
+                    other: None,
+                    notes: None,
+                }]),
+            },
+        );
+        assert!(prompts(&written).is_empty());
+
+        // The window says it cannot draw the second one any more.
+        coordinator.dispatch(
+            client.id(),
+            Message::AskEnded {
+                agent_id,
+                ask_id: second,
+                why: AskClosed::Gone,
+            },
+        );
+
+        let said = prompts(&written);
+        assert_eq!(said.len(), 1, "the answer that was given: {said:?}");
+        assert!(said[0].contains("- Answer: Left"), "{}", said[0]);
+        assert!(coordinator.armed.is_empty());
 
         coordinator
             .conversations

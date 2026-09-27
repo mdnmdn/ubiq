@@ -51,9 +51,7 @@ use crate::state::teams::{Algo, TeamsSpan, ZOOM_STEP};
 use crate::state::{MenuId, TeamsCreateStage, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::kit::{
-    self, MultiPicker, Picker, check_box, ghost_button, icon_button, section_label, stepper,
-};
+use crate::ui::kit::{self, MultiPicker, Picker, check_box, icon_button, section_label, stepper};
 use crate::ui::project_face::project_face;
 use crate::ui::work::bucket_colour;
 use crate::ui::{handler, indexed};
@@ -246,14 +244,6 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .child(div().w(px(12.)).flex_none())
         .child(hide_done_check(graph.hide_done, cx))
         .child(div().flex_1().min_w(px(0.)))
-        .children(graph.filtered().then(|| {
-            ghost_button(
-                "teams-show-all",
-                None,
-                "Show everything",
-                cx.listener(|this, _, _, cx| this.clear_teams_filters(cx)),
-            )
-        }))
         .child(create_split(app, cx))
         .children(teams_create_overlay(app, cx))
         .child(div().w(px(12.)).flex_none())
@@ -327,10 +317,10 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 /// button (M15, §9) — a `+` and a chevron, the titlebar's own pattern (`ui::titlebar`'s
 /// new-terminal `+` and its chevron) reused rather than built again.
 ///
-/// It sits past the flexible gap, beside `Show everything` and before the view controls, because
-/// an action is not a filter: the pills to the left of the gap all answer "what is on screen", and
-/// this one answers "what is there to be on screen". Last in the action group rather than first,
-/// so its distance from the zoom stepper does not move when `Show everything` comes and goes.
+/// It sits past the flexible gap and before the view controls, because an action is not a filter:
+/// the pills to the left of the gap all answer "what is on screen", and this one answers "what is
+/// there to be on screen". Last in the action group rather than first, so its distance from the
+/// zoom stepper stays fixed.
 ///
 /// **The `+` does what the toolbar's `+ Add agent` always did** — New agent, asking which project
 /// when the canvas spans more than one ([`AppState::open_teams_add_agent`]). **The chevron's menu

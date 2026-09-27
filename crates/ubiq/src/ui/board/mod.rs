@@ -401,14 +401,13 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
             board.ready_only,
             cx.listener(|this, _, _, cx| this.toggle_board_ready_only(cx)),
         ))
-        .children(board.filtering().then(|| {
-            ghost_button(
-                "board-show-all",
-                None,
-                "Show everything",
-                cx.listener(|this, _, _, cx| this.clear_board_filters(cx)),
-            )
-        }))
+        // No `Show everything` here. It appeared only while something was filtered and vanished
+        // again the moment it was pressed, so every control to its right — the popup toggle, the
+        // archive, three `+` buttons — slid sideways under the pointer each time the filter field
+        // took or lost a character. Each filter is already undone where it is set: the field is
+        // cleared by emptying it, a label pill and `Ready only` by clicking them again, the
+        // mission picker by its own `all missions` row. `BoardState::clear_filters` stays, because
+        // `crates/ubiq/tests/board.rs` is what pins that behaviour.
         .child(icon_button(
             "board-popup-toggle",
             IconName::Maximize,
@@ -1017,13 +1016,19 @@ fn task_card(
             let before = this.board(cx).and_then(|board| board.carry?.before);
             this.drop_task(status, before, cx);
         }))
-        .on_drag(Dragged(id, ghost.clone()), {
-            let view = view.clone();
-            move |_, _, _, cx: &mut App| {
-                let ghost = ghost.clone();
-                view.update(cx, |this, cx| this.start_task_carry(id, cx));
-                cx.new(|_| Ghost(ghost))
-            }
+        // **A pull-only card cannot be picked up.** Which column a card is in is the remote's
+        // `lane`, so a drag is a status write; on a task whose binding never pushes, the move
+        // would stick locally, diverge silently and never reach the provider. The card still
+        // *takes* a drop, because filing another card in front of it is not a write to this one.
+        .when(!crate::ui::tasksrc::pull_only(app, id), |this| {
+            this.on_drag(Dragged(id, ghost.clone()), {
+                let view = view.clone();
+                move |_, _, _, cx: &mut App| {
+                    let ghost = ghost.clone();
+                    view.update(cx, |this, cx| this.start_task_carry(id, cx));
+                    cx.new(|_| Ghost(ghost))
+                }
+            })
         })
         .into_any_element()
 }
@@ -1050,8 +1055,11 @@ fn shape_line(
     // whose remote lane is not in the binding's lane map sits where it landed, and without this
     // badge the only visible fact is that it did not move (`R9`).
     let sync = crate::ui::tasksrc::sync_badge(app, task.id);
+    // Why the card will not move when it is dragged. `sync_badge` says nothing for a `Linked`
+    // task, and a card that silently refuses to be picked up reads as a broken drag.
+    let read_only = crate::ui::tasksrc::pull_only(app, task.id);
 
-    if task.shape.is_none() && session.is_none() && link.is_none() && sync.is_none() {
+    if task.shape.is_none() && session.is_none() && link.is_none() && sync.is_none() && !read_only {
         return None;
     }
 
@@ -1085,6 +1093,21 @@ fn shape_line(
             }))
             .children(link.map(|url| link_chip(task.id, url, view, window)))
             .children(sync)
+            .children(read_only.then(|| {
+                div()
+                    .id(eid("board-task-readonly", task.id))
+                    .px_1()
+                    .border_1()
+                    .border_color(theme::border())
+                    .child(
+                        mono("pull only", theme::text_faint())
+                            .text_size(theme::font(Family::Chrome, Role::Micro)),
+                    )
+                    .tooltip(|window, cx| {
+                        gpui_component::tooltip::Tooltip::new(crate::ui::tasksrc::PULL_ONLY_NOTE)
+                            .build(window, cx)
+                    })
+            }))
             .into_any_element(),
     )
 }

@@ -1238,7 +1238,7 @@ is what multiplexes several of them down one channel.
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
-| `AskUser` | host → UI | `agent_id`, `ask_id`, `questions` | `AnswerAsk` |
+| `AskUser` | host → UI | `agent_id`, `ask_id`, `questions`, `batch_at`, `batch_of` | `AnswerAsk` |
 | `AnswerAsk` | UI → host | `agent_id`, `ask_id`, `outcome` | — |
 | `AskEnded` | host → UI | `agent_id`, `ask_id`, `why` | — |
 | `SetAgentConfig` | UI → host | `agent_id`, `config_id`, `value` | — |
@@ -1562,6 +1562,23 @@ from the window closes whatever the mode has on screen with `AskEnded{Gone}`, so
 never both answered and spoken to. `AskUser`, `AnswerAsk`, `AskEnded` and the dialog are the same in
 both modes; the window cannot tell them apart and does not need to (`D175`).
 
+**Everything one turn registered is raised together, answered separately, and submitted once.** An
+agent may call `register_question` more than once in a turn, and the turn boundary raises every row
+it armed; submitting each answer as it arrived would open a turn on the first while the second
+dialog was still on screen, and the second answer would then prompt a conversation that is already
+working. So the rows one `Armed::fire` raises share a *batch*: each `AskUser` carries `batch_at` and
+`batch_of` — its place in that set, counting from one, and how many went up with it — the host holds
+each answer as it lands, and the answer that settles the last row of the set is the one that becomes
+a prompt, carrying all of them in the order they were raised. The dialog draws `batch_at`/`batch_of`
+so the user is told that confirming one sends nothing on its own. `0`/`0` means no set, which is
+every parked ask: `ask_user_question` raises its dialog alone, mid-turn, and a dialog handed over to
+the armed table when a parked call gives up (`D191`) is a batch of one for the same reason. Every
+row of a batch has the same three exits, so none of them can wedge the rest: answered, given up on
+by the window (`AskEnded`, which settles the row with nothing to say and lets the batch finish
+without it), or forgotten wholesale when the conversation stops being reachable — and a batch nobody
+said anything to opens no turn at all. Nothing here is on a clock: the park bound ends a *call*, and
+never an armed row.
+
 **The answer travels as labels and free text, and `Chat` is a real answer.** `AnswerAsk` carries
 either `AskOutcome::Answered` — one `AskAnswer` per question, naming the options the user picked by
 label, plus whatever they wrote under "Other" and whatever notes they added — or `AskOutcome::Chat`,
@@ -1571,14 +1588,24 @@ instead. Labels
 rather than indices, so a result outliving the question list still says what was chosen; "Other" is
 never one of the options the agent wrote.
 
-**An ask has a timeout, which is what makes it unlike a permission request.** `ASK_TIMEOUT_SECS`
-bounds how long the parked tool call waits. The host discharges it two other ways as well: a
-conversation that ends, unloads, aborts or dies takes its outstanding asks with it. Either way the
-window is told with `AskEnded` carrying `AskClosed::Timeout` or `AskClosed::Gone`, so the dialog and
-the transcript's entry stop offering an answer that can no longer land, and an `AnswerAsk` naming an
-ask the host is no longer holding is dropped in silence. A timeout that told nobody would be worse
-than no timeout at all: the dialog would still take a confirm, and the user would be told an answer
-went back to an agent that had already given up on it.
+**An ask has a bound, which is what makes it unlike a permission request — and the bound belongs
+to the call.** A silent parked call waits `ASK_PARK_SECS` (45 seconds), which is under the
+shortest tool timeout this tree knows of any harness keeping, so the model reads *Ubiq's* legible
+give-up rather than the harness's opaque one. A call that is streaming MCP progress notifications
+waits `ASK_TIMEOUT_SECS` (one hour) instead, because the client's own timer is being reset while it
+waits. The host discharges an ask two other ways as well: a conversation that ends, unloads, aborts
+or dies takes its outstanding asks with it, and a window that cannot show one declines it. Those
+are told to the window with `AskEnded` carrying `AskClosed::Gone`, so the dialog and the
+transcript's entry stop offering an answer that can no longer land, and an `AnswerAsk` naming an
+ask the host is no longer holding is dropped in silence.
+
+**Giving up ends the call and not the question** (`D191`). No `AskEnded` goes out when a parked
+call hits its bound: the dialog stays on screen and its row moves to the armed table under the same
+`AskId`, so the user's answer — whenever it comes — takes the arm-and-fire route and arrives as the
+agent's next turn. The tool result is an ordinary result, not an error: `{"answered": [],
+"timedOut": true, "summary": …}`, saying the question is still open and the answer will arrive that
+way. `AskClosed::Timeout` therefore reaches a window only when a wait gave up with nothing to hand
+the row to, which no path in the host does today.
 
 **`AskEnded` is the one message in this family that travels both ways.** A window that cannot show
 an ask — it holds no conversation for that agent, because the project was closed between the tool
@@ -1586,6 +1613,15 @@ call and the push — sends it back with `AskClosed::Gone`, and the host frees t
 and then rather than leaving the harness to wait out the hour. The coordinator tells the two
 directions apart by the sender: only the window that owns the conversation can be declining, and the
 `ubiq-ask` thread's own voice owns no conversation at all.
+
+**One MCP response may be an event stream, and it is this one.** `crates/ubiq-host/src/mcp/
+server.rs` answers a parked `ask_user_question` as `text/event-stream` when — and only when — the
+request carries a `_meta.progressToken` and an `Accept` that admits it: a `notifications/progress`
+every ten seconds while the wait runs, then the JSON-RPC response as the last event, then the
+stream closes. That is the transport's own framing for one long `POST`, not a session: no session
+id, no standing `GET` stream, nothing remembered between requests, and a client that asks for
+neither gets plain JSON and the 45-second bound. What the listener still cannot do is the
+server→client *request* direction that `elicitation/create` needs, which is what `G360` keeps.
 
 **`SetAgentConfig` is real before a harness exists, and refused after.** While a conversation is
 still pending (above), `SetAgentConfig{config_id: "model", ..}` is what records the model its first
@@ -1634,7 +1670,7 @@ Forty-seven records travel inside payloads.
 | `ToolCallRecord` | `id`, `title`, `kind`, `status`, `content[]`, `locations[]` |
 | `ToolCallPatch` | `id`, and `title?`, `kind?`, `status?`, `content?`, `locations?` — absent is unchanged |
 | `ToolLocation` | `path`, `line?` |
-| `UsageRecord` | `used`, `size`, `cost_usd?`, `model?` |
+| `UsageRecord` | `used`, `size`, `cost_usd?`, `model?`, `spend?`, `subagent?` (the delegate's *type*, the meter's dimension), `subagent_id?` (*which* delegate — the spawning call's id, so two delegates of one type are two figures) |
 | `RateLimitRecord` | `five_hour_pct?`, `five_hour_resets_at?`, `seven_day_pct?`, `seven_day_resets_at?`, `status` |
 | `ConfigOption` | `id`, `name`, `description?`, `category?`, `value` |
 | `ConfigChoice` | `value`, `name`, `description?`, `group?` |

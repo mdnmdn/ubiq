@@ -1209,6 +1209,46 @@ pub fn import_dialog(
     )
 }
 
+// ── Read-only tasks ─────────────────────────────────────────────────
+
+/// The one sentence every locked control on the board says, so a field, a card and the notice
+/// above them can never disagree about why nothing happened.
+pub const PULL_ONLY_NOTE: &str = "Pull only — this is the provider's copy. A change made here \
+                                  would never reach it, so the fields the sync pass owns take no \
+                                  edit. Set the binding to Two-way to change that.";
+
+/// Whether the board may write to this task at all.
+///
+/// **Pull-only is a property of the pair**, not of the task and not of the binding alone. The
+/// binding says the direction; the link row says this task is one of the binding's. So a task with
+/// no link row is nobody's copy and stays fully editable, even in a project bound pull only — and
+/// an `Unlinked` row is a task the remote let go of (`R9`), which is precisely when it becomes the
+/// user's own again.
+///
+/// Read off `saved` and never off `draft`: the question is what the host will do on the next pass,
+/// and an unsaved change in the settings section has not changed that. A settings page left on
+/// `Two-way` without a Save must not unlock a field the next pass would still refuse to push.
+pub fn pull_only(app: &AppState, task: TaskId) -> bool {
+    let Some(binding) = app.tasksrc.saved.as_ref() else {
+        return false;
+    };
+    if binding.writes() {
+        return false;
+    }
+    app.tasksrc
+        .link(task)
+        .is_some_and(|link| link.binding == binding.id && link.state != LinkState::Unlinked)
+}
+
+/// The line the task panel puts over a task it may not write to, in [`greyed`]'s own shape — the
+/// idiom `direction_row` already uses for "this is settled elsewhere and not yours to change".
+///
+/// One notice for the whole panel rather than a mark on each locked field: the reason is the same
+/// for all of them, and said once it is read once.
+pub fn pull_only_notice(app: &AppState, task: TaskId) -> Option<AnyElement> {
+    pull_only(app, task).then(|| greyed(PULL_ONLY_NOTE))
+}
+
 // ── The card badge ──────────────────────────────────────────────────
 
 /// What happened to one card, when it is worth saying.

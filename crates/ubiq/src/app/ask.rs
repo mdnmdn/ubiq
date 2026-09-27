@@ -375,7 +375,9 @@ impl AppState {
                 agent_id,
                 ask_id,
                 questions,
-            } => self.asked(agent_id, ask_id, questions, cx),
+                batch_at,
+                batch_of,
+            } => self.asked(agent_id, ask_id, questions, batch_at, batch_of, cx),
             Message::AskEnded {
                 agent_id,
                 ask_id,
@@ -392,6 +394,8 @@ impl AppState {
         agent_id: AgentId,
         ask_id: AskId,
         questions: Vec<AskQuestion>,
+        batch_at: usize,
+        batch_of: usize,
         cx: &mut Context<Self>,
     ) {
         let Some(open) = self
@@ -426,7 +430,9 @@ impl AppState {
             // share one `AgentId`, so without this the same question is drawn in the main agent's
             // transcript and in each delegate's — see `Conversation::asking_subagent`.
             let subagent = conversation.asking_subagent();
-            conversation.file_ask(AskRecord::new(ask_id, questions, at_block, subagent));
+            conversation.file_ask(AskRecord::new(
+                ask_id, questions, at_block, subagent, batch_at, batch_of,
+            ));
         }
 
         // A dialog already up counts as "the agent is not visible": whatever the user is doing,

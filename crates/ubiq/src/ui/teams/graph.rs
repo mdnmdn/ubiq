@@ -48,7 +48,7 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::blocks::{self, Board, Fence, Look, Word};
 use crate::ui::kit::canvas::{self, Link};
-use crate::ui::kit::{elided_with, ghost_button, harness_icon, mono, progress_ring_in, state_chip};
+use crate::ui::kit::{elided_with, harness_icon, mono, progress_ring_in, state_chip};
 use crate::ui::mark;
 use crate::ui::mission::panel::{mission_hex, phase_colour};
 use crate::ui::project_face::{ProjectFace, project_face};
@@ -94,9 +94,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 
     if visible.is_empty() {
         // Two different emptinesses, and saying which is the whole value of the message: a project
-        // with no agents has nothing to offer, while a filter that hid them all has a way back.
+        // with no agents has nothing to offer, while a filter hid an existing set instead.
         let filtered = graph.filtered() && !work.agents.is_empty();
-        let mut said = div()
+        let said = div()
             .flex()
             .flex_1()
             .min_w(px(0.))
@@ -116,14 +116,6 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                         "No agent is running in this project."
                     }),
             );
-        if filtered {
-            said = said.child(ghost_button(
-                "teams-empty-clear",
-                None,
-                "Show everything",
-                cx.listener(|this, _, _, cx| this.clear_teams_filters(cx)),
-            ));
-        }
         return mark::backdrop(app, said.into_any_element(), cx);
     }
 
@@ -390,10 +382,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             }
         }
         // The parent's transcript, read again at the grain a delegate's own spend is banked at —
-        // `Conversation::subagent_tokens` keyed by type, the only grain the wire carries. The
-        // `rings` pass above read the same conversation to name the delegates at all; this is a
-        // second reading of it for a second fact, on the same rule every other loop in this
-        // function follows.
+        // `Conversation::delegate_tokens`, keyed by the spawning call's id. The `rings` pass above
+        // read the same conversation to name the delegates at all; this is a second reading of it
+        // for a second fact, on the same rule every other loop in this function follows.
         let conversation = app.teams_conversation(*id, cx);
         for (ix, (tab, spot)) in delegates.iter().zip(spots).enumerate() {
             board.block(
@@ -762,9 +753,10 @@ fn delegate_activity_label(tab: &SubagentTab) -> Option<String> {
 /// **Four rows, top to bottom: mark and name, harness and model, the command it is running, and a
 /// footer.** The same shape [`agent_card`] draws, at the delegate's grain — the one thing this mode
 /// never draws twice differently. The footer's ring is the one fact a delegate's own transcript
-/// can state about its spend: [`Conversation::subagent_tokens`] banks it by type, which is the only
-/// grain the wire carries, so there is no per-delegate context ring beside it — a parent's ring
-/// drawn under a delegate's card would be a number about somebody else (`G96`).
+/// can state about its spend: [`Conversation::delegate_tokens`] banks it by the spawning call's
+/// id, so two delegates of one type read two figures rather than one bucket twice (`T-259`). No
+/// context ring sits beside it — a parent's occupancy drawn under a delegate's card would be a
+/// number about somebody else (`G96`, `G195`).
 #[allow(clippy::too_many_arguments)]
 fn subagent_card(
     agent: AgentId,
@@ -873,12 +865,9 @@ fn subagent_card(
         );
     }
 
-    // The footer: what this delegate's type has spent, on the left — the state's chip is not here,
+    // The footer: what *this* delegate has spent, on the left — the state's chip is not here,
     // it is pinned to the card's own corner below, past this row's flow and its padding.
-    let spend = tab
-        .kind
-        .as_deref()
-        .and_then(|kind| conversation.and_then(|c| c.subagent_tokens(kind)));
+    let spend = conversation.and_then(|c| c.delegate_tokens(&tab.id));
     body = body.child(
         div()
             .flex()

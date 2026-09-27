@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::mission::{Actor, MissionRecord, MissionRole, Phase};
-use ubiq_proto::work::AgentId;
+use ubiq_proto::work::{AgentId, Attachment};
 
 use super::registry::AgentFacts;
 use super::{MissionReach, PlanReach, WorkAccess};
@@ -50,6 +50,8 @@ pub fn call(
         "mission_overview" => overview(project, mission, facts, reach, work),
         "read_brief" => read_brief(project, mission, work),
         "list_documents" => Ok(list_documents(project, mission, reach)),
+        "attach_document" => attach_document(arguments, project, mission, work),
+        "detach_document" => detach_document(arguments, project, mission, work),
         "read_document" => read_document(arguments, project, mission, plan),
         "write_document" => write_document(arguments, facts, by, project, mission, reach, plan),
         "create_mission_task" => create_mission_task(arguments, by, project, mission, reach, work),
@@ -247,12 +249,155 @@ fn read_brief(
         "key": anchor.key,
         "title": anchor.title,
         "description": anchor.description,
-        "attachments": anchor.attachments.iter().map(|attachment| json!({
-            "target": attachment.target,
-            "label": attachment.label,
-        })).collect::<Vec<_>>(),
+        // The same shape `attach_document` answers with and the tasks server writes, `kind` and
+        // all: one reading of an attachment across every surface a model sees.
+        "attachments": anchor
+            .attachments
+            .iter()
+            .map(super::tasks::attachment_json)
+            .collect::<Vec<_>>(),
         "linked_tasks": linked,
     }))
+}
+
+// ── attached documents ────────────────────────────────────────────────
+//
+// **A mission's attached documents are its anchor task's attachments, and nothing else** (M7). The
+// brief is the anchor's fields — `read_brief` already reads them back and `ui/mission/full.rs`
+// already draws them — so attaching one is writing `TaskField::Attachments` on the anchor, through
+// the board every other task write goes through. A second set on `MissionRecord` would be a
+// second shape for one idea and a second thing for the mission panel to merge.
+//
+// **Not the same as a mission *document*.** `write_document` creates one of the mission's own,
+// in the mission store; these two only hold a reference to something that already exists
+// somewhere else. The two tool descriptions in [`super::catalogue`] carry that distinction.
+
+/// The reference an attachment carries, checked as far as anything here can check it.
+///
+/// **A target is stored, never resolved** — [`ubiq_proto::work::Attachment`]'s own discipline, and
+/// the tasks server's. So the only wrongness this can see is wrongness in the *shape*: nothing at
+/// all, or a `kb:` address that is not `kb:{source}:{path}` and so names no entry any reader could
+/// ask `ubiq-kb` for. A path that does not exist is not refused here: the project it is relative
+/// to is not this call's to read, and an attachment written before the file is a real thing to want.
+fn attach_target(arguments: &Value) -> Result<Attachment, String> {
+    let target = arguments
+        .get("target")
+        .or_else(|| arguments.get("path"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .ok_or_else(|| {
+            "target must be a project-relative path or a kb:{source}:{path} address".to_string()
+        })?;
+    let label = arguments
+        .get("label")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .map(str::to_string);
+    let attachment = Attachment {
+        target: target.to_string(),
+        label,
+    };
+    if attachment.is_kb()
+        && attachment
+            .kb_address()
+            .is_none_or(|(source, path)| source.trim().is_empty() || path.trim().is_empty())
+    {
+        return Err(format!(
+            "`{target}` is not a knowledge-base address; those are kb:{{source}}:{{path}}, as list_kb_documents gives them"
+        ));
+    }
+    Ok(attachment)
+}
+
+/// The anchor's attachments as they stand, for a caller about to rewrite them.
+fn attached(
+    project: ProjectId,
+    mission: TaskId,
+    access: &WorkAccess,
+) -> Result<Vec<Attachment>, String> {
+    let (_, tasks) = access.work.lock().tasks(project);
+    tasks
+        .iter()
+        .find(|task| task.id == mission)
+        .map(|anchor| anchor.attachments.clone())
+        .ok_or_else(|| "this mission's task is gone".to_string())
+}
+
+/// What both tools answer with: the whole set, in `read_brief`'s own shape, so a model never has
+/// to re-read the brief to know where it stands.
+fn attach_result(documents: &[Attachment], did: &str, target: &str) -> Value {
+    json!({
+        "in_mission": true,
+        "attached": did,
+        "target": target,
+        "documents": documents
+            .iter()
+            .map(super::tasks::attachment_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// Attach an existing document to the mission's brief.
+///
+/// **Idempotent on the target.** Attaching something already attached replaces its label rather
+/// than writing the target twice — a duplicate is never what was meant, and refusing would make a
+/// coordinator that lost track of what it attached handle an error over nothing.
+fn attach_document(
+    arguments: &Value,
+    project: ProjectId,
+    mission: TaskId,
+    work: Option<&WorkAccess>,
+) -> Result<Value, String> {
+    let access =
+        work.ok_or_else(|| "this host has no task board to attach a document on".to_string())?;
+    let attachment = attach_target(arguments)?;
+    let mut documents = attached(project, mission, access)?;
+    match documents
+        .iter_mut()
+        .find(|held| held.target == attachment.target)
+    {
+        Some(held) => held.label = attachment.label.clone(),
+        None => documents.push(attachment.clone()),
+    }
+    let written = documents.clone();
+    super::tasks::mutate(access, |board| {
+        board.set_field(project, mission, TaskField::Attachments(written))
+    })?;
+    Ok(attach_result(&documents, "attached", &attachment.target))
+}
+
+/// Drop an attachment. The document itself is not this call's to touch — only the reference is.
+fn detach_document(
+    arguments: &Value,
+    project: ProjectId,
+    mission: TaskId,
+    work: Option<&WorkAccess>,
+) -> Result<Value, String> {
+    let access =
+        work.ok_or_else(|| "this host has no task board to detach a document on".to_string())?;
+    let target = arguments
+        .get("target")
+        .or_else(|| arguments.get("path"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .ok_or_else(|| "target must be the target read_brief gives".to_string())?
+        .to_string();
+    let mut documents = attached(project, mission, access)?;
+    let before = documents.len();
+    documents.retain(|held| held.target != target);
+    if documents.len() == before {
+        return Err(format!(
+            "no document is attached to this mission as `{target}`; read_brief lists what is"
+        ));
+    }
+    let written = documents.clone();
+    super::tasks::mutate(access, |board| {
+        board.set_field(project, mission, TaskField::Attachments(written))
+    })?;
+    Ok(attach_result(&documents, "detached", &target))
 }
 
 fn list_documents(project: ProjectId, mission: TaskId, reach: &MissionReach) -> Value {
@@ -1136,6 +1281,147 @@ mod tests {
             .is_ok()
         );
         for tool in ["write_document", "create_mission_task", "request_phase"] {
+            let refused = use_call(tool, &json!({}), &facts, &mission, Some(&work), Some(&plan));
+            assert_eq!(
+                refused.unwrap_err(),
+                format!("unknown tool: use-mission/{tool}"),
+                "{tool}"
+            );
+        }
+    }
+
+    /// The round trip: attach a project file and a knowledge-base entry, read them back off the
+    /// brief, and detach one. The set is the anchor task's attachments and nothing else (M7), so
+    /// `read_brief` is where they come back from — there is no second place to look.
+    #[test]
+    fn an_attached_document_goes_on_the_brief_and_comes_off_it_again() {
+        let task = anchor();
+        let id = task.id;
+        let (mission, work, plan, _dir, _hub, _host) = reaches(vec![task]);
+        let facts = facts(Some(id));
+
+        let attached = call(
+            "attach_document",
+            &json!({"target": "docs/spec.md"}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .expect("a project path is an attachment");
+        assert_eq!(attached["documents"][0]["target"], "docs/spec.md");
+        assert_eq!(attached["documents"][0]["kind"], "file");
+
+        call(
+            "attach_document",
+            &json!({"target": "kb:handbook:style/naming.md", "label": "Naming"}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .expect("a knowledge-base address is an attachment");
+
+        // Attaching the same target again is not a second row: the label is replaced.
+        let again = call(
+            "attach_document",
+            &json!({"target": "docs/spec.md", "label": "The spec"}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .expect("reattaching");
+        assert_eq!(again["documents"].as_array().unwrap().len(), 2);
+        assert_eq!(again["documents"][0]["label"], "The spec");
+
+        let brief = call(
+            "read_brief",
+            &json!({}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .expect("the brief");
+        let attachments = brief["attachments"].as_array().unwrap();
+        assert_eq!(attachments.len(), 2);
+        assert_eq!(attachments[1]["target"], "kb:handbook:style/naming.md");
+        assert_eq!(attachments[1]["kind"], "kb");
+
+        let left = call(
+            "detach_document",
+            &json!({"target": "docs/spec.md"}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .expect("detaching one that is attached");
+        assert_eq!(left["documents"].as_array().unwrap().len(), 1);
+
+        // And detaching something nobody attached says so rather than pretending.
+        let refused = call(
+            "detach_document",
+            &json!({"target": "docs/spec.md"}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .unwrap_err();
+        assert!(refused.contains("no document is attached"), "{refused}");
+    }
+
+    /// A target is stored and never resolved, so the only wrongness this can see is wrongness in
+    /// the shape — and a `kb:` address missing its path names nothing any reader could ask
+    /// `ubiq-kb` for. Nothing is written when one is refused.
+    #[test]
+    fn a_reference_that_is_not_a_reference_is_refused_and_writes_nothing() {
+        let task = anchor();
+        let id = task.id;
+        let (mission, work, plan, _dir, _hub, _host) = reaches(vec![task]);
+        let facts = facts(Some(id));
+
+        for bad in [
+            json!({}),
+            json!({"target": "   "}),
+            json!({"target": "kb:handbook"}),
+        ] {
+            let refused = call(
+                "attach_document",
+                &bad,
+                &facts,
+                &mission,
+                Some(&work),
+                Some(&plan),
+            )
+            .unwrap_err();
+            assert!(!refused.is_empty(), "{bad} was accepted");
+        }
+
+        let brief = call(
+            "read_brief",
+            &json!({}),
+            &facts,
+            &mission,
+            Some(&work),
+            Some(&plan),
+        )
+        .expect("the brief");
+        assert!(brief["attachments"].as_array().unwrap().is_empty());
+    }
+
+    /// Attaching runs the mission, so it is the coordinator's server alone — the same split every
+    /// other writing tool sits on.
+    #[test]
+    fn attaching_is_not_a_workers_tool() {
+        let task = anchor();
+        let id = task.id;
+        let (mission, work, plan, _dir, _hub, _host) = reaches(vec![task]);
+        let facts = facts(Some(id));
+
+        for tool in ["attach_document", "detach_document"] {
             let refused = use_call(tool, &json!({}), &facts, &mission, Some(&work), Some(&plan));
             assert_eq!(
                 refused.unwrap_err(),

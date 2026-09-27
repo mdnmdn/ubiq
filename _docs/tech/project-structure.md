@@ -171,7 +171,10 @@ would be a change to their repository rather than to what Ubiq remembers.
 
 `SetProjectStorage` moves an existing project's data either way — into `.ubiq/` or back under the
 config root — and `project_dir::change_mode` is the whole of it. It is a migration, not a setting,
-which is why it is its own message and why `UpdateProject` still cannot express it (`D31`).
+which is why it is its own message and why `UpdateProject` still cannot express it (`D31`). The one
+surface that asks for it is project settings' "Project data" row, and because the move can be
+refused that row waits for an answer rather than drawing the new mode — see
+[`../features/workbench.md`](../features/workbench.md).
 
 The order is the design:
 
@@ -259,6 +262,16 @@ never on `crates/ubiq`, and [`../features/drone.md`](../features/drone.md) is wh
 | `harness` | `agent`, `conversation`, `conversation_record`, `gc`, `quota`, `mcp`, `assist`, `cli_shortcut`, `work`, `store/usage.rs`, `plan::service` (`Plans`, `Handle`, `Target`, `Saver` — checks a task's level through `work`) | `agent-manager`, `rusqlite` |
 | `listener` | `remote`, `connectors`, `web_assets` | `rustls` and its certificate crates, `tiny_http`, `ureq`, `rand` |
 | `desktop` | `notifications`, and deleting to the platform's trash | `notify-rust`, `trash` |
+
+**`harness` and `listener` are not independently buildable, whatever the table above suggests**
+(T-235). Each gate is *written* as if its feature stood alone, but the lib does not compile with
+only one of the pair on: `connectors/store.rs` names `agent_manager`, and so needs `harness` even
+though `connectors` sits behind `listener`; `assist/` names `crate::connectors`, and so needs
+`listener` even though `assist` sits behind `harness`. The configurations this crate really builds
+in are nothing, `git`, `index`, `desktop`, the `harness` + `listener` pair, and `full` — and a
+`[[test]]` naming a module behind either half of that pair has to require **both**, which is why
+`tasksrc_sync` and `tasksrc_outbound` do. The `[features]` table in `crates/ubiq-host/Cargo.toml`
+carries the same warning; untangling it is not filed as work.
 
 `coordinator` itself is gated on `full`, because it needs all five. `links` is deliberately **not**
 gated — a byte scanner with no dependency of its own, gating it would fork `pty`'s read loop for a

@@ -213,6 +213,19 @@ unique across layers (project wins on collision).
 `type`, `command`, `args`, `env`, `cwd`, `url`, `headers`, `disabled`,
 plus OAuth-specific fields (`clientId`, `clientSecret`, `redirectUri`).
 
+### Tool-call timeout
+
+**Unknown.** The per-server schema above carries no timeout field of any kind —
+not for `initialize`, not for a `tools/call` — and neither `settings.json` nor
+`.mcp.json` documents a global one here. So a tool call that parks for tens of
+seconds has no bound this tree can name, and none can be configured through the
+file `am` writes (`build_mcp_config`, `src/harness/claude.rs`). Settling it means
+a live run against a server that parks and reports when the client gives up.
+
+**Progress notifications: unknown.** Nothing here says whether Claude Code's MCP
+client sends `_meta.progressToken` on a `tools/call`, or what it does with a
+`notifications/progress` it receives.
+
 ### Project opt-in
 
 Project `.mcp.json` servers are **not** loaded by default. Whitelist

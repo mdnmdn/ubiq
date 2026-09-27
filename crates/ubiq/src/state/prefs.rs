@@ -394,6 +394,37 @@ pub struct ViewPrefs {
     /// `state::board::BoardState::popup`.
     #[serde(default)]
     pub board_popup: bool,
+    /// **The board's whole filter set, saved together** (`T-169`) — the text, the session, the
+    /// labels, ready-only and the mission. Five fields rather than one nested blob, because that
+    /// is the shape every other view field here already has and `#[serde(default)]` then makes
+    /// each one independently absent.
+    ///
+    /// They move as a set on purpose: one persisted filter among transient ones reads as a bug in
+    /// the others. What the user narrowed the board to is a place they were working, and the same
+    /// argument that brings the explorer's `file_filter` back brings this one.
+    ///
+    /// The text of the filter field — `state::board::BoardState::filter`. Empty was no filter.
+    #[serde(default)]
+    pub board_filter: String,
+    /// The session the board was narrowed to, as its id's text. `None` is every session.
+    ///
+    /// Text rather than a `SessionId`, the rule `bookmarks` and `chats` follow: an id this build
+    /// can no longer parse costs one filter rather than the whole blob. An id that parses but
+    /// names no session left in the project is dropped when the work arrives —
+    /// `state::board::BoardState::prune`.
+    #[serde(default)]
+    pub board_session: Option<String>,
+    /// The labels the board was narrowed to, by name — see `state::board::BoardState::labels`.
+    /// Empty is every label. A name no task carries any more is pruned with the rest.
+    #[serde(default)]
+    pub board_labels: Vec<String>,
+    /// Whether the board was showing ready tasks only — `state::board::BoardState::ready_only`.
+    #[serde(default)]
+    pub board_ready_only: bool,
+    /// The mission the board was narrowed to (`M27`), as its anchor task's id text. `None` is
+    /// every mission. Stored and pruned exactly as `board_session` is.
+    #[serde(default)]
+    pub board_mission: Option<String>,
     /// Whether the Teams canvas stops drawing the delegates that have finished — see
     /// `state::teams::TeamsView::hide_done`.
     ///
@@ -435,6 +466,11 @@ impl Default for ViewPrefs {
             recents: Vec::new(),
             board_shut: Vec::new(),
             board_popup: false,
+            board_filter: String::new(),
+            board_session: None,
+            board_labels: Vec::new(),
+            board_ready_only: false,
+            board_mission: None,
             teams_hide_done: false,
             rest: Default::default(),
         }

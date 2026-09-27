@@ -285,6 +285,18 @@ separate `sse` field):
 - `tools.<tool>.approval_mode` — per-tool override
 - `oauth_resource` (string, RFC 8707), `scopes` (array)
 
+### Tool-call timeout
+
+**Documented default: 60 s**, from `tool_timeout_sec` above — the bound on one
+`tools/call`, per server, alongside `startup_timeout_sec`'s documented 10 s on
+`initialize`. `build_mcp_servers_block` (`src/harness/codex.rs`) writes neither
+field, so every server `am` provisions runs at both defaults.
+
+**Progress notifications: unknown.** Codex's configuration surface says nothing
+about whether its MCP client sends `_meta.progressToken` on a `tools/call`, nor
+whether a `notifications/progress` resets `tool_timeout_sec`. Only a live run
+against a server that logs the request settles it.
+
 ### Examples
 
 ```toml

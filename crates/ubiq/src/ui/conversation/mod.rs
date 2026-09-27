@@ -2567,39 +2567,21 @@ fn tipped(id: ElementId, label: String, tip: String, colour: Rgba) -> AnyElement
 /// What the `tot` readout stands for while a delegate's transcript is up.
 ///
 /// Says the two things a reader has to know to trust the number: it is this delegate's spend
-/// rather than the conversation's, and it is banked per delegate *type*, so where several of a
-/// type ran it is their sum. The wire has no finer grain — `UsageRecord::subagent` is a type on
-/// purpose — and a footer that quietly presented a shared bucket as one instance's would be
-/// drawing a guess as a count.
-fn delegate_spend_tip(
-    conversation: &Conversation,
-    subagents: &[SubagentTab],
-    tab: &SubagentTab,
-) -> String {
-    let Some(kind) = tab.kind.as_deref() else {
+/// rather than the conversation's, and it is **this instance's** — banked by the spawning call's
+/// id, so two delegates of one type read two figures rather than one bucket printed twice
+/// (`T-259`). Where the harness identified no instance behind its reports there is nothing to
+/// show, and the tip says that rather than borrowing the type's total.
+fn delegate_spend_tip(conversation: &Conversation, tab: &SubagentTab) -> String {
+    let Some((total, cached)) = conversation.delegate_tokens(&tab.id) else {
         return format!("{} \u{2014} nothing counted for it yet", tab.name);
     };
-    let Some((total, cached)) = conversation.subagent_tokens(kind) else {
-        return format!("{} \u{2014} nothing counted for it yet", tab.name);
-    };
+    let who = tab.kind.as_deref().unwrap_or("this delegate");
     let mut tip = format!(
-        "{} tokens billed by {kind} delegates \u{b7} {} read back from cache \
+        "{} tokens billed by {who} \u{b7} {} read back from cache \
          \u{b7} a flow, only ever growing",
         format_tokens(total),
         format_tokens(cached)
     );
-    // Counted per type, so a reader comparing two rows of the same type is looking at one number
-    // twice. Said only where that is actually the case.
-    let same = subagents
-        .iter()
-        .filter(|other| other.kind.as_deref() == Some(kind))
-        .count();
-    if same > 1 {
-        tip.push_str(&format!(
-            " \u{b7} shared by all {same} {kind} delegates: the harness banks spend by type, \
-             not by instance"
-        ));
-    }
     tip.push_str(
         " \u{b7} no context level is reported for a delegate, so no ring is drawn beside it",
     );
@@ -2656,9 +2638,10 @@ fn spend_tip(conversation: &Conversation) -> String {
 /// way from the switcher's count. Two limits of the wire show through here, and neither is papered
 /// over:
 ///
-/// - **A delegate's spend is per *type*, not per instance.** `UsageRecord::subagent` is
-///   deliberately a type, so two `general-purpose` delegates share one bucket. The tooltip says
-///   so; nothing here divides a shared total between instances to make it look exact.
+/// - **A delegate's spend is this delegate's.** `UsageRecord::subagent_id` names the spawning
+///   call, so two `general-purpose` delegates are two figures; `UsageRecord::subagent` stays the
+///   *type*, which is what the breakdown lower down the tooltip aggregates by. Where a harness
+///   reports no instance there is nothing to draw, and nothing here borrows the type's total.
 /// - **A delegate has no context level at all.** A subagent's usage report repeats the *parent's*
 ///   occupancy, so there is no per-delegate window to draw — and the parent's ring beside a
 ///   delegate's transcript would be a number about somebody else. So the ring is dropped rather
@@ -2693,10 +2676,8 @@ fn footer(
         .and_then(|id| subagents.iter().find(|tab| tab.id == id));
     let (spend, spend_tip) = match delegate {
         Some(tab) => (
-            tab.kind
-                .as_deref()
-                .and_then(|kind| conversation.subagent_tokens(kind)),
-            delegate_spend_tip(conversation, subagents, tab),
+            conversation.delegate_tokens(&tab.id),
+            delegate_spend_tip(conversation, tab),
         ),
         None => (
             conversation
@@ -2713,7 +2694,7 @@ fn footer(
         // The uncached part of it, alongside the total — fresh input tokens, neither a cache read
         // nor a cache write, the same figure `spend_tip`'s "in" already names. Only for the
         // conversation's own transcript: a delegate's spend is banked by type with no such
-        // breakdown behind it (`Conversation::subagent_tokens`).
+        // breakdown behind it (`Conversation::delegate_tokens`).
         let label = match delegate.is_none().then(|| conversation.spend).flatten() {
             Some(spend) => format!(
                 "{} tot \u{b7} {} in",

@@ -2320,6 +2320,15 @@ pub enum Message {
         agent_id: AgentId,
         ask_id: AskId,
         questions: Vec<AskQuestion>,
+        /// Which of the dialogs raised together this one is, counting from one, and how many were
+        /// raised with it (`G362`). An agent may register several questions in a turn and they all
+        /// go up at the turn boundary; nothing reaches it until every one of them is answered, and
+        /// the dialog says so. `0`/`0` — the default, and what every ask raised on its own carries
+        /// — means there is no set to speak of and the dialog draws nothing extra.
+        #[serde(default)]
+        batch_at: usize,
+        #[serde(default)]
+        batch_of: usize,
     },
     /// What the user said, or that they would rather talk about it. One per ask: the host drops
     /// an answer naming an ask it is no longer holding, so a dialog left open across a timeout

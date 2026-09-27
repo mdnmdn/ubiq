@@ -1710,6 +1710,7 @@ impl AppState {
             pending_chat_attach: None,
             pending_chat_open: false,
             new_agent_project: None,
+            task_show_empty: false,
             sink,
             stats: StatsState::default(),
             web_panels: crate::state::web_panel::WebPanels::default(),

@@ -205,6 +205,9 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             drone: DroneField::default(),
             nav: ProjectNav::default(),
             definitions_use_global: true,
+            storage_pending: None,
+            storage_dir: None,
+            storage_error: None,
         });
         state.set_sink_project_nav(ProjectNav(ids::PROJECT_REMOTE), cx);
         assert_eq!(
@@ -221,6 +224,9 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             drone: DroneField::default(),
             nav: ProjectNav::default(),
             definitions_use_global: true,
+            storage_pending: None,
+            storage_dir: None,
+            storage_error: None,
         });
         state.set_sink_project_nav(ProjectNav(ids::PROJECT_REMOTE), cx);
         assert_eq!(

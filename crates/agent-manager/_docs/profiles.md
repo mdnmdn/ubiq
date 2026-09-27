@@ -238,13 +238,37 @@ stopgaps).
 the ones a build needs.** isol8 auto-selects a layer from `cmd[0]` alone, and only
 its `agents/*` layers declare an `executables` filter — so no `toolchains/*` layer is
 ever selected, since a build tool is a *child* of the confined command and never the
-command. `DEV_LAYERS` (`isolate.rs`) is therefore an explicit list of 15:
+command. `DEV_LAYERS` (`isolate.rs`) is therefore an explicit list of 16:
 `integrations/{keychain,macos-gui,git}` and `toolchains/{runtime-managers,
-apple-toolchain-core,rust,node,python,go,java,bun,deno,ruby,php,perl,elixir}`. Two
+apple-toolchain-core,rust,node,python,go,java,dotnet,bun,deno,ruby,php,perl,elixir}`. Two
 of them are not about toolchains at all: `integrations/keychain`, because rustls
 tools (mise, cargo) validate TLS through the trust daemon rather than a CA file, and
 `integrations/macos-gui`, because a TUI harness calling `CGSEventSourceForID`
 deadlocks on a WindowServer mutex when the lookup is denied.
+
+**One of those sixteen names is not isol8's.** isol8 (v0.4.0) ships no .NET layer,
+so `plan` *writes* `toolchains/dotnet` — `DOTNET_LAYER_BODY` in `isolate.rs` — into
+`<state_dir>/profiles-dotnet/toolchains/dotnet.toml` and hands that directory to
+`profile_paths` ahead of the caller's own profile root, so a `toolchains/dotnet`
+written under that root still wins. It grants the CLI home (`~/.dotnet`, whose
+first-use sentinel every `dotnet` command writes before doing anything else),
+NuGet's config, package and cache roots, the template engine, `dev-certs` and
+`user-secrets` stores, and `/etc/dotnet`'s install-location marker — plus a
+`filter = { os = ["windows"] }` policy over the `%USERPROFILE%`, `%APPDATA%` and
+`%LOCALAPPDATA%` spellings of the same, a per-user SDK install and MSBuild's node
+state. The SDK tree itself needs nothing: `base` grants `/usr`,
+`macos/system-runtime` grants `/opt`, `windows/system-runtime` grants
+`%PROGRAMFILES%`.
+
+This is not a duplicate of `DEV_RW_HOME_ROOTS` below but its other half. Those
+grants are joined absolutely against the **real** home, and nothing grants a
+replacement home wholesale, so under an `Ephemeral` or `Managed` home a run was
+denied `$HOME/.dotnet` while `~/.dotnet` in the real home stayed writable — the
+SDK then reports that it cannot determine a home directory rather than a denial,
+and the reaction it invites is pointing `DOTNET_CLI_HOME` at the repository. A
+layer's `~` expands against the *effective* home, which is the case the const
+cannot reach. Delete the generated layer the day isol8 ships one: the name in
+`DEV_LAYERS` keeps working and starts resolving to the built-in.
 
 **`BROKEN_LAYERS` records the 10 that must never be named.** Nine carry `[macos] raw`
 SBPL naming a symbol isol8's macOS backend never defines: `home-literal` / `home-subpath`
@@ -266,7 +290,8 @@ socket access "High-risk", since a container daemon socket is a route out of the
 
 **Four gaps are filled by hand.** `DEV_RW_HOME_ROOTS` grants `~/.dotnet`, `~/.nuget`,
 `~/.templateengine`, `~/.aspnet`, `~/.microsoft` and `~/.local/share/NuGet`
-read-write, because isol8 ships no dotnet layer at all; the list is deliberately
+read-write **in the real home**, the generated `toolchains/dotnet` layer above
+covering the effective one; the list is deliberately
 **not** existence-filtered, since `~/.dotnet` does not exist until the first
 `dotnet` run creates it and the grant is what makes that creation legal. And
 `ENV_PASS` widens isol8's deny-by-default env (`HOME PATH SHELL TMPDIR USER

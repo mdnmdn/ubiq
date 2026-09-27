@@ -262,6 +262,12 @@ pub struct Conversation {
     /// The same total, split by who spent it: the key is the subagent type, and the empty string is
     /// the conversation's own turns. What answers "who burned the tokens" without leaving the chat.
     pub spend_by_subagent: BTreeMap<String, TokenSpend>,
+    /// The same total again, split by **which** delegate spent it: the key is
+    /// [`Subagent::id`], the spawning call's id, so two delegates of one type are two entries.
+    /// What a single delegate's card and its transcript footer read — the type bucket above is an
+    /// aggregate, and drawing it on one instance's card showed every delegate of a type the same
+    /// number (`T-259`). Empty for a harness that names a type but no instance.
+    pub spend_by_delegate: BTreeMap<String, TokenSpend>,
     /// How full the user's rate-limit windows are, as of the last thing the harness reported.
     pub rate_limit: Option<RateLimitRecord>,
     pub run: Run,
@@ -424,6 +430,7 @@ impl Conversation {
             usage: None,
             spend: None,
             spend_by_subagent: BTreeMap::new(),
+            spend_by_delegate: BTreeMap::new(),
             rate_limit: None,
             run: Run::Idle,
             stop_reason: None,
@@ -891,6 +898,12 @@ impl Conversation {
                             .or_default(),
                         &spend,
                     );
+                    // And once more by instance, where the harness said which delegate it was:
+                    // the type bucket above answers "what do general-purpose agents cost me",
+                    // this one answers "what did *this* one cost".
+                    if let Some(id) = usage.subagent_id.clone() {
+                        accumulate(self.spend_by_delegate.entry(id).or_default(), &spend);
+                    }
                 }
                 // A subagent's report repeats the parent's occupancy and names the subagent's own
                 // model. Neither is news about this conversation: it is a spend row, and it stops
@@ -1069,6 +1082,17 @@ impl Conversation {
     /// instance's.
     pub fn subagent_tokens(&self, kind: &str) -> Option<(u64, u64)> {
         let spend = self.spend_by_subagent.get(kind)?;
+        (spend.total() > 0).then(|| (spend.total(), spend.cached()))
+    }
+
+    /// What **one delegate** has spent — its total and the cached part of it — keyed by the
+    /// spawning call's id, which is the instance and not the type.
+    ///
+    /// This is what a card and a delegate's own footer read. `None` where the harness never
+    /// identified the instance behind a report: nothing is drawn rather than the type's total,
+    /// which is the same figure on every card of that type (`T-259`).
+    pub fn delegate_tokens(&self, id: &str) -> Option<(u64, u64)> {
+        let spend = self.spend_by_delegate.get(id)?;
         (spend.total() > 0).then(|| (spend.total(), spend.cached()))
     }
 
@@ -2212,6 +2236,7 @@ mod tests {
                     cache_creation: 0,
                 }),
                 subagent: None,
+                subagent_id: None,
             }),
         );
 
@@ -2223,6 +2248,18 @@ mod tests {
     }
 
     fn usage(used: u64, size: u64, spend: TokenSpend, subagent: Option<&str>) -> ConvUpdate {
+        delegate_usage(used, size, spend, subagent, None)
+    }
+
+    /// The same report, with the instance the harness named behind it — what a card actually
+    /// reads, and the grain `usage` above leaves absent.
+    fn delegate_usage(
+        used: u64,
+        size: u64,
+        spend: TokenSpend,
+        subagent: Option<&str>,
+        id: Option<&str>,
+    ) -> ConvUpdate {
         ConvUpdate::Usage(UsageRecord {
             used,
             size,
@@ -2230,6 +2267,7 @@ mod tests {
             model: None,
             spend: Some(spend),
             subagent: subagent.map(str::to_string),
+            subagent_id: id.map(str::to_string),
         })
     }
 
@@ -2290,10 +2328,10 @@ mod tests {
         );
     }
 
-    /// The footer of a delegate's transcript, and the one thing about it worth stating twice: the
-    /// wire keys spend by subagent **type**, so two `general-purpose` instances share one bucket.
-    /// Drawing a type's total as one instance's would over-report it by however many siblings it
-    /// had, which is why the footer says so on hover rather than pretending otherwise.
+    /// The **type** bucket, which is the aggregate the `tot` breakdown and the usage meter read:
+    /// two `general-purpose` instances sum into one entry, on purpose. What a single delegate's
+    /// card reads is [`Conversation::delegate_tokens`] instead — drawing a type's total as one
+    /// instance's over-reports it by however many siblings it had (`T-259`).
     #[test]
     fn subagent_tokens_are_a_types_bucket_rather_than_an_instances() {
         let mut c = conversation();
@@ -2317,6 +2355,49 @@ mod tests {
             c.subagent_tokens("Explore"),
             None,
             "a type that never reported has nothing to draw — not a zero it made up"
+        );
+    }
+
+    /// **What a card reads is the instance, and the instances differ.** The defect this closes
+    /// (`T-259`) was two `general-purpose` delegates drawing a byte-identical figure, because both
+    /// cards read their type's bucket. Two reports, two ids, two numbers — and neither is the
+    /// type's total.
+    #[test]
+    fn a_delegates_tokens_are_its_own_and_not_its_types() {
+        let mut c = conversation();
+        c.apply(1, usage(50_000, 200_000, spend(4_000, 400), None));
+        c.apply(
+            2,
+            delegate_usage(
+                50_000,
+                200_000,
+                spend(9_000, 900),
+                Some("general-purpose"),
+                Some("toolu_a"),
+            ),
+        );
+        c.apply(
+            3,
+            delegate_usage(
+                50_000,
+                200_000,
+                spend(1_000, 100),
+                Some("general-purpose"),
+                Some("toolu_b"),
+            ),
+        );
+
+        assert_eq!(c.delegate_tokens("toolu_a"), Some((9_900, 0)));
+        assert_eq!(c.delegate_tokens("toolu_b"), Some((1_100, 0)));
+        assert_eq!(
+            c.subagent_tokens("general-purpose"),
+            Some((11_000, 0)),
+            "the type's bucket is still the aggregate — the two live side by side"
+        );
+        assert_eq!(
+            c.delegate_tokens("toolu_never_reported"),
+            None,
+            "a delegate whose reports named no instance draws nothing, not its type's total"
         );
     }
 

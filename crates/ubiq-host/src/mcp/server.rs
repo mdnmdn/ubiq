@@ -11,11 +11,19 @@
 //! POST /mcps/<agent-or-pane-id>/<mcp-name>
 //! ```
 //!
-//! **Stateless, deliberately.** No session id, no SSE stream, nothing remembered between two
+//! **Stateless, deliberately.** No session id, no `GET` stream, nothing remembered between two
 //! requests, and no authentication beyond the loopback interface and an unguessable ULID in the
 //! path. A session layer would be state to lose when the harness reconnects, and the only thing it
 //! would buy is a second place for the agent's identity to live — the URL already carries it, on
 //! every call, and the harness was handed that URL by the run Ubiq composed.
+//!
+//! **One response may be an event stream, and that costs none of the above.** A parked
+//! `ask_user_question` whose client asked for progress notifications is answered as `text/event-
+//! stream`: the notifications and then the response, on the stream that one `POST` opened, closed
+//! when the call returns (`D191`). That is the transport's own framing for a long call, not a
+//! session — nothing survives the request, and a client that did not ask gets plain JSON. The
+//! server→client *request* direction, which `elicitation/create` would need, is what this still
+//! cannot do: that needs the standing stream and the session id above (`G360`).
 //!
 //! An address that resolves to nobody — an agent that has retired, a server this build does not
 //! offer, a path of the wrong shape — is a plain **404**, not a JSON-RPC error. The distinction is
@@ -25,9 +33,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use ubiq_proto::ask::{ASK_PARK_SECS, ASK_TIMEOUT_SECS};
 use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
@@ -242,28 +251,36 @@ fn handle(
         && params.get("name").and_then(Value::as_str) == Some("ask_user_question")
         && let Some(reach) = ask
     {
+        // **Whether this client can be told the call is still alive.** MCP's progress
+        // notifications travel on the stream the request was made on, so both halves have to be
+        // there: a `progressToken` in the request's `_meta`, which is the client saying it wants
+        // them, and an `Accept` that admits `text/event-stream`, which is the transport saying
+        // this response may be one. Either missing and the call takes the silent arm — no session
+        // id, no second connection, nothing remembered between requests, so the header's
+        // statelessness holds on both (`D191`).
+        let token = params
+            .get("_meta")
+            .and_then(|meta| meta.get("progressToken"))
+            .cloned()
+            .filter(|token| !token.is_null());
+        let streaming = token.filter(|_| accepts_events(&request));
+
         let reach = AskReach {
             asks: Arc::clone(&reach.asks),
             armed: Arc::clone(&reach.armed),
         };
         let voice = voice.clone();
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let spawned = std::thread::Builder::new()
             .name("ubiq-ask-call".to_string())
-            .spawn(move || {
-                let result = dispatch(
-                    "tools/call", params, spec, &facts, &voice, None, None, None, None, None,
-                    Some(&reach),
-                );
-                let response = match result {
-                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                    Err((code, message)) => {
-                        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
-                    }
-                };
-                let _ = request.respond(json_response(&response));
-            });
+            .spawn(move || park(request, id, arguments, facts, voice, reach, streaming));
         if let Err(error) = spawned {
-            // A thread that will not start is not a call that may hang here instead.
+            // A thread that will not start is not a call that may hang here instead. The request
+            // went into the closure and is dropped with it, which closes the connection — the
+            // harness sees a dead call rather than one that never answers.
             tracing::error!("an ask could not be served on a thread of its own: {error}");
         }
         return;
@@ -369,6 +386,211 @@ fn json_response(body: &Value) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> 
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
             .expect("a static header is valid");
     tiny_http::Response::from_data(bytes).with_header(content_type)
+}
+
+// ── the parking arm ───────────────────────────────────────────────────────────────────────────
+//
+// `ask_user_question` is the one call this listener does not answer from a fact it holds, and the
+// two shapes below are the two ways of surviving the harness's own tool timeout while it waits
+// (`D191`, `G360`). The silent one bounds the wait under that timeout and gives up legibly; the
+// streaming one keeps saying the call is alive, on the stream the request was made on, so a client
+// that honours progress notifications never starts counting.
+
+/// How often a streaming park writes a progress notification. Well under every tool timeout this
+/// tree knows of, so a client resetting its timer on each one never gets close.
+const PROGRESS_EVERY: Duration = Duration::from_secs(10);
+
+/// Whether the client will accept an SSE stream as the response to its `POST`. MCP's streamable
+/// HTTP says a client that will must say so in `Accept`, and a client that did not gets JSON —
+/// which is the whole of the degradation.
+fn accepts_events(request: &tiny_http::Request) -> bool {
+    request.headers().iter().any(|header| {
+        header.field.equiv("Accept")
+            && header
+                .value
+                .as_str()
+                .to_ascii_lowercase()
+                .contains("text/event-stream")
+    })
+}
+
+/// Serve one parked `ask_user_question`, on a thread of its own.
+///
+/// **The thread lives as long as the wait and no longer.** That is the point of the bound: the
+/// silent arm holds this thread for [`ASK_PARK_SECS`] at worst rather than for an hour, so a
+/// looping agent can no longer accumulate hour-long threads (`G360`). The streaming arm may wait
+/// the full [`ASK_TIMEOUT_SECS`], but it is writing to an open connection the whole time — that is
+/// a response in progress, not a thread parked on nothing.
+fn park(
+    request: tiny_http::Request,
+    id: Value,
+    arguments: Value,
+    facts: AgentFacts,
+    voice: Voice,
+    reach: AskReach,
+    streaming: Option<Value>,
+) {
+    let raised = match super::ask::raise(&arguments, &facts, &voice, &reach) {
+        Ok(raised) => raised,
+        // A malformed ask never parks, and its refusal is the same in-band `isError` `dispatch`
+        // would have made of it — the failure a model can read and correct.
+        Err(message) => {
+            let _ = request.respond(json_response(&envelope(&id, tool_error(&message))));
+            return;
+        }
+    };
+
+    let Some(token) = streaming else {
+        let bound = Duration::from_secs(ASK_PARK_SECS);
+        let ending = reach.asks.wait_for(raised.ask_id, &raised.waiting, bound);
+        let result = super::ask::settle(raised, ending, &reach, bound);
+        let _ = request.respond(json_response(&envelope(&id, tool_result(result))));
+        return;
+    };
+
+    // The streaming arm. The body is written as the wait goes: a `notifications/progress` every
+    // `PROGRESS_EVERY`, then the JSON-RPC response as the last event, then end of stream. One
+    // response to one `POST` — no session id, no `GET` stream, nothing held between requests.
+    let content_type =
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..])
+            .expect("a static header is valid");
+    let no_cache = tiny_http::Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..])
+        .expect("a static header is valid");
+    let stream = Parked {
+        id,
+        token,
+        raised: Some(raised),
+        reach,
+        deadline: Instant::now() + Duration::from_secs(ASK_TIMEOUT_SECS),
+        step: 0,
+        pending: Vec::new(),
+        at: 0,
+        done: false,
+    };
+    let response = tiny_http::Response::new(
+        tiny_http::StatusCode(200),
+        vec![content_type, no_cache],
+        stream,
+        None,
+        None,
+    );
+    let _ = request.respond(response);
+}
+
+/// The streaming park, as a reader: every `read` either hands out what is left of the last event
+/// or waits for the next thing to say.
+///
+/// **A generator rather than a second thread.** `tiny_http` writes a chunk per `read` that returns
+/// bytes, so the wait and the writing are the same loop and the park still costs exactly one
+/// thread.
+struct Parked {
+    id: Value,
+    token: Value,
+    /// Taken when the wait ends, to settle it. `None` afterwards.
+    raised: Option<super::ask::Raised>,
+    reach: AskReach,
+    deadline: Instant,
+    step: u64,
+    pending: Vec<u8>,
+    at: usize,
+    done: bool,
+}
+
+impl Parked {
+    /// One SSE event carrying one JSON-RPC message, which is the framing MCP's streamable HTTP
+    /// transport uses.
+    fn event(body: &Value) -> Vec<u8> {
+        format!(
+            "event: message\ndata: {}\n\n",
+            serde_json::to_string(body).unwrap_or_default()
+        )
+        .into_bytes()
+    }
+
+    /// The last event: the response this whole request was for.
+    fn finish(&mut self, ending: crate::ask::Ending) -> Vec<u8> {
+        let Some(raised) = self.raised.take() else {
+            return Vec::new();
+        };
+        let bound = Duration::from_secs(ASK_TIMEOUT_SECS);
+        let result = super::ask::settle(raised, ending, &self.reach, bound);
+        self.done = true;
+        Self::event(&envelope(&self.id, tool_result(result)))
+    }
+}
+
+impl std::io::Read for Parked {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            if self.at < self.pending.len() {
+                let taken = (self.pending.len() - self.at).min(buf.len());
+                buf[..taken].copy_from_slice(&self.pending[self.at..self.at + taken]);
+                self.at += taken;
+                return Ok(taken);
+            }
+            if self.done {
+                return Ok(0);
+            }
+            self.pending.clear();
+            self.at = 0;
+
+            let left = self.deadline.saturating_duration_since(Instant::now());
+            // The `Raised` is only `None` once `finish` has run, which sets `done` — so the wait
+            // below always has something to wait on.
+            let waiting = match self.raised.as_ref() {
+                Some(raised) => &raised.waiting,
+                None => return Ok(0),
+            };
+            self.pending = match waiting.recv_timeout(PROGRESS_EVERY.min(left)) {
+                Ok(ending) => self.finish(ending),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    self.finish(Err(ubiq_proto::ask::AskClosed::Gone))
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if left <= PROGRESS_EVERY => {
+                    // The patient bound is up. The same give-up the silent arm takes, through the
+                    // same table method so a last-millisecond answer is still collected.
+                    let ask_id = self.raised.as_ref().map(|raised| raised.ask_id);
+                    let ending = match ask_id {
+                        Some(ask_id) => self.reach.asks.give_up(ask_id, waiting),
+                        None => Err(ubiq_proto::ask::AskClosed::Gone),
+                    };
+                    self.finish(ending)
+                }
+                Err(_) => {
+                    self.step += 1;
+                    Self::event(&json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/progress",
+                        "params": {
+                            "progressToken": self.token,
+                            "progress": self.step,
+                            "message": "waiting for the user to answer",
+                        },
+                    }))
+                }
+            };
+        }
+    }
+}
+
+/// A tool call's outcome as the `result` half of a JSON-RPC response. The same shape
+/// [`dispatch`]'s `tools/call` arm builds, because it is the same call.
+fn tool_result(result: Result<Value, String>) -> Value {
+    match result {
+        Ok(value) => json!({
+            "content": [{"type": "text", "text": serde_json::to_string(&value).unwrap_or_default()}],
+            "isError": false,
+        }),
+        Err(error) => tool_error(&error),
+    }
+}
+
+fn tool_error(message: &str) -> Value {
+    json!({"content": [{"type": "text", "text": message}], "isError": true})
+}
+
+fn envelope(id: &Value, result: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
 #[cfg(test)]

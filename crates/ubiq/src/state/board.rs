@@ -143,8 +143,8 @@ pub struct BoardState {
     /// carrying `flaky` in two colours are carrying one label, and the pill filters on what the
     /// user reads.
     pub labels: Vec<String>,
-    /// Narrow to ready tasks only — M20's derived readiness, `TaskRecord::ready`. Like the other
-    /// board filters, it is not persisted.
+    /// Narrow to ready tasks only — M20's derived readiness, `TaskRecord::ready`. Saved with the
+    /// rest of the filter set, per project (`T-169`).
     pub ready_only: bool,
     /// The mission the board is narrowed to (M27): its anchor card and its children, nothing
     /// else. `None` is every mission, the way `session` being `None` is every session.
@@ -153,10 +153,9 @@ pub struct BoardState {
     /// ticking two would read as OR while the labels picker beside it means AND, and the toolbar
     /// would say two different things in one row.
     ///
-    /// Not persisted, the same posture as `ready_only` and the labels: only `board_shut` and
-    /// `board_popup` are saved today, and a lone persisted filter among unpersisted ones would
-    /// read as an inconsistency rather than a feature — the whole filter set moving together is a
-    /// separate card.
+    /// Saved with the board's view state per project, like every other filter on this toolbar —
+    /// `ViewPrefs::board_mission`, and [`Self::prune`] for what happens when the mission it names
+    /// is gone.
     pub mission: Option<TaskId>,
     pub selected: Option<TaskId>,
     pub show_detail: bool,
@@ -404,6 +403,45 @@ impl BoardState {
     pub fn clear_mission_if(&mut self, task: TaskId) {
         if self.mission == Some(task) {
             self.mission = None;
+        }
+    }
+
+    /// Drop every filter that names something this project no longer has (`T-169`).
+    ///
+    /// **A dangling filter must never wedge the board.** The three id-shaped filters are each
+    /// drawn from what the work says exists — the session pills, the label picker, the mission
+    /// picker's rows — so one naming something that is gone is invisible in the toolbar while
+    /// [`Self::matches`] keeps rejecting every card. The board reads as empty with no control
+    /// lit to explain it and nothing to click to undo it. Dropping it silently is the only
+    /// outcome that leaves a board somebody can use: it is not an error, it is the filter having
+    /// outlived its subject, and saying so would be a dialog about a preference.
+    ///
+    /// Called wherever the whole projection lands, which is both the restore's first `WorkList`
+    /// and every later one — the same posture `state::agents`' own `prune` takes. A label the
+    /// last task carrying it just lost goes for the same reason a deleted mission does: the pill
+    /// is no longer in the picker either way.
+    ///
+    /// The text filter is never pruned. It matches free text rather than naming a record, so it
+    /// cannot dangle — an empty board under a field that still says what was typed already
+    /// explains itself.
+    pub fn prune(&mut self, work: &WorkProjection) {
+        if !work.loaded {
+            return;
+        }
+        if let Some(session) = self.session
+            && work.session(session).is_none()
+        {
+            self.session = None;
+        }
+        if let Some(mission) = self.mission
+            && !work.tasks.iter().any(|task| task.id == mission)
+        {
+            self.mission = None;
+        }
+        if !self.labels.is_empty() {
+            let known = work.labels();
+            self.labels
+                .retain(|name| known.iter().any(|label| label.name == *name));
         }
     }
 

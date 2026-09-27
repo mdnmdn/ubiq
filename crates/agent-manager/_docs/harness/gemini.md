@@ -337,6 +337,16 @@ intersection across merged sources), `excludeTools` (denylist, unioned;
 **takes precedence over `includeTools`**), `description`, `oauth`,
 `targetAudience`, `targetServiceAccount`.
 
+### Tool-call timeout
+
+**Documented default: 600 000 ms (600 s)**, from the per-server `timeout` above.
+It is the only timeout the server schema documents, and `am` writes no `timeout`
+key, so every server it provisions runs at 600 s.
+
+**Progress notifications: unknown.** Nothing in the settings schema says whether
+Gemini CLI's MCP client sends `_meta.progressToken` on a `tools/call`, or what a
+`notifications/progress` does to that 600 s. A live run settles it.
+
 ### Naming and FQNs
 
 Every discovered MCP tool gets an FQN: `mcp_<serverName>_<toolName>`.

@@ -367,10 +367,19 @@ pub struct UsageRecord {
     pub spend: Option<TokenSpend>,
     /// The subagent **type** that spent it, and deliberately not the instance the transcript
     /// switches on: a bucket per instance would mint a fresh dimension value on every spawn,
-    /// forever, and "what did general-purpose subagents cost me" is the question this answers.
+    /// forever, and "what did general-purpose subagents cost me" is the question this answers —
+    /// it is the dimension [`crate::stats`] buckets by, and nothing else may key off it.
     /// [`Subagent`] is where the two part company — do not unify them.
     #[serde(default)]
     pub subagent: Option<String>,
+    /// **Which** delegate spent it — [`Subagent::id`], the spawning `Task` call's id, so two
+    /// delegates of one type are two reports and not one bucket read twice. Present wherever the
+    /// harness identifies the instance at all (Claude Code's `parent_tool_use_id`, ACP's
+    /// spawning call), `None` for a harness that names only a type and for the conversation's own
+    /// reports. A reader that wants one delegate's figure keys off *this* and draws nothing where
+    /// it is absent: a type's total drawn on an instance's card is one number shown twice.
+    #[serde(default)]
+    pub subagent_id: Option<String>,
 }
 
 impl UsageRecord {
@@ -535,6 +544,7 @@ mod tests {
             model: None,
             spend: None,
             subagent: None,
+            subagent_id: None,
         };
         assert_eq!(usage.context_pct(), Some(21));
     }
@@ -550,6 +560,7 @@ mod tests {
             model: None,
             spend: None,
             subagent: None,
+            subagent_id: None,
         };
         assert_eq!(usage.context_pct(), None);
     }

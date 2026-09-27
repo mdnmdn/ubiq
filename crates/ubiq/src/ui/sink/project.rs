@@ -711,23 +711,33 @@ fn form_project(app: &AppState, form: Form, _cx: &gpui::App) -> Option<ProjectId
 
 /// Where this project keeps its own data: Ubiq's config folder, or a `.ubiq/` inside the project.
 ///
-/// **Chosen once, when the project is created.** The Edit panel draws the same two pills and does
-/// not take a click: moving an existing project's data between the two trees is a migration, and a
-/// control that looked like it performed one while only rewriting a record would be a lie about
-/// where the tasks are. See `StorageMode` and `D173`.
+/// **Chosen at creation, and moved from here afterwards.** Creating picks a mode that rides on the
+/// `AddProject`; an existing project's pills send `SetProjectStorage`, which is a migration rather
+/// than a setting — the host copies the tree across two unrelated roots, rewrites the pointer as
+/// its commit point, and **refuses outright while a pane or a conversation is running in the
+/// project**. So the row never swaps optimistically: the pills keep drawing the record's own mode,
+/// the mode asked for is named as pending underneath, and what comes back is either the new
+/// directory or the refusal in full. See `StorageMode`, `D173`, and
+/// `AppState::set_project_storage`.
 fn storage_row(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Option<AnyElement> {
     // Only the live panel asks this; the kitchen sink's copy has no folder behind it to make.
     if form != Form::Live {
         return None;
     }
-    let mode = match app.workbench.project_settings.as_ref().map(|s| &s.mode)? {
+    let settings = app.workbench.project_settings.as_ref()?;
+    let mode = match &settings.mode {
         ProjectSettingsMode::Create { .. } => None,
-        ProjectSettingsMode::Edit { project } => {
-            Some(WindowRegistry::read(cx).project(*project)?.record.storage)
-        }
+        ProjectSettingsMode::Edit { project } => Some((
+            *project,
+            WindowRegistry::read(cx).project(*project)?.record.storage,
+        )),
     };
     let creating = mode.is_none();
-    let current = mode.unwrap_or(app.create_storage);
+    // What is true right now — the record's mode, never the pending one.
+    let current = mode.map_or(app.create_storage, |(_, storage)| storage);
+    let pending = settings.storage_pending;
+    // One ask at a time: a move in flight leaves both pills inert until it is answered.
+    let waiting = pending.is_some();
 
     let pill = |id: &'static str, label: &'static str, want: StorageMode| {
         let chosen = current == want;
@@ -736,19 +746,28 @@ fn storage_row(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Option
             label,
             chosen,
             cx.listener(move |this, _, _, cx| {
-                if creating {
-                    this.set_create_storage(want, cx);
+                if waiting {
+                    return;
+                }
+                match mode {
+                    None => this.set_create_storage(want, cx),
+                    // Asking for the mode it is already in is a no-op here rather than a message:
+                    // the host answers it as a success that touches no disk, and a row that
+                    // flickered "moving…" for a click that changes nothing is noise.
+                    Some((project, storage)) if storage != want => {
+                        this.set_project_storage(project, want, cx)
+                    }
+                    Some(_) => {}
                 }
             }),
         );
-        // An existing project's panel shows what is true and takes no click. Drawn rather than
-        // hidden: "where is this project's data" is a question the panel should answer.
-        if creating {
-            element
-        } else {
+        // While a move is in flight the row shows what is true and takes no click.
+        if waiting {
             element
                 .cursor_default()
                 .opacity(if chosen { 1.0 } else { 0.5 })
+        } else {
+            element
         }
     };
 
@@ -757,13 +776,12 @@ fn storage_row(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Option
          In the project writes them to a .ubiq/ folder you can commit, so they travel with a \
          clone — with a .gitignore that leaves this machine's caches and view state out."
     } else {
-        "Chosen when the project was created, and shown here so you know where its tasks are. \
-         Moving the data between the two is not something this panel does."
+        "Where this project's tasks and settings are kept. Switching moves them: nothing may be \
+         running in the project while it happens, and this machine's caches and view state stay \
+         where they are either way."
     };
 
-    Some(setting_row(
-        "Project data",
-        note,
+    let mut control = div().flex().flex_col().gap_1p5().child(
         div()
             .flex()
             .flex_none()
@@ -779,9 +797,51 @@ fn storage_row(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Option
                 "project-storage-project",
                 "In the project (.ubiq/)",
                 StorageMode::ProjectManaged,
-            ))
-            .into_any_element(),
+            )),
+    );
+
+    // The pending line, the refusal and the directory are one slot: the move is either in flight,
+    // or it failed, or it is done, and only the last two can be drawn together with the mode.
+    if let Some(want) = pending {
+        control = control.child(
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(theme::info())
+                .child(format!("Moving this project's data to {}…", label_of(want))),
+        );
+    } else if let Some(error) = settings.storage_error.as_ref() {
+        control = control.child(
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(theme::danger())
+                .child(format!("The data is where it was — {error}.")),
+        );
+    } else if let Some(dir) = settings.storage_dir.as_ref() {
+        control = control.child(
+            elided(
+                "project-storage-dir",
+                dir.clone(),
+                theme::text_faint(),
+                theme::font(Family::Chrome, Role::Meta),
+            )
+            .w_full(),
+        );
+    }
+
+    Some(setting_row(
+        "Project data",
+        note,
+        control.into_any_element(),
     ))
+}
+
+/// What a storage mode is called in the panel. The pills' own labels, so the pending and refusal
+/// lines name a mode the same way the control the user clicked does.
+fn label_of(storage: StorageMode) -> &'static str {
+    match storage {
+        StorageMode::UbiqManaged => "Ubiq's config folder",
+        StorageMode::ProjectManaged => "the project's own .ubiq/",
+    }
 }
 
 /// This project's own runnable tools, on top of the machine-wide rows.

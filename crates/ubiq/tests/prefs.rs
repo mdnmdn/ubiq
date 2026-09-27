@@ -6,7 +6,7 @@ use ubiq::state::nav::{Bookmark, Destination, Locus, View};
 use ubiq::state::prefs::{self, InterfacePrefs, ModeLayout, ViewPrefs};
 use ubiq::theme::{AccentId, ThemeId};
 use ubiq_proto::files::DiffBase;
-use ubiq_proto::ids::ProjectId;
+use ubiq_proto::ids::{ProjectId, SessionId, TaskId};
 use ubiq_proto::work::AgentId;
 
 #[test]
@@ -52,6 +52,14 @@ fn a_blob_survives_the_round_trip() {
         recents: Vec::new(),
         board_shut: Vec::new(),
         board_popup: false,
+        // The board's filters travel as a set (`T-169`), and the two id-shaped ones travel as
+        // text for the reason `chats` does: an id this build cannot parse costs one filter, not
+        // the blob.
+        board_filter: "cache".to_string(),
+        board_session: Some(SessionId::generate().to_string()),
+        board_labels: vec!["flaky".to_string()],
+        board_ready_only: true,
+        board_mission: Some(TaskId::generate().to_string()),
         teams_hide_done: true,
         rest: Default::default(),
     };

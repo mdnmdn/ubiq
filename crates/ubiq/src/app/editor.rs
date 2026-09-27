@@ -439,6 +439,16 @@ impl AppState {
         open.wanted = view.expanded.clone();
         open.board.shut = view.board_shut.clone();
         open.board.popup = view.board_popup;
+        // The board's whole filter set, back as it was left (`T-169`). The two id-shaped ones are
+        // parsed here and simply dropped if this build cannot read them; one that parses but names
+        // something the project no longer has is dropped by `BoardState::prune` when the work
+        // arrives, which is the only moment there is anything to check it against.
+        open.board.filter = view.board_filter.clone();
+        open.board.session = view.board_session.as_deref().and_then(|id| id.parse().ok());
+        open.board.labels = view.board_labels.clone();
+        open.board.ready_only = view.board_ready_only;
+        open.board.mission = view.board_mission.as_deref().and_then(|id| id.parse().ok());
+        open.board.prune(&open.work);
         open.teams.hide_done = view.teams_hide_done;
 
         // Each tab is a panel. A saved arrangement usually carries them and the queued edits are
@@ -453,6 +463,10 @@ impl AppState {
             .filter(|file| !file.untitled)
             .map(|file| (file.key(), file.path.clone(), file.subject))
             .collect();
+        // The board's filter field is the window's, so the text just restored into the project's
+        // state reaches it the way a project switch does: `fill_task_form` drains this in
+        // `render`, where there is a window to call `set_value` with.
+        self.refill_fields = true;
         for (key, rel_path, subject) in tabs {
             self.pending_panels
                 .push(PanelEdit::Open(PanelKind::File(key)));

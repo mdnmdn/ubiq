@@ -93,8 +93,10 @@ pub enum AskOutcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AskClosed {
-    /// Nobody answered within [`ASK_TIMEOUT_SECS`]; the tool call has already been answered as
-    /// unanswered and the dialog can no longer send anything.
+    /// Nobody answered in time and the wait gave up. The tool call has already been answered as
+    /// unanswered; whether the *dialog* is still answerable depends on which mode gave up — a
+    /// parked call that hit [`ASK_PARK_SECS`] hands its row to the armed table and leaves the
+    /// dialog on screen, and this only reaches a window when nothing did.
     Timeout,
     /// The conversation that raised it is gone — ended, unloaded, or its harness died.
     Gone,
@@ -103,7 +105,26 @@ pub enum AskClosed {
 /// How long an ask waits for a human before it gives up. Long, because a question worth asking is
 /// worth walking away from and coming back to; bounded, because the harness is blocked meanwhile
 /// and a tool call that never returns is a wedged agent.
+///
+/// **This is the patient bound, and only a call that can say it is still alive gets it.** A
+/// parked `tools/call` that is streaming MCP progress notifications is one the client's own timer
+/// is being reset by, so it may wait the hour out; a plain call gets [`ASK_PARK_SECS`] instead.
 pub const ASK_TIMEOUT_SECS: u64 = 3600;
+
+/// How long a *silent* parked call waits before it returns without an answer.
+///
+/// **Shorter than any tool timeout a harness in front of it keeps.** The shortest this tree knows
+/// of is Codex's `tool_timeout_sec`, which defaults to 60 seconds
+/// (`crates/agent-manager/_docs/harness/codex.md`); Gemini's per-server `timeout` defaults to 600
+/// seconds, and the rest are longer still or unstated. Sitting under the shortest known one is
+/// what makes the give-up *Ubiq's* — the model reads a structured "nobody answered in time" it can
+/// act on, instead of the harness's own opaque tool failure arriving first while the dialog is
+/// still open (`G360`).
+///
+/// **The bound ends the call, not the question.** The dialog stays on screen and the user's answer
+/// still reaches the agent, as the next turn — the parked mode hands the row to the armed mode's
+/// table when it gives up (`D191`), which is why so short a bound costs the user nothing.
+pub const ASK_PARK_SECS: u64 = 45;
 
 impl AskQuestion {
     /// Whether this question is one the dialog can draw and the user can answer, and what is wrong

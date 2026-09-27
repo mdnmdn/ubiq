@@ -22,7 +22,7 @@ use ubiq::state::editor::ViewLayout;
 use ubiq::state::prefs;
 use ubiq::ui::dock::placement_of;
 use ubiq_proto::bus;
-use ubiq_proto::ids::ProjectId;
+use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot, Scope};
 
@@ -544,6 +544,55 @@ fn a_mode_switch_places_no_chat_tab(cx: &mut TestAppContext) {
     assert!(
         fixture.regions_open(cx).2,
         "in the region the IDE was left with on screen"
+    );
+}
+
+/// A mission panel is the chat tab's rule one kind along (`T-256`).
+///
+/// Both its shapes are opened by a gesture and both are `Free`, so one left open in one mode was a
+/// leftover in every other — and the leftover loop was adding it to the incoming mode's right or
+/// centre group, where `dock::add` makes it the displayed tab and covers whatever the user had
+/// left there. The mode that was arranged to hold it names it in its own blob, and that is the
+/// only way it comes back.
+#[gpui::test]
+fn a_mode_switch_places_no_mission_panel(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    // Git has to have a blob of its own, or the switch keeps the tree rather than restoring one
+    // and there is no leftover loop to get wrong.
+    fixture.switch_to(RailMode::GIT, cx);
+    fixture.switch_to(RailMode::IDE, cx);
+
+    // The user's own gesture, in the IDE: the side panel on the right, the full view in the centre.
+    let task = TaskId::generate();
+    let state = fixture.state.clone();
+    state.update(cx, |state, cx| {
+        state.open_mission_panel(task, cx);
+        state.open_mission_tab(task, cx);
+    });
+    cx.run_until_parked();
+    assert!(
+        fixture.holds("ubiq.mission", cx) && fixture.holds("ubiq.mission.view", cx),
+        "both shapes are on screen where they were asked for: {:?}",
+        fixture.panels(cx)
+    );
+
+    fixture.switch_to(RailMode::GIT, cx);
+    let in_git = fixture.panels(cx);
+    assert!(
+        !in_git.contains(&"ubiq.mission".to_string())
+            && !in_git.contains(&"ubiq.mission.view".to_string()),
+        "the mission the user opened in the IDE is not placed in Git: {in_git:?}"
+    );
+    assert!(
+        in_git.contains(&"ubiq.git.changes".to_string()),
+        "Git's own right-hand panel is what is there instead: {in_git:?}"
+    );
+
+    fixture.switch_to(RailMode::IDE, cx);
+    assert!(
+        fixture.holds("ubiq.mission", cx) && fixture.holds("ubiq.mission.view", cx),
+        "and the IDE's blob is what brings both back where the user left them: {:?}",
+        fixture.panels(cx)
     );
 }
 

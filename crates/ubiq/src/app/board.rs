@@ -9,6 +9,11 @@ use ubiq_proto::work::{Attachment, Complexity, Kind, Label, Level};
 impl AppState {
     /// Open one of the panel's fields.
     pub fn begin_task_edit(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
+        // A synced field of a pull-only task never opens. The panel draws no way in, so this is
+        // reached only by a route that skipped the control.
+        if self.field_pull_only(field, cx) {
+            return;
+        }
         // A step's field starts from what the step says now, because it is one field shared by
         // however many steps the task has.
         if let Field::Step(step_id) = field {
@@ -80,6 +85,35 @@ impl AppState {
         cx.notify();
     }
 
+    /// Whether the open task is the provider's copy and takes no edit to a synced field —
+    /// [`crate::ui::tasksrc::pull_only`] is the rule and the reasoning.
+    ///
+    /// The draw path refuses these edits by drawing no control at all, which is the whole of the
+    /// user-visible answer. This is the second half of it: a keybinding, a pending commit left over
+    /// from before the task locked, or a later caller must not get round the missing control. The
+    /// same question asked twice in the same place is what keeps an inert field and a refused write
+    /// from ever disagreeing — `tasksrc::WRITABLE` and `tasksrc::ABILITIES` are already paired this
+    /// way across the host and the interface.
+    fn task_pull_only(&self, task: TaskId) -> bool {
+        crate::ui::tasksrc::pull_only(self, task)
+    }
+
+    /// Whether this field of the open task is one the sync pass owns, and so one a pull-only task
+    /// refuses.
+    ///
+    /// `Step` and `NewStep` are **not** here. The checklist is outside `outbound::FIELDS` by that
+    /// module's own decision — a provider may fill it on one endpoint and not another, so it never
+    /// travels — which makes a sub-task Ubiq's own annotation rather than the remote's, and leaves
+    /// it editable on a task nothing else on may be changed. Comments are outside it for the same
+    /// reason and stay open too.
+    fn field_pull_only(&self, field: Field, cx: &App) -> bool {
+        if matches!(field, Field::Step(_) | Field::NewStep) {
+            return false;
+        }
+        self.open_task_form(cx)
+            .is_some_and(|(_, task_id, _)| self.task_pull_only(task_id))
+    }
+
     /// The project, the open task and the panel's form, or nothing if there is no task open.
     fn open_task_form(&self, cx: &App) -> Option<(ProjectId, TaskId, &BoardState)> {
         let project = self.project(cx)?;
@@ -101,6 +135,15 @@ impl AppState {
         let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
             return;
         };
+        // All three of this message's fields — title, description, priority — are the sync pass's,
+        // so on a pull-only task the whole message is refused rather than one arm of it.
+        if self.task_pull_only(task_id) {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
         self.bus.send(Message::UpdateTask {
             project_id,
             task_id,
@@ -123,6 +166,24 @@ impl AppState {
         let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
             return;
         };
+        // Four of these arms name a field the sync pass owns. The rest — shape, level, parent,
+        // references, prerequisites, attachments, complexity, colour — are facts the remote has
+        // never heard of, and a pull-only task keeps every one of them.
+        let synced = matches!(
+            field,
+            TaskField::Kind(_)
+                | TaskField::AssignedTo(_)
+                | TaskField::Key(_)
+                | TaskField::Link(_)
+                | TaskField::Labels(_)
+        );
+        if synced && self.task_pull_only(task_id) {
+            if let Some(board) = self.board_mut(cx) {
+                board.stop_editing();
+            }
+            cx.notify();
+            return;
+        }
         self.bus.send(Message::SetTaskField {
             project_id,
             task_id,
@@ -1213,6 +1274,13 @@ impl AppState {
         cx.notify();
     }
 
+    /// Show or hide the task panel's empty fields (T-255). One answer for every task the window
+    /// opens, kept in memory only: see [`Self::task_show_empty`].
+    pub fn toggle_task_empty_fields(&mut self, cx: &mut Context<Self>) {
+        self.task_show_empty = !self.task_show_empty;
+        cx.notify();
+    }
+
     pub fn toggle_task_fold(&mut self, task: TaskId, cx: &mut Context<Self>) {
         if let Some(board) = self.board_mut(cx) {
             board.toggle_fold(task);
@@ -1239,6 +1307,13 @@ impl AppState {
     /// Pick a card up. It selects itself on the way, for the reason a dragged agent card does:
     /// what is being moved is what the user is looking at.
     pub fn start_task_carry(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        // A column is the remote's `lane`, so a drag is a status write. A pull-only card draws no
+        // `on_drag` at all; this is the same answer given a second time, so no other route can pick
+        // one up. Selecting it is still fine — the card is read, only not moved.
+        if self.task_pull_only(task) {
+            self.select_task(task, cx);
+            return;
+        }
         if let Some(board) = self.board_mut(cx) {
             board.start_carry(task);
             board.select(task);

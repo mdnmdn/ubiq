@@ -6,7 +6,7 @@ status: draft
 summary: The rail's two graph modes — `Teams`, scoped by a window span and drawing its cards' conversations in the dock, and `[Teams]`, the established screen kept beside it with its own inspector and composer — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer under both.
 read_when: you are changing the Teams or `[Teams]` screen — its graph, how it arranges itself, a card or a delegate row, the span, the filters, the inspector or the tasks drawer
 updated: 2026-09-25
-verified: 2026-09-25
+verified: 2026-09-26
 code_anchors: [crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/tests/orchestration.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -344,9 +344,11 @@ carries its bucket's own colour instead. Any row in either control may be the la
 because **a control with none ticked is not filtering**: it means "narrow it to these", and
 narrowing to nothing is what an untouched control already does — which is why each reads as `all
 sessions`/`all projects` or `all states` when empty. That is what makes an empty canvas honest — it
-means an empty project, never a filter the user cannot find their way back out of — and one control
-at the end of
-the strip puts every filter back at once, drawn only while there is something to put back.
+means an empty project, never a filter the user cannot find their way back out of. No toolbar
+control puts every filter back at once (`T-258`) — each is already undone where it is set, and the
+one that did that drew and vanished mid-typing, shoving every control to its right sideways under
+the pointer. `AppState::clear_teams_filters` and `TeamsView::filtered` stay, because
+`crates/ubiq/tests/teams.rs` pins the state behaviour they name.
 
 **A fourth narrows the canvas to one or more missions, and has no control yet.**
 `TeamsView::mission_filter` is a set of anchor task ids on the sessions filter's rule exactly —
@@ -562,7 +564,7 @@ that agent's conversation in the right dock instead (`AppState::open_teams_agent
 |---|---|
 | Nothing is selected on `[Teams]` | The inspector says so and points at the toolbar and the graph |
 | Nothing is selected on `[Teams]` or `Teams` | The drawer falls back to the first session, so it does not go blank; the graph draws every session and needs no fallback. `Teams` opens no chat panel until something is |
-| Every agent is filtered out | The graph says so and offers to show everything. It says the opposite thing — that no agent is running in this project — when there was nothing to hide, so the two emptinesses are never confused |
+| Every agent is filtered out | The graph says so, with no way to clear filters from the message (`T-258`) — each is already undone at its own control. It says the opposite thing — that no agent is running in this project — when there was nothing to hide, so the two emptinesses are never confused |
 | Every bucket pill is turned off | The row is not filtering, and every card is drawn. This is the way back from having turned them all off, which is why no pill refuses a click |
 | A task's cards are all hidden | No outline is drawn for it. The task keeps its place in the drawer's list |
 | A card is dropped outside the graph | The next frame puts it down where the drag left it, so it cannot stay stuck to the pointer |

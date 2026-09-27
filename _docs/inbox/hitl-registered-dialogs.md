@@ -122,7 +122,7 @@ Dropping it removes every failure mode the card asks about:
 | Spoofed by file content, a diff, a quoted transcript | Cannot happen — the trigger is an authenticated call on Ubiq's own loopback listener, keyed by the agent id in the path |
 | Malformed | The registration is schema-checked at the call and refused as an in-band `isError` the model can read and correct, exactly as `ask_user_question` refuses an undrawable ask today |
 | Emitted mid-turn | Registration *is* mid-turn, by design; firing is deferred to turn end |
-| Duplicated | Several registrations arm several dialogs; they are raised in registration order |
+| Duplicated | Several registrations arm several dialogs; they are raised in registration order, as one batch, and answered together (`D192`) |
 | Names an unknown id | Impossible — Ubiq mints the id and returns it |
 | The model forgets to emit it | There is nothing to forget: registering is the whole act |
 
@@ -131,6 +131,11 @@ That problem is designed away instead: **a registration is armed for the current
 Everything armed when the turn ends is raised; nothing survives into the next turn. There is no
 durable id space to resolve, and `feedback-for-modal-detail` never has to be a name the model
 remembers — the returned handle exists only so the model can cancel its own registration.
+
+Several at once are still all raised at once, and `D192` says what happens then: they are one
+*batch*, answered separately and submitted as a single prompt when the last of them settles. Nothing
+is selected and nothing is deferred — the user sees every question the turn asked, and the agent
+reads every answer in one message.
 
 ---
 

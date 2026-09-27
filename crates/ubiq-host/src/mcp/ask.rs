@@ -3,11 +3,22 @@
 //! Every other built-in tool answers from a fact the host already holds. These two do not.
 //!
 //! **`ask_user_question` parks.** It puts a question on screen and waits until the person answers
-//! it, says they would rather talk, or an hour passes — [`crate::ask::Asks`] holds the call
-//! meanwhile, and `D138` is why that table exists at all. **It never runs on the listener's
+//! it, says they would rather talk, or the wait's bound passes — [`crate::ask::Asks`] holds the
+//! call meanwhile, and `D138` is why that table exists at all. **It never runs on the listener's
 //! thread**: [`super::server::handle`] moves the request onto a thread of its own before calling
 //! in here, because every other agent's tool calls come through that one listener and a parked
 //! call would hold all of them up.
+//!
+//! **The bound is short, and giving up is a result rather than a failure** (`D191`, `G360`).
+//! Every harness in front of this call keeps a tool timeout of its own and every one of them is
+//! shorter than an hour, so a call that waits an hour loses that race and the model reads an
+//! opaque harness failure while the user is still deciding. So a silent call waits
+//! [`ubiq_proto::ask::ASK_PARK_SECS`] — under the shortest tool timeout this tree knows of — and
+//! returns `timedOut` as an ordinary result the model can act on, while the dialog stays on
+//! screen and its row is handed to [`crate::armed::Armed`] so the answer still arrives, as the
+//! next turn. A call whose client asked for MCP progress notifications gets the patient
+//! [`ubiq_proto::ask::ASK_TIMEOUT_SECS`] instead, because its timer is being reset while it waits;
+//! that arm lives in [`super::server`] and degrades to this one on any client that does not ask.
 //!
 //! **`register_question` does not.** It files the same questions in [`crate::armed::Armed`] and
 //! returns the minted id on the listener's own thread; the dialog is raised when the agent's turn
@@ -27,15 +38,20 @@
 //! at a user who cannot make sense of them is worse than telling the model what it got wrong. The
 //! refusal is an in-band `isError`, which is the failure a model can read and correct.
 
+use std::sync::mpsc::Receiver;
+use std::time::Duration;
+
 use serde::Deserialize;
 use serde_json::{Value, json};
-use ubiq_proto::ask::{ASK_TIMEOUT_SECS, AskAnswer, AskClosed, AskOption, AskOutcome, AskQuestion};
+use ubiq_proto::ask::{ASK_PARK_SECS, AskAnswer, AskClosed, AskOption, AskOutcome, AskQuestion};
 use ubiq_proto::bus::Voice;
+use ubiq_proto::ids::AskId;
 use ubiq_proto::messages::Message;
 use ubiq_proto::work::AgentId;
 
 use super::AskReach;
 use super::registry::AgentFacts;
+use crate::ask::Ending;
 
 /// The arguments as the harness writes them: Claude Code's own shape, camelCase and all.
 #[derive(Deserialize)]
@@ -74,7 +90,15 @@ pub fn call(
     reach: &AskReach,
 ) -> Result<Value, String> {
     match tool {
-        "ask_user_question" => ask(arguments, facts, voice, reach),
+        // The silent bound. The streaming arm does not come through here: it calls [`raise`] and
+        // [`settle`] itself, with the patient bound, because it can say it is still alive.
+        "ask_user_question" => ask(
+            arguments,
+            facts,
+            voice,
+            reach,
+            Duration::from_secs(ASK_PARK_SECS),
+        ),
         "register_question" => register(arguments, facts, reach),
         _ => Err(format!(
             "unknown tool: {}/{tool}",
@@ -127,26 +151,89 @@ fn register(arguments: &Value, facts: &AgentFacts, reach: &AskReach) -> Result<V
 }
 
 /// Raise the question, wait for the answer, and turn whatever ended it into a tool result.
+///
+/// The whole of the blocking arm: [`raise`] puts the dialog up, the table is waited on for
+/// `bound`, and [`settle`] turns whatever ended it into a result. The streaming arm in
+/// [`super::server`] is the same three steps with its own clock between the first and the last.
 fn ask(
     arguments: &Value,
     facts: &AgentFacts,
     voice: &Voice,
     reach: &AskReach,
+    bound: Duration,
 ) -> Result<Value, String> {
+    let raised = raise(arguments, facts, voice, reach)?;
+    let ending = reach.asks.wait_for(raised.ask_id, &raised.waiting, bound);
+    settle(raised, ending, reach, bound)
+}
+
+/// A question that is on screen and a call that is waiting on it.
+///
+/// Returned by [`raise`] so a caller can run its own clock over the wait — the streaming arm does,
+/// because it has progress notifications to write while it waits.
+pub struct Raised {
+    pub agent_id: AgentId,
+    pub ask_id: AskId,
+    questions: Vec<AskQuestion>,
+    pub waiting: Receiver<Ending>,
+}
+
+/// Check the ask, park the call, and put the dialog on screen. Everything up to the waiting.
+pub fn raise(
+    arguments: &Value,
+    facts: &AgentFacts,
+    voice: &Voice,
+    reach: &AskReach,
+) -> Result<Raised, String> {
     let (agent_id, questions) = reading("ask_user_question", arguments, facts)?;
 
     let (ask_id, waiting) = reach.asks.raise(agent_id, &questions);
     // The coordinator alone knows which window owns the conversation, so the ask goes to it as an
     // ordinary bus fact and it does the addressing — the same route a notification takes from a
     // tool call. A conversation with no owner is ended there as `Gone`, which releases this wait
-    // rather than leaving it to the timeout.
+    // rather than leaving it to the bound.
+    // No batch: a parked ask is raised on its own, mid-turn, and waits for nothing else. The
+    // set that is answered together is the one a turn boundary raises (`G362`).
     voice.say(Message::AskUser {
         agent_id,
         ask_id,
         questions: questions.clone(),
+        batch_at: 0,
+        batch_of: 0,
     });
 
-    match reach.asks.wait(ask_id, &waiting) {
+    Ok(Raised {
+        agent_id,
+        ask_id,
+        questions,
+        waiting,
+    })
+}
+
+/// Turn whatever ended the wait into the tool result the model reads.
+///
+/// **A wait that gave up is not a failure.** It comes back as an ordinary result saying nobody
+/// answered in time, not an `isError`: the model has something to do with that — carry on, or
+/// stop and say what it is waiting on — whereas an error is what the harness's own timeout would
+/// have produced, which is the failure this whole bound exists to get in front of (`G360`).
+///
+/// **And the question outlives the call.** The dialog is not taken down: the row is handed to
+/// [`crate::armed::Armed`] under the same id, so when the user does answer, the answer arrives as
+/// the agent's next turn through the arm-and-fire path rather than landing nowhere (`D191`). No
+/// `AskEnded` goes out on this path — sending one would close the modal under the user mid-answer.
+pub fn settle(
+    raised: Raised,
+    ending: Ending,
+    reach: &AskReach,
+    bound: Duration,
+) -> Result<Value, String> {
+    let Raised {
+        agent_id,
+        ask_id,
+        questions,
+        ..
+    } = raised;
+    match ending {
         Ok(AskOutcome::Answered(answers)) => Ok(answered(&questions, &answers)),
         Ok(AskOutcome::Chat) => Ok(json!({
             "answered": [],
@@ -154,19 +241,19 @@ fn ask(
             "summary": "The user would rather discuss this than pick an option. They are saying so in the chat: read what they write next and carry on from it, rather than asking again.",
         })),
         Err(AskClosed::Timeout) => {
-            // The table released this row by itself, so nothing else is going to tell the window:
-            // without this the dialog stays on screen offering an answer the tool call has
-            // already stopped waiting for. Same route out as the question came in by — the
-            // coordinator does the addressing.
-            voice.say(Message::AskEnded {
-                agent_id,
-                ask_id,
-                why: AskClosed::Timeout,
-            });
-            Err(format!(
-                "nobody answered this question within {} minutes, so it was closed. Carry on without an answer, or say what you are blocked on.",
-                ASK_TIMEOUT_SECS / 60
-            ))
+            reach.armed.adopt(agent_id, ask_id, questions);
+            Ok(json!({
+                "answered": [],
+                "chat": false,
+                "timedOut": true,
+                "summary": format!(
+                    "Nobody answered within {} seconds, so this call is returning without an answer. \
+                     The question is still on screen and the user can still answer it — if they do, \
+                     their answer reaches you as your next turn. Carry on without it if you can; \
+                     otherwise end your turn and say you are waiting on this question.",
+                    bound.as_secs(),
+                ),
+            }))
         }
         Err(AskClosed::Gone) => Err(
             "this question was closed because the conversation that asked it has gone.".to_string(),
@@ -249,6 +336,15 @@ mod tests {
             harness: "Claude Code".to_string(),
             ..Default::default()
         }
+    }
+
+    fn picked() -> AskOutcome {
+        AskOutcome::Answered(vec![AskAnswer {
+            question: 0,
+            chosen: vec!["Left".to_string()],
+            other: None,
+            notes: None,
+        }])
     }
 
     fn well_formed() -> Value {
@@ -373,29 +469,41 @@ mod tests {
         drop(hub);
     }
 
-    /// A wait that gives up takes its own row out of the table, so nothing else is left to tell
-    /// the window: without the `AskEnded` this asserts, the dialog stays on screen offering an
-    /// answer the tool call has already stopped waiting for.
+    /// The bounded park's whole point: a wait that gives up answers the model with something it
+    /// can act on rather than failing at it, and the question survives the call (`D191`).
     #[test]
-    fn a_timed_out_ask_tells_the_window_it_is_over() {
-        let asks = Arc::new(Asks::with_timeout(Duration::from_millis(20)));
+    fn a_park_that_gives_up_answers_the_model_and_keeps_the_question() {
+        let asks = Arc::new(Asks::new());
+        let armed = Arc::new(Armed::new());
         let (hub, host) = bus::hub();
         let voice = host.voice();
-        let agent = AgentId::generate().to_string();
+        let agent_id = AgentId::generate();
+        let reach = AskReach {
+            asks: Arc::clone(&asks),
+            armed: Arc::clone(&armed),
+        };
 
-        let refusal = call(
-            "ask_user_question",
+        let result = ask(
             &well_formed(),
-            &facts(&agent),
+            &facts(&agent_id.to_string()),
             &voice,
-            &reaching(Arc::clone(&asks)),
+            &reach,
+            Duration::from_millis(20),
         )
-        .unwrap_err();
-        assert!(refusal.contains("nobody answered"), "{refusal}");
-        assert!(asks.is_empty());
+        .expect("giving up is a result, not an error");
+        assert_eq!(result["timedOut"], true);
+        assert_eq!(result["answered"].as_array().unwrap().len(), 0);
+        let summary = result["summary"].as_str().unwrap();
+        assert!(summary.contains("still on screen"), "{summary}");
+        assert!(summary.contains("next turn"), "{summary}");
 
-        // The question first, then the closing, both on the host's own voice for the coordinator
-        // to address.
+        // The parked row is gone, and the dialog it raised is now the armed table's — already
+        // raised, so the user can still answer it.
+        assert!(asks.is_empty());
+        assert_eq!(armed.len(), 1);
+
+        // The question went out and nothing closed it: an `AskEnded` here would take the modal
+        // down under a user who is still reading it.
         let raised = match host.recv().expect("the bus is open") {
             bus::FromClient::Said {
                 message: Message::AskUser { ask_id, .. },
@@ -403,16 +511,64 @@ mod tests {
             } => ask_id,
             other => panic!("expected the ask to be raised, got {other:?}"),
         };
-        match host.recv().expect("the bus is open") {
-            bus::FromClient::Said {
-                message: Message::AskEnded { ask_id, why, .. },
-                ..
-            } => {
-                assert_eq!(ask_id, raised);
-                assert_eq!(why, AskClosed::Timeout);
-            }
-            other => panic!("expected the ask to be closed, got {other:?}"),
-        }
+        assert!(
+            host.recv_timeout(Duration::from_millis(20)).is_err(),
+            "giving up on the call must not close the dialog",
+        );
+
+        // And the late answer lands: the armed table holds it under the same id, which is what
+        // the coordinator's `AnswerAsk` arm looks in first.
+        // A handed-over dialog is a batch of one, so answering it settles the whole of it at once.
+        let settled = match armed.answer(
+            raised,
+            &AskOutcome::Answered(vec![AskAnswer {
+                question: 0,
+                chosen: vec!["Left".to_string()],
+                other: None,
+                notes: None,
+            }]),
+        ) {
+            crate::armed::Answering::Settled(settled) => settled,
+            _ => panic!("the handed-over dialog waits for nothing else"),
+        };
+        assert_eq!(settled.arming, crate::armed::Arming::HandedOver);
+        let text = crate::armed::prose(&settled).expect("something was said");
+        assert!(text.contains("without an answer"), "{text}");
+        assert!(text.contains("- Answer: Left"), "{text}");
+        drop(hub);
+    }
+
+    /// A user who answers on the last millisecond gets the tool result they earned: the give-up
+    /// finds the row already taken and reads the answer off the channel instead.
+    #[test]
+    fn an_answer_that_races_the_bound_still_becomes_the_tool_result() {
+        let asks = Arc::new(Asks::new());
+        let armed = Arc::new(Armed::new());
+        let (hub, host) = bus::hub();
+        let voice = host.voice();
+        let agent_id = AgentId::generate();
+        let reach = AskReach {
+            asks: Arc::clone(&asks),
+            armed: Arc::clone(&armed),
+        };
+
+        let raised = raise(
+            &well_formed(),
+            &facts(&agent_id.to_string()),
+            &voice,
+            &reach,
+        )
+        .expect("a well-formed ask");
+        // The answer lands before the give-up runs, which is the race: the row is gone and the
+        // answer is on the channel, and `give_up` is what has to notice.
+        assert!(asks.answer(raised.ask_id, picked()));
+        let ending = asks.give_up(raised.ask_id, &raised.waiting);
+        let result = settle(raised, ending, &reach, Duration::from_millis(20))
+            .expect("the answer, not the give-up");
+        assert_eq!(result["answered"][0]["chosen"][0], "Left");
+        assert!(result.get("timedOut").is_none());
+        // Nothing was handed over: the call answered itself.
+        assert!(armed.is_empty());
         drop(hub);
     }
 

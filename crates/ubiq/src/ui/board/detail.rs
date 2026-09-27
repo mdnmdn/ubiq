@@ -58,6 +58,7 @@ pub fn render(
                 .child(div().size(px(8.)).flex_none().rounded_full().bg(colour))
                 .child(section_label("Task"))
                 .child(div().flex_1().min_w(px(0.)))
+                .child(empty_fields_toggle(app, cx))
                 .child(icon_button(
                     "board-detail-close",
                     IconName::Close,
@@ -99,6 +100,34 @@ pub fn popup(
     )
 }
 
+/// The eye beside the panel's close: show the fields nobody has filled in, or put them away.
+///
+/// One answer for every task the window opens and for the sitting only — the state is
+/// [`AppState::task_show_empty`], and hidden is where every start finds it. It hides *emptiness*,
+/// never content: a field carrying a value draws either way, so nothing the task says can be put
+/// out of reach by it.
+fn empty_fields_toggle(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let showing = app.task_show_empty;
+    icon_button(
+        "board-detail-empty-fields",
+        if showing {
+            IconName::Eye
+        } else {
+            IconName::EyeOff
+        },
+        showing,
+        cx.listener(|this, _, _, cx| this.toggle_task_empty_fields(cx)),
+    )
+    .tooltip(move |window, cx| {
+        gpui_component::tooltip::Tooltip::new(if showing {
+            "Hide empty fields"
+        } else {
+            "Show empty fields"
+        })
+        .build(window, cx)
+    })
+}
+
 fn body(
     app: &AppState,
     task: &TaskRecord,
@@ -116,6 +145,17 @@ fn body(
         .session
         .and_then(|id| work.session(id))
         .is_some_and(|session| session.worktree);
+
+    // Which facts a task has nothing to say about, and whether the panel is saying so. The eye in
+    // the bar is one answer for the whole window (T-255); a fact with a value is never subject to
+    // it. `Blocks` is derived rather than typed in (M19), so what makes it empty is that no other
+    // task names this one as a prerequisite.
+    let blocks_any = work
+        .tasks
+        .iter()
+        .any(|other| other.prerequisites.contains(&task.id));
+    let started = work.now(task).is_some();
+    let drawn = |filled: bool| app.task_show_empty || filled;
 
     let now = match work.now(task) {
         Some(agent) => {
@@ -257,6 +297,9 @@ fn body(
         .gap_3()
         .overflow_y_scroll()
         .children(form::refusal(app))
+        // Said once, over the whole panel, rather than beside each locked field: the reason is the
+        // same for all of them, and a control that only greys out leaves the user guessing.
+        .children(crate::ui::tasksrc::pull_only_notice(app, task.id))
         .child(form::title(app, task, window, cx))
         .child(
             div()
@@ -276,7 +319,7 @@ fn body(
                 // heading: three words in a row with one of them lit need none, and the space it
                 // took is what lets the two facts share one line.
                 .child(div().flex_1().min_w(px(0.)))
-                .child(form::priority_pills(task, cx)),
+                .child(form::priority_pills(app, task, cx)),
         )
         .child(
             div()
@@ -284,7 +327,11 @@ fn body(
                 .flex_col()
                 .gap_1()
                 .child(fact("Key", form::key(app, task, window, cx)))
-                .child(fact("Link", form::link(app, task, window, cx)))
+                .children(
+                    drawn(filled(task.link.as_deref())).then(|| {
+                        fact("Link", form::link(app, task, window, cx)).into_any_element()
+                    }),
+                )
                 .child(fact(
                     "Level",
                     form::level_pill(task, &app.mission_term(cx), cx),
@@ -293,23 +340,38 @@ fn body(
                 // row: the way into the mission's own surface (`mission-proposal.md` §6.1). Drawn
                 // only on a task that *is* a mission, because on any other it opens nothing.
                 .children(open_mission(app, task, cx))
-                .child(fact("Parent", form::parent(app, task, cx)))
-                .child(fact("Kind", form::kind_pills(task, cx)))
+                .children(
+                    drawn(task.parent.is_some())
+                        .then(|| fact("Parent", form::parent(app, task, cx)).into_any_element()),
+                )
+                .child(fact("Kind", form::kind_pills(app, task, cx)))
                 .child(fact("Complexity", form::complexity_pills(task, cx)))
-                .child(fact(
-                    "Assigned to",
-                    form::assigned_to(app, task, window, cx),
-                ))
-                .child(fact("Labels", form::labels(app, task, cx)))
-                .child(fact("References", form::references(app, task, window, cx)))
-                .child(fact(
-                    "Prerequisites",
-                    form::prerequisites(app, task, window, cx),
-                ))
-                .child(fact("Blocks", form::blocks(app, task, cx)))
-                .child(fact("Attachments", form::attachments(app, task, cx)))
-                .child(fact("Colour", form::colour(task, cx)))
-                .child(fact("Now", now)),
+                .children(drawn(filled(task.assigned_to.as_deref())).then(|| {
+                    fact("Assigned to", form::assigned_to(app, task, window, cx)).into_any_element()
+                }))
+                .children(
+                    drawn(!task.labels.is_empty())
+                        .then(|| fact("Labels", form::labels(app, task, cx)).into_any_element()),
+                )
+                .children(drawn(!task.references.is_empty()).then(|| {
+                    fact("References", form::references(app, task, window, cx)).into_any_element()
+                }))
+                .children(drawn(!task.prerequisites.is_empty()).then(|| {
+                    fact("Prerequisites", form::prerequisites(app, task, window, cx))
+                        .into_any_element()
+                }))
+                .children(
+                    drawn(blocks_any)
+                        .then(|| fact("Blocks", form::blocks(app, task, cx)).into_any_element()),
+                )
+                .children(drawn(!task.attachments.is_empty()).then(|| {
+                    fact("Attachments", form::attachments(app, task, cx)).into_any_element()
+                }))
+                .children(
+                    drawn(task.colour.is_some())
+                        .then(|| fact("Colour", form::colour(task, cx)).into_any_element()),
+                )
+                .children(drawn(started).then(|| fact("Now", now).into_any_element())),
         )
         .child(form::description(app, task, window, cx))
         .children((total > 0).then(|| {
@@ -474,6 +536,13 @@ fn open_mission(
         )
         .into_any_element(),
     )
+}
+
+/// Whether a free-text fact — a link, an assignee — carries anything. Whitespace is not a value,
+/// which is the same reading [`form::typed_fact`](super::form) gives it when it decides whether to
+/// draw the word for its absence.
+fn filled(value: Option<&str>) -> bool {
+    value.is_some_and(|text| !text.trim().is_empty())
 }
 
 fn fact(label: &str, value: AnyElement) -> impl IntoElement {

@@ -117,7 +117,10 @@ the conversation, and Control and the sink, which are not about a project at all
 terminals and the centre panel itself outlive a mode switch too. **What no switch does is place a
 chat** (`D156`): a tab is opened by the user, on one screen, and comes back from that mode's own
 blob — a switch that put one beside Git's changes panel would be the window starting a conversation
-nobody asked for and then writing it down as Git's.
+nobody asked for and then writing it down as Git's. **A mission panel answers the same rule**
+(`T-256`): both of its shapes are opened by a gesture and belong to the mode the gesture was made
+in, so a mission left open in Agents is not carried into Tasks' right region or Git's centre, where
+it would arrive as the displayed tab and cover the chat or the columns the user had left there.
 
 **A side panel defaults to the dock, and only a panel meaningful in exactly one mode stays out of
 it.** `PanelKind` (`state/dock.rs`) is the shared, draggable, per-window arrangement — `Terminal`,
@@ -290,9 +293,14 @@ untouched.
 offers two answers: Ubiq's config folder, which is the default and writes nothing inside the
 project, and "In the project (.ubiq/)", which writes the tasks, the project metadata and the
 configuration to a `.ubiq/` folder the project commits — with a `.gitignore` that leaves this
-machine's caches and view state out. The edit panel draws the same row for an existing project and
-does not take a click: it says where the data is. The host can move an existing project either way
-— `SetProjectStorage`, T-204 — and nothing in the interface asks it to yet, which is `G354`. `D173`
+machine's caches and view state out. **The edit panel draws the same row and it moves the data**
+(`T-249`): a pill sends `SetProjectStorage`, and because that copies a tree across two unrelated
+roots nothing is drawn as moved until the host says so. The row names the mode it is waiting for
+while it waits, takes no further click until it is answered, and then either shows the directory
+`ProjectStorageMoved` named — the record's own new mode arriving on the `ProjectChanged` broadcast
+beside it — or, on `ProjectStorageError`, goes back to the mode the record still has and prints the
+refusal in full. **The host refuses the move while a pane or a conversation is running in the
+project**, which is the refusal a user meets most, so it is shown rather than swallowed. `D173`
 and [`../tech/project-structure.md`](../tech/project-structure.md)
 are the shape of the folder.
 

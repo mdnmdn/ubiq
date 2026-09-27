@@ -470,6 +470,18 @@ You are in planning mode. Your task is to generate an implementation plan...
 }
 ```
 
+### Tool-call timeout
+
+**Unknown.** Neither the stdio nor the HTTP/SSE entry schema above carries a
+timeout field, and the verified `mcp-config.json` correction adds none. The one
+`timeout` elsewhere in this document — `15`, in the hooks example — bounds a
+**hook command**, not a tool call, and says nothing about MCP. So Copilot CLI's
+bound on a parked `tools/call` is undocumented and unconfigurable from the file
+`am` writes; a live run is what settles it.
+
+**Progress notifications: unknown.** Nothing documents whether the CLI's MCP
+client sends `_meta.progressToken`, or how it treats `notifications/progress`.
+
 ### `inputs` — interactive prompts for secrets
 
 Three input types: `promptString`, `pickString`, `command`. Each entry

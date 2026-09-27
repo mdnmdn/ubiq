@@ -92,6 +92,18 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .flex_1()
         .min_h(px(0.))
         .gap_3()
+        // Which of the turn's dialogs this is, above everything else, because it changes what
+        // confirming means: the agent registered several questions, they all went up together,
+        // and nothing reaches it until every one of them is answered (`G362`). Drawn only where
+        // there is a set — `batch_of` is `0` for every ask raised on its own.
+        .children(record.batched().then(|| {
+            modal_note(&format!(
+                "Question {} of {} the agent registered this turn. Nothing is sent until all {} \
+                 are answered.",
+                record.batch_at, record.batch_of, record.batch_of,
+            ))
+            .into_any_element()
+        }))
         // The strip is flush to the modal's own edges, chrome-style: it separates the questions
         // rather than sitting among them.
         .child(div().flex().flex_none().child(tab_strip(
@@ -423,6 +435,11 @@ fn answer_lines(answer: &AskAnswer) -> Vec<String> {
 fn footer(record: &AskRecord, cx: &mut Context<AppState>) -> AnyElement {
     if !record.live() {
         let note = match &record.stage {
+            // One of a set says what it is still waiting for, because confirming it sent
+            // nothing on its own — the whole set goes as one prompt (`G362`).
+            AskStage::Answered(_) if record.batched() => {
+                "Answered \u{2014} it reaches the agent once the turn's other questions are too."
+            }
             AskStage::Answered(_) => "Answered.",
             AskStage::Chatted => "Ended \u{2014} you chose to talk about it.",
             AskStage::Ended(AskClosed::Timeout) => "Ended \u{2014} nobody answered in time.",
@@ -465,10 +482,16 @@ fn footer(record: &AskRecord, cx: &mut Context<AppState>) -> AnyElement {
         .justify_between()
         .gap_2()
         // What the dim Confirm is waiting for, said rather than left to be guessed at.
-        .child(modal_note(&match unanswered {
-            0 => "The agent is waiting on this.".to_string(),
-            1 => "One question still to answer.".to_string(),
-            many => format!("{many} questions still to answer."),
+        .child(modal_note(&match (unanswered, record.batched()) {
+            // Nothing left on this dialog, but the agent is still waiting on the rest of the set
+            // — the body's own note says which of them this is.
+            (0, true) => format!(
+                "Confirm holds this answer; all {} go to the agent together.",
+                record.batch_of,
+            ),
+            (0, false) => "The agent is waiting on this.".to_string(),
+            (1, _) => "One question still to answer.".to_string(),
+            (many, _) => format!("{many} questions still to answer."),
         }))
         .child(
             div()

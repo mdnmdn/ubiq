@@ -450,6 +450,13 @@ is `Pull only` / `Two-way`, defaulting to `Pull only`. A first connection that s
 writing to somebody's shared board is the failure mode that loses trust in the whole feature.
 **Cost:** one more control, and one more state to explain.
 
+`Pull only` is **enforced on the board**, not merely honoured by the sync pass (`T-229`): a task
+linked to a pull-only binding draws no editable control for any field in `outbound::FIELDS` and
+cannot be dragged between columns, since a column is the remote's lane. Everything outside that
+table — sub-tasks, comments, and every field the remote has never heard of — stays editable, so a
+pulled card is still a card Ubiq can annotate. [`../features/workbench-tasks.md`](../features/workbench-tasks.md)
+carries the whole rule and the reasoning.
+
 **R14 — The poll interval is per binding, with a floor.** *Recommended:* default five minutes, floor
 one minute, and a pass never overlaps itself. **Cost:** a change made elsewhere takes up to an
 interval to show, which the force button is for.

@@ -58,6 +58,9 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
             drone: DroneField::default(),
             nav: ProjectNav::default(),
             definitions_use_global: true,
+            storage_pending: None,
+            storage_dir: None,
+            storage_error: None,
         });
         state.workbench.settings.open = true;
         state.workbench.confirm_end_conversation = Some(AgentId::generate());
@@ -465,6 +468,9 @@ fn an_outside_click_in_a_higher_layer_leaves_the_layer_under_it_up(cx: &mut gpui
             drone: DroneField::default(),
             nav: ProjectNav::default(),
             definitions_use_global: true,
+            storage_pending: None,
+            storage_dir: None,
+            storage_error: None,
         });
         state.workbench.kb_source = Some(KbSourceForm::default());
     });

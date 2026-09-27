@@ -757,6 +757,87 @@ impl AppState {
         cx.notify();
     }
 
+    /// Ask the host to move an existing project's data to `storage` (`D173`).
+    ///
+    /// **Nothing swaps here.** The move copies a tree across two unrelated roots and is refused
+    /// outright while a pane or a conversation is running in the project, so the row keeps drawing
+    /// the record's own mode and names this one as pending until `ProjectStorageMoved` or
+    /// `ProjectStorageError` answers — see `AppState::project_storage_moved` and
+    /// `AppState::project_storage_failed`. A second ask while one is in flight is dropped: the
+    /// host answers the first, and two rows' worth of pending is not a state this row has.
+    pub fn set_project_storage(
+        &mut self,
+        project: ProjectId,
+        storage: StorageMode,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.workbench.project_settings.as_mut() else {
+            return;
+        };
+        if settings.storage_pending.is_some() {
+            return;
+        }
+        settings.storage_pending = Some(storage);
+        settings.storage_error = None;
+        self.bus.send(Message::SetProjectStorage {
+            project_id: project,
+            storage,
+        });
+        cx.notify();
+    }
+
+    /// The move finished: the data is in `storage`, in `dir`.
+    ///
+    /// The record's own new mode arrives on the `ProjectChanged` the host broadcasts beside this,
+    /// so all that is left here is to stop waiting and keep the directory the host named.
+    pub(super) fn project_storage_moved(
+        &mut self,
+        project: ProjectId,
+        storage: StorageMode,
+        dir: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.workbench.project_settings.as_mut() else {
+            return;
+        };
+        if !matches!(settings.mode, ProjectSettingsMode::Edit { project: it } if it == project) {
+            return;
+        }
+        // The answer is only interesting while this window is still waiting for it: a `Moved` for
+        // a mode nobody asked for is another window's, arriving here because the dialog is open.
+        if settings.storage_pending.is_some_and(|it| it != storage) {
+            return;
+        }
+        settings.storage_pending = None;
+        settings.storage_error = None;
+        settings.storage_dir = Some(dir);
+        cx.notify();
+    }
+
+    /// The move was refused or failed, and the project is still where it was.
+    ///
+    /// `storage` is the mode that was **not** reached, so the row goes back to the record's own
+    /// mode rather than guessing at one — which it does by simply dropping the pending mode, since
+    /// nothing was ever drawn as moved.
+    pub(super) fn project_storage_failed(
+        &mut self,
+        project: ProjectId,
+        storage: StorageMode,
+        error: String,
+        cx: &mut Context<Self>,
+    ) {
+        tracing::warn!("project {project:?}: storage move to {storage:?} refused: {error}");
+        let Some(settings) = self.workbench.project_settings.as_mut() else {
+            return;
+        };
+        if !matches!(settings.mode, ProjectSettingsMode::Edit { project: it } if it == project) {
+            return;
+        }
+        settings.storage_pending = None;
+        settings.storage_error = Some(error);
+        cx.notify();
+    }
+
     /// Ask the operating system for a folder, then add it or re-point the project being located.
     ///
     /// The dialog is the platform's own — the one users already know how to type a path into, and
@@ -835,6 +916,11 @@ impl AppState {
             nav: ProjectNav::default(),
             // A folder with no record has no definitions of its own either.
             definitions_use_global: true,
+            // Creation picks a mode rather than moving one: `create_storage` rides on the
+            // `AddProject`, and there is nothing to ask the host for yet.
+            storage_pending: None,
+            storage_dir: None,
+            storage_error: None,
         });
         self.fill_project_form = true;
         cx.notify();
@@ -879,6 +965,10 @@ impl AppState {
                 .project_definitions
                 .iter()
                 .any(|it| it.project == Some(project)),
+            // A dialog opens on what the record says; nothing is in flight and nothing has failed.
+            storage_pending: None,
+            storage_dir: None,
+            storage_error: None,
         });
         // The KB nav's sources and the explorer's are the same configuration, so whichever asks
         // first is the one that lands: a dialog opened before the mode was ever visited must not
@@ -1272,6 +1362,12 @@ impl AppState {
             open.prefs.file_filter = self.workbench.file_filter.clone();
             open.prefs.board_shut = open.board.shut.clone();
             open.prefs.board_popup = open.board.popup;
+            // The whole filter set together (`T-169`), the ids as text — see `ViewPrefs`.
+            open.prefs.board_filter = open.board.filter.clone();
+            open.prefs.board_session = open.board.session.map(|id| id.to_string());
+            open.prefs.board_labels = open.board.labels.clone();
+            open.prefs.board_ready_only = open.board.ready_only;
+            open.prefs.board_mission = open.board.mission.map(|id| id.to_string());
             open.prefs.teams_hide_done = open.teams.hide_done;
         }
 

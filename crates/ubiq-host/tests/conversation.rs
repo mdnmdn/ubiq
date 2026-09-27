@@ -14,6 +14,7 @@ use agent_manager::io::{
     AgentEvent, AgentInput, AgentInputSink, Content, IoBridge, PermissionOutcome,
     StopReason as LibStop, ToolCall, ToolCallUpdate, ToolKind, ToolStatus,
 };
+use ubiq_host::armed::Answering;
 use ubiq_host::conversation::{ConvFlags, Conversation};
 use ubiq_proto::bus::{self, Client, HostEnd, To};
 use ubiq_proto::conversation::{ConvContent, ConvUpdate, StopReason, ToolStatus as WireStatus};
@@ -858,8 +859,15 @@ fn a_turn_ending_raises_the_dialogs_that_turn_registered() {
     // The other conversation's registration is still armed, and still not raised: a turn boundary
     // belongs to one conversation.
     assert_eq!(armed.len(), 2, "both rows are still held");
-    assert!(armed.answer(theirs).is_none(), "theirs was never raised");
-    assert!(armed.answer(ask_id).is_some(), "ours was");
+    let said = ubiq_proto::ask::AskOutcome::Answered(Vec::new());
+    assert!(
+        matches!(armed.answer(theirs, &said), Answering::NotOurs),
+        "theirs was never raised",
+    );
+    assert!(
+        matches!(armed.answer(ask_id, &said), Answering::Settled(_)),
+        "ours was, and it was the whole of its batch",
+    );
 }
 
 /// A turn that broke drops what it armed rather than putting a dialog on screen over an error:

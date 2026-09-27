@@ -140,14 +140,6 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                             git.mine_only,
                             cx.listener(|this, _, _, cx| this.toggle_git_mine(cx)),
                         ))
-                        .children(git.filtered().then(|| {
-                            ghost_button(
-                                "git-show-all",
-                                None,
-                                "Show everything",
-                                cx.listener(|this, _, _, cx| this.clear_git_filters(cx)),
-                            )
-                        }))
                         .child(
                             mono(
                                 format!("{} of {} commits", history.len(), git.commits.len()),

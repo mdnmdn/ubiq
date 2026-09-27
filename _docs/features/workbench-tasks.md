@@ -135,8 +135,15 @@ the rest of the draft is sent the moment there is an id to send it to.
 **The labels are a `kit::MultiPicker` in the toolbar, and they narrow rather than widen.** One row
 per label the project actually uses, its own dot in that label's own colour; ticking two asks for
 the cards carrying both — `AND`, not `OR`, unchanged from the row of pills this replaced (`T-142`).
-They stack with the field, and the reset that clears both appears only once something is filtered —
-the graph toolbar's posture, for the graph toolbar's reason.
+They stack with the field.
+
+**There is no `Show everything` on this toolbar.** It was a `ghost_button` drawn only while
+`BoardState::filtering()` was true, and it vanished again the moment it was pressed — so every
+control to its right, the popup toggle and the archive and the three `+` buttons, slid sideways
+under the pointer each time the filter field took or lost a character. Each filter is undone where
+it is set instead: the field by emptying it, a label row and `Ready only` by clicking them again,
+the mission picker by its own *all missions* row. `BoardState::clear_filters()` stays, because the
+behaviour it names is still what those controls do one at a time.
 
 **A card carries the worst thing happening in its task, unless it has a colour of its own.** Its
 left edge is the state the user would want to be told first: a failed sub-task beats one waiting on
@@ -360,9 +367,9 @@ says so rather than claiming mission settings are not editable.
 `kit::Picker`, `All tasks` plus every mission not `Completed`/`Abandoned` first and the closed ones
 last and dimmed but still pickable, stacks with the text filter and `Ready only` — all three ANDed
 in `BoardState::matches` — and the status bar's counts follow. A mission card's own *Show only this
-mission* row sets the same filter. It is not persisted, the same as the board's other filters, and
-is cleared rather than left pointing at nothing when the mission it names is deleted or demoted off
-`Level::Mission`.
+mission* row sets the same filter. It is saved with the board's view state per project, the same as
+every other filter on the toolbar (`T-169`), and is cleared rather than left pointing at nothing
+when the mission it names is deleted or demoted off `Level::Mission`.
 
 **The minimap is a miniature of the document's own layout, not a row of identical ticks (T-110).**
 The first cut drew one full-width mark per thread and nothing else, which read as noise rather than
@@ -594,6 +601,21 @@ is a list that has to be read to find the one line that is not idle. Under the s
 comment in the order it was left. A comment typed here is authored `user`; one an agent posts
 through a tool is authored `agent`.
 
+**The panel hides what a task has nothing to say about.** A full row of facts drawn on a task that
+carries none of them is a vertical run of `no link`, `no parent`, `blocks nothing` — placeholders
+between the reader and the few facts that are filled in. So the panel's own bar carries an eye
+beside its close: hidden is where every start finds it, showing is remembered for as long as the
+window is open, and the answer is one for every task opened rather than one per task, because the
+run of placeholders is a way of reading rather than a property of the record. It is not written to
+disk — a sitting's choice, and hidden is the posture worth beginning each one in. **A fact with a
+value always draws**, whatever the eye says, so nothing a task holds can be put out of reach by it;
+what hides when empty is the link, the parent, who it is assigned to, the labels, the references,
+the prerequisites, what it blocks, the attachments, the colour and who is on it now. The key, the
+level, the kind, the complexity, the status and priority line and the description stay whether or
+not they are filled, because `not set` is a real choice on each and hiding the control would leave
+no way to make it. A locked field on a pull-only task hides on the same rule as any other, and the
+notice that says why the task is locked never does.
+
 **The shape and the session are at the foot, and both may be unset.** They describe how the work will
 be done rather than what it is, which is the last thing looked at and the first thing not yet
 decided — and neither drives anything live yet. A shape nobody chose is nothing, not `DIRECT`: `not
@@ -741,7 +763,7 @@ that named it, the same region the `+` below reaches.
 **A board can be a mirror of a board somewhere else, and a card says what that made of it** — a
 Trello board, a work-item query, a column of issues. What the binding is and how it is configured
 belongs to [`../inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md), `D187` and
-`D188`; what lands *here* is four things, none of which is provider-shaped:
+`D188`; what lands *here* is the following, none of which is provider-shaped:
 
 - **A badge on the card**, beside the link chip, when the sync layer did something worth saying.
   **`Parked`** is the one that matters and the reason the badge exists: an item whose remote lane
@@ -750,6 +772,26 @@ belongs to [`../inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.
   `Drifted`, `Conflict` and `Unlinked` wear the same shape, and a drifted card names the fields
   that differ on its hover (`D188`). **A card merely in step draws nothing** — the ordinary case is
   not news, and a dot on every synced card is a dot nobody reads.
+- **A task from a pull-only binding is read-only on the board** (`T-229`). The binding says the
+  direction and the link row says the task is one of the binding's, so **pull-only is a property of
+  the pair**: a task with no link row is nobody's copy and stays fully editable even in a project
+  bound pull only, and an `Unlinked` row is a task the remote let go of (`R9`) — exactly when it
+  becomes the user's own again. The question is asked of the *saved* binding, never of the settings
+  page's unsaved draft: a page left on `Two-way` without a Save must not unlock a field the next
+  pass would still refuse to push. **Which fields are locked is `outbound::FIELDS`, not a guess** —
+  title, description, status, labels, assignee, kind, priority, key and link. `checklist` and
+  `comments` sit outside that table by the sync pass's own decision, so sub-tasks and comments stay
+  Ubiq's own annotations and stay editable; so do shape, level, complexity, colour, session,
+  parent, references, prerequisites and attachments, which the remote has never heard of. A locked
+  field is **inert rather than refused**: no click, no hover, no text cursor, and the reason in its
+  tooltip, on `direction_row`'s own `greyed` idiom — with the whole sentence said once over the
+  panel rather than beside each field. **The card cannot be dragged**, because a column is the
+  remote's lane and a drag is a status write; it still takes a drop, since filing another card in
+  front of it is not a write to it, and a `pull only` chip beside the link chip says why it will
+  not move. A field left mid-edit when the task locks falls straight back to reporting and its
+  uncommitted draft goes with it, the same thing leaving the project already does to one. The draw
+  path refuses by drawing no control and `app/board.rs` refuses the write a second time, so no
+  route that skipped the control gets round it.
 - **A status item in the board's strip**, drawn only when the project is bound: the state, the last
   pass, how many tasks differ, the failure when there is one, and a click that runs a pass now. It
   is drawn first in the strip because it qualifies every count after it — a stale board's numbers
@@ -1119,11 +1161,23 @@ whether the open task draws in the docked side panel or a centred modal (`popup`
 through the drop that ends it, so the popup does not pop open over whatever a drag just filed, and
 cleared only by a click with no drag behind it — and what the panel is in the middle of doing. `set_column(status,
 shut)` puts one column into whichever of `shut`/`opened` the caller names, clearing it from the
-other, rather than one method flipping a single list blind. Both `shut` and `popup`
-survive a restart, the way the explorer's expanded folders do — carried in `ViewPrefs::board_shut`
-and `board_popup`, gathered by `AppState::remember()` and put back once by `restore_files()`, since
-neither is a fact the host reports back; `opened` does not, since it only ever answers a setting the
-project record already carries. `Field` names the one field open — the
+other, rather than one method flipping a single list blind. `shut`, `popup` **and the whole filter
+set** survive a restart, the way the explorer's expanded folders do — carried in
+`ViewPrefs::board_shut`, `board_popup`, `board_filter`, `board_session`, `board_labels`,
+`board_ready_only` and `board_mission`, gathered by `AppState::remember()` and put back once by
+`restore_files()`, since none of them is a fact the host reports back; `opened` does not, since it
+only ever answers a setting the project record already carries.
+
+**The filters are saved as a set, never one at a time** (`T-169`): a board narrowed to a session, a
+mission and two labels is a place the user was working, and one filter coming back among four that
+did not would read as a bug in the four. The two id-shaped ones travel as text, the rule
+`ViewPrefs::chats` follows — an id this build cannot parse costs one filter rather than the whole
+blob. **A filter naming something the project no longer has is dropped silently**, by
+`BoardState::prune()` on every `WorkList`: a session, a label or a mission that is gone is invisible
+in the toolbar while `matches()` keeps rejecting every card, so the board would read as empty with
+nothing lit to explain it and nothing to click to undo it. The text filter is never pruned — it
+names no record, so it cannot dangle, and a filtered board under a field that still says what was
+typed already explains itself. `Field` names the one field open — the
 title, the description, a step by its id rather than its place in the list, or the field that names
 the next one — and `TaskForm` is what was typed into them. `moving` is a drop the host has not
 answered, read back by `is_moving()`; `awaiting_new` is a `CreateTask` whose id is not known;
@@ -1345,12 +1399,25 @@ cleared, since a cleared `Option` writes no key at all in TOML. Separately, `Wor
 mock one it used to search alone, so `SendToAgent` and `AssignAgent` — `message_agent`'s host side
 among them — reach a real running agent rather than finding nobody and silently doing nothing.
 
-The `ubiq-mission` (11 tools) and `use-mission` (6, a strict subset) MCP servers
+The `ubiq-mission` (13 tools) and `use-mission` (6, a strict subset) MCP servers
 (`crates/ubiq-host/src/mcp/mission.rs`, catalogued as `mcp::catalogue::UBIQ_MISSION`/`USE_MISSION`)
 are built the way `manage-ubiq-tasks`/`use-task` already are: two tables sharing the tools both
 answer — `mission_overview`, `read_brief`, `list_documents`, `read_document`, `report_progress`,
-`list_agents` — plus `ubiq-mission`'s own `write_document`, `create_mission_task`, `request_phase`,
-`message_agent` and `read_feedback`. Neither takes a mission argument: `MissionReach` resolves
+`list_agents` — plus `ubiq-mission`'s own `write_document`, `attach_document`, `detach_document`,
+`create_mission_task`, `request_phase`, `message_agent` and `read_feedback`.
+
+**An attached document is an attachment on the anchor task, and there is no second set.** The brief
+is the anchor's own fields (M7), so `attach_document` and `detach_document` write
+`TaskField::Attachments` on it through the same board every task write goes through, and
+`read_brief` — which already listed them — is where they read back. A reference is the shape a task
+attachment already has: a project-relative path, or a `kb:{source}:{path}` address, optionally
+labelled. The host **stores it and never resolves it**, exactly as the tasks server does; the only
+refusal is a target that is empty or a `kb:` address that is not `kb:{source}:{path}`, because that
+one names nothing any reader could ask `ubiq-kb` for. Attaching a target twice replaces its label
+rather than writing a second row. The mission panel needed nothing: `ui/mission/full.rs` draws the
+anchor's attachments already, and clicking one opens it as a task attachment does. Do not read these
+as mission *documents*: `write_document` creates one of the mission's own, in the mission store,
+and these two only point at something that exists elsewhere. Neither takes a mission argument: `MissionReach` resolves
 "which mission am I in" from the calling agent's own `AgentFacts::mission`, off the URL identity
 with no argument (`D102`), and a call from an agent in no mission answers with a sentence rather
 than an error. `read_feedback`'s watermark — what "since you last asked" means — is held in memory
