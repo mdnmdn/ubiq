@@ -73,8 +73,15 @@
 //!   are both general top-level flags valid in either mode (`--resume` takes
 //!   its value via `=`, not a separate argv token — it's an optional-value
 //!   option).
+//!
+//! **Shared home (`D193`).** Under `ConfigStrategy::Home` a run uses the
+//! profile's `COPILOT_HOME` directly ([`Harness::provision_home`]): per-run
+//! MCP and instructions reach it by flag and env from the run's scratch dir,
+//! skills are profile-owned, and the login is the home's own, made by
+//! [`Harness::login_home`] and refreshed by Copilot. `--additional-mcp-config`
+//! and `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` are not re-verified against a binary.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use serde_json::{Value, json};
@@ -93,6 +100,91 @@ impl Copilot {
     /// Construct the GitHub Copilot CLI harness descriptor.
     pub fn new() -> Self {
         Copilot
+    }
+
+    /// The launch shared by [`Harness::provision`] and [`Harness::provision_home`]:
+    /// `COPILOT_HOME=<home>` when there is a home (none for a native run), the account's
+    /// credential references, and `config_args` ahead of the user's passthrough args.
+    ///
+    /// Verified against `copilot --help`: prompt seeding differs by mode (`-p`
+    /// non-interactive vs `-i` interactive — there is no bare positional-prompt seam);
+    /// `--model`/`--resume` are general flags valid in either mode; `--resume` takes its
+    /// value via `=` (an optional-value option, not a separate argv token).
+    fn launch(
+        &self,
+        spec: &RunSpec,
+        home: Option<&Path>,
+        config_args: Vec<String>,
+    ) -> Result<Launch> {
+        let args = if spec.io == crate::spec::IoModes::Structured {
+            // Structured mode: `copilot --acp [args...]` — an ACP endpoint,
+            // driven by `crate::io::AcpBridge`. Everything a passthrough run
+            // puts in argv moves onto the wire here: the prompt is a
+            // `session/prompt`, a resume is a `session/load` (from
+            // `Provisioned::resume`), and the model is a
+            // `session/set_config_option`, so none of `-p`, `--output-format
+            // json`, `--allow-all`, `--no-ask-user`, `--model` or
+            // `--resume=` belongs on this argv. Permissions are now real
+            // `session/request_permission` round trips instead of
+            // `--allow-all`/`--no-ask-user` auto-approval.
+            let mut structured_args = vec!["--acp".to_string()];
+            structured_args.extend(config_args);
+            structured_args.extend(spec.passthrough_args.iter().cloned());
+            structured_args
+        } else {
+            let mut args = config_args;
+            args.extend(spec.passthrough_args.iter().cloned());
+            if let Some(model) = &spec.model {
+                args.push("--model".to_string());
+                args.push(model.clone());
+            }
+            if let Some(id) = &spec.resume {
+                args.push(format!("--resume={id}"));
+            }
+            if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
+                args.push("-i".to_string());
+                args.push(prompt.clone());
+            }
+            args
+        };
+
+        // Account: inject credential *references* into the child's env.
+        let mut env: Vec<(String, String)> = home
+            .map(|home| ("COPILOT_HOME".to_string(), home.display().to_string()))
+            .into_iter()
+            .collect();
+        if let Some(account) = &spec.account {
+            // `api_key_env` maps to `COPILOT_GITHUB_TOKEN` (highest
+            // precedence per `copilot login --help`/`copilot help
+            // environment`; accepts fine-grained PATs and OAuth tokens
+            // alike). `auth_token_env` maps to `GITHUB_TOKEN` (lowest of the
+            // three documented token env vars, still real and functional) —
+            // if both are set, api_key_env wins (this codebase's established
+            // convention). There is no `COPILOT_TOKEN` — see module doc.
+            if let Some(name) = &account.api_key_env {
+                let value = super::shared::account_env(account, name)?;
+                env.push(("COPILOT_GITHUB_TOKEN".to_string(), value));
+            } else if let Some(name) = &account.auth_token_env {
+                let value = super::shared::account_env(account, name)?;
+                env.push(("GITHUB_TOKEN".to_string(), value));
+            }
+            // `base_url` maps to `COPILOT_GH_HOST` (verified via `copilot
+            // help environment`: "GitHub hostname used only by Copilot CLI
+            // ... overriding GH_HOST when set" — a GitHub Enterprise Cloud
+            // data-residency hostname, e.g. "mycompany.ghe.com", NOT a full
+            // https:// URL despite the field's generic name).
+            if let Some(base_url) = &account.base_url {
+                env.push(("COPILOT_GH_HOST".to_string(), base_url.clone()));
+            }
+        }
+
+        Ok(Launch {
+            program: "copilot".to_string(),
+            args,
+            env,
+            env_remove: Vec::new(),
+            env_clear: false,
+        })
     }
 }
 
@@ -166,32 +258,10 @@ impl Harness for Copilot {
         // 1. Skills: copy each skill folder into <dir>/skills/<id>/ (the CLI
         // user-tier location per copilot.md's on-disk layout table, minus the
         // `.copilot/` prefix COPILOT_HOME already relocates away).
-        let skills_dir = dir.join("skills");
-        for skill in &spec.skills {
-            let dest = skills_dir.join(&skill.id);
-            skill
-                .source
-                .materialize(&dest, crate::source::LinkMode::Copy, true)
-                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
-        }
-        // 1b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
-        // harness::write_mcp_as_skill_pointers's doc). No-op when
-        // spec.mcp_as_skill is empty.
-        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
+        write_skills(spec, &dir.join("skills"))?;
 
-        // 2. MCP: write <dir>/mcp-config.json with a top-level `mcpServers`
-        // key (verified against the installed binary — NOT `mcp.json`/
-        // `servers`, which is what copilot.md documents; see module doc).
-        // Written only when there are servers to inject — no documented stub-
-        // file requirement, mirrors Grok's "unused runs stay minimal"
-        // convention.
-        let mcp_map = build_mcp_servers(&spec.mcps)?;
-        if !mcp_map.is_empty() {
-            let mcp_json = json!({ "mcpServers": Value::Object(mcp_map) });
-            let mcp_json_path = dir.join("mcp-config.json");
-            std::fs::write(&mcp_json_path, serde_json::to_string_pretty(&mcp_json)?)
-                .with_context(|| format!("writing {}", mcp_json_path.display()))?;
-        }
+        // 2. MCP: <dir>/mcp-config.json, the CLI's own user-profile MCP file.
+        write_mcp_config(spec, dir)?;
 
         // 3. Hooks: no-op. `hook` does not appear anywhere in the installed
         // binary's `--help`/help topics (verified) — there is no native hook
@@ -211,84 +281,89 @@ impl Harness for Copilot {
                 .with_context(|| format!("writing {}", instructions_path.display()))?;
         }
 
-        // 5. Build the launch. Verified against `copilot --help`: prompt
-        // seeding differs by mode (`-p` non-interactive vs `-i` interactive —
-        // there is no bare positional-prompt seam); `--model`/`--resume` are
-        // general flags valid in either mode; `--resume` takes its value via
-        // `=` (an optional-value option, not a separate argv token).
-        let args = if spec.io == crate::spec::IoModes::Structured {
-            // Structured mode: `copilot --acp [args...]` — an ACP endpoint,
-            // driven by `crate::io::AcpBridge`. Everything a passthrough run
-            // puts in argv moves onto the wire here: the prompt is a
-            // `session/prompt`, a resume is a `session/load` (from
-            // `Provisioned::resume`), and the model is a
-            // `session/set_config_option`, so none of `-p`, `--output-format
-            // json`, `--allow-all`, `--no-ask-user`, `--model` or
-            // `--resume=` belongs on this argv. Permissions are now real
-            // `session/request_permission` round trips instead of
-            // `--allow-all`/`--no-ask-user` auto-approval.
-            let mut structured_args = vec!["--acp".to_string()];
-            structured_args.extend(spec.passthrough_args.iter().cloned());
-            structured_args
-        } else {
-            let mut args = spec.passthrough_args.clone();
-            if let Some(model) = &spec.model {
-                args.push("--model".to_string());
-                args.push(model.clone());
-            }
-            if let Some(id) = &spec.resume {
-                args.push(format!("--resume={id}"));
-            }
-            if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
-                args.push("-i".to_string());
-                args.push(prompt.clone());
-            }
-            args
-        };
+        // 5. Build the launch against `dir` as `$COPILOT_HOME`.
+        let launch = self.launch(spec, Some(dir), Vec::new())?;
 
-        // 6. Account: inject credential *references* into the child's env.
-        let mut env = vec![("COPILOT_HOME".to_string(), dir.display().to_string())];
-        if let Some(account) = &spec.account {
-            // `api_key_env` maps to `COPILOT_GITHUB_TOKEN` (highest
-            // precedence per `copilot login --help`/`copilot help
-            // environment`; accepts fine-grained PATs and OAuth tokens
-            // alike). `auth_token_env` maps to `GITHUB_TOKEN` (lowest of the
-            // three documented token env vars, still real and functional) —
-            // if both are set, api_key_env wins (this codebase's established
-            // convention). There is no `COPILOT_TOKEN` — see module doc.
-            if let Some(name) = &account.api_key_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("COPILOT_GITHUB_TOKEN".to_string(), value));
-            } else if let Some(name) = &account.auth_token_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("GITHUB_TOKEN".to_string(), value));
-            }
-            // `base_url` maps to `COPILOT_GH_HOST` (verified via `copilot
-            // help environment`: "GitHub hostname used only by Copilot CLI
-            // ... overriding GH_HOST when set" — a GitHub Enterprise Cloud
-            // data-residency hostname, e.g. "mycompany.ghe.com", NOT a full
-            // https:// URL despite the field's generic name).
-            if let Some(base_url) = &account.base_url {
-                env.push(("COPILOT_GH_HOST".to_string(), base_url.clone()));
-            }
-
-            // Reuse a prior `am account login` by *seeding* the captured
-            // `config.json` into the relocated `$COPILOT_HOME`. No-op when
-            // the account home holds no captured login yet. The seed list is
-            // declared once in `config_anchor()`.
-            if let Some(login) = spec
+        // 6. Reuse a prior `am account login` by *seeding* the captured
+        // `config.json` into the relocated `$COPILOT_HOME`. No-op when the
+        // account home holds no captured login yet. The seed list is declared
+        // once in `config_anchor()`.
+        if let Some(account) = &spec.account
+            && let Some(login) = spec
                 .account_login
                 .clone()
                 .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-            {
-                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-            }
+        {
+            super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
         }
+        Ok(launch)
+    }
 
+    /// Copilot CLI runs from a profile's shared `COPILOT_HOME` (`D193`).
+    fn shares_home(&self) -> bool {
+        true
+    }
+
+    /// A run against a profile's shared `COPILOT_HOME` (`D193`), whose `config.json` holds the
+    /// login and the user's settings together — so nothing here writes it, and nothing per-run
+    /// lands in `home`:
+    ///
+    /// - MCP → `<scratch>/mcp-config.json`, `--additional-mcp-config @<file>`, which augments the
+    ///   home's own `mcp-config.json` for this session. The same argv reaches a structured
+    ///   `copilot --acp` run, whose `session/new` sends `mcpServers: []`;
+    /// - instructions → `<scratch>/instructions/AGENTS.md`, named by
+    ///   `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` (copilot.md: the CLI reads an `AGENTS.md` in each);
+    /// - hooks → a no-op, as in [`Harness::provision`].
+    ///
+    /// Skills have no per-run route, so they are **profile-owned**: written into
+    /// `<home>/skills/<id>/` by [`write_profile_skills`] — a whole-skill swap under a lock, never
+    /// a partial folder. A native run (no `home`) sets no `COPILOT_HOME`, runs from the user's
+    /// own `~/.copilot`, and writes no skill there. No login is seeded under either.
+    fn provision_home(
+        &self,
+        spec: &RunSpec,
+        home: Option<&Path>,
+        scratch: &Path,
+    ) -> Result<Launch> {
+        let mut config_args = Vec::new();
+        if let Some(mcp_path) = write_mcp_config(spec, scratch)? {
+            config_args.push("--additional-mcp-config".to_string());
+            config_args.push(format!("@{}", mcp_path.display()));
+        }
+        let mut launch = self.launch(spec, home, config_args)?;
+        if let Some(instr_text) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
+            let instructions_dir = scratch.join("instructions");
+            std::fs::create_dir_all(&instructions_dir)
+                .with_context(|| format!("creating {}", instructions_dir.display()))?;
+            let agents_md = instructions_dir.join("AGENTS.md");
+            std::fs::write(&agents_md, instr_text)
+                .with_context(|| format!("writing {}", agents_md.display()))?;
+            launch.env.push((
+                "COPILOT_CUSTOM_INSTRUCTIONS_DIRS".to_string(),
+                instructions_dir.display().to_string(),
+            ));
+        }
+        match home {
+            Some(home) => write_profile_skills(spec, home)?,
+            None if !spec.skills.is_empty() || !spec.mcp_as_skill.is_empty() => {
+                tracing::warn!(
+                    skills = spec.skills.len() + spec.mcp_as_skill.len(),
+                    "copilot has no per-run skill route; skills are not applied to a run with no profile"
+                );
+            }
+            None => {}
+        }
+        Ok(launch)
+    }
+
+    /// `copilot login` with `COPILOT_HOME=<home>`, and the real `HOME` left alone: the login
+    /// lands in the home's `config.json` (or the OS credential store Copilot picks), where every
+    /// run of the profile reads it, and Copilot refreshes it from then on. Nothing is captured.
+    fn login_home(&self, home: &Path) -> Result<Launch> {
         Ok(Launch {
             program: "copilot".to_string(),
-            args,
-            env,
+            args: vec!["login".to_string()],
+            env: vec![("COPILOT_HOME".to_string(), home.display().to_string())],
             env_remove: Vec::new(),
             env_clear: false,
         })
@@ -387,6 +462,76 @@ fn build_mcp_servers(mcps: &[McpRef]) -> Result<serde_json::Map<String, Value>> 
         }
     }
     Ok(servers)
+}
+
+/// Write `<dir>/mcp-config.json` with a top-level `mcpServers` key (verified against the
+/// installed binary — NOT `mcp.json`/`servers`; see module doc) and return its path. Written
+/// only when there are servers to inject — no documented stub-file requirement, mirrors Grok's
+/// "unused runs stay minimal" convention.
+fn write_mcp_config(spec: &RunSpec, dir: &Path) -> Result<Option<PathBuf>> {
+    let mcp_map = build_mcp_servers(&spec.mcps)?;
+    if mcp_map.is_empty() {
+        return Ok(None);
+    }
+    let mcp_json = json!({ "mcpServers": Value::Object(mcp_map) });
+    let mcp_json_path = dir.join("mcp-config.json");
+    std::fs::write(&mcp_json_path, serde_json::to_string_pretty(&mcp_json)?)
+        .with_context(|| format!("writing {}", mcp_json_path.display()))?;
+    Ok(Some(mcp_json_path))
+}
+
+/// Copy each skill folder into `<skills_dir>/<id>/`, plus the MCP-as-skill `SKILL.md`
+/// pointers (see [`super::write_mcp_as_skill_pointers`]; a no-op when there are none).
+fn write_skills(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
+    for skill in &spec.skills {
+        let dest = skills_dir.join(&skill.id);
+        skill
+            .source
+            .materialize(&dest, crate::source::LinkMode::Copy, true)
+            .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
+    }
+    super::write_mcp_as_skill_pointers(spec, skills_dir)
+}
+
+/// Put the run's skills into a shared home's `skills/` — profile-owned, since Copilot CLI has
+/// no per-run skill route (`D193`). Each skill is staged whole in `skills/.am-stage/` and
+/// renamed into place, so a concurrent run never reads half a skill folder; staging and swap
+/// happen under a lock beside `skills/`, so two runs of one profile never interleave. A skill
+/// the home already holds under that id is replaced; one the run does not name is left alone.
+fn write_profile_skills(spec: &RunSpec, home: &Path) -> Result<()> {
+    if spec.skills.is_empty() && spec.mcp_as_skill.is_empty() {
+        return Ok(());
+    }
+    let skills_dir = home.join("skills");
+    std::fs::create_dir_all(&skills_dir)
+        .with_context(|| format!("creating {}", skills_dir.display()))?;
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = super::lock_beside(&skills_dir)?;
+    let stage = skills_dir.join(".am-stage");
+    let old = skills_dir.join(".am-old");
+    for leftover in [&stage, &old] {
+        if leftover.exists() {
+            std::fs::remove_dir_all(leftover)
+                .with_context(|| format!("removing {}", leftover.display()))?;
+        }
+    }
+    write_skills(spec, &stage)?;
+    for entry in
+        std::fs::read_dir(&stage).with_context(|| format!("reading {}", stage.display()))?
+    {
+        let staged = entry?.path();
+        let dest = skills_dir.join(staged.file_name().unwrap_or_default());
+        if dest.exists() {
+            std::fs::rename(&dest, &old).with_context(|| format!("moving {}", dest.display()))?;
+        }
+        std::fs::rename(&staged, &dest)
+            .with_context(|| format!("renaming {} onto {}", staged.display(), dest.display()))?;
+        if old.exists() {
+            std::fs::remove_dir_all(&old).with_context(|| format!("removing {}", old.display()))?;
+        }
+    }
+    std::fs::remove_dir(&stage).with_context(|| format!("removing {}", stage.display()))?;
+    Ok(())
 }
 
 /// Scrape the `` `model`: `` settings entry out of `copilot help config`'s
@@ -794,6 +939,168 @@ mod tests {
         assert_eq!(
             plan.credential_files[0],
             std::path::PathBuf::from("config.json")
+        );
+    }
+
+    fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+        let at = args.iter().position(|a| a == flag)?;
+        args.get(at + 1).map(String::as_str)
+    }
+
+    fn home_spec(home: &std::path::Path, scratch: &std::path::Path) -> RunSpec {
+        let mut spec = RunSpec::new("copilot".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Home {
+            home: home.to_path_buf(),
+            scratch: scratch.to_path_buf(),
+        };
+        spec.mcps.push(McpRef::Inline(McpServer {
+            id: "docs".to_string(),
+            transport: McpTransport::Http,
+            command: None,
+            args: vec![],
+            env: BTreeMap::new(),
+            url: Some("https://example.com/mcp/run-1".to_string()),
+            headers: BTreeMap::new(),
+        }));
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER ME".to_string()),
+            prompt: None,
+        });
+        spec
+    }
+
+    #[test]
+    fn provision_home_puts_per_run_files_in_scratch_and_keeps_config_json() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        // The home's `config.json` holds the login and the user's settings.
+        let config_json = home.path().join("config.json");
+        let login = r#"{"lastLoggedInUser":{"login":"octocat"},"model":"gpt-5.4"}"#;
+        std::fs::write(&config_json, login).unwrap();
+        let spec = home_spec(home.path(), scratch.path());
+
+        let launch = Copilot::new()
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+
+        // Nothing per-run lands in the shared home, and `config.json` is untouched.
+        let home_entries: Vec<_> = std::fs::read_dir(home.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(home_entries, vec!["config.json"]);
+        assert_eq!(std::fs::read_to_string(&config_json).unwrap(), login);
+
+        let mcp_path = scratch.path().join("mcp-config.json");
+        assert!(mcp_path.is_file());
+        assert_eq!(
+            flag_value(&launch.args, "--additional-mcp-config"),
+            Some(format!("@{}", mcp_path.display()).as_str())
+        );
+        let instructions_dir = scratch.path().join("instructions");
+        assert_eq!(
+            std::fs::read_to_string(instructions_dir.join("AGENTS.md")).unwrap(),
+            "REMEMBER ME"
+        );
+        let env: BTreeMap<_, _> = launch.env.iter().cloned().collect();
+        assert_eq!(
+            env.get("COPILOT_HOME"),
+            Some(&home.path().display().to_string())
+        );
+        assert_eq!(
+            env.get("COPILOT_CUSTOM_INSTRUCTIONS_DIRS"),
+            Some(&instructions_dir.display().to_string())
+        );
+        assert!(!env.contains_key("HOME"));
+    }
+
+    #[test]
+    fn provision_home_structured_passes_the_mcp_flag_to_acp() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let mut spec = home_spec(home.path(), scratch.path());
+        spec.io = crate::spec::IoModes::Structured;
+
+        let launch = Copilot::new()
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+
+        assert_eq!(launch.args[0], "--acp");
+        assert!(launch.args.contains(&"--additional-mcp-config".to_string()));
+    }
+
+    #[test]
+    fn provision_home_without_a_home_sets_no_copilot_home_and_writes_no_skill() {
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("copilot".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Native {
+            scratch: scratch.path().to_path_buf(),
+        };
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(write_skill(skills_src.path(), "my-skill")),
+        });
+
+        let launch = Copilot::new()
+            .provision_home(&spec, None, scratch.path())
+            .unwrap();
+
+        assert!(!launch.env.iter().any(|(k, _)| k == "COPILOT_HOME"));
+        assert!(!launch.args.contains(&"--additional-mcp-config".to_string()));
+        let scratch_entries: Vec<_> = std::fs::read_dir(scratch.path()).unwrap().collect();
+        assert!(
+            scratch_entries.is_empty(),
+            "scratch got: {scratch_entries:?}"
+        );
+    }
+
+    #[test]
+    fn provision_home_writes_skills_into_the_home_whole_and_keeps_the_rest() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        // A stale copy of the run's skill, and a skill the run does not name.
+        std::fs::create_dir_all(home.path().join("skills/my-skill")).unwrap();
+        std::fs::write(home.path().join("skills/my-skill/stale.md"), "old").unwrap();
+        std::fs::create_dir_all(home.path().join("skills/user-skill")).unwrap();
+        let mut spec = home_spec(home.path(), scratch.path());
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(write_skill(skills_src.path(), "my-skill")),
+        });
+
+        Copilot::new()
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+
+        let skills = home.path().join("skills");
+        assert!(skills.join("my-skill/SKILL.md").is_file());
+        assert!(!skills.join("my-skill/stale.md").exists());
+        assert!(skills.join("user-skill").is_dir());
+        assert!(!skills.join(".am-stage").exists());
+        assert!(!skills.join(".am-old").exists());
+        assert!(!scratch.path().join("skills").exists());
+    }
+
+    #[test]
+    fn copilot_shares_a_home() {
+        assert!(Copilot::new().shares_home());
+    }
+
+    #[test]
+    fn login_home_logs_in_through_copilot_home_and_leaves_home_alone() {
+        let home = tempfile::TempDir::new().unwrap();
+        let launch = Copilot::new().login_home(home.path()).unwrap();
+
+        assert_eq!(launch.program, "copilot");
+        assert_eq!(launch.args, vec!["login"]);
+        assert_eq!(
+            launch.env,
+            vec![(
+                "COPILOT_HOME".to_string(),
+                home.path().display().to_string()
+            )]
         );
     }
 

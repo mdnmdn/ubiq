@@ -803,6 +803,30 @@ the three env vars — only fine-grained PATs and OAuth tokens are.
 - **Do not copy:** `session-state/`, `session-store.db*`,
   `command-history-state.json`, `logs/` — session/machine-bound state.
 
+### Shared-home run (agent-manager, `D193`)
+
+Under `ConfigStrategy::Home`, `Copilot::provision_home` runs the CLI from the
+profile's own `COPILOT_HOME`. Its `config.json` holds the login and the
+user's settings together, so agent-manager never writes it: no login is
+seeded or read back, and Copilot refreshes its own. The sign-in is
+`COPILOT_HOME=<home> copilot login` (`login_home`). A native run (no
+profile) sets no `COPILOT_HOME` and runs from the user's own `~/.copilot`.
+
+| Per-run item | Route | Where |
+|---|---|---|
+| MCP | `--additional-mcp-config @<file>` (augments the home's `mcp-config.json`; also on `copilot --acp`, whose `session/new` sends `mcpServers: []`) | `<scratch>/mcp-config.json` |
+| Instructions | `COPILOT_CUSTOM_INSTRUCTIONS_DIRS=<dir>`, which reads an `AGENTS.md` there | `<scratch>/instructions/AGENTS.md` |
+| Skills, MCP-as-skill | no per-run route, so they belong to the profile: each one is staged whole and renamed into place under a lock | `<home>/skills/<id>/` |
+| Hooks | no-op, as for any run | — |
+
+Skills are skipped with a warning on a native run, since nothing may be
+written into the user's own `~/.copilot`. Two agents from one profile share
+one `skills/`. A skill id they both name holds whichever run wrote it last,
+and a skill a run does not name is left alone. No session file is
+documented, so `session_transcripts` keeps the default `None`. Neither
+`--additional-mcp-config` nor `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` has been
+checked against an installed binary yet.
+
 ## Permissions
 
 Copilot's permission system has **three layers**:
@@ -1160,7 +1184,7 @@ Canonical mapping:
 
 ### MCP at launch
 
-The Copilot CLI has no per-run MCP-injection flag; it reads MCP from its own config files (`~/.copilot/mcp.json`, `<repo>/.github/copilot/mcp.json`). A coordinator that needs run-scoped MCP writes those files before launch. Note the CLI does **not** read `.vscode/mcp.json`. (Cross-reference MCP servers.)
+The Copilot CLI reads MCP from its own config files (`~/.copilot/mcp-config.json`, `<repo>/.github/copilot/mcp.json`). A relocated per-run `COPILOT_HOME` holds a run-scoped `mcp-config.json`. A run on a shared home passes `--additional-mcp-config @<file>` instead (see "Shared-home run"). Note the CLI does **not** read `.vscode/mcp.json`. (Cross-reference MCP servers.)
 
 ### Skills at launch
 
