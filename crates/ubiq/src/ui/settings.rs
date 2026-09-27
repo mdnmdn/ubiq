@@ -1913,6 +1913,25 @@ pub(crate) fn definition_row(
         });
     }
 
+    // A harness that runs from the definition's own home keeps its login there (`D193`), so the
+    // definition signs in by itself rather than through an account.
+    let sign_in = app
+        .workbench
+        .agent_type(&definition.agent_type)
+        .is_some_and(|info| info.shares_home && info.available)
+        .then(|| {
+            let (agent_type, id) = (definition.agent_type.clone(), definition.id.clone());
+            ghost_button(
+                ElementId::Name(
+                    format!("app-settings-definition-{}-sign-in", definition.id).into(),
+                ),
+                None,
+                "Sign in",
+                cx.listener(move |this, _, _, cx| {
+                    this.sign_in_definition(agent_type.clone(), id.clone(), scope, cx)
+                }),
+            )
+        });
     let edit = definition.clone();
     let clone_id = definition.id.clone();
     div()
@@ -1984,6 +2003,7 @@ pub(crate) fn definition_row(
                 .flex()
                 .items_center()
                 .gap_1()
+                .children(sign_in)
                 .child(ghost_button(
                     ElementId::Name(
                         format!("app-settings-definition-{}-clone", definition.id).into(),

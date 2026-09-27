@@ -1727,8 +1727,10 @@ impl Coordinator {
                 agent_type,
                 account,
                 probe,
+                definition,
+                project,
             } => {
-                self.begin_harness_login(client, agent_type, account, probe);
+                self.begin_harness_login(client, agent_type, account, probe, definition, project);
             }
             Message::CheckHarnessLogin {
                 agent_type,
@@ -6124,12 +6126,18 @@ impl Coordinator {
     /// `probe` runs a plain shell under the login's own policy instead of the harness — a
     /// diagnostic for inspecting what that sandbox permits, not a way to sign in. It reaches
     /// [`Self::login_gone`], which is what actually refuses to treat its exit as an outcome.
+    ///
+    /// `definition` signs that agent definition's own config home in instead of an account
+    /// (`D193`, [`Agents::begin_home_login`]): the same pane, nothing captured, and the outcome
+    /// read from how the login exited.
     fn begin_harness_login(
         &mut self,
         client: ClientId,
         agent_type: String,
         account: String,
         probe: bool,
+        definition: Option<String>,
+        project: Option<ProjectId>,
     ) {
         let refuse = |coordinator: &mut Self, error: String| {
             tracing::warn!(harness = %agent_type, account = %account, "login refused: {error}");
@@ -6143,7 +6151,13 @@ impl Coordinator {
             );
         };
 
-        let pending = match self.agents.begin_login(&agent_type, &account, probe) {
+        let pending = match &definition {
+            Some(definition) => self
+                .agents
+                .begin_home_login(&agent_type, definition, project),
+            None => self.agents.begin_login(&agent_type, &account, probe),
+        };
+        let pending = match pending {
             Ok(pending) => pending,
             Err(error) => return refuse(self, format!("{error:#}")),
         };
@@ -6172,7 +6186,7 @@ impl Coordinator {
             let _ = child.wait();
             return refuse(self, error.to_string());
         }
-        pty::reap(pane_id, child, mailbox.clone());
+        pty::reap_noting(pane_id, child, mailbox.clone(), Some(pending.exit_slot()));
         self.panes.insert(pane_id, pane);
         self.logins.insert(pane_id, pending);
 
@@ -6216,6 +6230,34 @@ impl Coordinator {
         }
         let agent_type = pending.agent_type.clone();
         let account = pending.account.clone();
+
+        // A sign-in into a definition's home captured nothing and has nothing to read back: the
+        // harness either finished its own login there, or it did not.
+        if let Some(definition) = pending.definition.clone() {
+            let message = match pending.exit_code() {
+                Some(0) => {
+                    tracing::info!(harness = %agent_type, definition = %definition, "home signed in");
+                    Message::HarnessHomeSignedIn {
+                        agent_type,
+                        definition,
+                    }
+                }
+                code => {
+                    let error = match code {
+                        Some(code) => format!("the sign-in exited with code {code}"),
+                        None => "the sign-in was closed before it finished".to_string(),
+                    };
+                    tracing::info!(harness = %agent_type, definition = %definition, "{error}");
+                    Message::HarnessLoginFailed {
+                        agent_type,
+                        account,
+                        error,
+                    }
+                }
+            };
+            self.host.send(To::Client(client), message);
+            return;
+        }
 
         match self.agents.finish_login(&pending) {
             Ok(()) => {
@@ -7432,6 +7474,44 @@ mod tests {
             messages.is_empty(),
             "a probe sends neither HarnessLoginCaptured nor HarnessLoginFailed: {messages:?}"
         );
+    }
+
+    /// A sign-in into a definition's home (`D193`) is judged by how it exited and nothing else:
+    /// a clean exit is `HarnessHomeSignedIn`, anything else — a failing code, or a pane closed
+    /// before the login ended — is `HarnessLoginFailed`, and neither records an account.
+    #[test]
+    fn a_home_sign_in_is_judged_by_its_exit_and_records_no_account() {
+        let (mut coordinator, client) = test_coordinator();
+        for (code, signed_in) in [(Some(0), true), (Some(1), false), (None, false)] {
+            let pane_id = PaneId::generate();
+            coordinator.logins.insert(
+                pane_id,
+                PendingLogin::for_home_test("claude-code", "work", code),
+            );
+
+            coordinator.login_gone(client.id(), pane_id);
+
+            let messages = drain_all(&client);
+            assert_eq!(messages.len(), 1, "one outcome: {messages:?}");
+            match &messages[0] {
+                Message::HarnessHomeSignedIn {
+                    agent_type,
+                    definition,
+                } => {
+                    assert!(signed_in, "{code:?} is not a sign-in");
+                    assert_eq!(
+                        (agent_type.as_str(), definition.as_str()),
+                        ("claude-code", "work")
+                    );
+                }
+                Message::HarnessLoginFailed { account, .. } => {
+                    assert!(!signed_in, "{code:?} is a sign-in");
+                    assert!(account.is_empty());
+                }
+                other => panic!("unexpected outcome {other:?}"),
+            }
+        }
+        assert!(coordinator.agents.accounts().unwrap().is_empty());
     }
 
     // ── the registered dialogs (`D175`) ─────────────────────────────

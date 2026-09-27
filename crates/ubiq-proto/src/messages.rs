@@ -312,6 +312,12 @@ pub enum Message {
     /// [`Message::HarnessLoginStarted`], or [`Message::HarnessLoginFailed`] when there was
     /// nothing to start. An account id that names no account yet is created by logging in,
     /// which is the only way an account comes into being.
+    ///
+    /// With `definition` set it is a different sign-in (`D193`): the harness's own login runs
+    /// straight into that agent definition's config home, where every run of the definition
+    /// reads it and the harness refreshes it. Nothing is captured and no account is made —
+    /// `account` is unused and sent empty, and success is the login exiting cleanly, answered
+    /// with [`Message::HarnessHomeSignedIn`] instead of [`Message::HarnessLoginCaptured`].
     BeginHarnessLogin {
         agent_type: String,
         account: String,
@@ -319,6 +325,14 @@ pub enum Message {
         /// capture nothing. A diagnostic: it is how a human checks what the login sandbox
         /// actually permits, which no test can answer, and it must never record an account.
         probe: bool,
+        /// The agent definition whose home to sign in, instead of an account. Only for a
+        /// harness whose [`AgentTypeInfo::shares_home`] is true.
+        #[serde(default)]
+        definition: Option<String>,
+        /// The project `definition` is scoped to, when it is one of a project's own; `None`
+        /// resolves it among the global definitions.
+        #[serde(default)]
+        project: Option<ProjectId>,
     },
     /// The login is running in this pane. The pane carries bytes and takes keystrokes like
     /// any other, and it belongs to no project — closing it abandons the login.
@@ -334,6 +348,14 @@ pub enum Message {
     HarnessLoginCaptured {
         agent_type: String,
         account: String,
+    },
+    /// A sign-in into an agent definition's home ([`Message::BeginHarnessLogin`] with
+    /// `definition`) exited cleanly: the login is in that home, where the harness keeps and
+    /// refreshes it. Nothing was captured and no account was made. A failure is the ordinary
+    /// [`Message::HarnessLoginFailed`], with an empty `account`.
+    HarnessHomeSignedIn {
+        agent_type: String,
+        definition: String,
     },
     /// The login captured nothing, and why: it was abandoned, the harness exited without
     /// writing a credential, or it could not be started at all. Not an error in Ubiq — the
@@ -3230,6 +3252,12 @@ pub struct AgentTypeInfo {
     /// hidden — an absent control reads as a missing feature, and this is not one.
     #[serde(default)]
     pub quota: QuotaSource,
+    /// Whether this harness runs from an agent definition's own config home, where its login
+    /// lives and the harness refreshes it (`D193`) — the library's `Harness::shares_home`. It is
+    /// what offers a definition of this harness a **Sign in** of its own; a harness that answers
+    /// `false` signs in through an account.
+    #[serde(default)]
+    pub shares_home: bool,
 }
 
 /// One model a harness will answer for, with the reasoning-effort levels it accepts folded in.

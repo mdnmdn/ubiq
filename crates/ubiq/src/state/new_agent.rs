@@ -452,6 +452,7 @@ mod tests {
             unattended_mode: unattended.map(str::to_string),
             keeps_sessions: true,
             quota: QuotaSource::Push,
+            shares_home: false,
         }
     }
 

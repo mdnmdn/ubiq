@@ -763,6 +763,7 @@ impl Fixture {
                     unattended_mode: None,
                     keeps_sessions: true,
                     quota: Default::default(),
+                    shares_home: false,
                 }],
             },
         );

@@ -2624,6 +2624,16 @@ impl AppState {
             } => {
                 self.login_ended(true, format!("{account} is signed in to {agent_type}."), cx);
             }
+            Message::HarnessHomeSignedIn {
+                agent_type,
+                definition,
+            } => {
+                self.login_ended(
+                    true,
+                    format!("{definition} is signed in to {agent_type}."),
+                    cx,
+                );
+            }
             Message::HarnessLoginFailed {
                 agent_type,
                 account,

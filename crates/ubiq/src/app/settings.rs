@@ -1264,6 +1264,8 @@ impl AppState {
             agent_type,
             account,
             probe,
+            definition: None,
+            project: None,
         });
         cx.notify();
     }
@@ -1452,6 +1454,42 @@ impl AppState {
             agent_type,
             account,
             probe: false,
+            definition: None,
+            project: None,
+        });
+        cx.notify();
+    }
+
+    /// Sign an agent definition's own config home in (`D193`): the harness's login runs into the
+    /// home every run of that definition reads, in the same modal an account's login uses, and
+    /// nothing is captured. Offered only for a harness whose `shares_home` is true; the
+    /// definition's first terminal run showing the harness's own login reaches the same place.
+    ///
+    /// The modal's `account` holds the definition's id — it is only the name the outcome says.
+    pub fn sign_in_definition(
+        &mut self,
+        agent_type: String,
+        definition: String,
+        project: Option<ProjectId>,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.error = None;
+        self.workbench.settings.login = Some(LoginState {
+            account: definition.clone(),
+            step: LoginStep::Starting {
+                agent_type: agent_type.clone(),
+            },
+            links: Vec::new(),
+            probe: false,
+            command_open: false,
+            command_check: None,
+        });
+        self.bus.send(Message::BeginHarnessLogin {
+            agent_type,
+            account: String::new(),
+            probe: false,
+            definition: Some(definition),
+            project,
         });
         cx.notify();
     }

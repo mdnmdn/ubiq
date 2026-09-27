@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-26
-verified: 2026-09-26
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -96,8 +96,13 @@ the caller chose.
 
 **Ubiq does not build the `RunSpec` itself — `resolve` does.** `agent.rs` calls
 `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and
-overrides exactly four fields of what comes back: the configuration directory (Ubiq owns where a
-run's state lives), the I/O mode (Ubiq owns which face the workspace wears), the isolation
+overrides exactly four fields of what comes back: the configuration strategy (Ubiq owns where a
+run's state lives — `agent.rs`'s `run_config`: for a harness that `Harness::shares_home`,
+`ConfigStrategy::Home` on the agent definition's own home, named by `ProfileStore::home` on the
+store the definition resolved in, or with no definition `ConfigStrategy::Native` on the user's own
+config; `ConfigStrategy::Fixed` on the run directory for any other harness, a store naming no home,
+and a confined run with no definition, whose sandbox grants no home Ubiq did not name — `D193`),
+the I/O mode (Ubiq owns which face the workspace wears), the isolation
 (Ubiq's own settings own the toggle, and it applies to a conversation exactly as to a pane), and —
 when that isolation is on — the permission mode, because a confined run is contained by the sandbox
 rather than by the prompts and would otherwise stop on every ask the sandbox has already answered.
@@ -259,6 +264,21 @@ The teardown harvest stays, for a run that ends between two ticks, and `Agents::
 one more before a resume composes over a directory that is already there — the copy a crashed run
 left behind may be the only live token, and provisioning is about to overwrite it.
 
+**None of the above touches a run from a home the harness owns (`D193`).** A `Home` or `Native` run
+records its strategy on `SessionMeta::config` (an older meta has none and reads as the seeded run
+it was), and for such a run `login_origin` answers nothing, so `archive` and `refresh_login` write
+nothing back, `sync_logins` skips it and `scrub_login` leaves its scratch alone; its login is the
+one in the home, and the harness refreshes it. `archive` copies only that run's own session out of
+the shared home — `Harness::session_transcripts` for the harness session id `remember_session`
+wrote, nothing when there is none — and a teardown removes the run directory, which under `Home`
+is the scratch beside the home, never the home. A confined `Home` run is granted the home
+read-write through `IsolateOptions::extra_rw`. **A definition signs its home in** with
+`BeginHarnessLogin`'s `definition`: `Agents::begin_home_login` runs `provision::prepare_home`, then
+the library's `Harness::login_home` in a login pane, confined exactly when a run would be; nothing
+is captured, and the outcome is the process's exit code, which the pane's reaper notes
+(`pty::reap_noting`) before the window closes the pane. The legacy capture and roaming above stays
+for every other run until `G376` deletes it.
+
 **The bridge is owned by a pump thread, and `crates/ubiq-host/src/conversation.rs` is that thread.**
 `IoBridge::next_event` blocks and both its methods take `&mut self`, so whoever reads a bridge
 cannot also be handed a prompt; the reader owns it and a turn reaches the harness through the
@@ -387,7 +407,8 @@ second mapping anywhere else is the boundary being crossed.
 
 Four things in these files are Ubiq's rather than the library's, and all four concern ownership
 rather than configuration. **A run's configuration directory belongs to whatever owns the run**: it
-is `ConfigStrategy::Fixed` under Ubiq's own config root, named by the pane id or by the agent id —
+is the `Fixed` directory — or the `Home`/`Native` scratch — under Ubiq's own config root, named by
+the pane id or by the agent id —
 both ULIDs, so neither can be read as the other's — deleted when that pane closes or that
 conversation is retired, and swept at startup for whatever a killed process left. **An agent in a
 pane is confined unless the host settings say otherwise** — the policy grants the project's folder

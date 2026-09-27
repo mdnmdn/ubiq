@@ -157,6 +157,10 @@ pub struct Composed {
     provisioned: provision::Provisioned,
     /// The id of the account this run resolved to, when a definition named one.
     spec_account: Option<String>,
+    /// Whether the harness runs from a config home it owns — the definition's, or with no
+    /// definition the user's own (`D193`) — so its login is the harness's own, never seeded into
+    /// `dir`.
+    owns_login: bool,
     /// A stale catalog reference (an mcp id, a skill id, an account id, a hook id) that the
     /// definition or the run's flags named and `resolve` could not find — dropped from the spec
     /// rather than failing this run. See [`agent_manager::spec::RunSpec::problems`]. Reported by
@@ -235,6 +239,13 @@ pub struct PendingLogin {
     /// exit must never be read as a login outcome; that is `coordinator::Coordinator::
     /// login_gone`'s branch on this flag.
     pub probe: bool,
+    /// The agent definition whose config home this login signs in (`D193`), instead of an
+    /// account: `home` is that home, nothing is captured, and the outcome is
+    /// [`Self::exit_code`].
+    pub definition: Option<String>,
+    /// The login process's exit code, written by the pane's reaper before the window hears the
+    /// pane ended — so it is there by the time the pane is closed and the outcome is read.
+    exit: std::sync::Arc<std::sync::OnceLock<i32>>,
 }
 
 impl PendingLogin {
@@ -247,6 +258,17 @@ impl PendingLogin {
     /// Where the login runs, which is also the only directory it may write.
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// Where the pane's reaper notes the login's exit code — see `pty::reap_noting`.
+    pub fn exit_slot(&self) -> std::sync::Arc<std::sync::OnceLock<i32>> {
+        self.exit.clone()
+    }
+
+    /// How the login process exited, once it has. `None` is a login closed while still
+    /// running, which is an abandoned one.
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit.get().copied()
     }
 
     /// A fixture `PendingLogin`, for `coordinator`'s own tests of `login_gone` — which needs one
@@ -270,7 +292,27 @@ impl PendingLogin {
             captured_before,
             launch: Launch::default(),
             probe,
+            definition: None,
+            exit: Default::default(),
         }
+    }
+
+    /// A fixture sign-in into `definition`'s home that exited with `code` (`None`: still
+    /// running when its pane closed), for the same tests.
+    #[cfg(test)]
+    pub(crate) fn for_home_test(
+        agent_type: impl Into<String>,
+        definition: impl Into<String>,
+        code: Option<i32>,
+    ) -> Self {
+        let pending = Self {
+            definition: Some(definition.into()),
+            ..Self::for_test("", agent_type, PathBuf::new(), Vec::new(), None, false)
+        };
+        if let Some(code) = code {
+            let _ = pending.exit.set(code);
+        }
+        pending
     }
 }
 
@@ -414,6 +456,7 @@ impl Agents {
                     // directory Ubiq owns, so keeping or copying that directory means anything.
                     keeps_sessions: !harness.config_anchor().levers.is_empty(),
                     quota: quota_source(harness.io_support().quota),
+                    shares_home: harness.shares_home(),
                 }
             })
             .collect()
@@ -1006,6 +1049,76 @@ impl Agents {
             captured_before,
             launch,
             probe,
+            definition: None,
+            exit: Default::default(),
+        })
+    }
+
+    /// What signing an agent definition's config home in has to run (`D193`): the harness's own
+    /// login, straight into the home every run of that definition reads — the library's
+    /// `login_home`, after `prepare_home` has made the home ready. Nothing is captured or read
+    /// back; the harness keeps the login there and refreshes it, and whether it worked is how
+    /// the process exits.
+    ///
+    /// Confined exactly when a run would be, so the login lands where a run of this machine
+    /// looks for it: a policy that denies a run the keychain denies this login it too, and the
+    /// harness writes its credential into the home instead.
+    pub fn begin_home_login(
+        &self,
+        agent_type: &str,
+        definition: &str,
+        project: Option<ProjectId>,
+    ) -> Result<PendingLogin> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        if !harness.shares_home() {
+            bail!(
+                "{} does not run from a definition's own home, so it signs in through an account",
+                harness.display_name()
+            );
+        }
+        let global = self.definition_store();
+        let scoped = project.map(|project| self.project_definition_store(project));
+        let definitions =
+            ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore));
+        if definitions.profile(definition)?.is_none() {
+            bail!("there is no agent definition called '{definition}'");
+        }
+        let home = definitions
+            .home(definition, &harness.id())
+            .ok_or_else(|| anyhow!("the definition '{definition}' has no home to sign in"))?;
+        let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
+        provision::prepare_home(harness.as_ref(), &home, &templates)
+            .with_context(|| format!("preparing the home of '{definition}'"))?;
+        let mut launch = harness
+            .login_home(&home)
+            .with_context(|| format!("asking {agent_type} how it signs in"))?;
+        self.resolve_program(agent_type, &mut launch);
+        self.add_machine_env(&mut launch);
+
+        if self.isolate {
+            let mut spec = agent_manager::spec::RunSpec::new(harness.id(), home.clone());
+            spec.isolation = Isolation::Sandboxed(String::new());
+            let confined = isolate::plan(&launch, &spec, &home, &self.isolate_options())
+                .with_context(|| {
+                    format!("resolving the policy a {agent_type} sign-in runs under")
+                })?;
+            if let Some(confined) = confined {
+                launch = isolate::confined_launch(&confined)
+                    .with_context(|| format!("preparing a confined {agent_type} sign-in"))?;
+            }
+        }
+
+        Ok(PendingLogin {
+            account: String::new(),
+            agent_type: agent_type.to_string(),
+            home,
+            files: Vec::new(),
+            captured_before: None,
+            launch,
+            probe: false,
+            definition: Some(definition.to_string()),
+            exit: Default::default(),
         })
     }
 
@@ -1049,10 +1162,11 @@ impl Agents {
     /// Compose the run for `pane`: provision the harness's configuration into a
     /// directory named by that pane, and resolve the policy it runs under.
     ///
-    /// The directory is `Fixed` rather than the library's own ephemeral choice,
+    /// The directory is Ubiq's rather than the library's own ephemeral choice,
     /// because a pane's run belongs to the pane: it is named by it, it is found
     /// again after a crash, and [`retire`](Self::retire) deletes it when the
-    /// pane closes.
+    /// pane closes. It is the whole run's configuration, or — for a harness
+    /// that runs from a shared home — the scratch beside that home (`run_config`).
     pub fn compose(
         &self,
         pane: PaneId,
@@ -1112,8 +1226,14 @@ impl Agents {
         )?;
         // A harness with no credential in its run directory reports itself logged out, from
         // inside the transcript, where it reads as the agent talking rather than as a setup
-        // problem. Saying it here is what makes that actionable.
-        if Self::has_login(harness.as_ref(), &composed.dir) {
+        // problem. Saying it here is what makes that actionable. A run from a home the harness
+        // owns has its login there, where Ubiq does not look.
+        if composed.owns_login {
+            tracing::debug!(
+                harness = %agent_type,
+                "converse: the harness runs from a home it owns, and its login is its own"
+            );
+        } else if Self::has_login(harness.as_ref(), &composed.dir) {
             if let Some(file) = Self::found_login(harness.as_ref(), &composed.dir) {
                 tracing::info!(
                     harness = %agent_type,
@@ -1291,6 +1411,10 @@ impl Agents {
             &definitions,
         )
         .with_context(|| format!("composing a {agent_type} run"))?;
+        // The definition `resolve` actually used — the one named, or the implicit `default` —
+        // asked the same way it asked, because that is whose home the run goes to.
+        let definition = resolve::effective_profile(&flags, &Settings::default(), &definitions)?
+            .filter(|id| definitions.profile(id).ok().flatten().is_some());
 
         // The five answers that are Ubiq's rather than the library's: which directory this
         // run's configuration lives in, which face it wears, whether it is confined, — when
@@ -1298,7 +1422,17 @@ impl Agents {
         // The isolation replaces whatever a definition asked for,
         // because the toggle belongs to Ubiq's own settings and applies to both faces alike.
         let structured = io == IoModes::Structured;
-        spec.config = ConfigStrategy::Fixed(self.run_dir_for(key));
+        spec.config = run_config(
+            harness.as_ref(),
+            definition.as_deref(),
+            &definitions,
+            self.run_dir_for(key),
+            self.isolate,
+        );
+        let owns_login = matches!(
+            spec.config,
+            ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. }
+        );
         spec.io = io;
         spec.isolation = if self.isolate {
             Isolation::Sandboxed(String::new())
@@ -1375,6 +1509,11 @@ impl Agents {
         // both are settings a person set on this machine, and the library has no way to ask.
         let mut options = self.isolate_options();
         options.home = home_mode(&self.home);
+        // A definition's home is where the harness keeps its login and its sessions, shared by
+        // every run of the definition; the policy grants the run's own scratch dir, not that.
+        if let ConfigStrategy::Home { home, .. } = &spec.config {
+            options.extra_rw.push(home.clone());
+        }
 
         let confined = isolate::plan(&provisioned.launch, &spec, &provisioned.dir, &options)
             .with_context(|| format!("resolving the policy for a {agent_type} run"))?;
@@ -1410,6 +1549,9 @@ impl Agents {
             Some(Source::Dir(home)) => Some(home.clone()),
             _ => None,
         };
+        // A run from a home the harness owns records which one, so the teardown knows there is
+        // no login to write back and only this run's session to archive (`D193`).
+        meta.config = owns_login.then(|| spec.config.clone());
         let _ = session::save(&self.sessions_dir(), &meta);
 
         // The digest of what this run actually started with — never the bytes — so every
@@ -1433,6 +1575,7 @@ impl Agents {
             dir: provisioned.dir.clone(),
             provisioned,
             spec_account: spec.account.as_ref().map(|a| a.id.clone()),
+            owns_login,
             problems: spec.problems.clone(),
         })
     }
@@ -1488,12 +1631,28 @@ impl Agents {
         }
 
         let dest = sessions.join(key).join("harness");
-        for src in harness.transcripts(&self.run_dir_for(key)) {
+        // A home the harness owns holds every run's sessions, so only this run's own is taken —
+        // the one the harness named, and nothing when it never named one.
+        let transcripts = match &meta.config {
+            Some(ConfigStrategy::Home { home, .. }) => {
+                session_transcripts(harness.as_ref(), Some(home), &meta)
+            }
+            Some(ConfigStrategy::Native { .. }) => {
+                session_transcripts(harness.as_ref(), None, &meta)
+            }
+            _ => harness.transcripts(&self.run_dir_for(key)),
+        };
+        for src in transcripts {
             let Some(name) = src.file_name() else {
                 continue;
             };
             let _ = std::fs::create_dir_all(&dest);
-            let _ = std::fs::copy(&src, dest.join(name));
+            // A session's companion directory (its subagents' transcripts) comes whole.
+            if src.is_dir() {
+                let _ = copy_tree(&src, &dest.join(name), Path::new(""), &[]);
+            } else {
+                let _ = std::fs::copy(&src, dest.join(name));
+            }
         }
 
         meta.finished_at = Some(
@@ -1543,6 +1702,10 @@ impl Agents {
             let Ok(meta) = session::load(&sessions, &key) else {
                 continue;
             };
+            // Its login is the harness's own, in a home it refreshes itself (`D193`).
+            if owns_login(&meta) {
+                continue;
+            }
             groups
                 .entry((meta.harness.clone(), meta.login_home.clone()))
                 .or_default()
@@ -1708,10 +1871,16 @@ impl Agents {
     ///
     /// Which files those are stays the harness's answer, read through the same
     /// access path as [`has_login`](Self::has_login).
+    ///
+    /// Nothing for a run from a home the harness owns: nothing was seeded into its scratch dir,
+    /// and its login is the harness's own, in that home (`D193`).
     pub fn scrub_login(&self, key: &str) {
         let Ok(meta) = session::load(&self.sessions_dir(), key) else {
             return;
         };
+        if owns_login(&meta) {
+            return;
+        }
         let Some(harness) = harness::resolve(&meta.harness) else {
             return;
         };
@@ -1883,7 +2052,9 @@ impl Agents {
         self.run_dir_for(&agent.to_string())
     }
 
-    /// Remove what an agent's conversation left behind.
+    /// Remove what an agent's conversation left behind: its run directory, and only that. A
+    /// run from a definition's home (`D193`) leaves the home alone — the run directory is its
+    /// scratch, beside the home and never above it.
     pub fn retire_agent(&self, agent: AgentId) {
         let dir = self.agent_dir(agent);
         self.archive(&agent.to_string());
@@ -1910,11 +2081,67 @@ impl Agents {
 /// because nothing holds the `Provisioned` that long. A run whose login was not
 /// seeded from a directory records none, and the harness's own account of its
 /// live login — a keychain — is what finds it again.
+///
+/// None at all for a run from a home the harness owns (`D193`): its login lives there and the
+/// harness refreshes it, so there is nothing to write back and nowhere else it belongs.
 fn login_origin(harness: &dyn harness::Harness, meta: &session::SessionMeta) -> Option<Source> {
+    if owns_login(meta) {
+        return None;
+    }
     meta.login_home
         .clone()
         .map(Source::Dir)
         .or_else(|| harness.ambient_login())
+}
+
+/// Whether `meta`'s run ran from a config home the harness owns — a definition's, or the
+/// user's own — rather than from a run directory Ubiq seeded (`D193`). A meta written before
+/// that records no strategy, and reads as the seeded run it was.
+fn owns_login(meta: &session::SessionMeta) -> bool {
+    matches!(
+        meta.config,
+        Some(ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. })
+    )
+}
+
+/// The files `harness` wrote for this run's one session in a shared config home — `home`, or
+/// the user's own when `None`. Empty when the harness never named its session, or cannot name
+/// one session's files.
+fn session_transcripts(
+    harness: &dyn harness::Harness,
+    home: Option<&Path>,
+    meta: &session::SessionMeta,
+) -> Vec<PathBuf> {
+    meta.harness_session_id
+        .as_deref()
+        .and_then(|id| harness.session_transcripts(home, &meta.cwd, id))
+        .unwrap_or_default()
+}
+
+/// Where a run's configuration lives (`D193`), for a harness that can run from a shared home:
+/// the definition's own home when the run has one, and with none the user's own config in
+/// place, every per-run file in `scratch` either way. A harness that cannot share a home, a
+/// store naming no home for the definition, and a confined run with no definition — the
+/// sandbox grants a home Ubiq names, and the user's own config is not one — keep the per-run
+/// directory, seeded as it always was.
+fn run_config(
+    harness: &dyn harness::Harness,
+    definition: Option<&str>,
+    definitions: &dyn ProfileStore,
+    scratch: PathBuf,
+    confined: bool,
+) -> ConfigStrategy {
+    if !harness.shares_home() {
+        return ConfigStrategy::Fixed(scratch);
+    }
+    match definition {
+        Some(id) => match definitions.home(id, &harness.id()) {
+            Some(home) => ConfigStrategy::Home { home, scratch },
+            None => ConfigStrategy::Fixed(scratch),
+        },
+        None if confined => ConfigStrategy::Fixed(scratch),
+        None => ConfigStrategy::Native { scratch },
+    }
 }
 
 /// Copy `src` onto `dst`, recursively, skipping the run-dir-relative paths in
@@ -2832,12 +3059,13 @@ mod tests {
         .unwrap();
     }
 
-    /// The point of the whole package: a definition named `default` names an account, and the
-    /// account's captured credential is what the run is composed with — not whatever
-    /// happens to be in the user's own home. The byte comparison is the proof, because a
-    /// zero-config seed from `$HOME` would also leave a file at that path.
+    /// `D193`: a definition named `default` — the one a bare start resolves — runs Claude Code
+    /// from the definition's own home, with the run directory as its scratch beside it. The
+    /// account still names who the run answers as, but its captured credential is seeded
+    /// nowhere: the login is the one in the home. Retiring the run takes the scratch and never
+    /// the home.
     #[test]
-    fn a_definition_s_account_is_what_composes_the_run() {
+    fn a_definition_runs_from_its_own_home_and_seeds_no_account_login() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         given_an_account(root.path(), "default", "work");
@@ -2854,14 +3082,214 @@ mod tests {
             )
             .expect("composing a claude-code run against the default definition");
 
+        let home = agents.definition_store().home_dir("default", "claude-code");
         assert_eq!(composed.account(), Some("work"));
         assert_eq!(
-            std::fs::read(composed.dir.join(".credentials.json")).unwrap(),
-            b"{\"from\":\"account\"}",
-            "the account's own credential is what reached the run"
+            composed.dir,
+            agents.run_dir(pane),
+            "the scratch is the pane's own"
         );
+        assert!(composed.owns_login);
+        assert!(home.is_dir(), "the home was prepared");
+        assert!(!composed.dir.join(".credentials.json").exists());
+        assert!(!home.join(".credentials.json").exists());
+        let meta = session::load(&agents.sessions_dir(), &pane.to_string()).unwrap();
+        assert_eq!(
+            meta.config,
+            Some(ConfigStrategy::Home {
+                home: home.clone(),
+                scratch: agents.run_dir(pane),
+            })
+        );
+        assert_eq!(meta.login_home, None);
 
         agents.retire(pane);
+        assert!(!composed.dir.exists());
+        assert!(home.is_dir(), "retiring never reaches the home");
+    }
+
+    /// A run with no definition runs from the user's own config in place, and says so in its
+    /// record; nothing is seeded into its scratch.
+    #[test]
+    fn no_definition_runs_on_the_user_s_own_config() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let agent = AgentId::generate();
+
+        let composed = agents
+            .compose_run(
+                &agent.to_string(),
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                IoModes::Structured,
+                ConverseOptions::default(),
+            )
+            .expect("composing a claude-code run with no definition");
+
+        assert!(composed.owns_login);
+        assert!(!logged_in(&composed.dir));
+        let meta = session::load(&agents.sessions_dir(), &agent.to_string()).unwrap();
+        assert_eq!(
+            meta.config,
+            Some(ConfigStrategy::Native {
+                scratch: agents.agent_dir(agent),
+            })
+        );
+        agents.retire_agent(agent);
+    }
+
+    /// Which strategy a run gets (`D193`): the definition's home, the user's own config with no
+    /// definition, and the seeded run directory for a harness that cannot share a home, a store
+    /// that names no home, and a confined run with no definition.
+    #[test]
+    fn run_config_picks_the_home_native_or_the_run_directory() {
+        let root = tempfile::TempDir::new().unwrap();
+        let store = FsProfileStore::new(root.path().join("definitions"));
+        let scratch = root.path().join("runs").join("key");
+        let claude = harness::resolve("claude-code").unwrap();
+        let codex = harness::resolve("codex").unwrap();
+        let pick = |harness: &dyn harness::Harness,
+                    definition: Option<&str>,
+                    store: &dyn ProfileStore,
+                    confined: bool| {
+            run_config(harness, definition, store, scratch.clone(), confined)
+        };
+        let home = ConfigStrategy::Home {
+            home: store.home_dir("work", "claude-code"),
+            scratch: scratch.clone(),
+        };
+
+        assert_eq!(pick(claude.as_ref(), Some("work"), &store, false), home);
+        assert_eq!(pick(claude.as_ref(), Some("work"), &store, true), home);
+        assert_eq!(
+            pick(claude.as_ref(), None, &store, false),
+            ConfigStrategy::Native {
+                scratch: scratch.clone()
+            }
+        );
+        let fixed = ConfigStrategy::Fixed(scratch.clone());
+        assert_eq!(pick(claude.as_ref(), None, &store, true), fixed);
+        assert_eq!(
+            pick(
+                claude.as_ref(),
+                Some("work"),
+                &agent_manager::profile::EmptyProfileStore,
+                false
+            ),
+            fixed
+        );
+        assert_eq!(pick(codex.as_ref(), Some("work"), &store, false), fixed);
+        assert_eq!(pick(codex.as_ref(), None, &store, false), fixed);
+    }
+
+    /// A run from a home the harness owns is never reconciled, harvested or scrubbed: its
+    /// login is the harness's own. The fixture seeds login files into its scratch anyway, as
+    /// a legacy run's would be, and a meta with a login origin — so any of those passes would
+    /// have something to touch.
+    #[test]
+    fn a_run_from_a_home_is_never_synced_harvested_or_scrubbed() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let agent = AgentId::generate();
+        let key = agent.to_string();
+        let dir = given_a_run(&agents, &key, "claude-code");
+        let home = root.path().join("home");
+        let mut meta = session::load(&agents.sessions_dir(), &key).unwrap();
+        let origin = meta.login_home.clone().unwrap();
+        meta.config = Some(ConfigStrategy::Home {
+            home,
+            scratch: dir.clone(),
+        });
+        session::save(&agents.sessions_dir(), &meta).unwrap();
+
+        agents.sync_logins();
+        agents.refresh_login(&key);
+        agents.park_agent(agent);
+
+        assert!(logged_in(&dir), "scrub_login left the scratch alone");
+        assert_eq!(
+            std::fs::read_dir(&origin).unwrap().count(),
+            0,
+            "nothing was written back to the origin"
+        );
+    }
+
+    /// Archiving a run from a shared home takes this run's one session out of it — the
+    /// transcript and its companion directory — and none of the other runs' beside it.
+    #[test]
+    fn archiving_a_home_run_takes_only_its_own_session() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = Agents::new(root.path(), false);
+        let agent = AgentId::generate();
+        let key = agent.to_string();
+        let dir = given_a_run(&agents, &key, "claude-code");
+        let home = root.path().join("home");
+        let project = home.join("projects").join("-tmp");
+        std::fs::create_dir_all(project.join("mine").join("subagents")).unwrap();
+        std::fs::write(project.join("mine.jsonl"), "mine").unwrap();
+        std::fs::write(project.join("mine/subagents/a.jsonl"), "sub").unwrap();
+        std::fs::write(project.join("theirs.jsonl"), "theirs").unwrap();
+        let mut meta = session::load(&agents.sessions_dir(), &key).unwrap();
+        meta.config = Some(ConfigStrategy::Home {
+            home: home.clone(),
+            scratch: dir,
+        });
+        session::save(&agents.sessions_dir(), &meta).unwrap();
+
+        // No session named yet: nothing is taken.
+        agents.archive(&key);
+        let archived = agents.sessions_dir().join(&key).join("harness");
+        assert!(!archived.exists());
+
+        agents.remember_session(agent, "mine");
+        agents.archive(&key);
+
+        let mut names: Vec<String> = std::fs::read_dir(&archived)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["mine".to_string(), "mine.jsonl".to_string()]);
+        assert!(archived.join("mine/subagents/a.jsonl").is_file());
+        assert!(home.join("projects/-tmp/theirs.jsonl").is_file());
+    }
+
+    /// Signing a definition in prepares its home and runs the harness's own login into it —
+    /// nothing captured, no account — and a harness that cannot share a home, or a definition
+    /// that is not there, is refused.
+    #[test]
+    fn a_definition_sign_in_prepares_its_home_and_logs_into_it() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        agents.save_definition(a_definition("work")).unwrap();
+
+        let pending = agents
+            .begin_home_login("claude-code", "work", None)
+            .expect("a sign-in into the definition's home");
+
+        let home = agents.definition_store().home_dir("work", "claude-code");
+        assert_eq!(pending.home(), home);
+        assert!(home.is_dir(), "prepare_home made the home");
+        assert_eq!(pending.definition.as_deref(), Some("work"));
+        assert!(pending.account.is_empty());
+        assert!(pending.files.is_empty(), "nothing is captured");
+        assert!(
+            pending
+                .launch()
+                .env
+                .iter()
+                .any(|(_, value)| value == &home.display().to_string()),
+            "the login is pointed at the home"
+        );
+        assert!(agents.begin_home_login("codex", "work", None).is_err());
+        assert!(
+            agents
+                .begin_home_login("claude-code", "nobody", None)
+                .is_err()
+        );
+        assert!(agents.accounts().unwrap().is_empty());
     }
 
     /// An account id nothing answers to used to fail the whole compose. It now degrades like
@@ -2941,6 +3369,8 @@ mod tests {
             home,
             launch: Launch::default(),
             probe: false,
+            definition: None,
+            exit: Default::default(),
         }
     }
 

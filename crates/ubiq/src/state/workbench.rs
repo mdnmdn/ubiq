@@ -1275,6 +1275,7 @@ mod tests {
             unattended_mode: None,
             keeps_sessions: true,
             quota: QuotaSource::default(),
+            shares_home: false,
         }
     }
 
