@@ -38,6 +38,12 @@
 //! responses, and a response can only arrive through a reader that is already
 //! draining stdout.
 //!
+//! Both carry `mcpServers`: `[]` from [`AcpBridge::new`], for a harness that
+//! injects MCP through its own files or flags, and the run's servers from
+//! [`AcpBridge::with_mcp_servers`], for an adapter whose only per-run MCP route
+//! is the wire (`D193`). A remote server goes only to an agent whose
+//! `initialize` advertised its transport — see [`wire_mcp_servers`].
+//!
 //! Every shared piece — the writer thread's queue, the pending-request map,
 //! the outstanding permission table, the id counter, the session id, the live
 //! turn's id, the session root, the agent's prompt capabilities and the event
@@ -191,6 +197,8 @@ use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+
+use crate::config::{McpServer, McpTransport};
 
 use super::{
     AcpCapabilities, AgentEvent, AgentInput, AgentInputSink, ConfigCategory, ConfigChoice,
@@ -423,10 +431,24 @@ impl AcpBridge {
     /// child process included — is torn down by [`Drop`] as the function
     /// returns.
     pub fn new(
+        child: Child,
+        cwd: &Path,
+        resume: Option<&str>,
+        model: Option<&str>,
+    ) -> crate::Result<Self> {
+        Self::with_mcp_servers(child, cwd, resume, model, &[])
+    }
+
+    /// [`Self::new`], sending `mcp_servers` in `session/new` (or `session/load`) rather than
+    /// `[]` — for an adapter that takes a run's MCP servers only over the wire (`D193`). An
+    /// http or sse server the agent's `initialize` did not advertise is dropped with a warning;
+    /// see [`wire_mcp_servers`].
+    pub fn with_mcp_servers(
         mut child: Child,
         cwd: &Path,
         resume: Option<&str>,
         model: Option<&str>,
+        mcp_servers: &[McpServer],
     ) -> crate::Result<Self> {
         let stdin = child
             .stdin
@@ -473,7 +495,7 @@ impl AcpBridge {
             capabilities: AcpCapabilities::default(),
         };
 
-        bridge.handshake(&cwd, resume, model)?;
+        bridge.handshake(&cwd, resume, model, mcp_servers)?;
 
         Ok(bridge)
     }
@@ -486,6 +508,7 @@ impl AcpBridge {
         cwd: &str,
         resume: Option<&str>,
         model: Option<&str>,
+        mcp_servers: &[McpServer],
     ) -> crate::Result<()> {
         let init = rpc_request(
             &self.shared,
@@ -552,25 +575,16 @@ impl AcpBridge {
             None => {}
         }
 
-        let (method, params) = match resume {
-            Some(session_id) => {
-                if !load_session {
-                    anyhow::bail!(
-                        "cannot resume acp session '{session_id}': the agent does not advertise \
-                         `agentCapabilities.loadSession`"
-                    );
-                }
-                (
-                    "session/load",
-                    // `mcpServers` is always `[]` and never null: `am` injects
-                    // MCP servers at provisioning time — the harness's own config
-                    // files or a launch flag — not over the wire.
-                    json!({"sessionId": session_id, "cwd": cwd, "mcpServers": []}),
-                )
-            }
-            // Same rule for a fresh session: `[]`, never null.
-            None => ("session/new", json!({"cwd": cwd, "mcpServers": []})),
-        };
+        if let Some(session_id) = resume
+            && !load_session
+        {
+            anyhow::bail!(
+                "cannot resume acp session '{session_id}': the agent does not advertise \
+                 `agentCapabilities.loadSession`"
+            );
+        }
+        let servers = wire_mcp_servers(mcp_servers, &self.agent_capabilities);
+        let (method, params) = session_request(cwd, resume, servers);
 
         let result = match rpc_request(&self.shared, method, params, HANDSHAKE_TIMEOUT) {
             Ok(result) => result,
@@ -753,6 +767,83 @@ fn initialize_params() -> Value {
             }}},
         },
     })
+}
+
+/// The method and params that open the session: `session/load` when `resume` names one,
+/// `session/new` otherwise. `mcpServers` is always an array and never null — `[]` when the
+/// harness injects MCP through its own files or flags.
+fn session_request(
+    cwd: &str,
+    resume: Option<&str>,
+    mcp_servers: Vec<Value>,
+) -> (&'static str, Value) {
+    match resume {
+        Some(session_id) => (
+            "session/load",
+            json!({"sessionId": session_id, "cwd": cwd, "mcpServers": mcp_servers}),
+        ),
+        None => (
+            "session/new",
+            json!({"cwd": cwd, "mcpServers": mcp_servers}),
+        ),
+    }
+}
+
+/// `servers` as ACP `McpServer` entries. A stdio server carries no `type` (ACP's default
+/// variant) and its `env` as `[{name, value}]`; an http or sse one carries `type`, `url` and
+/// `headers` the same way — and is sent only when `agentCapabilities.mcpCapabilities` says the
+/// agent takes that transport. One it does not, or one missing its command or URL, is dropped
+/// with a warning naming the server: sending it would fail the whole `session/new`.
+fn wire_mcp_servers(servers: &[McpServer], agent_capabilities: &Value) -> Vec<Value> {
+    let pairs = |map: &std::collections::BTreeMap<String, String>| -> Vec<Value> {
+        map.iter()
+            .map(|(name, value)| json!({"name": name, "value": value}))
+            .collect()
+    };
+    servers
+        .iter()
+        .filter_map(|server| {
+            let kind = match server.transport {
+                McpTransport::Stdio => {
+                    let Some(command) = &server.command else {
+                        tracing::warn!(server = %server.id, "acp: stdio MCP server names no command; not sent");
+                        return None;
+                    };
+                    return Some(json!({
+                        "name": server.id,
+                        "command": command,
+                        "args": server.args,
+                        "env": pairs(&server.env),
+                    }));
+                }
+                McpTransport::Http => "http",
+                McpTransport::Sse => "sse",
+            };
+            let advertised = agent_capabilities
+                .get("mcpCapabilities")
+                .and_then(|caps| caps.get(kind))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !advertised {
+                tracing::warn!(
+                    server = %server.id,
+                    transport = kind,
+                    "acp agent does not advertise this MCP transport in `mcpCapabilities`; server not sent"
+                );
+                return None;
+            }
+            let Some(url) = &server.url else {
+                tracing::warn!(server = %server.id, "acp: remote MCP server names no url; not sent");
+                return None;
+            };
+            Some(json!({
+                "type": kind,
+                "name": server.id,
+                "url": url,
+                "headers": pairs(&server.headers),
+            }))
+        })
+        .collect()
 }
 
 /// The auth method the agent nominates as its default — the one it says needs
@@ -3870,6 +3961,79 @@ mod tests {
     }
 
     // ── the frames we write ────────────────────────────────────────────
+
+    fn mcp(id: &str, transport: McpTransport) -> McpServer {
+        let remote = !matches!(transport, McpTransport::Stdio);
+        McpServer {
+            id: id.to_string(),
+            transport,
+            command: (!remote).then(|| "/usr/bin/tool".to_string()),
+            args: vec!["--serve".to_string()],
+            env: [("TOKEN_ENV".to_string(), "x".to_string())].into(),
+            url: remote.then(|| format!("http://127.0.0.1:1/{id}")),
+            headers: [("X-Run".to_string(), "r1".to_string())].into(),
+        }
+    }
+
+    /// A stdio server has no `type` and name/value arrays; a remote one carries its `type`.
+    #[test]
+    fn mcp_servers_take_acps_shapes() {
+        let caps = json!({"mcpCapabilities": {"http": true, "sse": true}});
+        let servers = [
+            mcp("local", McpTransport::Stdio),
+            mcp("ubiq", McpTransport::Http),
+            mcp("legacy", McpTransport::Sse),
+        ];
+        assert_eq!(
+            Value::Array(wire_mcp_servers(&servers, &caps)),
+            json!([
+                {"name": "local", "command": "/usr/bin/tool", "args": ["--serve"],
+                 "env": [{"name": "TOKEN_ENV", "value": "x"}]},
+                {"type": "http", "name": "ubiq", "url": "http://127.0.0.1:1/ubiq",
+                 "headers": [{"name": "X-Run", "value": "r1"}]},
+                {"type": "sse", "name": "legacy", "url": "http://127.0.0.1:1/legacy",
+                 "headers": [{"name": "X-Run", "value": "r1"}]},
+            ])
+        );
+    }
+
+    /// A remote transport the agent did not advertise is dropped; stdio always goes.
+    #[test]
+    fn an_unadvertised_mcp_transport_is_not_sent() {
+        let servers = [
+            mcp("local", McpTransport::Stdio),
+            mcp("ubiq", McpTransport::Http),
+            mcp("legacy", McpTransport::Sse),
+        ];
+        let names = |caps: Value| -> Vec<Value> {
+            wire_mcp_servers(&servers, &caps)
+                .into_iter()
+                .map(|s| s["name"].clone())
+                .collect()
+        };
+        assert_eq!(names(json!({})), vec![json!("local")]);
+        assert_eq!(
+            names(json!({"mcpCapabilities": {"http": true}})),
+            vec![json!("local"), json!("ubiq")]
+        );
+    }
+
+    /// Both session openers carry `mcpServers`, `[]` when there is none — never null.
+    #[test]
+    fn session_new_and_load_carry_the_mcp_servers() {
+        let servers = vec![json!({"name": "local"})];
+        let (method, params) = session_request("/w", None, servers.clone());
+        assert_eq!(method, "session/new");
+        assert_eq!(params, json!({"cwd": "/w", "mcpServers": servers}));
+        let (method, params) = session_request("/w", Some("s1"), servers.clone());
+        assert_eq!(method, "session/load");
+        assert_eq!(
+            params,
+            json!({"sessionId": "s1", "cwd": "/w", "mcpServers": servers})
+        );
+        let (_, params) = session_request("/w", None, Vec::new());
+        assert_eq!(params["mcpServers"], json!([]));
+    }
 
     /// Pinned verbatim: `protocolVersion` is the integer 1, the two `fs`
     /// flags and `session.configOptions.boolean` are advertised, and

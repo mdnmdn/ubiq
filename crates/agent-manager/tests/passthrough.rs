@@ -36,6 +36,7 @@ fn provisioned(dir: PathBuf, launch: Launch, ephemeral: bool) -> Provisioned {
         login_origin: None,
         resume: None,
         model: None,
+        mcp_servers: Vec::new(),
         #[cfg(feature = "inproc-mcp")]
         inproc_servers: Vec::new(),
     }

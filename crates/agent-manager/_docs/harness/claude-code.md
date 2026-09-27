@@ -728,9 +728,29 @@ login` with `CLAUDE_CONFIG_DIR=<home>` and the real `HOME` untouched
 in the Keychain item keyed by that home, and refreshes it itself. The home takes
 the theme/TUI templates once in its life (`provision::prepare_home`, behind a
 `.am-home` marker), and `.claude.json`'s onboarding flag and cwd trust entry
-only when missing, under a lock (`profiles.md` §14.2). `claude-code-acp` takes
-no argv, so it cannot share a home and is provisioned into `scratch` as a fixed
-dir.
+only when missing, under a lock (`profiles.md` §14.2).
+
+**`claude-code-acp` shares a home too** (`Claude::provision_acp_home`), with
+`CLAUDE_CONFIG_DIR=<home>` and the same sign-in. Its adapter,
+`claude-agent-acp`, takes no argv, so no table row above reaches it:
+
+| Piece | Route |
+|---|---|
+| MCP servers | ACP `session/new` / `session/load` `mcpServers` (`Provisioned::mcp_servers`, sent by `AcpBridge::with_mcp_servers`); an http or sse server only when `initialize` advertised `mcpCapabilities.http` / `.sse`, dropped with a warning otherwise |
+| skills, MCP-as-skill | `<home>/skills/<id>/`, each staged and swapped in whole under a lock |
+| permissions, hooks, `apiKeyHelper` | those keys of `<home>/settings.json`, a locked read-modify-write; every other key kept |
+| instructions | `am`'s managed block in `<home>/CLAUDE.md`, replaced in place or appended; the rest of the file kept |
+
+The last three are **profile-owned**: the adapter's Claude Code loads user
+settings, memory and skills from its config dir (`settingSources` includes
+`user`), and `RunSpec` cannot tell a profile's piece from a run's, so two runs
+of one profile that differ there overwrite each other, and a piece dropped from
+the profile stays in the home. A stdio server's `command` is sent as the spec
+names it, though ACP asks for an absolute path. Nothing goes into `scratch`. A
+passthrough `claude-code-acp` pane is the real `claude` and is composed exactly
+as the table above. With no profile (`Native`) the three are dropped with a
+warning. On the legacy fixed-dir path nothing changes: MCP never reaches the
+adapter, and the bridge sends `[]`.
 
 `ConfigStrategy::Native { scratch }` — a run with no profile — is the same
 launch with no home: no `CLAUDE_CONFIG_DIR` is set (an inherited one is kept, as

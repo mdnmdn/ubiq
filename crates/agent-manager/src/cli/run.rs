@@ -589,8 +589,7 @@ mod tests {
     use super::*;
 
     /// `D193` in the CLI: a profile runs from its home, no profile runs from the harness's own
-    /// config, and a harness that cannot share a home, a store with no home or a confined run
-    /// keeps the per-run dir — without ever making a scratch dir it will not use.
+    /// config, and a store with no home or a confined run keeps the per-run dir.
     #[test]
     fn cli_config_picks_home_with_a_profile_and_native_without() {
         let temp = tempfile::TempDir::new().unwrap();
@@ -619,11 +618,14 @@ mod tests {
             })
         );
         assert_eq!(pick(&claude, &spec, Some("work"), &EmptyProfileStore), None);
+        // `claude-code-acp` shares a home too.
         let acp = crate::harness::Claude::new_acp();
-        let none = cli_config(&acp, &spec, None, &store, || {
-            panic!("no scratch dir wanted")
-        });
-        assert_eq!(none.unwrap(), None);
+        assert_eq!(
+            pick(&acp, &spec, None, &store),
+            Some(ConfigStrategy::Native {
+                scratch: scratch.clone()
+            })
+        );
         let mut confined = spec.clone();
         confined.isolation = crate::spec::Isolation::Sandboxed(String::new());
         assert_eq!(pick(&claude, &confined, None, &store), None);

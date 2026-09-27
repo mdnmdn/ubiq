@@ -3309,7 +3309,11 @@ mod tests {
                 .any(|(_, value)| value == &home.display().to_string()),
             "the login is pointed at the home"
         );
-        assert!(agents.begin_home_login("no-such-harness", "work", None).is_err());
+        assert!(
+            agents
+                .begin_home_login("no-such-harness", "work", None)
+                .is_err()
+        );
         assert!(
             agents
                 .begin_home_login("claude-code", "nobody", None)

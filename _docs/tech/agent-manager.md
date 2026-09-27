@@ -319,7 +319,11 @@ session id is relaunched anyway and answers with no memory of the turn before it
 (`crates/agent-manager/src/io/acp_client.rs`) is an Agent Client Protocol v1 client: it drives the
 child over newline-delimited JSON-RPC on its stdio, handshakes with `initialize` and `session/new`,
 sends each turn as `session/prompt`, and serves the `fs/read_text_file` and `fs/write_text_file`
-requests the agent makes back, confined to the session root. It names no harness, so adding an
+requests the agent makes back, confined to the session root. A harness running from a shared home
+(`D193`) passes the run's MCP servers to `AcpBridge::with_mcp_servers` — carried on
+`Provisioned::mcp_servers` — and they go in `session/new`'s and `session/load`'s `mcpServers`, an
+http or sse server only when `initialize` advertised that transport; every other run sends `[]`
+and keeps its MCP in the harness's own files or flags. It names no harness, so adding an
 ACP-speaking one is a `harness_identity!` entry and a launch argv rather than a second bridge.
 `IoSupport::acp` is that declaration — the structured bridge speaks ACP rather than a
 harness-specific wire — and it says nothing when `structured` is false. Two consequences reach this

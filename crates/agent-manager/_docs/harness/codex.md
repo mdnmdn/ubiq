@@ -561,8 +561,8 @@ the best available store per platform.
 ### Shared-home run (agent-manager, `D193`)
 
 > How `Codex::provision_home` runs from a profile's persistent `CODEX_HOME` instead of a per-run
-> copy. Only the native `codex` shares a home; `codex-acp` takes no argv, so it keeps the per-run
-> path above.
+> copy. Both `codex` and `codex-acp` share a home; the differences for `codex-acp` are its own
+> bullet below.
 
 - **Home:** the profile's `CODEX_HOME`, holding `auth.json`, `sessions/` and anything the
   profile's user put there. Codex refreshes its own login; nothing is seeded or read back. With no
@@ -583,6 +583,14 @@ the best available store per platform.
   skills or hooks overwrite each other, and a skill dropped from the profile stays in the home. A
   native run drops skills and hooks with a warning. `AGENTS.md` and `config.toml` are never
   written.
+- **`codex-acp`:** the same home, sign-in (`codex login`) and profile-owned skills and hooks. Its
+  structured argv is `codex-acp -c … [passthrough_args…]` — the adapter's `main` parses Codex's own
+  `CliConfigOverrides` (read from `zed-industries/codex-acp` `src/main.rs`, not run here) — with
+  every `-c` above but `mcp_servers.*`. The MCP servers go in ACP `session/new` / `session/load`
+  `mcpServers` instead (`Provisioned::mcp_servers`, sent by `AcpBridge::with_mcp_servers`);
+  `codex-acp` advertises `mcpCapabilities.http` only, so an sse server is dropped with a warning,
+  and it adds the servers to the home's own, as a `-c` does. A passthrough `codex-acp` pane is the
+  real `codex`, composed exactly as above.
 - **Transcripts:** rollouts land in `<home>/sessions/YYYY/MM/DD/*.jsonl`, but this document does
   not say how a file names its thread, so `session_transcripts` answers `None`.
 
@@ -740,16 +748,17 @@ app-server protocol documented below — see [`../io-modes.md`](../io-modes.md).
 Structured argv is exactly:
 
 ```
-codex-acp [passthrough_args...]
+codex-acp [-c key=value ...] [passthrough_args...]
 ```
 
-Nothing else is on the command line: no `app-server --listen stdio://`, no `-m`/`--model`, no
-resume flag. The prompt is a `session/prompt` request over the wire, a resume is `session/load`
-against the id the previous run reported, and the model/reasoning effort still reach the run
-through `config.toml` under `CODEX_HOME` (written exactly as for the native `codex` harness — see
-"Model & reasoning at launch" below). Passthrough argv is unchanged by any of this: `codex-acp` is
-not a TUI, so a pane still gets the real, interactive `codex`. Because nothing reaches the adapter
-by argv, `codex-acp` does not run from a shared home (see "Shared-home run" above).
+The `-c` overrides appear only on a shared-home run (see "Shared-home run" above); a fixed-dir run
+passes none. Nothing else is on the command line: no `app-server --listen stdio://`, no
+`-m`/`--model`, no resume flag. The prompt is a `session/prompt` request over the wire, a resume is
+`session/load` against the id the previous run reported, and the model/reasoning effort reach the
+run through `config.toml` under `CODEX_HOME` on a fixed dir, or by `-c` under a shared home. MCP
+servers are in that `config.toml` on a fixed dir, where the bridge sends `mcpServers: []`; under a
+shared home they travel in `session/new`'s `mcpServers`. Passthrough argv is unchanged by any of
+this: `codex-acp` is not a TUI, so a pane still gets the real, interactive `codex`.
 
 Verified against `@agentclientprotocol/codex-acp` 1.10.0: the bin is named `codex-acp`, and unlike
 Claude's `claude-agent-acp` it answers `--version` directly (prints `<name> <version>`, exits 0),

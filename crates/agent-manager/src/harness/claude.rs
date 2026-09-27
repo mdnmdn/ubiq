@@ -10,6 +10,8 @@
 //! real config. Under a profile's shared home (`D193`) the variable names that
 //! home instead, and every per-run file reaches the run by flag from its
 //! scratch dir — see [`Claude::provision_home`](super::Harness::provision_home).
+//! `claude-code-acp`, which takes no flag, gets its MCP servers over the wire
+//! and the rest as profile-owned content in the home.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -102,10 +104,11 @@ impl Claude {
         // `Provisioned::resume`) and everything else it needs it reads from `CLAUDE_CONFIG_DIR`
         // below, exactly as the native variant's child does. A passthrough run is unchanged —
         // `claude-code-acp` is not a TUI, so a pane still gets the real `claude`.
-        // ponytail: no model, no thinking level and no `--mcp-config` reach the adapter — it
-        // takes those on `session/new`'s `_meta.claudeCode.options`, which the generic ACP
-        // bridge does not send. Skills, settings and memory still arrive through the config dir.
-        // Wire `_meta` options only if per-run model choice is wanted here.
+        // ponytail: no thinking level and no `--mcp-config` reach the adapter by argv. The model
+        // is set over the wire by the bridge; under a shared home the MCP servers ride
+        // `session/new`'s `mcpServers` (`provision_acp_home`), on the legacy path none reach it.
+        // Skills, settings and memory arrive through the config dir. `_meta.claudeCode.options`
+        // would carry the rest per run, if that is ever wanted (`G378`).
         let acp = self.acp && structured;
 
         let mut args = Vec::new();
@@ -217,6 +220,51 @@ impl Claude {
             env_remove: ENV_HYGIENE.iter().map(|s| s.to_string()).collect(),
             env_clear: false,
         })
+    }
+
+    /// A structured `claude-code-acp` run against a shared `CLAUDE_CONFIG_DIR` (`D193`). The
+    /// adapter takes no argv, so the one per-run route is the wire: its MCP servers travel in
+    /// `session/new`'s `mcpServers` ([`crate::provision::Provisioned::mcp_servers`], sent by
+    /// [`Harness::structured_bridge`]), and nothing goes into `scratch`. Settings, instructions
+    /// and skills have no per-run route (`G378`), so they are the profile's, written into `home`
+    /// where the adapter's Claude Code reads its user config:
+    ///
+    /// - skills and MCP-as-skill pointers → `<home>/skills/<id>/`, each swapped in whole;
+    /// - permissions, hooks, `apiKeyHelper` → those keys of `<home>/settings.json`, set in a
+    ///   locked read-modify-write that keeps every other key;
+    /// - instructions → `am`'s managed block in `<home>/CLAUDE.md`, the rest of the file kept.
+    ///
+    /// `RunSpec` cannot tell a profile's piece from a run's, so two runs of one profile that
+    /// differ there overwrite each other. With no `home` (a native run) the launch sets no
+    /// `CLAUDE_CONFIG_DIR` and all three are dropped with a warning — the user's own config is
+    /// never written.
+    fn provision_acp_home(&self, spec: &RunSpec, home: Option<&Path>) -> Result<Launch> {
+        if spec.mcps.iter().any(|m| matches!(m, McpRef::InProcess(_))) {
+            bail!("in-process MCP not supported in CLI/passthrough mode");
+        }
+        let instructions = spec.initial.as_ref().and_then(|i| i.instructions.as_ref());
+        match home {
+            Some(home) => {
+                super::write_profile_skills(spec, &home.join("skills"))?;
+                write_profile_settings(spec, home)?;
+                if let Some(text) = instructions {
+                    write_profile_instructions(&home.join("CLAUDE.md"), text)?;
+                }
+            }
+            None => {
+                let skills = spec.skills.len() + spec.mcp_as_skill.len();
+                let settings = settings_keys(spec).len();
+                if skills > 0 || settings > 0 || instructions.is_some() {
+                    warn!(
+                        skills,
+                        settings,
+                        instructions = instructions.is_some(),
+                        "claude-code-acp has no per-run route for skills, settings or instructions; a run with no profile drops them"
+                    );
+                }
+            }
+        }
+        self.launch(spec, home, Vec::new())
     }
 }
 
@@ -536,10 +584,10 @@ impl Harness for Claude {
         Ok(launch)
     }
 
-    /// The native variant runs from a shared home; `claude-code-acp` does not — its adapter
-    /// takes no argv, so no per-run file could reach it by flag (`G378`).
+    /// Both variants run from a shared home. `claude-code-acp`'s adapter takes no argv, so its
+    /// MCP servers go over the wire and the rest is profile-owned — see `provision_acp_home`.
     fn shares_home(&self) -> bool {
-        !self.acp
+        true
     }
 
     /// A run against a profile's shared `CLAUDE_CONFIG_DIR` (`D193`). Nothing per-run is written
@@ -559,12 +607,18 @@ impl Harness for Claude {
     /// No login is seeded: it lives in the home, put there by [`Harness::login_home`] or by the
     /// first terminal run's own login screen. With no `home` (a native run) the launch sets no
     /// `CLAUDE_CONFIG_DIR`, and Claude Code runs from the user's own config and login.
+    ///
+    /// A structured `claude-code-acp` run takes none of those flags — see `provision_acp_home`.
+    /// Its passthrough pane is the real `claude`, composed exactly as here.
     fn provision_home(
         &self,
         spec: &RunSpec,
         home: Option<&Path>,
         scratch: &Path,
     ) -> Result<Launch> {
+        if self.acp && spec.io == crate::spec::IoModes::Structured {
+            return self.provision_acp_home(spec, home);
+        }
         let mcp_path = write_mcp_json(spec, scratch)?;
         let mut config_args = vec![
             "--mcp-config".to_string(),
@@ -662,11 +716,13 @@ impl Harness for Claude {
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
         if self.acp {
-            return Ok(Box::new(crate::io::AcpBridge::new(
+            // The adapter's only per-run MCP route. Empty on the legacy path.
+            return Ok(Box::new(crate::io::AcpBridge::with_mcp_servers(
                 child,
                 cwd,
                 provisioned.resume.as_deref(),
                 provisioned.model.as_deref(),
+                &provisioned.mcp_servers,
             )?));
         }
         Ok(Box::new(crate::io::JsonlBridge::new(child)?))
@@ -960,6 +1016,22 @@ fn write_mcp_json(spec: &RunSpec, dir: &Path) -> Result<std::path::PathBuf> {
 /// Write `<dir>/settings.json` when any of a policy, an account helper, or hooks is present.
 /// Returns the path written, or `None` when there was nothing to write.
 fn write_settings_json(spec: &RunSpec, dir: &Path) -> Result<Option<std::path::PathBuf>> {
+    let settings_obj = settings_keys(spec);
+    if settings_obj.is_empty() {
+        return Ok(None);
+    }
+    let settings_path = dir.join("settings.json");
+    std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&Value::Object(settings_obj))?,
+    )
+    .with_context(|| format!("writing {}", settings_path.display()))?;
+    Ok(Some(settings_path))
+}
+
+/// The `settings.json` keys `am` owns, from `spec`: `permissions` (a policy), `apiKeyHelper`
+/// (an account helper) and `hooks`, each only when the spec has one.
+fn settings_keys(spec: &RunSpec) -> serde_json::Map<String, Value> {
     let mut settings_obj = serde_json::Map::new();
     if let Some(policy) = &spec.policy {
         let mut permissions = serde_json::Map::new();
@@ -981,16 +1053,91 @@ fn write_settings_json(spec: &RunSpec, dir: &Path) -> Result<Option<std::path::P
     if !spec.hooks.is_empty() {
         settings_obj.insert("hooks".to_string(), build_hooks_json(&spec.hooks));
     }
-    if settings_obj.is_empty() {
-        return Ok(None);
+    settings_obj
+}
+
+/// Set the keys `am` owns ([`settings_keys`]) in a shared home's `settings.json`, as
+/// profile-owned content for `claude-code-acp` (`D193`, `G378`): a read-modify-write under a
+/// lock beside the file, every other key — the theme and TUI templates, the user's own — left
+/// as it was, and nothing rewritten when the values are already there. A key the spec does not
+/// set is left alone too, so a policy dropped from the profile stays until changed by hand.
+fn write_profile_settings(spec: &RunSpec, home: &Path) -> Result<()> {
+    let owned = settings_keys(spec);
+    if owned.is_empty() {
+        return Ok(());
     }
-    let settings_path = dir.join("settings.json");
-    std::fs::write(
-        &settings_path,
-        serde_json::to_string_pretty(&Value::Object(settings_obj))?,
-    )
-    .with_context(|| format!("writing {}", settings_path.display()))?;
-    Ok(Some(settings_path))
+    let path = home.join("settings.json");
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = super::lock_beside(&path)?;
+    let mut doc: Value = match std::fs::read_to_string(&path) {
+        Ok(raw) => {
+            serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+    };
+    let Value::Object(map) = &mut doc else {
+        warn!(path = %path.display(), "settings.json is not an object; left alone");
+        return Ok(());
+    };
+    let mut changed = false;
+    for (key, value) in owned {
+        if map.get(&key) != Some(&value) {
+            map.insert(key, value);
+            changed = true;
+        }
+    }
+    if changed {
+        replace_in_home(&path, &serde_json::to_string_pretty(&doc)?)?;
+    }
+    Ok(())
+}
+
+/// Put `text` into a shared home's `CLAUDE.md` as `am`'s managed block, as profile-owned
+/// instructions for `claude-code-acp` (`D193`, `G378`): the block replaced in place when the
+/// file has one, appended when it has not, and the rest of the file — the user's own memory —
+/// kept byte for byte. A read-modify-write under a lock beside the file.
+fn write_profile_instructions(path: &Path, text: &str) -> Result<()> {
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = super::lock_beside(path)?;
+    let current = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+    };
+    let block = format!("{MANAGED_BEGIN}\n{text}\n{MANAGED_END}\n");
+    let next = match (current.find(MANAGED_BEGIN), current.find(MANAGED_END)) {
+        (Some(start), Some(end)) if end > start => {
+            let mut tail = end + MANAGED_END.len();
+            if current[tail..].starts_with('\n') {
+                tail += 1;
+            }
+            format!("{}{block}{}", &current[..start], &current[tail..])
+        }
+        _ if current.is_empty() => block,
+        _ => {
+            let sep = if current.ends_with('\n') {
+                "\n"
+            } else {
+                "\n\n"
+            };
+            format!("{current}{sep}{block}")
+        }
+    };
+    if next != current {
+        replace_in_home(path, &next)?;
+    }
+    Ok(())
+}
+
+/// Write `contents` beside `path` and rename it over, so a Claude Code running from the same
+/// home never reads half a file. The caller holds the lock beside `path`.
+fn replace_in_home(path: &Path, contents: &str) -> Result<()> {
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".am-tmp");
+    let staged = std::path::PathBuf::from(staged);
+    std::fs::write(&staged, contents).with_context(|| format!("writing {}", staged.display()))?;
+    std::fs::rename(&staged, path).with_context(|| format!("writing {}", path.display()))
 }
 
 /// [`Claude::post_seed`] for a shared home: the onboarding flag and the cwd's trust entry are
@@ -2138,9 +2285,93 @@ mod tests {
     }
 
     #[test]
-    fn only_the_native_variant_shares_a_home() {
+    fn both_variants_share_a_home() {
         assert!(Claude::new().shares_home());
-        assert!(!Claude::new_acp().shares_home());
+        assert!(Claude::new_acp().shares_home());
+    }
+
+    /// `claude-code-acp` under a home: the adapter and `CLAUDE_CONFIG_DIR`, no flag, nothing in
+    /// scratch, and the profile-owned pieces written into the home around what was there.
+    #[test]
+    fn claude_code_acp_writes_profile_owned_items_into_the_home_and_keeps_the_rest() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let skill_path = write_skill(skills_src.path(), "my-skill");
+        let mut spec = home_spec(home.path(), scratch.path(), &skill_path);
+        spec.io = crate::spec::IoModes::Structured;
+        std::fs::write(
+            home.path().join("settings.json"),
+            r#"{"theme":"light","permissions":{"allow":["Old"]}}"#,
+        )
+        .unwrap();
+        let user_md = "# Mine\n\nKeep this.\n";
+        std::fs::write(home.path().join("CLAUDE.md"), user_md).unwrap();
+
+        let acp = Claude::new_acp();
+        let launch = acp
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+        assert_eq!(launch.program, ACP_COMMAND);
+        assert!(launch.args.is_empty(), "{:?}", launch.args);
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &home.path().display().to_string())
+        );
+        assert!(std::fs::read_dir(scratch.path()).unwrap().next().is_none());
+        assert!(!home.path().join("mcp.json").exists());
+
+        assert!(home.path().join("skills/my-skill/SKILL.md").is_file());
+        let settings: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.path().join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(settings["theme"], "light");
+        assert_eq!(settings["permissions"]["defaultMode"], "plan");
+
+        // A second run replaces the managed block rather than stacking another.
+        spec.initial.as_mut().unwrap().instructions = Some("NEW TEXT".to_string());
+        acp.provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+        let md = std::fs::read_to_string(home.path().join("CLAUDE.md")).unwrap();
+        assert!(md.starts_with(user_md), "{md}");
+        assert_eq!(md.matches(MANAGED_BEGIN).count(), 1, "{md}");
+        assert!(
+            md.contains("NEW TEXT") && !md.contains("REMEMBER ME"),
+            "{md}"
+        );
+    }
+
+    /// With no profile, `claude-code-acp` names no config dir and writes nothing anywhere.
+    #[test]
+    fn claude_code_acp_native_writes_nothing() {
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let skill_path = write_skill(skills_src.path(), "my-skill");
+        let mut spec = home_spec(scratch.path(), scratch.path(), &skill_path);
+        spec.io = crate::spec::IoModes::Structured;
+
+        let launch = Claude::new_acp()
+            .provision_home(&spec, None, scratch.path())
+            .unwrap();
+        assert_eq!(launch.program, ACP_COMMAND);
+        assert!(launch.env.iter().all(|(k, _)| k != "CLAUDE_CONFIG_DIR"));
+        assert!(std::fs::read_dir(scratch.path()).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn claude_code_acp_logs_in_as_claude_code_does() {
+        let home = tempfile::TempDir::new().unwrap();
+        let (acp, native) = (
+            Claude::new_acp().login_home(home.path()).unwrap(),
+            Claude::new().login_home(home.path()).unwrap(),
+        );
+        assert_eq!(
+            (acp.program, acp.args, acp.env),
+            (native.program, native.args, native.env)
+        );
     }
 
     #[test]

@@ -98,6 +98,7 @@ pub(super) fn cmd_login(
             login_origin: None,
             resume: None,
             model: None,
+            mcp_servers: Vec::new(),
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };

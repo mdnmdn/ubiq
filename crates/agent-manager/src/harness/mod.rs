@@ -647,6 +647,53 @@ pub(crate) fn lock_beside(file: &Path) -> Result<std::fs::File> {
     Ok(lock)
 }
 
+/// Place `spec`'s skills (and MCP-as-skill pointers) into `skills_dir` inside a shared home,
+/// as profile-owned content for a harness with no per-run skill route (`D193`). The set is
+/// built in `.am-stage/` beside them and each `<id>/` renamed over its old copy, so a running
+/// harness reads one skill's old files or its new ones, never half of each; all of it under a
+/// lock beside `skills_dir`, since every run of the profile writes here. A skill the run does
+/// not name is left alone.
+pub(crate) fn write_profile_skills(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
+    if spec.skills.is_empty() && spec.mcp_as_skill.is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(skills_dir)
+        .with_context(|| format!("creating {}", skills_dir.display()))?;
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = lock_beside(skills_dir)?;
+    let stage = skills_dir.join(".am-stage");
+    let old = skills_dir.join(".am-old");
+    for leftover in [&stage, &old] {
+        if leftover.exists() {
+            std::fs::remove_dir_all(leftover)
+                .with_context(|| format!("removing {}", leftover.display()))?;
+        }
+    }
+    for skill in &spec.skills {
+        let dest = stage.join(&skill.id);
+        skill
+            .source
+            .materialize(&dest, crate::source::LinkMode::Copy, true)
+            .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
+    }
+    write_mcp_as_skill_pointers(spec, &stage)?;
+    for entry in
+        std::fs::read_dir(&stage).with_context(|| format!("reading {}", stage.display()))?
+    {
+        let staged = entry?.path();
+        let dest = skills_dir.join(staged.file_name().unwrap_or_default());
+        if dest.exists() {
+            std::fs::rename(&dest, &old)
+                .with_context(|| format!("moving aside {}", dest.display()))?;
+        }
+        std::fs::rename(&staged, &dest).with_context(|| format!("placing {}", dest.display()))?;
+        if old.exists() {
+            std::fs::remove_dir_all(&old).with_context(|| format!("removing {}", old.display()))?;
+        }
+    }
+    std::fs::remove_dir(&stage).with_context(|| format!("removing {}", stage.display()))
+}
+
 /// Write a credential blob to `path`, creating parents, `0600` on unix.
 pub(crate) fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -1422,6 +1469,7 @@ mod tests {
             login_origin: None,
             resume: None,
             model: None,
+            mcp_servers: Vec::new(),
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
         };
@@ -1431,6 +1479,86 @@ mod tests {
         match result {
             Ok(_) => panic!("expected an error"),
             Err(err) => assert!(err.to_string().contains("structured"), "error was: {err}"),
+        }
+    }
+
+    /// A stand-in ACP agent: answers `initialize` (advertising `loadSession` and http MCP) and
+    /// the session opener, writing the opener's frame to `capture` first.
+    #[cfg(unix)]
+    fn fake_acp_agent(capture: &Path) -> Launch {
+        let script = r#"read -r line
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"mcpCapabilities":{"http":true}}}}'
+read -r line
+printf '%s\n' "$line" > "$1"
+printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1"}}'
+cat > /dev/null"#;
+        Launch {
+            program: "sh".to_string(),
+            args: vec![
+                "-c".to_string(),
+                script.to_string(),
+                "sh".to_string(),
+                capture.display().to_string(),
+            ],
+            env: Vec::new(),
+            env_remove: Vec::new(),
+            env_clear: false,
+        }
+    }
+
+    /// `claude-code-acp` and `codex-acp` send the run's servers in `session/new` and
+    /// `session/load`; a harness that injects MCP itself (opencode) sends `[]` whatever the
+    /// `Provisioned` holds.
+    #[cfg(unix)]
+    #[test]
+    fn only_an_opted_in_acp_harness_sends_the_runs_mcp_servers() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let server = crate::config::McpServer {
+            id: "ubiq".to_string(),
+            transport: crate::config::McpTransport::Http,
+            command: None,
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some("http://127.0.0.1:1/run".to_string()),
+            headers: Default::default(),
+        };
+        let cases: [(Box<dyn Harness>, Option<&str>, usize); 4] = [
+            (Box::new(Claude::new_acp()), None, 1),
+            (Box::new(Claude::new_acp()), Some("s0"), 1),
+            (Box::new(Codex::new_acp()), Some("s0"), 1),
+            (Box::new(Opencode::new()), None, 0),
+        ];
+        for (i, (harness, resume, sent)) in cases.into_iter().enumerate() {
+            let capture = dir.path().join(format!("frame-{i}.json"));
+            let provisioned = crate::provision::Provisioned {
+                dir: dir.path().to_path_buf(),
+                launch: fake_acp_agent(&capture),
+                ephemeral: false,
+                home: None,
+                login_origin: None,
+                resume: resume.map(str::to_string),
+                model: None,
+                mcp_servers: vec![server.clone()],
+                #[cfg(feature = "inproc-mcp")]
+                inproc_servers: Vec::new(),
+            };
+            let Ok(bridge) = harness.structured_bridge(&provisioned, dir.path()) else {
+                panic!("{} bridge failed", harness.id());
+            };
+            drop(bridge);
+            let frame: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&capture).unwrap()).unwrap();
+            let method = if resume.is_some() {
+                "session/load"
+            } else {
+                "session/new"
+            };
+            assert_eq!(frame["method"], method, "{}", harness.id());
+            let servers = frame["params"]["mcpServers"].as_array().unwrap();
+            assert_eq!(servers.len(), sent, "{}: {frame}", harness.id());
+            if sent > 0 {
+                assert_eq!(servers[0]["url"], "http://127.0.0.1:1/run");
+            }
         }
     }
 

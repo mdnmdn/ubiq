@@ -55,6 +55,13 @@ pub struct Provisioned {
     /// `session/new`, so its bridge needs the value after provisioning has
     /// already happened.
     pub model: Option<String>,
+    /// The run's MCP servers, in-process ones already hosted, for an ACP adapter whose only
+    /// per-run MCP route is `session/new`'s `mcpServers` (`D193`). A harness opts in by handing
+    /// them to [`crate::io::AcpBridge::with_mcp_servers`] from its
+    /// [`Harness::structured_bridge`]; every other harness ignores them. Filled on the
+    /// shared-home path ([`ConfigStrategy::Home`], [`ConfigStrategy::Native`]) only — empty on
+    /// the legacy path, whose MCP is in the run's config dir.
+    pub mcp_servers: Vec<crate::config::McpServer>,
     /// In-process MCP servers started for this run. Kept alive for the
     /// run's lifetime; dropping a `Provisioned` shuts them down. Only
     /// present when the `inproc-mcp` feature is enabled.
@@ -73,6 +80,7 @@ impl Clone for Provisioned {
             login_origin: self.login_origin.clone(),
             resume: self.resume.clone(),
             model: self.model.clone(),
+            mcp_servers: self.mcp_servers.clone(),
         }
     }
 }
@@ -153,6 +161,7 @@ pub fn provision(
             login_origin,
             resume: spec.resume.clone(),
             model: spec.model.clone(),
+            mcp_servers: Vec::new(),
             inproc_servers,
         })
     }
@@ -173,6 +182,7 @@ pub fn provision(
             login_origin,
             resume: spec.resume.clone(),
             model: spec.model.clone(),
+            mcp_servers: Vec::new(),
         })
     }
 }
@@ -269,6 +279,18 @@ fn provision_shared_home(
         login_origin: None,
         resume: spec.resume.clone(),
         model: spec.model.clone(),
+        // An `InProcess` left here (the feature off) was already refused by any harness that
+        // sends MCP over the wire.
+        mcp_servers: effective_spec
+            .mcps
+            .iter()
+            .filter_map(|mcp| match mcp {
+                crate::spec::McpRef::Catalog(server) | crate::spec::McpRef::Inline(server) => {
+                    Some(server.clone())
+                }
+                crate::spec::McpRef::InProcess(_) => None,
+            })
+            .collect(),
         #[cfg(feature = "inproc-mcp")]
         inproc_servers,
     })
@@ -843,20 +865,58 @@ mod tests {
         );
     }
 
+    /// A harness that cannot share a home: `provision` writes a `config.json` into its dir and
+    /// names the dir in `CONFIG_DIR`.
+    struct NoHomeHarness;
+
+    impl Harness for NoHomeHarness {
+        fn id(&self) -> crate::spec::HarnessId {
+            "no-home".to_string()
+        }
+        fn display_name(&self) -> &str {
+            "no home"
+        }
+        fn command(&self) -> &str {
+            "no-home"
+        }
+        fn aliases(&self) -> &[&str] {
+            &[]
+        }
+        fn io_support(&self) -> crate::harness::IoSupport {
+            crate::harness::IoSupport {
+                passthrough: true,
+                structured: false,
+                multi_turn: false,
+                acp: false,
+                quota: Default::default(),
+            }
+        }
+        fn provision(&self, _spec: &RunSpec, dir: &Path) -> Result<Launch> {
+            std::fs::write(dir.join("config.json"), "{}")?;
+            Ok(Launch {
+                program: "no-home".to_string(),
+                args: Vec::new(),
+                env: vec![("CONFIG_DIR".to_string(), dir.display().to_string())],
+                env_remove: Vec::new(),
+                env_clear: false,
+            })
+        }
+    }
+
     /// A harness that cannot share a home runs a native spec in its scratch dir exactly as a
     /// fixed dir, and names that dir as its config.
     #[test]
     fn native_strategy_falls_back_to_scratch_for_a_harness_that_cannot_share() {
         let root = tempfile::TempDir::new().unwrap();
         let scratch = root.path().join("scratch");
-        let mut spec = RunSpec::new("claude-code-acp".to_string(), PathBuf::from("."));
+        let mut spec = RunSpec::new("no-home".to_string(), PathBuf::from("."));
         spec.config = ConfigStrategy::Native {
             scratch: scratch.clone(),
         };
 
         let tmpl_dir = tempfile::TempDir::new().unwrap();
         let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
-        let provisioned = provision(&Claude::new_acp(), &spec, &templates).unwrap();
+        let provisioned = provision(&NoHomeHarness, &spec, &templates).unwrap();
 
         assert_eq!(provisioned.dir, scratch);
         assert!(provisioned.home.is_none());
@@ -865,8 +925,34 @@ mod tests {
                 .launch
                 .env
                 .iter()
-                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &scratch.display().to_string())
+                .any(|(k, v)| k == "CONFIG_DIR" && v == &scratch.display().to_string())
         );
+    }
+
+    /// `claude-code-acp` shares a home too: its MCP servers ride on the `Provisioned` for the
+    /// bridge to send, nothing goes into scratch, and the home takes the trust entry.
+    #[test]
+    fn claude_code_acp_runs_from_the_home_with_its_mcps_for_the_wire() {
+        let root = tempfile::TempDir::new().unwrap();
+        let home = root.path().join("home");
+        let scratch = root.path().join("scratch");
+        let mut spec = home_spec(&home, &scratch, "/tmp/acp");
+        spec.harness = "claude-code-acp".to_string();
+        spec.io = crate::spec::IoModes::Structured;
+        spec.mcps.push(http_mcp("ubiq", "http://127.0.0.1:1/run"));
+
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&Claude::new_acp(), &spec, &templates).unwrap();
+
+        assert_eq!(provisioned.home.as_deref(), Some(home.as_path()));
+        assert_eq!(provisioned.mcp_servers.len(), 1);
+        assert_eq!(provisioned.mcp_servers[0].id, "ubiq");
+        assert!(std::fs::read_dir(&scratch).unwrap().next().is_none());
+        let claude_json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".claude.json")).unwrap())
+                .unwrap();
+        assert!(claude_json["projects"]["/tmp/acp"].is_object());
     }
 
     /// Two runs of one profile share its home but not their MCP servers: each run's URL (Ubiq's
@@ -910,31 +996,32 @@ mod tests {
         assert!(claude_json["projects"]["/tmp/b"].is_object());
     }
 
-    /// `claude-code-acp` takes no argv, so it cannot share a home: it is provisioned into the
-    /// run's scratch dir exactly as a fixed dir would be, and the home is never touched.
+    /// A harness that cannot share a home is provisioned into the run's scratch dir exactly as
+    /// a fixed dir would be, and the home is never touched.
     #[test]
     fn home_strategy_falls_back_to_scratch_for_a_harness_that_cannot_share() {
         let root = tempfile::TempDir::new().unwrap();
         let home = root.path().join("home");
         let scratch = root.path().join("scratch");
         let mut spec = home_spec(&home, &scratch, ".");
-        spec.harness = "claude-code-acp".to_string();
+        spec.harness = "no-home".to_string();
 
         let tmpl_dir = tempfile::TempDir::new().unwrap();
         let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
-        let provisioned = provision(&Claude::new_acp(), &spec, &templates).unwrap();
+        let provisioned = provision(&NoHomeHarness, &spec, &templates).unwrap();
 
         assert_eq!(provisioned.dir, scratch);
         assert!(provisioned.home.is_none());
         assert!(!provisioned.ephemeral);
-        assert!(scratch.join("mcp.json").is_file());
+        assert!(provisioned.mcp_servers.is_empty());
+        assert!(scratch.join("config.json").is_file());
         assert!(!home.exists());
         assert!(
             provisioned
                 .launch
                 .env
                 .iter()
-                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &scratch.display().to_string())
+                .any(|(k, v)| k == "CONFIG_DIR" && v == &scratch.display().to_string())
         );
     }
 

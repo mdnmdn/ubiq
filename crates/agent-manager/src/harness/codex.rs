@@ -19,7 +19,8 @@
 //! the profile's own persistent home, which holds `auth.json` and `sessions/` and which Codex
 //! refreshes itself. Nothing per-run is written there — MCP, model, effort, permissions and
 //! instructions go by `-c key=value` — and only what no flag carries, skills and `hooks.json`,
-//! is placed into it.
+//! is placed into it. `codex-acp` runs the same way, save that its MCP servers travel in ACP's
+//! `session/new`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -85,15 +86,17 @@ impl Codex {
         // trailing positional argument; passthrough mode keeps the
         // interactive argv shape from P1.
         let structured = spec.io == crate::spec::IoModes::Structured;
-        // The ACP variant's *structured* launch is the adapter, and the adapter takes no argv
-        // at all: the prompt is a `session/prompt`, a resume is `session/load` (from
+        // The ACP variant's *structured* launch is the adapter, which takes no subcommand: the
+        // prompt is a `session/prompt`, a resume is `session/load` (from
         // `Provisioned::resume`), and everything else it needs it reads from `CODEX_HOME`,
-        // exactly as the native variant's child does. A passthrough run is unchanged —
-        // `codex-acp` is not a TUI, so a pane still gets the real `codex`.
+        // exactly as the native variant's child does. Its one flag is the same root-level
+        // `-c key=value` Codex parses (`codex-acp`'s `main` takes Codex's own
+        // `CliConfigOverrides`), so `config_args` reach it too. A passthrough run is unchanged
+        // — `codex-acp` is not a TUI, so a pane still gets the real `codex`.
         let acp = self.acp && structured;
 
         let mut args = config_args;
-        if structured {
+        if structured && !acp {
             args.push("app-server".to_string());
             args.push("--listen".to_string());
             args.push("stdio://".to_string());
@@ -137,11 +140,7 @@ impl Codex {
 
         Ok(Launch {
             program: if acp { ACP_COMMAND } else { "codex" }.to_string(),
-            args: if acp {
-                spec.passthrough_args.clone()
-            } else {
-                args
-            },
+            args,
             env,
             env_remove: Vec::new(),
             env_clear: false,
@@ -344,11 +343,10 @@ impl Harness for Codex {
         Ok(launch)
     }
 
-    /// The native variant runs from a shared home; `codex-acp` does not — its adapter takes no
-    /// argv, so no `-c` override could reach it, and everything would have to be written into
-    /// the home.
+    /// Both variants run from a shared home: `codex-acp` takes the same `-c` overrides, and its
+    /// MCP servers go over the wire instead.
     fn shares_home(&self) -> bool {
-        !self.acp
+        true
     }
 
     /// A run against a profile's shared `CODEX_HOME` (`D193`), which holds `auth.json` and
@@ -366,22 +364,21 @@ impl Harness for Codex {
     /// other. With no `home` (a native run) the launch sets no `CODEX_HOME`, Codex runs from the
     /// user's own `~/.codex`, and skills and hooks are dropped with a warning — nothing is
     /// written into the user's config. `scratch` stays unused: no per-run file is needed.
+    ///
+    /// A structured `codex-acp` run takes the same `-c` overrides but for MCP: its servers go in
+    /// `session/new`'s `mcpServers` ([`crate::provision::Provisioned::mcp_servers`], sent by
+    /// [`Harness::structured_bridge`]). `codex-acp` adds them to the home's own, as a `-c` does.
     fn provision_home(
         &self,
         spec: &RunSpec,
         home: Option<&Path>,
         _scratch: &Path,
     ) -> Result<Launch> {
-        if self.acp {
-            bail!(
-                "harness '{}' cannot run from a shared config home",
-                self.id()
-            );
-        }
-        let config_args = config_overrides(spec)?;
+        let mcp_over_wire = self.acp && spec.io == crate::spec::IoModes::Structured;
+        let config_args = config_overrides(spec, !mcp_over_wire)?;
         match home {
             Some(home) => {
-                write_home_skills(spec, home)?;
+                super::write_profile_skills(spec, &home.join(".agents").join("skills"))?;
                 if !spec.hooks.is_empty() {
                     write_home_file(&home.join("hooks.json"), &build_hooks_json(&spec.hooks)?)?;
                 }
@@ -465,11 +462,13 @@ impl Harness for Codex {
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
         if self.acp {
-            return Ok(Box::new(crate::io::AcpBridge::new(
+            // Empty on the legacy path, whose MCP is in the run's own `config.toml`.
+            return Ok(Box::new(crate::io::AcpBridge::with_mcp_servers(
                 child,
                 cwd,
                 provisioned.resume.as_deref(),
                 provisioned.model.as_deref(),
+                &provisioned.mcp_servers,
             )?));
         }
         Ok(Box::new(crate::io::codex::CodexBridge::new(child, cwd)?))
@@ -767,45 +766,6 @@ fn write_skills(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
     super::write_mcp_as_skill_pointers(spec, skills_dir)
 }
 
-/// Place `spec`'s skills into a shared home's `.agents/skills/`, each `<id>/` swapped in whole:
-/// the set is built in a staging dir beside them, then each one is renamed over its old copy,
-/// so a running Codex reads one skill's old files or its new ones, never half of each. All of
-/// it runs under a lock beside the skills dir, since every run of the profile writes here.
-fn write_home_skills(spec: &RunSpec, home: &Path) -> Result<()> {
-    if spec.skills.is_empty() && spec.mcp_as_skill.is_empty() {
-        return Ok(());
-    }
-    let skills_dir = home.join(".agents").join("skills");
-    std::fs::create_dir_all(&skills_dir)
-        .with_context(|| format!("creating {}", skills_dir.display()))?;
-    // Released when `_lock` drops, at the end of this function.
-    let _lock = super::lock_beside(&skills_dir)?;
-    let stage = skills_dir.join(".am-stage");
-    let old = skills_dir.join(".am-old");
-    for leftover in [&stage, &old] {
-        if leftover.exists() {
-            std::fs::remove_dir_all(leftover)
-                .with_context(|| format!("removing {}", leftover.display()))?;
-        }
-    }
-    write_skills(spec, &stage)?;
-    for entry in
-        std::fs::read_dir(&stage).with_context(|| format!("reading {}", stage.display()))?
-    {
-        let staged = entry?.path();
-        let dest = skills_dir.join(staged.file_name().unwrap_or_default());
-        if dest.exists() {
-            std::fs::rename(&dest, &old)
-                .with_context(|| format!("moving aside {}", dest.display()))?;
-        }
-        std::fs::rename(&staged, &dest).with_context(|| format!("placing {}", dest.display()))?;
-        if old.exists() {
-            std::fs::remove_dir_all(&old).with_context(|| format!("removing {}", old.display()))?;
-        }
-    }
-    std::fs::remove_dir(&stage).with_context(|| format!("removing {}", stage.display()))
-}
-
 /// Write `contents` to `path` in a shared home: staged beside it and renamed over it, under a
 /// lock beside it, so a running Codex never reads a half-written file.
 fn write_home_file(path: &Path, contents: &str) -> Result<()> {
@@ -831,8 +791,9 @@ fn push_override(args: &mut Vec<String>, key: &str, value: toml::Value) {
 /// `model_reasoning_effort`, `sandbox_mode` + `approval_policy`, one `mcp_servers.<id>` inline
 /// table per server — plus `developer_instructions` for the run's instructions, a config key
 /// codex.md lists among a custom agent's config-layer keys and one the app-server's
-/// `thread/start` sets as `developerInstructions`.
-fn config_overrides(spec: &RunSpec) -> Result<Vec<String>> {
+/// `thread/start` sets as `developerInstructions`. `mcp_by_flag` false leaves the servers out,
+/// for a run that sends them over the wire; an in-process one is refused either way.
+fn config_overrides(spec: &RunSpec, mcp_by_flag: bool) -> Result<Vec<String>> {
     let mut args = Vec::new();
     if let Some(model) = &spec.model {
         push_override(&mut args, "model", toml::Value::String(model.clone()));
@@ -872,6 +833,7 @@ fn config_overrides(spec: &RunSpec) -> Result<Vec<String>> {
     }
     for mcp in &spec.mcps {
         match mcp {
+            McpRef::Catalog(_) | McpRef::Inline(_) if !mcp_by_flag => {}
             McpRef::Catalog(server) | McpRef::Inline(server) => {
                 let table = toml::Value::try_from(mcp_server_toml(server))
                     .with_context(|| format!("serializing MCP server '{}'", server.id))?;
@@ -1638,10 +1600,52 @@ mod tests {
         assert!(!home.path().join("AGENTS.md").exists());
     }
 
+    /// `codex-acp` takes the native variant's `-c` overrides, with no subcommand and no MCP
+    /// server among them — those go over the wire — and `CODEX_HOME` only under a home.
     #[test]
-    fn only_the_native_variant_shares_a_home() {
-        assert!(Codex::new().shares_home());
-        assert!(!Codex::new_acp().shares_home());
+    fn codex_acp_shares_a_home_by_c_with_mcp_left_to_the_wire() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let spec = home_spec(home.path(), scratch.path());
+        let acp = Codex::new_acp();
+        assert!(acp.shares_home() && Codex::new().shares_home());
+
+        let launch = acp
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+        assert_eq!(launch.program, "codex-acp");
+        assert!(
+            launch.args.chunks(2).all(|c| c[0] == "-c"),
+            "{:?}",
+            launch.args
+        );
+        let doc = overrides_as_toml(&launch.args);
+        assert_eq!(doc["model"].as_str(), Some("gpt-5.5"));
+        assert_eq!(doc["sandbox_mode"].as_str(), Some("read-only"));
+        assert!(doc["developer_instructions"].is_str());
+        assert!(!doc.contains_key("mcp_servers"));
+        assert_eq!(
+            launch.env,
+            vec![("CODEX_HOME".to_string(), home.path().display().to_string())]
+        );
+
+        let native = acp.provision_home(&spec, None, scratch.path()).unwrap();
+        assert!(!native.env.iter().any(|(k, _)| k == "CODEX_HOME"));
+        assert_eq!(native.args, launch.args);
+
+        // A passthrough pane is the real `codex`, so its servers stay on the command line.
+        let mut passthrough = spec.clone();
+        passthrough.io = crate::spec::IoModes::Passthrough;
+        let pane = acp
+            .provision_home(&passthrough, Some(home.path()), scratch.path())
+            .unwrap();
+        assert_eq!(pane.program, "codex");
+        assert!(overrides_as_toml(&pane.args).contains_key("mcp_servers"));
+
+        assert_eq!(
+            acp.login_home(home.path()).unwrap().args,
+            Codex::new().login_home(home.path()).unwrap().args
+        );
     }
 
     #[test]

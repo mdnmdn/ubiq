@@ -126,6 +126,7 @@ fn cmd_login(name: &str, harness_key: Option<&str>) -> Result<()> {
         login_origin: None,
         resume: None,
         model: None,
+        mcp_servers: Vec::new(),
         #[cfg(feature = "inproc-mcp")]
         inproc_servers: Vec::new(),
     };
@@ -457,7 +458,9 @@ mod tests {
                 .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &home.display().to_string())
         );
         assert!(login_plan(&store, "nobody", None, &templates).is_err());
-        assert!(login_plan(&store, "work", Some("claude-code-acp"), &templates).is_err());
+        // `claude-code-acp` has a home of its own and signs in as Claude Code does.
+        let (_, acp_home, _) = login_plan(&store, "work", Some("claude-code-acp"), &templates)?;
+        assert_eq!(acp_home, store.home_dir("work", "claude-code-acp"));
         Ok(())
     }
 
