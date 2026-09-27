@@ -26,11 +26,7 @@
 //! Because relocating `HOME` strips the user's real toolchain
 //! (`nvm`/`mise`/`pyenv`, shell rc, PATH shims), this Class-C harness sets
 //! `ConfigAnchor::requires_home_relocation = true` (the isol8-pairing
-//! signal). When the run's account carries a private `home` holding a
-//! captured login, provisioning does NOT point `HOME` at that home; instead
-//! it **seeds** the captured `~/.grok/auth.json` into `<dir>/.grok/auth.json`
-//! (via [`super::seed_login`] driven by [`Grok::config_anchor`]), so grok
-//! finds its credentials under the relocated HOME at launch.
+//! signal).
 //!
 //! **Known non-invasiveness gap:** relocating `HOME` has been observed to
 //! isolate config/skill reads (`user-settings.json`, `.agents/skills/`) but
@@ -68,17 +64,25 @@
 //! and the agent-mode flags (`-m/--model`, `--reasoning-effort`,
 //! `--always-approve`) go *between* `agent` and `stdio`, not after it — see
 //! `provision`'s `IoModes::Structured` arm.
+//!
+//! **Shared home (`D193`).** Under `ConfigStrategy::Home` a run sets `HOME` to the profile's
+//! persistent fake home ([`Harness::provision_home`]), which holds `.grok/auth.json` and grok's
+//! own state; grok refreshes the login there and nothing is seeded or read back. Model, effort,
+//! permissions and instructions stay in argv. MCP (`.grok/user-settings.json`) and skills
+//! (`.agents/skills/`) have no per-run route, so they are profile-owned content of that home. A
+//! native run leaves `HOME` alone and grok runs from the user's own `~/.grok`.
 
 use std::path::Path;
 
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
+use tracing::warn;
 
 use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{IoModes, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, Launch, SeedFile};
+use super::{ConfigAnchor, Harness, Launch};
 
 /// The Grok CLI harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -88,6 +92,143 @@ impl Grok {
     /// Construct the Grok CLI harness descriptor.
     pub fn new() -> Self {
         Grok
+    }
+
+    /// The launch shared by [`Harness::provision`] and [`Harness::provision_home`]: the argv for
+    /// `spec.io`, `HOME=<home>` when there is a home (none for a native run), and the account's
+    /// credential references.
+    fn launch(&self, spec: &RunSpec, home: Option<&Path>) -> Result<Launch> {
+        // Grok's `--prompt <text>` is its non-interactive seam and is used to seed a run. Grok
+        // has no non-invasive always-on memory file (its `AGENTS.md` lives in the user's real
+        // project, which a run must not write to), so `spec.initial.instructions` is folded into
+        // the prompt text rather than written to disk.
+        let args = match spec.io {
+            IoModes::Structured => {
+                // Structured mode: `grok agent [options] stdio [args...]` — an
+                // ACP endpoint, driven by `crate::io::AcpBridge`. Everything a
+                // passthrough run puts in argv moves onto the wire here: the
+                // prompt is a `session/prompt`, and a resume is a
+                // `session/load` (from `Provisioned::resume`), so neither
+                // `--prompt` nor `--session` belongs on this argv.
+                //
+                // Per the 2026-09-10 capture (`_docs/wip/grok-acp-capture.md`
+                // §3), `grok agent stdio` DOES take agent-mode flags, but only
+                // *between* `agent` and `stdio` — `grok agent --model
+                // grok-4.6 --reasoning-effort high --always-approve stdio`.
+                // Putting `-m`/`--reasoning-effort` after `stdio` (as this
+                // used to assume they'd arrive via `session/set_config_option`
+                // instead) does not work. There is still no `--permission-mode`
+                // for this path (re-verified against `grok agent --help`,
+                // which lists only `--always-approve`; `--permission-mode` is
+                // a top-level TUI-only flag — see §4), so most of
+                // `spec.policy.permission_mode`'s six values still map onto
+                // nothing here. But two of them mean exactly what
+                // `--always-approve` means — "ask nothing" — and now map onto
+                // it: [`Grok::unattended_mode`]'s `bypassPermissions`, and
+                // `dontAsk`, [`Grok::modes`]'s other zero-prompt value. Every
+                // other mode value (`default`, `acceptEdits`, `auto`, `plan`)
+                // still has no ACP-side wire and emits nothing.
+                let mut structured_args = vec!["agent".to_string()];
+                if let Some(model) = &spec.model {
+                    structured_args.push("--model".to_string());
+                    structured_args.push(model.clone());
+                }
+                if let Some(effort) = &spec.thinking {
+                    structured_args.push("--reasoning-effort".to_string());
+                    structured_args.push(effort.clone());
+                }
+                if let Some(policy) = &spec.policy
+                    && let Some(mode) = &policy.permission_mode
+                    && (mode == "bypassPermissions" || mode == "dontAsk")
+                {
+                    structured_args.push("--always-approve".to_string());
+                }
+                structured_args.push("stdio".to_string());
+                structured_args.extend(spec.passthrough_args.clone());
+                if seeded_prompt(spec).is_some() {
+                    tracing::debug!(
+                        "grok structured mode ignores the seeded prompt/instructions in argv; \
+                         it arrives over the wire as session/prompt instead"
+                    );
+                }
+                structured_args
+            }
+            IoModes::Passthrough => {
+                let mut args = spec.passthrough_args.clone();
+                // Model selection: `-m <id>` (Grok also honors `GROK_MODEL`).
+                // Only added when a model is set, so runs without `--model`
+                // keep byte-identical argv.
+                if let Some(model) = &spec.model {
+                    args.push("-m".to_string());
+                    args.push(model.clone());
+                }
+                // Reasoning effort: `--reasoning-effort <level>` (top-level
+                // flag, same spelling as the agent-mode one — see
+                // `_docs/wip/grok-acp-capture.md` §3-4). Only added when set.
+                if let Some(effort) = &spec.thinking {
+                    args.push("--reasoning-effort".to_string());
+                    args.push(effort.clone());
+                }
+                // Permission mode: `--permission-mode <mode>`, one of the six
+                // values `Grok::modes` lists. Only added when the spec names
+                // one, so unpolicied runs keep byte-identical argv.
+                if let Some(policy) = &spec.policy
+                    && let Some(mode) = &policy.permission_mode
+                {
+                    args.push("--permission-mode".to_string());
+                    args.push(mode.clone());
+                }
+                // Resume: `--session <id>` (Grok also accepts
+                // `--session latest`). Only added when a resume id is set, so
+                // resumeless runs keep byte-identical argv.
+                if let Some(id) = &spec.resume {
+                    args.push("--session".to_string());
+                    args.push(id.clone());
+                }
+                if let Some(prompt_text) = seeded_prompt(spec) {
+                    args.push("--prompt".to_string());
+                    args.push(prompt_text);
+                }
+                args
+            }
+        };
+
+        // Account: inject credential *references* into the child's env.
+        // Grok authenticates with a single xAI API key via `GROK_API_KEY`
+        // (and an optional `GROK_BASE_URL` endpoint override) — no OAuth, no
+        // multi-provider map. `am`'s account store holds only env-var NAMES
+        // and a base URL; the secret value is read transiently below and
+        // passed to the child in-memory, never written to disk.
+        //
+        // `HOME` is grok's only relocation lever (see the module docs): both
+        // `~/.grok` and `~/.agents/skills` resolve from it. Relocating it
+        // strips the user's real toolchain — hence
+        // `config_anchor().requires_home_relocation`.
+        let mut env: Vec<(String, String)> = home
+            .map(|home| ("HOME".to_string(), home.display().to_string()))
+            .into_iter()
+            .collect();
+        if let Some(account) = &spec.account {
+            if let Some(base_url) = &account.base_url {
+                env.push(("GROK_BASE_URL".to_string(), base_url.clone()));
+            }
+            if let Some(name) = account
+                .api_key_env
+                .as_ref()
+                .or(account.auth_token_env.as_ref())
+            {
+                let value = super::shared::account_env(account, name)?;
+                env.push(("GROK_API_KEY".to_string(), value));
+            }
+        }
+
+        Ok(Launch {
+            program: "grok".to_string(),
+            args,
+            env,
+            env_remove: Vec::new(),
+            env_clear: false,
+        })
     }
 }
 
@@ -112,13 +253,11 @@ impl Harness for Grok {
     /// Class C: Grok has **no config-dir lever** — its only relocation seam is
     /// `HOME`, from which both `~/.grok/` and `~/.agents/skills/` derive. So
     /// `levers` is empty and `requires_home_relocation` is true (relocating
-    /// HOME strips the user's toolchain — the isol8-pairing signal). A captured
-    /// login is the single plaintext `~/.grok/auth.json`, seeded into the
-    /// relocated HOME's `.grok/auth.json`. See `_docs/profiles.md` §5.
+    /// HOME strips the user's toolchain — the isol8-pairing signal). The login
+    /// is the single plaintext `~/.grok/auth.json`. See `_docs/profiles.md` §5.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![],
-            login_seed: vec![SeedFile::credential(".grok/auth.json", ".grok/auth.json")],
             requires_home_relocation: true,
         }
     }
@@ -234,28 +373,13 @@ impl Harness for Grok {
         // opencode's `OPENCODE_CONFIG_DIR`/HOME-relative-auth split) — its
         // only lever is relocating `HOME` wholesale, and both `.grok/` and
         // `.agents/skills/` resolve from it. So the ephemeral `dir` is the
-        // write target for injected config AND the `HOME` the child sees; a
-        // captured account login is *seeded* into it below (rather than
-        // pointing HOME at the account home) so the throwaway dir stays grok's
-        // home and the account's persistent home is never used as a write
-        // target.
+        // write target for injected config AND the `HOME` the child sees.
 
         // 1. Skills: copy each skill folder into
         // <dir>/.agents/skills/<id>/. With HOME relocated to `dir`, this is
         // the user-tier `~/.agents/skills/` Grok discovers (the agent-neutral
-        // path, not `.grok/`).
-        let skills_dir = dir.join(".agents").join("skills");
-        for skill in &spec.skills {
-            let dest = skills_dir.join(&skill.id);
-            skill
-                .source
-                .materialize(&dest, crate::source::LinkMode::Copy, true)
-                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
-        }
-        // 1b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
-        // harness::write_mcp_as_skill_pointers's doc). No-op when
-        // spec.mcp_as_skill is empty.
-        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
+        // path, not `.grok/`), plus the MCP-as-skill pointers.
+        write_skills(spec, &dir.join(".agents").join("skills"))?;
 
         // 2. MCP: write <dir>/.grok/user-settings.json with `mcpServers`
         // when there are servers to inject. There is no `--mcp-config` flag,
@@ -278,178 +402,71 @@ impl Harness for Grok {
         // populate non-invasively, so `spec.hooks` is a no-op here — a
         // fidelity gap, not a user error (same stance as opencode).
 
-        // 3. Build the launch. Grok's `--prompt <text>` is its non-interactive
-        // seam and is used to seed a run. Grok has no non-invasive always-on
-        // memory file (its `AGENTS.md` lives in the user's real project, which
-        // a run must not write to), so `spec.initial.instructions` is folded
-        // into the prompt text rather than written to disk.
-        let args = match spec.io {
-            IoModes::Structured => {
-                // Structured mode: `grok agent [options] stdio [args...]` — an
-                // ACP endpoint, driven by `crate::io::AcpBridge`. Everything a
-                // passthrough run puts in argv moves onto the wire here: the
-                // prompt is a `session/prompt`, and a resume is a
-                // `session/load` (from `Provisioned::resume`), so neither
-                // `--prompt` nor `--session` belongs on this argv.
-                //
-                // Per the 2026-09-10 capture (`_docs/wip/grok-acp-capture.md`
-                // §3), `grok agent stdio` DOES take agent-mode flags, but only
-                // *between* `agent` and `stdio` — `grok agent --model
-                // grok-4.6 --reasoning-effort high --always-approve stdio`.
-                // Putting `-m`/`--reasoning-effort` after `stdio` (as this
-                // used to assume they'd arrive via `session/set_config_option`
-                // instead) does not work. There is still no `--permission-mode`
-                // for this path (re-verified against `grok agent --help`,
-                // which lists only `--always-approve`; `--permission-mode` is
-                // a top-level TUI-only flag — see §4), so most of
-                // `spec.policy.permission_mode`'s six values still map onto
-                // nothing here. But two of them mean exactly what
-                // `--always-approve` means — "ask nothing" — and now map onto
-                // it: [`Grok::unattended_mode`]'s `bypassPermissions`, and
-                // `dontAsk`, [`Grok::modes`]'s other zero-prompt value. Every
-                // other mode value (`default`, `acceptEdits`, `auto`, `plan`)
-                // still has no ACP-side wire and emits nothing.
-                let mut structured_args = vec!["agent".to_string()];
-                if let Some(model) = &spec.model {
-                    structured_args.push("--model".to_string());
-                    structured_args.push(model.clone());
-                }
-                if let Some(effort) = &spec.thinking {
-                    structured_args.push("--reasoning-effort".to_string());
-                    structured_args.push(effort.clone());
-                }
-                if let Some(policy) = &spec.policy
-                    && let Some(mode) = &policy.permission_mode
-                    && (mode == "bypassPermissions" || mode == "dontAsk")
-                {
-                    structured_args.push("--always-approve".to_string());
-                }
-                structured_args.push("stdio".to_string());
-                structured_args.extend(spec.passthrough_args.clone());
-                if seeded_prompt(spec).is_some() {
-                    tracing::debug!(
-                        "grok structured mode ignores the seeded prompt/instructions in argv; \
-                         it arrives over the wire as session/prompt instead"
-                    );
-                }
-                structured_args
-            }
-            IoModes::Passthrough => {
-                let mut args = spec.passthrough_args.clone();
-                // Model selection: `-m <id>` (Grok also honors `GROK_MODEL`).
-                // Only added when a model is set, so runs without `--model`
-                // keep byte-identical argv.
-                if let Some(model) = &spec.model {
-                    args.push("-m".to_string());
-                    args.push(model.clone());
-                }
-                // Reasoning effort: `--reasoning-effort <level>` (top-level
-                // flag, same spelling as the agent-mode one — see
-                // `_docs/wip/grok-acp-capture.md` §3-4). Only added when set.
-                if let Some(effort) = &spec.thinking {
-                    args.push("--reasoning-effort".to_string());
-                    args.push(effort.clone());
-                }
-                // Permission mode: `--permission-mode <mode>`, one of the six
-                // values `Grok::modes` lists. Only added when the spec names
-                // one, so unpolicied runs keep byte-identical argv.
-                if let Some(policy) = &spec.policy
-                    && let Some(mode) = &policy.permission_mode
-                {
-                    args.push("--permission-mode".to_string());
-                    args.push(mode.clone());
-                }
-                // Resume: `--session <id>` (Grok also accepts
-                // `--session latest`). Only added when a resume id is set, so
-                // resumeless runs keep byte-identical argv.
-                if let Some(id) = &spec.resume {
-                    args.push("--session".to_string());
-                    args.push(id.clone());
-                }
-                if let Some(prompt_text) = seeded_prompt(spec) {
-                    args.push("--prompt".to_string());
-                    args.push(prompt_text);
-                }
-                args
-            }
-        };
-
-        // 4. Account: inject credential *references* into the child's env.
-        // Grok authenticates with a single xAI API key via `GROK_API_KEY`
-        // (and an optional `GROK_BASE_URL` endpoint override) — no OAuth, no
-        // multi-provider map. `am`'s account store holds only env-var NAMES
-        // and a base URL; the secret value is read transiently below and
-        // passed to the child in-memory, never written to disk.
-        //
-        // HOME is relocated to the ephemeral `dir` so Grok's `~/.grok` and
-        // `~/.agents/skills` resolve inside it (the isolation lever; see the
-        // module docs). This is the Class-C HOME relocation that strips the
-        // user's real toolchain — hence `config_anchor().requires_home_relocation`.
-        let mut env = vec![("HOME".to_string(), dir.display().to_string())];
-        if let Some(account) = &spec.account {
-            if let Some(base_url) = &account.base_url {
-                env.push(("GROK_BASE_URL".to_string(), base_url.clone()));
-            }
-            if let Some(name) = account
-                .api_key_env
-                .as_ref()
-                .or(account.auth_token_env.as_ref())
-            {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("GROK_API_KEY".to_string(), value));
-            }
-            // Reuse a prior `am account login` by *seeding* the captured
-            // `~/.grok/auth.json` into `<dir>/.grok/auth.json` (the relocated
-            // HOME), so grok finds its credentials at launch. No-op when the
-            // account home holds no captured login yet. The seed list is
-            // declared once in `config_anchor()`.
-            if let Some(login) = spec
-                .account_login
-                .clone()
-                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-            {
-                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-            }
-        }
-
-        Ok(Launch {
-            program: "grok".to_string(),
-            args,
-            env,
-            env_remove: Vec::new(),
-            env_clear: false,
-        })
+        // 3. Build the launch, with HOME relocated to the ephemeral `dir` so
+        // Grok's `~/.grok` and `~/.agents/skills` resolve inside it.
+        self.launch(spec, Some(dir))
     }
 
-    /// Log Grok CLI into `home`, capturing the resulting OAuth `auth.json`.
+    /// grok runs from a profile's persistent fake `HOME` (`D193`).
+    fn shares_home(&self) -> bool {
+        true
+    }
+
+    /// `~/.grok`, holding `auth.json` and `user-settings.json`. grok relocates only `HOME`, and
+    /// whether it reads `~/.agents/skills` is unobserved (`G379`), so that is not named.
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        directories::BaseDirs::new()
+            .map(|b| b.home_dir().join(".grok"))
+            .into_iter()
+            .collect()
+    }
+
+    /// A run against a profile's shared fake `HOME` (`D193`), whose `.grok/auth.json` holds the
+    /// login grok refreshes itself — so nothing here writes it, and no login is seeded. Model,
+    /// reasoning effort, permissions, resume and instructions (folded into `--prompt`) reach the
+    /// run by argv, and the account's key by env, as in [`Harness::provision`].
     ///
-    /// Per grok.md "Credential capture & reuse": `~/.grok/auth.json` is the
-    /// sole OAuth credential file and is **always plaintext** (no keychain,
-    /// so no force-file-storage knob is needed here, unlike Claude Code/
-    /// Codex). `HOME` is the only relocation lever Grok exposes (no
-    /// `GROK_CONFIG_DIR`-style override), so login relocates HOME to the
-    /// capture `home` to write `<home>/.grok/auth.json`. `provision()`'s reuse
-    /// path then *seeds* that file into the ephemeral dir's `.grok/auth.json`
-    /// (via [`super::seed_login`] driven by [`Grok::config_anchor`]) rather
-    /// than pointing the child's HOME at the account home.
-    ///
-    /// There is no documented `grok auth login` verb: the interactive TUI
-    /// triggers the OAuth flow on first run under a fresh `HOME`, so the
-    /// launch is bare (no subcommand args). Not verified against the
-    /// installed binary in this environment (grok is not on `PATH` here) —
-    /// this matches grok.md's documented behavior and should be re-verified
-    /// against `grok --help` when the binary is available.
-    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        let env = vec![("HOME".to_string(), home.display().to_string())];
-        Ok(super::LoginPlan {
-            launch: Launch {
-                program: "grok".to_string(),
-                args: Vec::new(),
-                env,
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![std::path::PathBuf::from(".grok/auth.json")],
+    /// grok has no per-run MCP or skill route, so both are **profile-owned** content of the home:
+    /// skills swapped in whole at `.agents/skills/<id>/` ([`write_home_skills`]), and servers
+    /// merged by id into `.grok/user-settings.json`'s `mcpServers` ([`write_home_mcp`]), each
+    /// under a lock. A native run (no `home`) sets no `HOME`, runs from the user's own `~/.grok`,
+    /// and drops both with a warning — nothing is written into the user's config. `scratch`
+    /// stays unused: no per-run file is needed.
+    fn provision_home(
+        &self,
+        spec: &RunSpec,
+        home: Option<&Path>,
+        _scratch: &Path,
+    ) -> Result<Launch> {
+        let mcp_map = build_mcp_servers(&spec.mcps)?;
+        match home {
+            Some(home) => {
+                write_home_skills(spec, home)?;
+                write_home_mcp(home, mcp_map)?;
+            }
+            None => {
+                if !spec.skills.is_empty() || !spec.mcp_as_skill.is_empty() || !mcp_map.is_empty() {
+                    warn!(
+                        skills = spec.skills.len() + spec.mcp_as_skill.len(),
+                        mcps = mcp_map.len(),
+                        "grok has no per-run route for skills or MCP; a run with no profile drops them"
+                    );
+                }
+            }
+        }
+        self.launch(spec, home)
+    }
+
+    /// Bare `grok` with `HOME=<home>`: grok has no login verb (`G118`), and its TUI starts the
+    /// OAuth flow on a first run that finds no `.grok/auth.json`, writing the login there, where
+    /// every run of the profile reads it. Nothing is written first and nothing is read back.
+    fn login_home(&self, home: &Path) -> Result<Launch> {
+        Ok(Launch {
+            program: "grok".to_string(),
+            args: Vec::new(),
+            env: vec![("HOME".to_string(), home.display().to_string())],
+            env_remove: Vec::new(),
+            env_clear: false,
         })
     }
 
@@ -535,6 +552,102 @@ fn build_mcp_servers(mcps: &[McpRef]) -> Result<serde_json::Map<String, Value>> 
         }
     }
     Ok(servers)
+}
+
+/// Copy each skill folder into `<skills_dir>/<id>/`, plus the MCP-as-skill `SKILL.md`
+/// pointers (see [`super::write_mcp_as_skill_pointers`]; a no-op when there are none).
+fn write_skills(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
+    for skill in &spec.skills {
+        let dest = skills_dir.join(&skill.id);
+        skill
+            .source
+            .materialize(&dest, crate::source::LinkMode::Copy, true)
+            .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
+    }
+    super::write_mcp_as_skill_pointers(spec, skills_dir)
+}
+
+/// Put the run's skills into a shared home's `.agents/skills/` — profile-owned, since grok has
+/// no per-run skill route (`D193`). Each skill is staged whole in `.am-stage/` and renamed into
+/// place, under a lock beside the folder, so a concurrent run never reads half a skill and two
+/// runs of one profile never interleave. A skill the home already holds under that id is
+/// replaced; one the run does not name is left alone.
+fn write_home_skills(spec: &RunSpec, home: &Path) -> Result<()> {
+    if spec.skills.is_empty() && spec.mcp_as_skill.is_empty() {
+        return Ok(());
+    }
+    let skills_dir = home.join(".agents").join("skills");
+    std::fs::create_dir_all(&skills_dir)
+        .with_context(|| format!("creating {}", skills_dir.display()))?;
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = super::lock_beside(&skills_dir)?;
+    let stage = skills_dir.join(".am-stage");
+    let old = skills_dir.join(".am-old");
+    for leftover in [&stage, &old] {
+        if leftover.exists() {
+            std::fs::remove_dir_all(leftover)
+                .with_context(|| format!("removing {}", leftover.display()))?;
+        }
+    }
+    write_skills(spec, &stage)?;
+    for entry in
+        std::fs::read_dir(&stage).with_context(|| format!("reading {}", stage.display()))?
+    {
+        let staged = entry?.path();
+        let dest = skills_dir.join(staged.file_name().unwrap_or_default());
+        if dest.exists() {
+            std::fs::rename(&dest, &old)
+                .with_context(|| format!("moving aside {}", dest.display()))?;
+        }
+        std::fs::rename(&staged, &dest).with_context(|| format!("placing {}", dest.display()))?;
+        if old.exists() {
+            std::fs::remove_dir_all(&old).with_context(|| format!("removing {}", old.display()))?;
+        }
+    }
+    std::fs::remove_dir(&stage).with_context(|| format!("removing {}", stage.display()))
+}
+
+/// Merge `servers` by id into a shared home's `.grok/user-settings.json` → `mcpServers` —
+/// profile-owned, since grok has no per-run MCP route (`D193`). A read-modify-write under a lock
+/// beside the file: every other key (an `apiKey` among them) and every server the run does not
+/// name is kept, and the result is staged beside the file and renamed over it, `0600` as grok
+/// writes it, so a running grok never reads half a file. A no-op with no servers.
+fn write_home_mcp(home: &Path, servers: serde_json::Map<String, Value>) -> Result<()> {
+    if servers.is_empty() {
+        return Ok(());
+    }
+    let grok_dir = home.join(".grok");
+    std::fs::create_dir_all(&grok_dir)
+        .with_context(|| format!("creating {}", grok_dir.display()))?;
+    let path = grok_dir.join("user-settings.json");
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = super::lock_beside(&path)?;
+    let mut settings = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str::<Value>(&text)
+            .with_context(|| format!("parsing {}", path.display()))?,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+    };
+    let Some(root) = settings.as_object_mut() else {
+        bail!("{} is not a JSON object", path.display());
+    };
+    let entry = root
+        .entry("mcpServers")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Some(existing) = entry.as_object_mut() else {
+        bail!("{}: `mcpServers` is not an object", path.display());
+    };
+    existing.extend(servers);
+    let staged = grok_dir.join("user-settings.json.am-tmp");
+    std::fs::write(&staged, serde_json::to_string_pretty(&settings)?)
+        .with_context(|| format!("writing {}", staged.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 600 {}", staged.display()))?;
+    }
+    std::fs::rename(&staged, &path).with_context(|| format!("writing {}", path.display()))
 }
 
 /// The model ids in `grok models` stdout, deduped in first-seen order.
@@ -818,104 +931,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_home_seeds_creds_and_keeps_ephemeral_dir_as_home() {
-        use crate::account::Account;
-
-        // A persistent per-account "home" holding a captured login, laid out
-        // exactly as `login()` writes it: `<home>/.grok/auth.json`.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(account_home.path().join(".grok")).unwrap();
-        std::fs::write(
-            account_home.path().join(".grok").join("auth.json"),
-            r#"{"access_token":"tok"}"#,
-        )
-        .unwrap();
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "private-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-        spec.mcps.push(McpRef::Catalog(McpServer {
-            id: "postgres".to_string(),
-            transport: McpTransport::Stdio,
-            command: Some("postgres-mcp".to_string()),
-            args: vec![],
-            env: BTreeMap::new(),
-            url: None,
-            headers: BTreeMap::new(),
-        }));
-
-        let grok = Grok::new();
-        let launch = grok.provision(&spec, config_dir.path()).unwrap();
-
-        // HOME relocates to the ephemeral dir, NOT the account's private home —
-        // the throwaway dir stays grok's home (config + sessions land there).
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
-        );
-        assert!(
-            !launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &account_home.path().display().to_string())
-        );
-
-        // The captured login is SEEDED into the ephemeral dir's relocated HOME
-        // so grok finds `~/.grok/auth.json` (= <dir>/.grok/auth.json) at launch.
-        let seeded = config_dir.path().join(".grok/auth.json");
-        assert!(
-            seeded.exists(),
-            "auth.json should be seeded into the ephemeral dir"
-        );
-        assert!(
-            std::fs::read_to_string(&seeded)
-                .unwrap()
-                .contains("access_token")
-        );
-
-        // Injected config (.grok/user-settings.json) also lands in the
-        // ephemeral dir, alongside the seeded creds.
-        assert!(config_dir.path().join(".grok/user-settings.json").exists());
-    }
-
-    #[test]
-    fn provision_account_home_without_captured_creds_still_launches() {
-        use crate::account::Account;
-
-        // A `home` that exists but has no captured login yet: seeding is a
-        // no-op, provisioning still succeeds and HOME is still the ephemeral dir.
-        let account_home = tempfile::TempDir::new().unwrap();
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "empty-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let grok = Grok::new();
-        let launch = grok.provision(&spec, config_dir.path()).unwrap();
-
-        // Seeding is a no-op — no auth.json seeded.
-        assert!(!config_dir.path().join(".grok/auth.json").exists());
-        // HOME still relocates to the ephemeral dir.
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &config_dir.path().display().to_string())
-        );
-    }
-
-    #[test]
     fn provision_mcp_as_skill_writes_skill_md_under_agents_skills() {
         use crate::spec::McpAsSkill;
 
@@ -958,22 +973,182 @@ mod tests {
         assert_eq!(super::super::resolve("grok").unwrap().id(), "grok");
     }
 
-    #[test]
-    fn login_points_home_at_capture_dir_and_names_auth_json() {
+    fn env_of(launch: &Launch) -> BTreeMap<String, String> {
+        launch.env.iter().cloned().collect()
+    }
+
+    fn postgres_mcp() -> McpRef {
+        McpRef::Catalog(McpServer {
+            id: "postgres".to_string(),
+            transport: McpTransport::Stdio,
+            command: Some("postgres-mcp".to_string()),
+            args: vec![],
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+        })
+    }
+
+    /// A home as a profile's login leaves it: `<home>/.grok/auth.json`.
+    fn logged_in_home() -> (tempfile::TempDir, PathBuf, &'static str) {
         let home = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(home.path().join(".grok")).unwrap();
+        let auth = home.path().join(".grok/auth.json");
+        let login = r#"{"https://auth.x.ai::u":{"key":"jwt","refresh_token":"r"}}"#;
+        std::fs::write(&auth, login).unwrap();
+        (home, auth, login)
+    }
 
-        let plan = Grok::new().login(home.path()).unwrap();
+    #[test]
+    fn provision_home_writes_nothing_per_run_into_the_home_and_sets_home() {
+        use crate::account::Account;
 
-        assert!(
-            plan.launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string())
-        );
+        let (home, auth, login) = logged_in_home();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Home {
+            home: home.path().to_path_buf(),
+            scratch: scratch.path().to_path_buf(),
+        };
+        spec.model = Some("grok-4.6".to_string());
+        spec.thinking = Some("high".to_string());
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER ME".to_string()),
+            prompt: Some("go".to_string()),
+        });
+        spec.account = Some(Account {
+            id: "xai".to_string(),
+            base_url: Some("https://gw.example/v1".to_string()),
+            ..Default::default()
+        });
+
+        let launch = Grok::new()
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+
+        // The home holds only the login, untouched; the scratch dir is unused.
+        let home_entries: Vec<_> = std::fs::read_dir(home.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(home_entries, vec![".grok"]);
+        let grok_entries: Vec<_> = std::fs::read_dir(home.path().join(".grok"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(grok_entries, vec!["auth.json"]);
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), login);
+        assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 0);
+
+        // Everything per-run travels by argv and env.
+        let env = env_of(&launch);
+        assert_eq!(env.get("HOME"), Some(&home.path().display().to_string()));
         assert_eq!(
-            plan.credential_files[0],
-            std::path::PathBuf::from(".grok/auth.json")
+            env.get("GROK_BASE_URL"),
+            Some(&"https://gw.example/v1".to_string())
         );
+        let at = |flag: &str| launch.args.iter().position(|a| a == flag).unwrap();
+        assert_eq!(launch.args[at("-m") + 1], "grok-4.6");
+        assert_eq!(launch.args[at("--reasoning-effort") + 1], "high");
+        assert!(launch.args[at("--prompt") + 1].contains("REMEMBER ME"));
+    }
+
+    #[test]
+    fn provision_home_without_a_home_sets_no_home_and_writes_nothing() {
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Native {
+            scratch: scratch.path().to_path_buf(),
+        };
+        spec.io = IoModes::Structured;
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(write_skill(skills_src.path(), "my-skill")),
+        });
+        spec.mcps.push(postgres_mcp());
+
+        let launch = Grok::new()
+            .provision_home(&spec, None, scratch.path())
+            .unwrap();
+
+        assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
+        assert_eq!(launch.args, vec!["agent", "stdio"]);
+        assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn provision_home_puts_skills_and_mcp_in_the_home_and_keeps_the_rest() {
+        let (home, auth, login) = logged_in_home();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        // The profile's own settings: a key and a server the run does not name.
+        let settings_path = home.path().join(".grok/user-settings.json");
+        std::fs::write(
+            &settings_path,
+            r#"{"apiKey":"k","mcpServers":{"user":{"type":"http","url":"u"}}}"#,
+        )
+        .unwrap();
+        // A stale copy of the run's skill, and a skill the run does not name.
+        let skills = home.path().join(".agents/skills");
+        std::fs::create_dir_all(skills.join("my-skill")).unwrap();
+        std::fs::write(skills.join("my-skill/stale.md"), "old").unwrap();
+        std::fs::create_dir_all(skills.join("user-skill")).unwrap();
+        let mut spec = RunSpec::new("grok".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Home {
+            home: home.path().to_path_buf(),
+            scratch: scratch.path().to_path_buf(),
+        };
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(write_skill(skills_src.path(), "my-skill")),
+        });
+        spec.mcps.push(postgres_mcp());
+
+        Grok::new()
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), login);
+        let settings: Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert_eq!(settings["apiKey"], "k");
+        assert!(settings["mcpServers"]["user"].is_object());
+        assert_eq!(settings["mcpServers"]["postgres"]["type"], "stdio");
+        assert!(!home.path().join(".grok/user-settings.json.am-tmp").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&settings_path)
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        assert!(skills.join("my-skill/SKILL.md").is_file());
+        assert!(!skills.join("my-skill/stale.md").exists());
+        assert!(skills.join("user-skill").is_dir());
+        assert!(!skills.join(".am-stage").exists());
+        assert!(!skills.join(".am-old").exists());
+    }
+
+    #[test]
+    fn grok_shares_a_home() {
+        assert!(Grok::new().shares_home());
+    }
+
+    #[test]
+    fn login_home_runs_bare_grok_under_the_home() {
+        let home = tempfile::TempDir::new().unwrap();
+        let launch = Grok::new().login_home(home.path()).unwrap();
+
+        assert_eq!(launch.program, "grok");
+        assert!(launch.args.is_empty());
+        assert_eq!(
+            launch.env,
+            vec![("HOME".to_string(), home.path().display().to_string())]
+        );
+        assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
     }
 
     #[test]

@@ -8,10 +8,14 @@
 //! credential store (`opencode/auth.json`) lives under the XDG data dir, which
 //! `XDG_DATA_HOME` relocates (verified against opencode 1.17.18 — see
 //! `config_anchor`). Pointing both `OPENCODE_CONFIG_DIR` and `XDG_DATA_HOME` at
-//! the ephemeral dir means a captured login can be *seeded* in (Class A-clean)
-//! without ever relocating the child's `HOME` — leaving the user's real
+//! the ephemeral dir relocates both tiers (Class A-clean) without ever
+//! relocating the child's `HOME` — leaving the user's real
 //! toolchain intact. This mirrors Claude Code, unlike Codex which unifies
 //! everything under a single `$CODEX_HOME`.
+//!
+//! The same split lets a run share a profile's home (`D193`, [`Harness::provision_home`]):
+//! `XDG_DATA_HOME` is the profile's persistent home, logged into once and refreshed by opencode
+//! itself, and the config tier is the run's own scratch dir — nothing is seeded.
 
 use std::path::Path;
 
@@ -22,7 +26,7 @@ use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{IoModes, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, Relocate};
 
 /// The opencode harness provisioner.
 #[derive(Debug, Clone, Default)]
@@ -55,8 +59,7 @@ impl Harness for Opencode {
     /// auth store from `$XDG_DATA_HOME/opencode/auth.json` (verified
     /// empirically against opencode 1.17.18: `opencode auth list` reads that
     /// path and it overrides the HOME-relative `~/.local/share/opencode/auth.json`
-    /// default). So a captured login is a single file seeded into the ephemeral
-    /// dir while the real `HOME` (and the user's toolchain) stays intact — no
+    /// default). So the real `HOME` (and the user's toolchain) stays intact — no
     /// HOME relocation needed. Resolves `_docs/profiles.md` open
     /// decision B-1 as Class A-clean.
     fn config_anchor(&self) -> ConfigAnchor {
@@ -65,10 +68,6 @@ impl Harness for Opencode {
                 ("OPENCODE_CONFIG_DIR".to_string(), Relocate::Config),
                 ("XDG_DATA_HOME".to_string(), Relocate::Data),
             ],
-            login_seed: vec![SeedFile::credential(
-                ".local/share/opencode/auth.json",
-                "opencode/auth.json",
-            )],
             requires_home_relocation: false,
         }
     }
@@ -135,166 +134,58 @@ impl Harness for Opencode {
     }
 
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
-        // Ensure the target directory exists.
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-
-        // 1. Build opencode.json (always written, even with zero MCP servers).
-        let opencode_json = build_opencode_json(spec, dir)?;
-        let config_json_path = dir.join("opencode.json");
-        std::fs::write(&config_json_path, opencode_json)
-            .with_context(|| format!("writing {}", config_json_path.display()))?;
-
-        // 2. Skills: copy each skill folder into <dir>/skills/<id>/.
-        let skills_dir = dir.join("skills");
-        for skill in &spec.skills {
-            let dest = skills_dir.join(&skill.id);
-            skill
-                .source
-                .materialize(&dest, crate::source::LinkMode::Copy, true)
-                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
-        }
-        // 2b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
-        // harness::write_mcp_as_skill_pointers's doc). No-op when
-        // spec.mcp_as_skill is empty.
-        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
-
-        // Hooks: opencode has no documented native hook slot (unlike Claude
-        // Code's `settings.json` `hooks` or Codex's `hooks.json` /
-        // `[[hooks.<Event>]]`), so we don't invent one here. If `spec.hooks`
-        // is non-empty this is simply a no-op for opencode — not an error —
-        // since selecting a hook that a particular harness can't render is a
-        // fidelity gap, not a user mistake.
-
-        // 3. Instructions: write <dir>/AGENTS.md if instructions are present.
-        if let Some(instructions) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
-            let agents_md_path = dir.join("AGENTS.md");
-            std::fs::write(&agents_md_path, instructions)
-                .with_context(|| format!("writing {}", agents_md_path.display()))?;
-        }
-
-        // 4. Build the launch: different argv for structured vs passthrough.
-        let args = match spec.io {
-            IoModes::Structured => {
-                // Structured mode: `opencode acp [args...]` — an ACP
-                // endpoint, driven by `crate::io::AcpBridge`. Everything a
-                // passthrough run puts in argv moves onto the wire here: the
-                // prompt is a `session/prompt`, a resume is a `session/load`
-                // (from `Provisioned::resume`), and the model is a
-                // `session/set_config_option`, so none of `--dangerously-skip-permissions`,
-                // `--model`, `--variant`, `--session` or the prompt belongs
-                // on this argv. Permissions are now real
-                // `session/request_permission` round trips instead of
-                // `--dangerously-skip-permissions` auto-approval.
-                let mut structured_args = vec!["acp".to_string()];
-                structured_args.extend(spec.passthrough_args.clone());
-                structured_args
-            }
-            IoModes::Passthrough => {
-                // Passthrough mode: just the original args + prompt (current
-                // behavior). No CLI resume flag exists for interactive
-                // opencode, so `spec.resume` is intentionally ignored here.
-                let mut passthrough_args = spec.passthrough_args.clone();
-                // Model selection: `--model <provider/model-id>`.
-                if let Some(model) = &spec.model {
-                    passthrough_args.push("--model".to_string());
-                    passthrough_args.push(model.clone());
-                }
-                if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
-                    passthrough_args.push(prompt.clone());
-                }
-                passthrough_args
-            }
-        };
-
-        // 5. Account: inject credential *references* into the child's env.
-        let mut env = vec![
-            (
-                "OPENCODE_CONFIG".to_string(),
-                config_json_path.display().to_string(),
-            ),
-            ("OPENCODE_CONFIG_DIR".to_string(), dir.display().to_string()),
-            // Relocate the data/credential tier into the same ephemeral dir:
-            // opencode reads its auth store from `$XDG_DATA_HOME/opencode/auth.json`
-            // (verified — see `config_anchor`), so seeding a captured login there
-            // needs no HOME relocation.
-            ("XDG_DATA_HOME".to_string(), dir.display().to_string()),
-        ];
-        if let Some(account) = &spec.account {
-            // opencode is provider-agnostic. We don't know which provider
-            // (Anthropic, OpenAI, Google, etc.) the account uses, so we set
-            // both ANTHROPIC_API_KEY and OPENAI_API_KEY (harmless extra env;
-            // opencode uses whichever provider is configured).
-            // TODO(P2+): provider-specific account env.
-            if let Some(name) = &account.api_key_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
-                env.push(("OPENAI_API_KEY".to_string(), value));
-            } else if let Some(name) = &account.auth_token_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
-                env.push(("OPENAI_API_KEY".to_string(), value));
-            }
-            // TODO(P2+): base_url → provider.options.baseURL config; opencode
-            // uses provider-specific config, not a single env var.
-            if let Some(login) = spec
-                .account_login
-                .clone()
-                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-            {
-                // Reuse a prior `am account login` by *seeding* the captured
-                // auth store into the relocated data dir
-                // (`$XDG_DATA_HOME/opencode/auth.json`, i.e. `dir/opencode/auth.json`)
-                // — deliberately WITHOUT overriding the child's `HOME`. Since
-                // `XDG_DATA_HOME` (set above) relocates opencode's data/credential
-                // tier, the seeded auth.json resolves without stripping the user's
-                // real toolchain (nvm/mise/pyenv, shell rc, PATH shims). The seed
-                // list is declared once in `config_anchor()`.
-                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-            }
-        }
-
-        Ok(Launch {
-            program: "opencode".to_string(),
-            args,
-            env,
-            env_remove: Vec::new(),
-            env_clear: false,
-        })
+        write_config(spec, dir)?;
+        // The data/credential tier is relocated into the same ephemeral dir, so no HOME
+        // relocation is needed (see `config_anchor`).
+        launch(spec, dir, Some(dir))
     }
 
-    /// Log opencode into `home`, capturing the resulting `auth.json`.
-    ///
-    /// Per opencode.md "Credential capture & reuse": `~/.local/share/opencode/auth.json`
-    /// is the sole auth store and is **always plaintext** (no keychain, so no
-    /// force-file-storage knob is needed here, unlike Claude Code/Codex).
-    /// Login relocates `HOME` to the capture home so the default
-    /// HOME-relative layout (`<home>/.local/share/opencode/auth.json`) is
-    /// written where the reuse path can find it: `provision()` above *seeds*
-    /// that file into the ephemeral data dir (`$XDG_DATA_HOME/opencode/auth.json`,
-    /// via [`super::seed_login`] driven by [`Opencode::config_anchor`]) rather
-    /// than relocating the child's `HOME`. Deliberately does NOT set
-    /// `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`/`XDG_DATA_HOME` — login only needs
-    /// the auth store at the default HOME-relative path; the reuse path injects
-    /// config separately.
-    ///
-    /// Login command: `opencode auth login` (interactive TUI: pick provider,
-    /// paste key or complete OAuth). Not verified against the installed
-    /// binary in this environment (opencode is not on `PATH` here) — this
-    /// matches the documented command in opencode.md and should be
-    /// re-verified against `opencode auth --help` when the binary is
-    /// available.
-    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        let env = vec![("HOME".to_string(), home.display().to_string())];
-        let args = vec!["auth".to_string(), "login".to_string()];
-        Ok(super::LoginPlan {
-            launch: Launch {
-                program: "opencode".to_string(),
-                args,
-                env,
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![std::path::PathBuf::from(".local/share/opencode/auth.json")],
+    /// Every run's `XDG_DATA_HOME` can be a profile's shared home: the per-run config tier has
+    /// its own levers, `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG`.
+    fn shares_home(&self) -> bool {
+        true
+    }
+
+    /// The data dir (`$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`), holding auth and
+    /// sessions, and the config dir (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`).
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        [
+            ("XDG_DATA_HOME", ".local/share"),
+            ("XDG_CONFIG_HOME", ".config"),
+        ]
+        .into_iter()
+        .filter_map(|(var, default)| super::env_dir_or_home(var, default))
+        .map(|dir| dir.join("opencode"))
+        .collect()
+    }
+
+    /// A run against a profile's shared data home (`D193`): `XDG_DATA_HOME=<home>`, where
+    /// opencode keeps `opencode/auth.json` and its session store and refreshes the login itself.
+    /// Nothing per-run is written into `home`; `opencode.json` (MCP, instructions, permissions),
+    /// `skills/` and `AGENTS.md` go into `scratch`, named by `OPENCODE_CONFIG_DIR=<scratch>` and
+    /// `OPENCODE_CONFIG=<scratch>/opencode.json` — the same two levers carry MCP to an
+    /// `opencode acp` run, whose `session/new` sends none. No login is seeded. With no `home` (a
+    /// native run) the launch sets no `XDG_DATA_HOME`, and opencode runs from the user's own
+    /// data dir and login.
+    fn provision_home(
+        &self,
+        spec: &RunSpec,
+        home: Option<&Path>,
+        scratch: &Path,
+    ) -> Result<Launch> {
+        write_config(spec, scratch)?;
+        launch(spec, scratch, home)
+    }
+
+    /// `opencode auth login` with `XDG_DATA_HOME=<home>`, and the real `HOME` left alone: the
+    /// login lands in `<home>/opencode/auth.json`, where every run of the profile reads it.
+    fn login_home(&self, home: &Path) -> Result<Launch> {
+        Ok(Launch {
+            program: "opencode".to_string(),
+            args: vec!["auth".to_string(), "login".to_string()],
+            env: vec![("XDG_DATA_HOME".to_string(), home.display().to_string())],
+            env_remove: Vec::new(),
+            env_clear: false,
         })
     }
 
@@ -311,6 +202,127 @@ impl Harness for Opencode {
             provisioned.model.as_deref(),
         )?))
     }
+}
+
+/// Write a run's config tier into `dir`: `opencode.json` (always, even with zero MCP servers),
+/// `skills/<id>/` and MCP-as-skill pointers, and `AGENTS.md` when there are instructions.
+fn write_config(spec: &RunSpec, dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+
+    // 1. opencode.json.
+    let opencode_json = build_opencode_json(spec, dir)?;
+    let config_json_path = dir.join("opencode.json");
+    std::fs::write(&config_json_path, opencode_json)
+        .with_context(|| format!("writing {}", config_json_path.display()))?;
+
+    // 2. Skills: copy each skill folder into <dir>/skills/<id>/.
+    let skills_dir = dir.join("skills");
+    for skill in &spec.skills {
+        let dest = skills_dir.join(&skill.id);
+        skill
+            .source
+            .materialize(&dest, crate::source::LinkMode::Copy, true)
+            .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
+    }
+    // 2b. MCP-as-skill: latent SKILL.md pointers (stepping stone; see
+    // harness::write_mcp_as_skill_pointers's doc). No-op when
+    // spec.mcp_as_skill is empty.
+    super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
+
+    // Hooks: opencode has no documented native hook slot (unlike Claude
+    // Code's `settings.json` `hooks` or Codex's `hooks.json` /
+    // `[[hooks.<Event>]]`), so we don't invent one here. If `spec.hooks`
+    // is non-empty this is simply a no-op for opencode — not an error —
+    // since selecting a hook that a particular harness can't render is a
+    // fidelity gap, not a user mistake.
+
+    // 3. Instructions: write <dir>/AGENTS.md if instructions are present.
+    if let Some(instructions) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
+        let agents_md_path = dir.join("AGENTS.md");
+        std::fs::write(&agents_md_path, instructions)
+            .with_context(|| format!("writing {}", agents_md_path.display()))?;
+    }
+    Ok(())
+}
+
+/// The launch for a run whose config tier [`write_config`] put in `config_dir`, with opencode's
+/// data/credential tier relocated to `data_home` — or, with `None`, left at the user's own.
+fn launch(spec: &RunSpec, config_dir: &Path, data_home: Option<&Path>) -> Result<Launch> {
+    let args = match spec.io {
+        IoModes::Structured => {
+            // Structured mode: `opencode acp [args...]` — an ACP
+            // endpoint, driven by `crate::io::AcpBridge`. Everything a
+            // passthrough run puts in argv moves onto the wire here: the
+            // prompt is a `session/prompt`, a resume is a `session/load`
+            // (from `Provisioned::resume`), and the model is a
+            // `session/set_config_option`, so none of `--dangerously-skip-permissions`,
+            // `--model`, `--variant`, `--session` or the prompt belongs
+            // on this argv. Permissions are now real
+            // `session/request_permission` round trips instead of
+            // `--dangerously-skip-permissions` auto-approval.
+            let mut structured_args = vec!["acp".to_string()];
+            structured_args.extend(spec.passthrough_args.clone());
+            structured_args
+        }
+        IoModes::Passthrough => {
+            // Passthrough mode: just the original args + prompt (current
+            // behavior). No CLI resume flag exists for interactive
+            // opencode, so `spec.resume` is intentionally ignored here.
+            let mut passthrough_args = spec.passthrough_args.clone();
+            // Model selection: `--model <provider/model-id>`.
+            if let Some(model) = &spec.model {
+                passthrough_args.push("--model".to_string());
+                passthrough_args.push(model.clone());
+            }
+            if let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
+                passthrough_args.push(prompt.clone());
+            }
+            passthrough_args
+        }
+    };
+
+    // Account: inject credential *references* into the child's env.
+    let mut env = vec![
+        (
+            "OPENCODE_CONFIG".to_string(),
+            config_dir.join("opencode.json").display().to_string(),
+        ),
+        (
+            "OPENCODE_CONFIG_DIR".to_string(),
+            config_dir.display().to_string(),
+        ),
+    ];
+    // opencode reads its auth store and session store from `$XDG_DATA_HOME/opencode/`
+    // (verified — see `Opencode::config_anchor`).
+    if let Some(data_home) = data_home {
+        env.push(("XDG_DATA_HOME".to_string(), data_home.display().to_string()));
+    }
+    if let Some(account) = &spec.account {
+        // opencode is provider-agnostic. We don't know which provider
+        // (Anthropic, OpenAI, Google, etc.) the account uses, so we set
+        // both ANTHROPIC_API_KEY and OPENAI_API_KEY (harmless extra env;
+        // opencode uses whichever provider is configured).
+        // TODO(P2+): provider-specific account env.
+        if let Some(name) = &account.api_key_env {
+            let value = super::shared::account_env(account, name)?;
+            env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
+            env.push(("OPENAI_API_KEY".to_string(), value));
+        } else if let Some(name) = &account.auth_token_env {
+            let value = super::shared::account_env(account, name)?;
+            env.push(("ANTHROPIC_API_KEY".to_string(), value.clone()));
+            env.push(("OPENAI_API_KEY".to_string(), value));
+        }
+        // TODO(P2+): base_url → provider.options.baseURL config; opencode
+        // uses provider-specific config, not a single env var.
+    }
+
+    Ok(Launch {
+        program: "opencode".to_string(),
+        args,
+        env,
+        env_remove: Vec::new(),
+        env_clear: false,
+    })
 }
 
 /// Parse `opencode models --verbose` stdout into a reasoning-level catalog keyed by
@@ -721,60 +733,119 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_seeds_auth_into_data_dir_without_touching_home() {
-        use crate::account::Account;
-
-        // A persistent per-account "home" holding a captured login, laid out
-        // exactly as `login()` writes it: `<home>/.local/share/opencode/auth.json`.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(account_home.path().join(".local/share/opencode")).unwrap();
-        std::fs::write(
-            account_home.path().join(".local/share/opencode/auth.json"),
-            r#"{"anthropic":{"type":"api","key":"tok"}}"#,
-        )
-        .unwrap();
-
-        let config_dir = tempfile::TempDir::new().unwrap();
+    fn provision_home_puts_the_config_tier_in_scratch_and_the_data_tier_in_home() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let skill_path = write_skill(skills_src.path(), "my-skill");
         let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "private-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
+        spec.config = ConfigStrategy::Home {
+            home: home.path().to_path_buf(),
+            scratch: scratch.path().to_path_buf(),
+        };
+        // Structured: `opencode acp`'s `session/new` sends no MCP, so the config file in the
+        // env is the only route this run's MCP has.
+        spec.io = crate::spec::IoModes::Structured;
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(skill_path),
+        });
+        spec.mcps.push(McpRef::Inline(McpServer {
+            id: "docs".to_string(),
+            transport: McpTransport::Http,
+            command: None,
+            args: vec![],
+            env: BTreeMap::new(),
+            url: Some("https://example.com/mcp/".to_string()),
+            headers: BTreeMap::new(),
+        }));
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER ME".to_string()),
+            prompt: None,
         });
 
-        let opencode = Opencode::new();
-        let launch = opencode.provision(&spec, config_dir.path()).unwrap();
+        let launch = Opencode::new()
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
 
-        // XDG_DATA_HOME relocates the data/credential tier into the ephemeral dir.
-        assert!(launch
-            .env
-            .iter()
-            .any(|(k, v)| k == "XDG_DATA_HOME" && v == &config_dir.path().display().to_string()));
+        // Nothing per-run lands in the shared home.
+        let home_entries: Vec<_> = std::fs::read_dir(home.path()).unwrap().collect();
+        assert!(home_entries.is_empty(), "home got: {home_entries:?}");
 
-        // The captured login is seeded INTO the ephemeral data dir at the
-        // XDG-relative path opencode reads (`$XDG_DATA_HOME/opencode/auth.json`).
-        let seeded_auth = config_dir.path().join("opencode/auth.json");
-        assert!(
-            seeded_auth.exists(),
-            "auth.json should be seeded into $XDG_DATA_HOME/opencode/"
+        let config_json_path = scratch.path().join("opencode.json");
+        let config_json: Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_json_path).unwrap()).unwrap();
+        assert!(config_json["mcp"]["docs"].is_object());
+        assert!(scratch.path().join("skills/my-skill/SKILL.md").is_file());
+        assert!(scratch.path().join("AGENTS.md").is_file());
+
+        assert_eq!(launch.args, vec!["acp"]);
+        let env = |key: &str| {
+            launch
+                .env
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(
+            env("OPENCODE_CONFIG"),
+            Some(config_json_path.display().to_string())
         );
-        assert!(
-            std::fs::read_to_string(&seeded_auth)
-                .unwrap()
-                .contains("anthropic")
+        assert_eq!(
+            env("OPENCODE_CONFIG_DIR"),
+            Some(scratch.path().display().to_string())
         );
-
-        // ...and the child's HOME is left untouched, so the user's real
-        // toolchain (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
-        assert!(
-            !launch.env.iter().any(|(k, _)| k == "HOME"),
-            "HOME must not be overridden by a `home` account: {:?}",
-            launch.env
+        assert_eq!(
+            env("XDG_DATA_HOME"),
+            Some(home.path().display().to_string())
         );
+        assert_eq!(env("HOME"), None);
+    }
 
-        // Config stays in the ephemeral dir, not in the account home.
-        assert!(config_dir.path().join("opencode.json").exists());
+    /// A native run: the config tier still comes from scratch, but no `XDG_DATA_HOME`, so
+    /// opencode reads the user's own login and sessions.
+    #[test]
+    fn provision_home_without_a_home_names_no_data_home() {
+        let scratch = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("opencode".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Native {
+            scratch: scratch.path().to_path_buf(),
+        };
+
+        let launch = Opencode::new()
+            .provision_home(&spec, None, scratch.path())
+            .unwrap();
+
+        assert!(launch.env.iter().all(|(k, _)| k != "XDG_DATA_HOME"));
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "OPENCODE_CONFIG_DIR"
+                    && v == &scratch.path().display().to_string())
+        );
+        assert!(scratch.path().join("opencode.json").is_file());
+    }
+
+    #[test]
+    fn opencode_shares_a_home() {
+        assert!(Opencode::new().shares_home());
+    }
+
+    #[test]
+    fn login_home_logs_in_through_the_data_home_and_leaves_home_alone() {
+        let home = tempfile::TempDir::new().unwrap();
+        let launch = Opencode::new().login_home(home.path()).unwrap();
+
+        assert_eq!(launch.program, "opencode");
+        assert_eq!(launch.args, vec!["auth", "login"]);
+        assert_eq!(
+            launch.env,
+            vec![(
+                "XDG_DATA_HOME".to_string(),
+                home.path().display().to_string()
+            )]
+        );
     }
 
     #[test]
@@ -905,27 +976,6 @@ opencode/gpt-5
 
         assert!(!launch.args.contains(&"--session".to_string()));
         assert!(!launch.args.contains(&"abc".to_string()));
-    }
-
-    #[test]
-    fn login_points_home_at_capture_dir_and_names_auth_json() {
-        let home = tempfile::TempDir::new().unwrap();
-
-        let plan = Opencode::new().login(home.path()).unwrap();
-
-        assert!(
-            plan.launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v == &home.path().display().to_string())
-        );
-        assert!(!plan.credential_files.is_empty());
-        assert!(
-            plan.credential_files[0]
-                .to_str()
-                .unwrap()
-                .ends_with("opencode/auth.json")
-        );
     }
 
     #[test]

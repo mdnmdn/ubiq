@@ -57,17 +57,12 @@ pub struct SessionMeta {
     /// [`AgentEvent::SessionStarted`] event (structured runs only, this
     /// step).
     pub harness_session_id: Option<String>,
-    /// The directory this run's login was seeded from, when it was seeded from
-    /// one — where [`crate::harness::harvest_login`] writes a credential the
-    /// run refreshed, for an embedder that tears a run down long after the
-    /// [`crate::provision::Provisioned`] that named the origin is gone.
-    ///
-    /// A path, never a [`crate::source::Source`]: a `Source::Files` origin is
-    /// credential *bytes*, and a session record on disk is no place for those.
-    /// An origin that was not a directory is left unset, and the harness's own
-    /// [`crate::harness::Harness::ambient_login`] is what finds it again.
-    #[serde(default)]
-    pub login_home: Option<PathBuf>,
+    /// The config strategy the run was provisioned under, when it ran from a config home — a
+    /// profile's ([`crate::spec::ConfigStrategy::Home`]) or the harness's own
+    /// ([`crate::spec::ConfigStrategy::Native`]) — so a resume runs from the same one, where
+    /// the conversation is. `None` for a run in its own dir, which [`Self::config_dir`] names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<crate::spec::ConfigStrategy>,
 }
 
 impl SessionMeta {
@@ -95,7 +90,7 @@ impl SessionMeta {
             finished_at: None,
             exit_code: None,
             harness_session_id: None,
-            login_home: None,
+            config: None,
         }
     }
 }
@@ -381,7 +376,7 @@ mod tests {
             finished_at: None,
             exit_code: None,
             harness_session_id: None,
-            login_home: None,
+            config: None,
         }
     }
 

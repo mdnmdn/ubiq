@@ -504,6 +504,7 @@ fn the_plus_menu_offers_the_form_and_the_attach_list(cx: &mut TestAppContext) {
                 unattended_mode: None,
                 keeps_sessions: true,
                 quota: Default::default(),
+                shares_home: false,
             }],
         },
     );
@@ -2452,5 +2453,6 @@ fn an_acp_harness(id: &str, label: &str, acp: bool) -> AgentTypeInfo {
         unattended_mode: None,
         keeps_sessions: true,
         quota: Default::default(),
+        shares_home: false,
     }
 }

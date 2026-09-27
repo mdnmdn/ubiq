@@ -668,47 +668,9 @@ secret stays in the runner's secret store.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's login into an ephemeral run. Records file **structure and non-secret
-> metadata only** — token values are copied opaquely.
-
-- **Bundle files (the credential snapshot):**
-  - `~/.local/share/opencode/auth.json` — **required**; the sole auth store,
-    a JSON map `providerID → {type, …}`.
-- **Relocation lever:** `XDG_DATA_HOME` relocates the data dir
-  (`$XDG_DATA_HOME/opencode/auth.json`); `OPENCODE_CONFIG_DIR`/`XDG_CONFIG_HOME`
-  move only the *config* tier, not the auth store. **VERIFIED empirically against
-  opencode 1.17.18** (macOS): with `XDG_DATA_HOME` set, `opencode auth list`
-  reads `$XDG_DATA_HOME/opencode/auth.json` and it *overrides* the HOME-relative
-  `~/.local/share/opencode/auth.json` default (control: with the lever unset it
-  falls back to that default). This resolves `_docs/profiles.md` open
-  decision **B-1 as Class A-clean**: `am` sets both `OPENCODE_CONFIG_DIR` and
-  `XDG_DATA_HOME` to the ephemeral dir and *seeds* the captured `auth.json` in —
-  no child-`HOME` relocation (the user's real toolchain stays intact).
-- **Force file storage (skip keychain):** N/A — `auth.json` is **always
-  plaintext** (mode `0600`); opencode has no keychain backend of its own. The
-  ideal capture case. *(Exception: the Anthropic-OAuth path can auto-discover
-  Claude Code's macOS Keychain entry — then there is no opencode file to copy;
-  capture via the Claude Code recipe instead.)*
-- **Login command (fresh-auth-into-temp):** `opencode auth login` under a
-  relocated `XDG_DATA_HOME` (interactive TUI: pick provider, paste key or OAuth).
-  API-key / `{env:…}` providers are fully headless and never write `auth.json`.
-- **Default backend / observed:** plaintext file on every OS. *(Doc claim of
-  `~/Library/Application Support/opencode/` on macOS is stale — disk uses the XDG
-  path uniformly. Trust disk.)*
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | top-level key | `auth.json` → key | provider id (`anthropic`, `openai`, `github-copilot`, …) |
-  | `type` | `auth.json → <provider>.type` | auth type: `oauth` / `api` / `wellknown` |
-  | `expires` | `auth.json → <provider>.expires` | token expiry (epoch ms, oauth) |
-  | `enterpriseUrl` | `auth.json → <provider>.enterpriseUrl` | enterprise/self-hosted endpoint |
-
-  No email / account-uuid / plan-tier is stored — opencode leaves that to the
-  upstream provider.
-- **Do not copy:** `opencode.db*` (session history — can be huge), `log/`,
-  `storage/`, `snapshot/`, `repos/`, `tool-output/`.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ## Permissions
 
@@ -978,6 +940,42 @@ A coordinator drives opencode headlessly by passing run-scoped MCP through the `
 ### Skills at launch
 
 A coordinator materialises skills into `<workdir>/.opencode/skills/<name>/SKILL.md` before launch (plural `skills/` dir). Always-on context goes into `AGENTS.md` in the working directory. (Cross-reference Skills and Policies/Rules/Memory.)
+
+### Shared-home run (agent-manager, `D193`)
+
+`ConfigStrategy::Home { home, scratch }` runs opencode with `XDG_DATA_HOME` set
+to a profile's persistent `home`, shared read-write by every concurrent run of
+the profile (`Opencode::provision_home`). That is opencode's data tier —
+`opencode/auth.json` and the session store (`opencode.db*`, `storage/`, …) —
+and opencode refreshes the login there itself; nothing is seeded or read back.
+Nothing per-run is written into `home`; the config tier goes into the run's
+`scratch`:
+
+| Piece | File | Lever |
+|---|---|---|
+| MCP servers, instructions path, permissions | `<scratch>/opencode.json` | `OPENCODE_CONFIG=<file>` |
+| skills, MCP-as-skill, `AGENTS.md` | `<scratch>/skills/<id>/`, `<scratch>/AGENTS.md` | `OPENCODE_CONFIG_DIR=<scratch>` |
+
+`OPENCODE_CONFIG_DIR` is a config layer only — auth and sessions live in the
+data tier (see Credential capture & reuse) — and it is loaded on top of the
+user's own `~/.config/opencode/`, which still applies, as it does to a fixed
+dir. An `opencode acp` run gets its MCP the same way: `AcpBridge` sends
+`mcpServers: []` in `session/new`, so the file named by `OPENCODE_CONFIG` is the
+only route.
+
+The login is `opencode auth login` with `XDG_DATA_HOME=<home>` and the real
+`HOME` untouched (`Opencode::login_home`, `am profile login`), or `/connect`
+inside the profile's first terminal run. opencode has no preference templates,
+so `provision::prepare_home` leaves only its `.am-home` marker.
+
+`ConfigStrategy::Native { scratch }` — a run with no profile — is the same
+launch with no `XDG_DATA_HOME` (an inherited one is kept), so opencode runs from
+the user's own data dir and login; the config tier still comes from `scratch`.
+
+Every process the run starts — a shell tool, a local MCP server — inherits
+`XDG_DATA_HOME`, so XDG-aware tools keep their data in the profile home too.
+opencode keeps every session in one database, not a file per session, so
+`session_transcripts` names none.
 
 ### Tool approval in headless mode
 

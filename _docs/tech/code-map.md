@@ -167,7 +167,6 @@ crates/ubiq-host/src/
 │   └── manifest_drawio.rs
 ├── quota.rs
 ├── carrier.rs
-├── .DS_Store
 ├── drone/
 │   └── mod.rs
 ├── kb/
@@ -488,7 +487,6 @@ crates/ubiq/src/
 │   ├── mission.rs
 │   └── tasksrc.rs
 ├── version.rs
-├── .DS_Store
 └── ext/
     ├── id.rs
     ├── ids.rs

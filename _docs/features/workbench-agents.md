@@ -120,17 +120,14 @@ definition has already answered them.
 
 **Harness** is the other question and draws what the form always drew, minus any way to pick a
 definition. `WorkbenchState::harness_choices` offers it: the same `ListAgentTypes` answer the
-new-pane menu reads plus the accounts signed in, keeping only the harnesses whose
-`AgentTypeInfo::chat` is true, because a harness with no structured bridge (Grok) can draw a
-pane's screen but has nothing to turn into a `ConvUpdate` — offering it here would start a
-conversation that never speaks. **No harness is a new-pane row at all** — that menu offers the
-terminals that are not agents, and starting one is this form's job. What survives is grouped under
-a `Configured` heading, one row per `(harness, account)` pair. **A bare harness is not a row.**
-Starting one with nothing else answered is what the form is for, and it asks the identity, the
-model, the level and the mode in the same breath — a row that launched on whatever the library
-happened to resolve was that same launch with every question skipped. A harness whose binary is
-not on this machine is still what a row draws disabled over, so a list says a tool is missing
-rather than omitting it.
+new-pane menu reads, keeping only the harnesses whose `AgentTypeInfo::chat` is true, because a
+harness with no structured bridge (Grok) can draw a pane's screen but has nothing to turn into a
+`ConvUpdate` — offering it here would start a conversation that never speaks. **No harness is a
+new-pane row at all** — that menu offers the terminals that are not agents, and starting one is
+this form's job. What survives is grouped under a `Harnesses` heading, one row per harness; a start
+from one runs on the harness's own login, since a login is a definition's (`D193`), and the form
+asks the model, the level and the mode below it. A harness whose binary is not on this machine is
+still what a row draws disabled over, so a list says a tool is missing rather than omitting it.
 
 **An agent definition is a saved answer to the same questions**, which is why the settings page's agent definition
 form is this same form with a different `Purpose`: no tabs and no agent definition row in the
@@ -269,8 +266,8 @@ closes the chat tab attached to this agent and nothing else — the conversation
 its harness and goes on taking turns, and the sidebar still lists it. It is the one row on the menu
 read off the window's own arrangement rather than off the work record, and it is drawn dead when no
 chat tab is attached. Close is the delete this menu used to call Delete, renamed for the pair: the
-confirm it raises says *Close conversation* and warns that the transcript and the run directory,
-seeded credentials included, go with it and that it cannot be undone.
+confirm it raises says *Close conversation* and warns that the transcript and the run directory go
+with it and that it cannot be undone.
 
 **Info opens the panel the tools section leads with** — `ui/conversation/info.rs`, a modal over the
 window. It draws only what the window already holds: the harness label, the model and the permission

@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-26
+updated: 2026-09-27
 verified: 2026-09-26
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -1786,6 +1786,14 @@ The alternative — a host-owned, replayable `ConvUpdate` record, proposed in
 second window and teleport need, and none of those are reachable this way. This is the narrower
 mechanism for the narrower question, and the two coexist.
 
+**Half reversed by `D193`.** What reversed is "the run directory is the conversation": the harness's
+session store lives in the profile's fixed home, which every run from that profile shares, and the
+run directory is a scratch directory of per-run flag files beside it. What stands is resume and
+retention — the harness finds its session in the home by id, and a marked run keeps its scratch
+files to replay — which is what shows the two halves were separable. Fork by copying the directory
+stops carrying the transcript, and the credential cost above goes with the seeding it paid for
+(`G377`).
+
 ### D95 — Claude Code keeps its native stream-json bridge, whatever else moves to ACP
 
 `agent_manager::io::JsonlBridge` and the `claude-code` harness that uses it are not replaced by
@@ -2305,6 +2313,10 @@ hovers learns the threshold from the colour alone — which is why the colour ca
 is one glyph over a snapshot that may hold several gauges, so it reports the fullest window and the
 tooltip is where the others are; a reader who wants all of them goes to Settings.
 
+**Half reversed by `D193`.** The Settings panel moved from under each account's captured login,
+which `D193` removes, to under each agent definition, whose home holds the login the reading is
+taken from. The ring and its rules stand.
+
 ### D112 — A repository inside a project is ignored until the project takes it on
 
 `D99` settled that a repository found below the project is walked and merged into the project's one
@@ -2646,6 +2658,10 @@ the child is given, not what OpenSSH does with them.
 
 ### D126 — A confined Claude Code run is denied the login keychain, so its credential stays on the file backend
 
+**Superseded by `D193`.** What follows is the reasoning as it stood while every run had a fresh
+config dir and a captured login. The denial, `KEYCHAIN_DENIED` and its override layer are gone: a
+confined run gets the whole Keychain layer.
+
 Claude Code on macOS picks between two credential backends at launch: the login keychain when
 `~/Library/Keychains` is reachable, or `.credentials.json` in `$CLAUDE_CONFIG_DIR` when it is not,
 migrating and deleting the file the first time it reaches the keychain. Only the file backend is one
@@ -2673,6 +2689,12 @@ mirrored there, or a denied run keeps the old grants. The layer path is named on
 (`KEYCHAIN_LAYER`) so the override cannot stop shadowing the built-in, which is a different failure
 and the one worth ruling out. Confined only: an unconfined Claude Code run still picks its own
 backend.
+
+**Why it was superseded:** the Keychain item was per-run only because the config dir was. Under
+`D193` the home is fixed per profile, so Claude Code's item name — a hash of `CLAUDE_CONFIG_DIR` —
+is fixed too, and nothing outside the harness reads the credential, so the file backend has no
+reader left to keep it on. A confined run is granted that one item instead of being denied all of
+them.
 
 ### D127 — QuickJS is compiled into the interface behind a feature the binary defaults on
 
@@ -4687,6 +4709,69 @@ answers one and walks away holds the rest — there is no clock to rescue them, 
 conversation or typing instead. The prompt is longer and the agent reads all its questions answered
 at once rather than in the order it thought to ask them. And `Armed` holds answers, not only
 questions, so a conversation going takes real user input with it.
+
+### D193 — A harness login lives in one fixed home per profile, and nothing captures or roams a token
+
+Every profile — Ubiq's agent definition, the library's `Profile` — owns one fixed, persistent config
+home per harness. Every instance started from that profile uses it directly as the harness's config
+home (`CLAUDE_CONFIG_DIR` for Claude Code), concurrently, read-write for all of them. The login is
+performed into that home, one of two ways — the profile's first terminal run shows the harness's own
+login screen, or an explicit sign-in runs `CLAUDE_CONFIG_DIR=<home> claude auth login` — and from
+then on the harness owns refresh and cross-process sharing, exactly as it does for a user running
+several `claude` against `~/.claude`. A run with **no profile** runs the harness against the user's
+own default config in place: no `CLAUDE_CONFIG_DIR` is set, nothing is copied, and nothing — no
+template, no onboarding or trust entry — is written into it. Neither `crates/agent-manager` nor Ubiq reads, copies, captures or
+roams a harness token: `seed_login`, `harvest_login`, `sync_login`, `newest_login`, `scrub_login`,
+`Agents::sync_logins`' thirty-second pass, `am account import`'s Keychain extraction and zero-config
+seeding through `Claude::ambient_login` all go. The home is chosen **per profile, not per account**:
+two profiles on one account log in separately and hold two independent OAuth grants, so no refresh
+token is ever shared between homes. On macOS the Keychain returns as the store — Claude Code names
+its item `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`, stable once the home is — so a
+confined run is granted the home read-write and that one Keychain item, and `D126`'s denial goes.
+The library exposes the home through an accessor, so Ubiq still names no harness path.
+
+**Per-run composition leaves the home.** Nothing per-run is written into a shared home. The run
+directory `<root>/runs/<key>` becomes a scratch directory beside it, holding per-run files passed by
+flag: MCP by `--mcp-config <scratch>/mcp.json --strict-mcp-config` (Ubiq's own MCP URLs embed the
+run key, so a shared file would cross runs); permissions, hooks and `apiKeyHelper` by `--settings
+<scratch>/settings.json`, layered over the home's user settings, which hold nothing per-run; instructions by
+`--append-system-prompt`; skills and MCP-as-skill by a per-run `--plugin-dir`, so a skill is named
+`plugin:skill`; the profile overlay folded into those. Theme and TUI templates are written into the
+home once in its life, behind a marker, so a home signed in before its first run still gets them;
+the onboarding flag is added only when missing. The one per-run write the home still takes is the cwd
+trust entry in `.claude.json` — only when missing, read-modify-write under a lock, never a
+whole-file replace. `ConfigStrategy` gains a variant separating home from scratch; `archive` filters
+transcripts by the run's harness session id, since `projects/` holds every run's; resume replays the
+retained scratch files; and no cleanup path — `run.rs`'s removal, `sweep_runs`, `retire_agent` —
+reaches the home.
+
+**The other harnesses take the same shape.** Codex: `CODEX_HOME` per profile holds `auth.json`;
+per-run MCP, model and permissions move from `config.toml` to `-c key=value`; skills, `AGENTS.md`
+and `hooks.json` have no per-run route, so they are per-profile. opencode: a shared per-profile
+`XDG_DATA_HOME` (auth, sessions) and a per-run `OPENCODE_CONFIG_DIR` plus `OPENCODE_CONFIG` — the
+cleanest fit. Copilot: `COPILOT_HOME` per profile, whose `config.json` holds token and settings
+together; per-run MCP by `--additional-mcp-config` or ACP `session/new`'s `mcpServers`. grok
+relocates only `HOME`, so its home is a persistent fake `HOME` per profile, skills shared.
+`claude-code-acp` takes no argv: per-run MCP travels only in `session/new`'s `mcpServers`.
+
+**Why.** Capturing a login re-implements, outside the harness, the one thing the harness itself
+does correctly — keeping a rotating OAuth grant consistent across its own processes — and each place
+the copy was made became a way to log someone out: a rotated token not written back (`D97`'s first
+cost), a Keychain item keyed to a directory teardown deletes (`D126`), a store-backed login written
+to the wrong Keychain entry, one refresh token fanned out to homes that each redeem it. A
+fixed home removes the copy, so there is nothing to reconcile. Per profile rather than per account is
+what keeps two homes from holding the same refresh token — the one sharing the harness cannot see.
+
+**Cost.** A profile's first run needs an interactive login, and a captured login is not migrated:
+every profile logs in afresh. Two profiles on one account are two grants to keep alive. Per-run
+composition depends on the flags each harness happens to offer, so what no flag carries — Codex's
+skills, `AGENTS.md` and hooks, grok's skills, and everything but MCP for `claude-code-acp` — is
+per-profile, and two agents from one profile cannot differ there. Skills gain a `plugin:` prefix.
+The shared `.claude.json` takes a concurrent per-run write, safe only by the lock and the
+only-when-missing rule. The home's `projects/` grows with every run of the profile, and `D97`'s fork
+by directory copy stops carrying the conversation. And one token read is kept knowingly:
+`quota::claude` reads `accessToken` from the login to ask for usage (`G380`). The gaps between this
+and the tree are `G377` to `G381`.
 
 ## Related docs
 

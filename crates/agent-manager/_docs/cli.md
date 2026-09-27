@@ -12,6 +12,7 @@ and otherwise treats the first positional as a **harness name** to wrap:
 am <harness> [am-flags] [-- harness-args…]     # wrap & run a harness
 am catalog   <ls|import|show|path> …            # manage the catalog
 am account   <ls|use|import|login|dump|check|renew|rename|delete> …  # manage accounts + credentials
+am profile   <ls|show|use|create|login> …       # manage profiles
 am session   <ls|show|resume> …                 # manage session history  (ls/show/resume landed)
 am help | am --version
 ```
@@ -28,6 +29,19 @@ am claude --mcps postgres,figma --skills web-designer --safe
 am codex  --skills reviewer --account work
 am opencode --config ./run.toml
 ```
+
+**Where the harness's config comes from (`D193`).** A harness that runs from a
+config home (native Claude Code) runs from the resolved profile's home when
+there is one (`ConfigStrategy::Home`), and from the user's own default config,
+untouched, when there is none (`ConfigStrategy::Native`) — in both cases with a
+fresh run dir under `AM_RUNS` as scratch for the run's own files, removed on
+exit like an ephemeral dir (never the home). A profile store that names no
+home runs `Native` too. A confined run takes the same strategy, and the sandbox
+is granted that home read-write (`IsolateOptions::grant_config_home`: the
+profile's home, or `Harness::default_homes` under `Native`) and on macOS the
+Keychain layer. Only a harness that cannot share a home keeps the per-run
+ephemeral dir, and no built-in one is such. `am` has no flag naming a config
+dir. An API-key, auth-token or helper account applies to any run.
 
 ### The core run flags (Phase 1 unless noted)
 
@@ -74,10 +88,7 @@ process runs in, ConPTY included. Only Linux still has no seam: Landlock
 applies between `fork` and
 `exec` and isol8 keeps its `SandboxChild` constructors private, so `--isolate`
 fails there until isol8 grows a rendered form; see
-`refs/isol8-pty-seam-update.md`. `am account login --isolate` takes the same
-Windows path as any other confined passthrough run — genuinely confined on
-both macOS and Windows — via the login composition in
-`src/cli/account/login.rs`.
+`refs/isol8-pty-seam-update.md`.
 
 Anything `am` doesn't recognize after `--` is the harness's own CLI (e.g.
 `am claude -- --model opus -p`). This keeps `am` from having to mirror every
@@ -205,8 +216,7 @@ Notes:
   deleted on exit) are working state; they live under the same base purely for a
   single, predictable location. Point `AM_SESSIONS` / `AM_RUNS` elsewhere (e.g. a
   `tmpfs` or a scratch dir) if you'd rather keep transient state out of `~/.config`.
-- `am account use <id>` and `am account login <id>` **write** into these roots
-  (the global `config.toml` and `accounts/` respectively), always resolving the
+- `am account use <id>` **writes** the global `config.toml`, always resolving the
   same path the read side uses.
 
 ## Catalog commands
@@ -231,96 +241,28 @@ those dirs; it never writes back to them. Full behavior in
 ```bash
 am account ls                                  # list available accounts
 am account use <id>                            # set the default account for future runs
-am account login <id> --harness <h>            # provision a per-account home & capture login
-am account import                              # ingest account definitions from well-known locations
-am account import --from ~/.claude --write
 ```
 
 Accounts are stored under `~/.config/agent-manager/accounts/` (env override: `AM_ACCOUNTS`).
 An account holds credential **references**, never secret material: environment variable names
-(`api_key_env`, `auth_token_env`), a `base_url`, a credential helper command, and/or a
-private `home` directory. When injected with `--account <id>`, the account's references are
-resolved into the harness's native auth slots. Full account schema in [`overview.md`](./overview.md).
+(`api_key_env`, `auth_token_env`), a `base_url`, and/or a credential helper command. When injected
+with `--account <id>`, the account's references are resolved into the harness's native auth
+slots. Full account schema in [`overview.md`](./overview.md). A harness login is not an account's:
+it lives in a profile's own config home, signed in with `am profile login` below, and `am` neither
+captures nor copies it (`D193`). An account file written before that may name a `home`; it is
+ignored.
 
-### Harness-scoped credential storage
+### Signing a profile in with `am profile login`
 
-Captured login **bytes** live in a pluggable credential store, keyed by
-`(harness, name)` — so `(claude-code, default)` and `(codex, default)` are
-independent entries that can share a name. The engine is chosen in the settings
-file (env override `AM_CREDENTIALS_ENGINE`):
-
-```toml
-[credentials]
-engine = "files"      # "files" (default) | "keychain" | "os"
-# files_root   = "…"  # else AM_ACCOUNTS / the accounts root
-# keychain_dir = "…"  # else AM_KEYCHAIN / <config-dir>/keychain (also the "os" dir)
-```
-
-- **`files`** (default): plain files at `<root>/<name>/<harness>/<rel_path>`, mode `0600`.
-- **`keychain`**: a single local JSON vault (`<keychain-dir>/store.json`, `0600`).
-  Note: **not** OS-keychain-encrypted — it's a plaintext single-file alternative
-  to the directory layout, opt-in until a real encryption layer lands.
-- **`os`**: the real, OS-encrypted secure store.
-  - **macOS** (implemented): a custom keychain file `<keychain-dir>/am.keychain-db`
-    driven by the `security` CLI. Its unlock password is generated once and kept
-    in the user's **login keychain** (service `agent-manager-vault`), so the
-    encrypted keychain still lives under the config dir (isol8-relocatable) with
-    no plaintext password on disk.
-  - **Linux** (`secret-tool` / Secret Service) and **Windows** (per-user DPAPI
-    file) are compiled drafts, to be refined on those platforms. On Linux the
-    secret service is a daemon, so there is no config-dir file there.
-
-These subcommands manage the `SecretStore` — **not** the `<accounts-root>/<id>/`
-home an `am account login` capture writes to (see the next section). The two
-are physically separate trees, so a `dump`/`check`/`rename`/`delete` here is
-blind to an account that only exists as a login-captured home; only `(harness,
-name)` pairs actually present in the configured `SecretStore` engine show up.
-(The `account::AccountStore` trait — the login-flow tier — does have its own
-`rename_account`/`delete_account`/`sign_out`/`login_validity` as library API;
-see `_docs/am-as-library.md` §5. No CLI surface for them yet — this crate adds
-library API only for now; see `_docs/open-points.md` §2.) All take `--harness
-<h>`; the harness scopes the `(harness, name)` key:
-
-```bash
-am account dump <name> --harness <h>            # show a credential (redacted; --show-secrets for raw, TTY-gated)
-am account check <name> --harness <h>           # is it still valid? (parses token expiry)
-am account check --all                          # validity report across every stored credential
-am account renew <name> --harness <h>           # refresh a credential's token(s) via the harness
-am account renew --all                          # renew every stored credential (continues past failures)
-am account rename <old> <new> --harness <h>     # rename within a harness (updates [defaults].account)
-am account delete <name> --harness <h> [--yes]  # remove a credential (--yes required if it's the default)
-```
-
-`dump` redacts token-like fields by default and refuses `--show-secrets` outside
-a TTY unless `AM_ALLOW_SECRET_DUMP=1`. `renew` is a `Harness` concern: the
-default path seeds a temp dir, runs the harness's renew command, and re-reads the
-tokens; Claude Code re-reads the live macOS Keychain session. On macOS,
-`am account import --write` populates `(claude-code, default)` in the configured
-engine (dual-writing alongside the legacy `accounts/default/` home during
-migration).
-
-### Capturing a login with `am account login`
-
-`am account login <id> --harness <h>` provisions a persistent, per-account home directory
-under the accounts root (`<accounts-root>/<id>/`) and runs the harness's native interactive
-login flow there. The harness writes its own credential files (e.g. auth tokens, API keys)
-into that isolated home — `am` never parses or copies secret values, only points the harness
-at the directory via `HOME` / `CODEX_HOME` / etc., and forces file-based storage where the
-harness supports it (e.g. Codex's `cli_auth_credentials_store="file"`). On success, `am` verifies
-the credential file appeared and records the account's `home` reference in the account's
-`<id>.toml` entry, so future `am <h> --account <id>` runs reuse that login without re-authenticating.
-This is the "capture a login into an ephemeral/isolated environment" flow. Per-harness
-credential-file locations and configuration levers are documented in each `_docs/harness/<h>.md`
-under "Credential capture & reuse".
-
-**Keychain-aware harnesses (Claude Code ≥ 2.1.218):** Claude Code no longer falls back to
-plaintext credential files when the OS keychain is unreachable; it errors instead. To force
-file-based credential capture on macOS, add the `--isolate` flag: `am account login <id>
---harness claude-code --isolate` denies keychain access at the sandbox layer, making Claude
-write `.credentials.json` as a fallback. Bare `--isolate` uses the harness's normal layer set
-minus the keychain (`macos/system-runtime` plus the OAuth browser layers on macOS,
-`windows/system-runtime` on Windows, `base` elsewhere);
-`--isolate=<name>` selects a named policy.
+`am profile login <profile> [--harness <h>]` signs a profile's own config home in
+(`D193`) — the harness defaults to the profile's pin, else `claude-code`, and must
+be one that runs from a home. It prepares the home (`provision::prepare_home`:
+created, templates applied once) and runs the harness's own login into it
+interactively (`Harness::login_home`; Claude: `CLAUDE_CONFIG_DIR=<home> claude
+auth login`). Nothing is captured, verified or read back: the harness keeps the
+login in the home and refreshes it. The profile's first terminal run reaches the
+same place through Claude's own login screen, so this is the explicit route, not
+a required step.
 
 ## Session commands
 
@@ -345,9 +287,11 @@ dir plus the harness's native resume flag:
 Resume only works for sessions that captured a harness-native session id
 (structured runs) and whose config dir is still on disk (recorded sessions
 now retain their config dir rather than deleting it — see "Exit codes &
-passthrough fidelity" below). Per-run mcps/skills/hooks/account from the
-original run are **not** re-applied on resume — only the conversation itself,
-via the retained config dir.
+passthrough fidelity" below). A run from a profile home or the native config
+records that strategy in its session meta (`SessionMeta::config`) and resumes
+from the same home, with a fresh scratch, whether or not its run dir survived —
+the conversation is in the home. Per-run mcps/skills/hooks/account from the
+original run are **not** re-applied on resume — only the conversation itself.
 
 There's also a direct, from-scratch form: `am <harness> --resume <id>` takes
 a raw harness-native session id (no `am` session history lookup) and injects

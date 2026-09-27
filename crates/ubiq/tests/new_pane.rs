@@ -158,6 +158,7 @@ fn an_agent(id: &str, label: &str, available: bool) -> AgentTypeInfo {
         unattended_mode: None,
         keeps_sessions: true,
         quota: Default::default(),
+        shares_home: false,
     }
 }
 

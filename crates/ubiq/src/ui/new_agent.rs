@@ -421,7 +421,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         ),
         false => (
             "Harness",
-            "A harness signed into an account starts fresh, on the answers below.",
+            "A harness starts fresh on its own login, on the answers below.",
             "Choose a harness\u{2026}",
         ),
     };
@@ -922,8 +922,8 @@ fn flag_row(
         .into_any_element()
 }
 
-/// The first row's list: the harness-and-identity pairs this machine has signed in and — for a
-/// start — the setups already written down, under their own headings with a hairline between.
+/// The first row's list: the harnesses that converse and — for a start — the setups already
+/// written down, under their own headings with a hairline between.
 ///
 /// [`crate::state::WorkbenchState::harness_choices`] is what groups them, so this list and every
 /// other harness list in the window read the same rows in the same order. A pair whose harness is
@@ -973,22 +973,20 @@ fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Op
     // definition is on offer: on one it is the other tab's answer, on the other it is what the
     // form is being written as.
     app.workbench
-        .harness_choices(&app.workbench.settings.accounts, &[])
+        .harness_choices(&[])
         .into_iter()
         .filter_map(|choice| match choice {
             HarnessChoice::Label(label) => Some((label.to_string(), None)),
             HarnessChoice::Separator => Some((String::new(), None)),
-            HarnessChoice::Pair { harness, account } => {
+            HarnessChoice::Harness(harness) => {
                 let harness = app.workbench.agent_types.get(harness)?;
                 let target = harness.available.then(|| Target::Harness {
                     agent_type: harness.id.clone(),
-                    account: Some(account.clone()),
+                    account: None,
                 });
-                Some((format!("{} \u{00b7} {account}", harness.label), target))
+                Some((harness.label.clone(), target))
             }
-            // Never offered: a bare harness with no identity is what this form is for asking about,
-            // not something to start.
-            HarnessChoice::Harness(_) | HarnessChoice::AgentDefinition(_) => None,
+            HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
 }
@@ -1137,25 +1135,24 @@ fn picker_of<T: Clone + PartialEq + 'static>(
     picker
 }
 
-/// Every harness-and-identity this machine has signed in, labelled as the first row labels them.
+/// Every harness that converses, labelled as the first row labels them.
 ///
-/// The same pairs, read the same way, so overriding a definition's harness is the same gesture as
-/// choosing one — and a harness with no identity is no more startable here than it is there.
+/// The same rows, read the same way, so overriding a definition's harness is the same gesture as
+/// choosing one. The override keeps no account: a harness with no definition runs on its own
+/// login (`D193`).
 fn pair_rows(app: &AppState) -> Vec<(String, Option<Pair>)> {
     app.workbench
-        .harness_choices(&app.workbench.settings.accounts, &[])
+        .harness_choices(&[])
         .into_iter()
         .filter_map(|choice| match choice {
             HarnessChoice::Label(label) => Some((label.to_string(), None)),
             HarnessChoice::Separator => Some((String::new(), None)),
-            HarnessChoice::Pair { harness, account } => {
+            HarnessChoice::Harness(harness) => {
                 let harness = app.workbench.agent_types.get(harness)?;
-                let value = harness
-                    .available
-                    .then(|| (harness.id.clone(), Some(account.clone())));
-                Some((format!("{} \u{00b7} {account}", harness.label), value))
+                let value = harness.available.then(|| (harness.id.clone(), None));
+                Some((harness.label.clone(), value))
             }
-            HarnessChoice::Harness(_) | HarnessChoice::AgentDefinition(_) => None,
+            HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
 }

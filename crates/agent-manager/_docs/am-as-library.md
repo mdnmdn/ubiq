@@ -81,8 +81,8 @@ convenient; the crate doesn't impose a shape.
 **The invariant that makes this composable: `RunSpec` is self-contained.**
 `resolve` is the *only* stage that talks to `Registry`/`AccountStore`/
 `ProfileStore`. It bakes their content into the spec — a skill's folder
-becomes `SkillRef.source`, an account's captured login becomes
-`RunSpec.account_login`, a profile chain's overlays become
+becomes `SkillRef.source`, an account's references become `RunSpec.account`,
+a profile chain's overlays become
 `RunSpec.config_bases` — so `provision` never calls back into a store. A
 `RunSpec` (mostly `Serialize`) can be shipped elsewhere and provisioned there
 with zero store access.
@@ -157,34 +157,18 @@ instead of reading a folder. `registry::OverlayRegistry<G, P>` composes two
 `Registry`s (global + project, project wins on collision) — reusable over
 any pair of stores.
 
-**`account::AccountStore`** — credential references + the login write seam:
+**`account::AccountStore`** — credential references:
 
 ```rust
 fn accounts(&self) -> Result<Vec<Account>>;
 fn account(&self, id: &str) -> Result<Option<Account>>;                     // default: filter accounts()
-fn login_source(&self, id: &str) -> Result<Option<Source>>;                 // default: Source::Dir(account.home)
-fn login_home(&self, id: &str) -> Result<PathBuf>;                          // default: read-only error
-fn capture_login(&self, id: &str, from: &Path, files: &[PathBuf]) -> Result<()>; // default: read-only error
 fn rename_account(&self, from: &str, to: &str) -> Result<()>;               // default: read-only error
 fn delete_account(&self, id: &str) -> Result<()>;                           // default: read-only error
-fn sign_out(&self, id: &str, files: &[PathBuf]) -> Result<()>;              // default: read-only error
 ```
 
 `Account` never holds a secret value, only references (env-var names, a base
-URL, a helper command, a `home` path). `login_source`'s default derives a
-`Source::Dir` from `Account.home` — correct for any filesystem store; a
-database store overrides it to return `Source::Files` built from stored
-bytes. `login_home`/`capture_login` are the interactive-login write seam
-(`am account login`): a login is a real subprocess that must write to a real
-dir, so `login_home` returns one (`FsAccountStore` returns the persistent
-per-account home; a DB store would return a scratch dir it reads back), and
-`capture_login` persists what got written there. `rename_account`/
-`delete_account`/`sign_out` are that seam's missing counterparts — rename and
-delete act on the whole account home (every harness's login moves or goes
-together, since an account is a home shared by every harness logged in
-there); `sign_out` removes only the credential `files` one harness declared,
-the same relative-path shape `capture_login` already takes. All five default
-to a read-only error, so a read-only store implements none of them.
+URL, a helper command). A harness login is not an account's: it lives in a
+profile's own config home and nothing here reads or copies it (`D193`).
 
 FS impl: `account::FsAccountStore` (`accounts.toml` + per-file `<id>.toml`,
 rooted at `AM_ACCOUNTS`); `account::EmptyAccountStore` is the zero-accounts
@@ -194,13 +178,7 @@ already names an existing account/home; it also refuses (for both rename and
 delete) an account declared as an inline `[[account]]` entry in
 `accounts.toml`, since that layer isn't rewritable via `save()`.
 
-`account::login_validity(harness: &dyn Harness, home: &Path, now_ms: i64) ->
-Validity` answers "is `harness`'s stored login inside this account home still
-good?" by reading the files the harness's own
-`harness::ConfigAnchor::login_seed` names (so the caller never hardcodes a
-harness's credential path) and delegating to `credentials::credential_validity`.
-`Validity` and `credential_validity` (moved here from the CLI's `account
-check`, which was their only caller before this) are re-exported from the
+`Validity` and `credentials::credential_validity` are re-exported from the
 crate root.
 
 **`credentials::SecretStore`** — harness-scoped credential *bodies*:
@@ -217,9 +195,7 @@ fn rename(&self, from: &CredentialId, to_name: &str) -> Result<()>;
 Where `AccountStore` keeps credential *references* + the account index,
 `SecretStore` holds the actual login **bytes**, keyed by `(harness, name)` —
 so `(claude-code, default)` and `(codex, default)` are independent entries
-that may share a human name. Blobs convert to/from a `Source::Files` with
-`credentials::source_from_blobs` / `blobs_from_seed` (against a harness's
-`ConfigAnchor::login_seed`). Ships with `MemorySecretStore` (tests /
+that may share a human name. No harness login is kept here (`D193`). Ships with `MemorySecretStore` (tests /
 embedders), `FileSecretStore` (`<root>/<name>/<harness>/<rel_path>`, mode
 0600), `PrivateKeychainStore` (a single local JSON vault — plaintext, not yet
 OS-keychain-encrypted), and `OsSecretStore` (the real OS-encrypted secure
@@ -227,14 +203,9 @@ store: on macOS a custom `am.keychain-db` under the config dir driven by the
 `security` CLI, its unlock password bootstrapped into the login keychain;
 Linux `secret-tool` and Windows DPAPI providers are compiled drafts). The CLI
 builds one from `[credentials].engine` (`files`|`keychain`|`os`; env
-`AM_CREDENTIALS_ENGINE`) via `credentials::build_secret_store(&settings)`. An embedder passes its own
-`Box<dyn SecretStore>` (DB/vault-backed) and wraps its index store with
-`credentials::SecretBackedAccountStore::new(index, secrets, harness_id)`,
-whose `login_source` serves bodies from the secret store (falling back to the
-legacy on-disk `home` for names not yet migrated). Credential renewal is a
-`Harness` concern: `Harness::renew_credentials(&[CredentialBlob])` (default:
-seed a temp dir, run `credential_renew_command()`, re-read; Claude overrides
-to re-read the macOS Keychain). This trait is **core** (`--no-default-features`).
+`AM_CREDENTIALS_ENGINE`) via `credentials::build_secret_store(&settings)`; an embedder
+passes its own `Box<dyn SecretStore>` (DB/vault-backed). This trait is **core**
+(`--no-default-features`).
 
 **`profile::ProfileStore`** — persistent bases + inheritance:
 
@@ -254,7 +225,7 @@ config-overlay content seam (extra settings/memory/skills, not credentials)
 — `resolve` collects it across the `extends` chain into
 `RunSpec.config_bases`, so `provision` layers it via `overlay::materialize`
 without touching `ProfileStore` again. `put_base` is the copy-back write
-seam, mirroring `capture_login`.
+seam.
 
 FS impl: `profile::FsProfileStore` — profiles are *directories*
 (`<root>/<name>/profile.toml` + `base/<harness>/`), unlike accounts' flat
@@ -382,43 +353,29 @@ FS impl: `session::FsSessionStore`/`FsSessionRecorder`, writing
     the honest answer for opencode, Copilot CLI and Grok CLI for the same
     reason `modes()` is empty there.
 
-## 7. The credential copy-in / copy-back lifecycle
+## 7. No credential lifecycle
 
-At launch, after `harness.provision(spec, dir)` writes native config,
-`provision::provision` runs two more steps: `overlay::materialize(dir,
-&spec.config_bases)` symlinks-else-copies the profile's non-credential
-overlay on top (leaf wins, never clobbers an `am`-written file), then
-`harness::seed_login` **copies** — never symlinks — the captured-login files
-from the account's `Source` into the relocated config dir, because the
-harness rewrites some of them in place (OAuth refresh).
-
-That copy is one-directional. There is **no copy-back yet**: a token
-refreshed inside the run dir is discarded on cleanup, and the next run
-re-seeds the older token, forcing another refresh. `AccountStore::
-capture_login` and `ProfileStore::put_base` are the intended write seams to
-close this loop — a database-backed store would persist a refresh through
-the same trait method a filesystem store uses. See
-[open-points.md](./open-points.md) §9.
+`am` copies no login into a run and writes none back: a harness keeps its login in
+a profile's own config home and refreshes it there (`D193`). What a run materializes
+is the profile's non-credential overlay (`overlay::materialize`).
 
 ## 8. A concrete embedder example
 
-A minimal in-memory `AccountStore` returning credential bytes instead of a
-home directory, driven through `resolve` + `provision`:
+A minimal in-memory `AccountStore`, driven through `resolve` + `provision`:
 
 ```rust
 use agent_manager::account::{Account, AccountStore};
-use agent_manager::{Result, Source};
+use agent_manager::Result;
 
-struct MemAccountStore { creds: Vec<u8> } // e.g. loaded from your own DB row
+struct MemAccountStore; // e.g. backed by your own DB rows
 
 impl AccountStore for MemAccountStore {
     fn accounts(&self) -> Result<Vec<Account>> {
-        Ok(vec![Account { id: "work".into(), ..Default::default() }])
-    }
-    fn login_source(&self, id: &str) -> Result<Option<Source>> {
-        if id != "work" { return Ok(None); }
-        Ok(Some(Source::Files(vec![(".credentials.json".into(), self.creds.clone())])))
-        // login_home/capture_login stay at their read-only-error defaults.
+        Ok(vec![Account {
+            id: "work".into(),
+            api_key_env: Some("WORK_ANTHROPIC_KEY".into()),
+            ..Default::default()
+        }])
     }
 }
 
@@ -430,17 +387,16 @@ let flags = agent_manager::resolve::RunFlags {
 };
 let settings = agent_manager::settings::Settings::default();
 let registry = agent_manager::registry::FsRegistry::new("/path/to/catalog");
-let accounts = MemAccountStore { creds: b"{...}".to_vec() };
 let profiles = agent_manager::profile::EmptyProfileStore;
 
-let spec = agent_manager::resolve::resolve(&flags, &settings, &registry, &accounts, &profiles)?;
+let spec = agent_manager::resolve::resolve(&flags, &settings, &registry, &MemAccountStore, &profiles)?;
 
 let harness = agent_manager::harness::Claude::new();
 let templates = agent_manager::harness::FsTemplateStore::from_default();
 let provisioned = agent_manager::provision::provision(&harness, &spec, &templates)?;
-// provisioned.dir now has .credentials.json written from MemAccountStore's bytes,
-// exactly as if it had come from a real ~/.claude directory.
+// The launch passes the account's key through to `ANTHROPIC_API_KEY`, read from
+// `WORK_ANTHROPIC_KEY` at launch; nothing is written to disk.
 ```
 
-`spec.account_login` already holds the `Source::Files` `MemAccountStore`
-produced by this point — `provision` never asks it anything again.
+`spec.account` already holds the references `MemAccountStore` produced by this
+point — `provision` never asks it anything again.

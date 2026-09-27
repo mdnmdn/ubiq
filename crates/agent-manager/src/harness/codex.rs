@@ -10,21 +10,27 @@
 //! (default `~/.codex`). Provisioning points that variable at the ephemeral
 //! dir instead of the real `~/.codex`, so MCP servers/permissions/skills/
 //! memory are injected without ever touching the user's real config. Codex is
-//! Class A (`CODEX_HOME` relocates the whole tree, `auth.json` included): a
-//! private-home account's captured `auth.json` is *seeded* into the ephemeral
-//! dir (see [`Codex::config_anchor`] and the account block in [`Codex::provision`]),
-//! mirroring Claude, while the child's real `HOME` is left intact.
+//! Class A (`CODEX_HOME` relocates the whole tree, `auth.json` included), and
+//! the child's real `HOME` is left intact.
+//!
+//! The shared-home run (`D193`, [`Codex::provision_home`]) is the other shape: `CODEX_HOME` is
+//! the profile's own persistent home, which holds `auth.json` and `sessions/` and which Codex
+//! refreshes itself. Nothing per-run is written there — MCP, model, effort, permissions and
+//! instructions go by `-c key=value` — and only what no flag carries, skills and `hooks.json`,
+//! is placed into it. `codex-acp` runs the same way, save that its MCP servers travel in ACP's
+//! `session/new`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, bail};
+use tracing::warn;
 
 use crate::Result;
 use crate::config::{McpServer, McpTransport};
 use crate::spec::{HookRef, McpRef, RunSpec};
 
-use super::{ConfigAnchor, Harness, Launch, Relocate, SeedFile};
+use super::{ConfigAnchor, Harness, Launch, Relocate};
 
 /// The markers that wrap `am`-managed `[mcp_servers.*]` tables in
 /// `config.toml`, so any hand-authored tables in the same file (were any to
@@ -63,6 +69,81 @@ impl Codex {
     pub fn new_acp() -> Self {
         Codex { acp: true }
     }
+
+    /// The launch both provisioning shapes share: `config_args` (`-c` overrides, root flags)
+    /// first, then the structured `app-server --listen stdio://` or the passthrough prompt, and
+    /// `CODEX_HOME` set only when there is a `config_home` to point it at.
+    fn launch(
+        &self,
+        spec: &RunSpec,
+        config_home: Option<&Path>,
+        config_args: Vec<String>,
+    ) -> Result<Launch> {
+        // Structured mode launches the JSON-RPC `app-server`, with the
+        // prompt delivered via `turn/start` by the bridge rather than a
+        // trailing positional argument; passthrough mode keeps the
+        // interactive argv shape from P1.
+        let structured = spec.io == crate::spec::IoModes::Structured;
+        // The ACP variant's *structured* launch is the adapter, which takes no subcommand: the
+        // prompt is a `session/prompt`, a resume is `session/load` (from
+        // `Provisioned::resume`), and everything else it needs it reads from `CODEX_HOME`,
+        // exactly as the native variant's child does. Its one flag is the same root-level
+        // `-c key=value` Codex parses (`codex-acp`'s `main` takes Codex's own
+        // `CliConfigOverrides`), so `config_args` reach it too. A passthrough run is unchanged
+        // — `codex-acp` is not a TUI, so a pane still gets the real `codex`.
+        let acp = self.acp && structured;
+
+        let mut args = config_args;
+        if structured && !acp {
+            args.push("app-server".to_string());
+            args.push("--listen".to_string());
+            args.push("stdio://".to_string());
+        }
+        args.extend(spec.passthrough_args.iter().cloned());
+
+        // Resume: codex has no CLI resume flag. Resuming a prior codex
+        // session is an app-server `thread/resume` JSON-RPC call (a bridge
+        // concern), not something expressible in launch argv — so
+        // `spec.resume` is a documented no-op here. Do NOT invent a flag.
+
+        // Append prompt as trailing positional argument, passthrough mode
+        // only — structured mode's bridge sends it via `turn/start`.
+        if !structured && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
+            args.push(prompt.clone());
+        }
+
+        // Account: inject credential *references* into the child's env.
+        let mut env = Vec::new();
+        if let Some(home) = config_home {
+            env.push(("CODEX_HOME".to_string(), home.display().to_string()));
+        }
+        if let Some(account) = &spec.account {
+            // Codex has no separate auth-token env var (unlike Claude's
+            // ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN split): both
+            // api_key_env and auth_token_env map to OPENAI_API_KEY. If both
+            // are set on the account, api_key_env wins.
+            if let Some(name) = account
+                .api_key_env
+                .as_ref()
+                .or(account.auth_token_env.as_ref())
+            {
+                let value = super::shared::account_env(account, name)?;
+                env.push(("OPENAI_API_KEY".to_string(), value));
+            }
+            // TODO(P2+): base_url → model_providers. Codex has no single env
+            // var for a custom base URL; a custom endpoint requires a
+            // `[model_providers.<name>]` table plus `model_provider = "<name>"`
+            // in config.toml. Don't fake it with an env var codex won't read.
+        }
+
+        Ok(Launch {
+            program: if acp { ACP_COMMAND } else { "codex" }.to_string(),
+            args,
+            env,
+            env_remove: Vec::new(),
+            env_clear: false,
+        })
+    }
 }
 
 impl Harness for Codex {
@@ -95,17 +176,11 @@ impl Harness for Codex {
         }
     }
 
-    /// Class A: `CODEX_HOME` relocates the entire tree — `auth.json` included
-    /// (see `_docs/harness/codex.md` "Credential capture & reuse") — so a
-    /// captured login is the single `auth.json` file below, seeded into the
-    /// ephemeral dir while the real `HOME` stays intact. Only `auth.json` is
-    /// seeded (not the account's `config.toml`), because `am` writes its own
-    /// `config.toml` for MCP/skills/permissions on every run. See
-    /// `_docs/profiles.md` §5.
+    /// Class A: `CODEX_HOME` relocates the entire tree — `auth.json` included —
+    /// while the real `HOME` stays intact. See `_docs/profiles.md` §5.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CODEX_HOME".to_string(), Relocate::All)],
-            login_seed: vec![SeedFile::credential("auth.json", "auth.json")],
             requires_home_relocation: false,
         }
     }
@@ -186,11 +261,7 @@ impl Harness for Codex {
         // The ephemeral `dir` is ALWAYS the config home (`$CODEX_HOME`), so
         // all injected config — `config.toml`, skills, `AGENTS.md`, hooks —
         // lands in the throwaway dir and never pollutes an account's
-        // persistent home (nor collides across concurrent runs). Codex is
-        // Class A: `CODEX_HOME` relocates the whole tree, `auth.json`
-        // included, so a private-home account's captured login is *seeded*
-        // into `dir` further below (mirroring Claude's split), rather than
-        // pointing `CODEX_HOME` at the account home directly.
+        // persistent home (nor collides across concurrent runs).
         let config_home = dir.to_path_buf();
         std::fs::create_dir_all(&config_home)
             .with_context(|| format!("creating {}", config_home.display()))?;
@@ -210,18 +281,7 @@ impl Harness for Codex {
         // `$CODEX_HOME/.agents/skills/<name>/SKILL.md`. We follow the
         // "at launch" guidance since it is the explicit orchestration
         // contract for a per-run provisioner.
-        let skills_dir = config_home.join(".agents").join("skills");
-        for skill in &spec.skills {
-            let dest = skills_dir.join(&skill.id);
-            skill
-                .source
-                .materialize(&dest, crate::source::LinkMode::Copy, true)
-                .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
-        }
-        // 2b. MCP-as-skill: latent SKILL.md pointers into the same skills
-        // dir (stepping stone; see harness::write_mcp_as_skill_pointers's
-        // doc). No-op when spec.mcp_as_skill is empty.
-        super::write_mcp_as_skill_pointers(spec, &skills_dir)?;
+        write_skills(spec, &config_home.join(".agents").join("skills"))?;
 
         // 3. Instructions: <config_home>/AGENTS.md (the CODEX_HOME/global
         // memory tier — never the user's cwd). Plain Markdown; no managed-
@@ -248,136 +308,85 @@ impl Harness for Codex {
                 .with_context(|| format!("writing {}", hooks_json_path.display()))?;
         }
 
-        // 5. Build the launch. Structured mode launches the JSON-RPC
-        // `app-server` (`codex app-server --listen stdio://`), with the
-        // prompt delivered via `turn/start` by the bridge rather than a
-        // trailing positional argument; passthrough mode keeps the
-        // interactive argv shape from P1.
-        let structured = spec.io == crate::spec::IoModes::Structured;
-        // The ACP variant's *structured* launch is the adapter, and the adapter takes no argv
-        // at all: the prompt is a `session/prompt`, a resume is `session/load` (from
-        // `Provisioned::resume`), and everything else it needs it reads from `CODEX_HOME`
-        // below, exactly as the native variant's child does. A passthrough run is unchanged —
-        // `codex-acp` is not a TUI, so a pane still gets the real `codex`.
-        // ponytail: the native structured argv (`app-server --listen stdio://`) has nowhere to
-        // go here — the adapter speaks ACP directly over its own stdio, not the app-server
-        // JSON-RPC wire. Model and reasoning effort still reach the run through `config.toml`
-        // under `CODEX_HOME` (see `build_config_toml`), same as the native variant.
-        let acp = self.acp && structured;
-
-        let mut args = Vec::new();
-        if structured {
-            args.push("app-server".to_string());
-            args.push("--listen".to_string());
-            args.push("stdio://".to_string());
-        }
-        args.extend(spec.passthrough_args.iter().cloned());
-
-        // Resume: codex has no CLI resume flag. Resuming a prior codex
-        // session is an app-server `thread/resume` JSON-RPC call (a bridge
-        // concern), not something expressible in launch argv — so
-        // `spec.resume` is a documented no-op here, deferred to a later
-        // step. Do NOT invent a flag.
-
-        // Append prompt as trailing positional argument, passthrough mode
-        // only — structured mode's bridge sends it via `turn/start`.
-        if !structured && let Some(prompt) = spec.initial.as_ref().and_then(|i| i.prompt.as_ref()) {
-            args.push(prompt.clone());
-        }
-
-        // 6. Account: inject credential *references* into the child's env.
-        let mut env = vec![("CODEX_HOME".to_string(), config_home.display().to_string())];
-        if let Some(account) = &spec.account {
-            // Codex has no separate auth-token env var (unlike Claude's
-            // ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN split): both
-            // api_key_env and auth_token_env map to OPENAI_API_KEY. If both
-            // are set on the account, api_key_env wins.
-            if let Some(name) = &account.api_key_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("OPENAI_API_KEY".to_string(), value));
-            } else if let Some(name) = &account.auth_token_env {
-                let value = super::shared::account_env(account, name)?;
-                env.push(("OPENAI_API_KEY".to_string(), value));
-            }
-            // TODO(P2+): base_url → model_providers. Codex has no single env
-            // var for a custom base URL; a custom endpoint requires a
-            // `[model_providers.<name>]` table plus `model_provider = "<name>"`
-            // in config.toml. Don't fake it with an env var codex won't read.
-
-            if let Some(login) = spec
-                .account_login
-                .clone()
-                .or_else(|| account.home.clone().map(crate::source::Source::Dir))
-            {
-                // Reuse a prior `am account login` by *seeding* the ephemeral
-                // config dir (`$CODEX_HOME` = `dir`) with that account's
-                // captured `auth.json` — deliberately WITHOUT overriding the
-                // child's `HOME`. Injected config (config.toml/skills/AGENTS.md)
-                // already went into `dir` above; seeding only the credential
-                // file keeps `am`'s own config.toml authoritative. The seed
-                // list is declared once in `config_anchor()`.
-                super::seed_login(dir, &login, &self.config_anchor().login_seed)?;
-            }
-        }
-
-        // The wire. The ACP variant's structured launch is the adapter, and the adapter takes
-        // no argv: the prompt is a `session/prompt`, a resume is `session/load` (from
-        // `Provisioned::resume`), and the rest it reads out of `CODEX_HOME` exactly as the
-        // native child does. A passthrough run is unchanged either way — `codex-acp` is not a
-        // TUI, so a pane still gets the real `codex`.
-        Ok(Launch {
-            program: if acp { ACP_COMMAND } else { "codex" }.to_string(),
-            args: if acp {
-                spec.passthrough_args.clone()
-            } else {
-                args
-            },
-            env,
-            env_remove: Vec::new(),
-            env_clear: false,
-        })
+        // 5. The launch, with `CODEX_HOME` at the ephemeral dir and every
+        // setting already in its config.toml, so no `-c` override.
+        let launch = self.launch(spec, Some(&config_home), Vec::new())?;
+        Ok(launch)
     }
 
-    /// Log Codex into `home`, capturing the resulting `auth.json`.
-    ///
-    /// Per codex.md "Credential capture & reuse": `CODEX_HOME` is the clean
-    /// relocation lever (moves the whole tree, including `auth.json`), so
-    /// pointing it at `home` here mirrors exactly what the reuse path
-    /// (`provision()` above) does for a private-home account. Before
-    /// launching login, force file-based credential storage by writing
-    /// `cli_auth_credentials_store = "file"` into `home/config.toml` — this
-    /// is the documented knob to skip the OS keychain (critical under
-    /// sandboxes where no keychain is reachable), and it must be written
-    /// *before* `codex login` runs so the token lands in `auth.json` rather
-    /// than the keychain. `home` is fresh at capture time (a new account's
-    /// login dir), so a plain overwrite is fine here; the reuse path's
-    /// `provision()` re-provisions `config.toml` on every run anyway, so
-    /// this file isn't "owned" by login in any lasting sense.
-    ///
-    /// Verified against the installed `codex login --help` (codex-cli
-    /// 0.142.5): plain `codex login` (browser OAuth) is used here. Note
-    /// codex.md's "Login command" line mentions a headless `codex login
-    /// --device-code`, but the installed CLI's actual flag for the
-    /// browserless path is `--device-auth` (no `--device-code` exists in
-    /// this version) — that's the sandbox-friendly alternative to swap in
-    /// if a headless capture flow is needed later.
-    fn login(&self, home: &Path) -> Result<super::LoginPlan> {
-        std::fs::create_dir_all(home).with_context(|| format!("creating {}", home.display()))?;
-        let config_toml_path = home.join("config.toml");
-        std::fs::write(&config_toml_path, "cli_auth_credentials_store = \"file\"\n")
-            .with_context(|| format!("writing {}", config_toml_path.display()))?;
+    /// Both variants run from a shared home: `codex-acp` takes the same `-c` overrides, and its
+    /// MCP servers go over the wire instead.
+    fn shares_home(&self) -> bool {
+        true
+    }
 
-        let env = vec![("CODEX_HOME".to_string(), home.display().to_string())];
-        let args = vec!["login".to_string()];
-        Ok(super::LoginPlan {
-            launch: Launch {
-                program: "codex".to_string(),
-                args,
-                env,
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![std::path::PathBuf::from("auth.json")],
+    /// `$CODEX_HOME`, else `~/.codex`: the whole tree, `auth.json` included.
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        super::env_dir_or_home("CODEX_HOME", ".codex")
+            .into_iter()
+            .collect()
+    }
+
+    /// A run against a profile's shared `CODEX_HOME` (`D193`), which holds `auth.json` and
+    /// `sessions/` and which Codex refreshes itself. Nothing per-run is written into `home`;
+    /// each per-run setting is a `-c key=value` override ahead of any subcommand
+    /// ([`config_overrides`]) — MCP servers, model, reasoning effort, sandbox and approval
+    /// policy, and the instructions as `developer_instructions`. A `-c` layers over the
+    /// home's own `config.toml`, so a server the profile's user added there still loads: there
+    /// is no strict-MCP switch.
+    ///
+    /// No flag carries skills or hooks, so they are the profile's: placed into the home at
+    /// `.agents/skills/<id>/` and `hooks.json`, each swapped in whole under a lock
+    /// ([`write_home_skills`], [`write_home_file`]). `RunSpec` does not tell a profile's skill
+    /// from one added for this run, so two runs of one profile that differ there overwrite each
+    /// other. With no `home` (a native run) the launch sets no `CODEX_HOME`, Codex runs from the
+    /// user's own `~/.codex`, and skills and hooks are dropped with a warning — nothing is
+    /// written into the user's config. `scratch` stays unused: no per-run file is needed.
+    ///
+    /// A structured `codex-acp` run takes the same `-c` overrides but for MCP: its servers go in
+    /// `session/new`'s `mcpServers` ([`crate::provision::Provisioned::mcp_servers`], sent by
+    /// [`Harness::structured_bridge`]). `codex-acp` adds them to the home's own, as a `-c` does.
+    fn provision_home(
+        &self,
+        spec: &RunSpec,
+        home: Option<&Path>,
+        _scratch: &Path,
+    ) -> Result<Launch> {
+        let mcp_over_wire = self.acp && spec.io == crate::spec::IoModes::Structured;
+        let config_args = config_overrides(spec, !mcp_over_wire)?;
+        match home {
+            Some(home) => {
+                super::write_profile_skills(spec, &home.join(".agents").join("skills"))?;
+                if !spec.hooks.is_empty() {
+                    write_home_file(&home.join("hooks.json"), &build_hooks_json(&spec.hooks)?)?;
+                }
+            }
+            None => {
+                if !spec.skills.is_empty()
+                    || !spec.mcp_as_skill.is_empty()
+                    || !spec.hooks.is_empty()
+                {
+                    warn!(
+                        skills = spec.skills.len() + spec.mcp_as_skill.len(),
+                        hooks = spec.hooks.len(),
+                        "codex has no per-run route for skills or hooks; a run with no profile drops them"
+                    );
+                }
+            }
+        }
+        self.launch(spec, home, config_args)
+    }
+
+    /// `codex login` with `CODEX_HOME=<home>`: the login lands where every run of the profile
+    /// reads it, and Codex refreshes it from then on. Nothing is written first and nothing is
+    /// read back.
+    fn login_home(&self, home: &Path) -> Result<Launch> {
+        Ok(Launch {
+            program: "codex".to_string(),
+            args: vec!["login".to_string()],
+            env: vec![("CODEX_HOME".to_string(), home.display().to_string())],
+            env_remove: Vec::new(),
+            env_clear: false,
         })
     }
 
@@ -388,11 +397,13 @@ impl Harness for Codex {
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
         if self.acp {
-            return Ok(Box::new(crate::io::AcpBridge::new(
+            // Empty on the legacy path, whose MCP is in the run's own `config.toml`.
+            return Ok(Box::new(crate::io::AcpBridge::with_mcp_servers(
                 child,
                 cwd,
                 provisioned.resume.as_deref(),
                 provisioned.model.as_deref(),
+                &provisioned.mcp_servers,
             )?));
         }
         Ok(Box::new(crate::io::codex::CodexBridge::new(child, cwd)?))
@@ -675,6 +686,100 @@ fn build_config_toml(spec: &RunSpec) -> Result<String> {
     out.push('\n');
 
     Ok(out)
+}
+
+/// Copy each of `spec`'s skills into `<skills_dir>/<id>/`, and write the MCP-as-skill pointers
+/// beside them (stepping stone; see `harness::write_mcp_as_skill_pointers`).
+fn write_skills(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
+    for skill in &spec.skills {
+        let dest = skills_dir.join(&skill.id);
+        skill
+            .source
+            .materialize(&dest, crate::source::LinkMode::Copy, true)
+            .with_context(|| format!("copying skill '{}' into {}", skill.id, dest.display()))?;
+    }
+    super::write_mcp_as_skill_pointers(spec, skills_dir)
+}
+
+/// Write `contents` to `path` in a shared home: staged beside it and renamed over it, under a
+/// lock beside it, so a running Codex never reads a half-written file.
+fn write_home_file(path: &Path, contents: &str) -> Result<()> {
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = super::lock_beside(path)?;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".am-tmp");
+    let staged = std::path::PathBuf::from(staged);
+    std::fs::write(&staged, contents).with_context(|| format!("writing {}", staged.display()))?;
+    std::fs::rename(&staged, path).with_context(|| format!("writing {}", path.display()))
+}
+
+/// One `-c key=value` pair; `value` is rendered as an inline TOML value, which is how Codex
+/// parses the right-hand side of an override.
+fn push_override(args: &mut Vec<String>, key: &str, value: toml::Value) {
+    args.push("-c".to_string());
+    args.push(format!("{key}={value}"));
+}
+
+/// The `-c key=value` overrides a shared-home run passes in place of the `config.toml` a
+/// fixed dir gets (codex.md "Config-layer precedence": CLI overrides, dot notation, sit above
+/// the user's `config.toml`). The same keys [`build_config_toml`] writes — `model`,
+/// `model_reasoning_effort`, `sandbox_mode` + `approval_policy`, one `mcp_servers.<id>` inline
+/// table per server — plus `developer_instructions` for the run's instructions, a config key
+/// codex.md lists among a custom agent's config-layer keys and one the app-server's
+/// `thread/start` sets as `developerInstructions`. `mcp_by_flag` false leaves the servers out,
+/// for a run that sends them over the wire; an in-process one is refused either way.
+fn config_overrides(spec: &RunSpec, mcp_by_flag: bool) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+    if let Some(model) = &spec.model {
+        push_override(&mut args, "model", toml::Value::String(model.clone()));
+    }
+    // Codex rejects `model_reasoning_effort = ""`, as for config.toml.
+    if let Some(effort) = spec.thinking.as_ref().filter(|v| !v.is_empty()) {
+        push_override(
+            &mut args,
+            "model_reasoning_effort",
+            toml::Value::String(effort.clone()),
+        );
+    }
+    if let Some(sandbox_mode) = spec
+        .policy
+        .as_ref()
+        .and_then(|p| p.permission_mode.as_deref())
+        .and_then(map_sandbox_mode)
+    {
+        push_override(
+            &mut args,
+            "sandbox_mode",
+            toml::Value::String(sandbox_mode.to_string()),
+        );
+        // Unattended run: never block on an interactive approval prompt.
+        push_override(
+            &mut args,
+            "approval_policy",
+            toml::Value::String("never".to_string()),
+        );
+    }
+    if let Some(instructions) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
+        push_override(
+            &mut args,
+            "developer_instructions",
+            toml::Value::String(instructions.clone()),
+        );
+    }
+    for mcp in &spec.mcps {
+        match mcp {
+            McpRef::Catalog(_) | McpRef::Inline(_) if !mcp_by_flag => {}
+            McpRef::Catalog(server) | McpRef::Inline(server) => {
+                let table = toml::Value::try_from(mcp_server_toml(server))
+                    .with_context(|| format!("serializing MCP server '{}'", server.id))?;
+                push_override(&mut args, &format!("mcp_servers.{}", server.id), table);
+            }
+            McpRef::InProcess(_) => {
+                bail!("in-process MCP not supported in passthrough mode");
+            }
+        }
+    }
+    Ok(args)
 }
 
 #[cfg(test)]
@@ -973,95 +1078,6 @@ mod tests {
     }
 
     #[test]
-    fn provision_account_seeds_auth_json_into_config_dir_without_touching_home() {
-        use crate::account::Account;
-
-        // A persistent per-account "home" holding a captured login, laid out
-        // exactly as `login()` writes it: `<home>/auth.json`.
-        let account_home = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            account_home.path().join("auth.json"),
-            r#"{"OPENAI_API_KEY":null,"tokens":{"access_token":"tok"}}"#,
-        )
-        .unwrap();
-
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "private-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let codex = Codex::new();
-        let launch = codex.provision(&spec, config_dir.path()).unwrap();
-
-        // CODEX_HOME is the ephemeral dir, NOT the account home.
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string())
-        );
-
-        // Injected config.toml landed in the ephemeral dir, not the account home.
-        assert!(config_dir.path().join("config.toml").exists());
-        assert!(!account_home.path().join("config.toml").exists());
-
-        // The captured login is seeded INTO the ephemeral config dir.
-        let seeded_auth = config_dir.path().join("auth.json");
-        assert!(
-            seeded_auth.exists(),
-            "auth.json should be seeded into CODEX_HOME"
-        );
-        assert!(
-            std::fs::read_to_string(&seeded_auth)
-                .unwrap()
-                .contains("access_token")
-        );
-
-        // The child's HOME is left untouched, so the user's real toolchain
-        // (nvm/mise/pyenv, shell rc, PATH shims) still resolves.
-        assert!(
-            !launch.env.iter().any(|(k, _)| k == "HOME"),
-            "HOME must not be overridden by a `home` account: {:?}",
-            launch.env
-        );
-    }
-
-    #[test]
-    fn provision_account_with_missing_auth_json_still_launches() {
-        use crate::account::Account;
-
-        // A `home` that exists but has no captured login yet: seeding is a
-        // no-op, provisioning still succeeds (reference-only / partial account).
-        let account_home = tempfile::TempDir::new().unwrap();
-        let config_dir = tempfile::TempDir::new().unwrap();
-        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
-        spec.config = ConfigStrategy::Fixed(config_dir.path().to_path_buf());
-        spec.account = Some(Account {
-            id: "empty-home".to_string(),
-            home: Some(account_home.path().to_path_buf()),
-            ..Default::default()
-        });
-
-        let codex = Codex::new();
-        let launch = codex.provision(&spec, config_dir.path()).unwrap();
-
-        // No auth.json to seed → none appears in the config dir, but the run
-        // still launches with CODEX_HOME pointed at the ephemeral dir.
-        assert!(!config_dir.path().join("auth.json").exists());
-        assert!(
-            launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "CODEX_HOME" && v == &config_dir.path().display().to_string())
-        );
-        assert!(!launch.env.iter().any(|(k, _)| k == "HOME"));
-    }
-
-    #[test]
     fn provision_resume_is_a_noop_argv_stays_unchanged() {
         let config_dir = tempfile::TempDir::new().unwrap();
 
@@ -1202,29 +1218,6 @@ mod tests {
     }
 
     #[test]
-    fn login_points_codex_home_at_capture_dir_names_auth_json_and_forces_file_store() {
-        let home = tempfile::TempDir::new().unwrap();
-
-        let plan = Codex::new().login(home.path()).unwrap();
-
-        assert_eq!(plan.launch.program, "codex");
-        assert!(plan.launch.args.contains(&"login".to_string()));
-        assert!(
-            plan.launch
-                .env
-                .iter()
-                .any(|(k, v)| k == "CODEX_HOME" && v == &home.path().display().to_string())
-        );
-        assert_eq!(
-            plan.credential_files.first(),
-            Some(&PathBuf::from("auth.json"))
-        );
-
-        let config_toml = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
-        assert!(config_toml.contains("cli_auth_credentials_store = \"file\""));
-    }
-
-    #[test]
     fn thinking_from_bundled_parses_fixture() {
         let fixture = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1270,5 +1263,225 @@ mod tests {
             thinking.values().any(|t| !t.levels.is_empty()),
             "expected at least one model with at least one reasoning level"
         );
+    }
+
+    /// A spec carrying one of everything a shared-home run passes by `-c`.
+    fn home_spec(home: &Path, scratch: &Path) -> RunSpec {
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("/tmp/project"));
+        spec.config = ConfigStrategy::Home {
+            home: home.to_path_buf(),
+            scratch: scratch.to_path_buf(),
+        };
+        spec.io = crate::spec::IoModes::Structured;
+        spec.model = Some("gpt-5.5".to_string());
+        spec.thinking = Some("high".to_string());
+        spec.policy = Some(Policy {
+            permission_mode: Some("read-only".to_string()),
+            ..Default::default()
+        });
+        spec.initial = Some(Instructions {
+            instructions: Some("REMEMBER \"ME\"\nline two".to_string()),
+            prompt: None,
+        });
+        spec.mcps.push(McpRef::Inline(McpServer {
+            id: "docs".to_string(),
+            transport: McpTransport::Http,
+            command: None,
+            args: vec![],
+            env: BTreeMap::new(),
+            url: Some("https://example.com/mcp/".to_string()),
+            headers: BTreeMap::new(),
+        }));
+        spec
+    }
+
+    /// The `-c` values joined into one TOML document, as Codex layers them.
+    fn overrides_as_toml(args: &[String]) -> toml::Table {
+        let doc: Vec<&str> = args
+            .windows(2)
+            .filter(|w| w[0] == "-c")
+            .map(|w| w[1].as_str())
+            .collect();
+        toml::from_str(&doc.join("\n")).unwrap()
+    }
+
+    #[test]
+    fn provision_home_writes_nothing_into_home_and_passes_every_setting_by_c() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let spec = home_spec(home.path(), scratch.path());
+
+        let launch = Codex::new()
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+
+        let home_entries: Vec<_> = std::fs::read_dir(home.path()).unwrap().collect();
+        assert!(home_entries.is_empty(), "home got: {home_entries:?}");
+
+        // Root flags come before the subcommand.
+        let app_server = launch.args.iter().position(|a| a == "app-server").unwrap();
+        assert_eq!(
+            launch.args[app_server..],
+            ["app-server", "--listen", "stdio://"]
+        );
+        assert!(launch.args[..app_server].chunks(2).all(|c| c[0] == "-c"));
+
+        let doc = overrides_as_toml(&launch.args);
+        assert_eq!(doc["model"].as_str(), Some("gpt-5.5"));
+        assert_eq!(doc["model_reasoning_effort"].as_str(), Some("high"));
+        assert_eq!(doc["sandbox_mode"].as_str(), Some("read-only"));
+        assert_eq!(doc["approval_policy"].as_str(), Some("never"));
+        assert_eq!(
+            doc["developer_instructions"].as_str(),
+            Some("REMEMBER \"ME\"\nline two")
+        );
+        assert_eq!(
+            doc["mcp_servers"]["docs"]["url"].as_str(),
+            Some("https://example.com/mcp/")
+        );
+        assert_eq!(
+            launch.env,
+            vec![("CODEX_HOME".to_string(), home.path().display().to_string())]
+        );
+    }
+
+    #[test]
+    fn provision_home_without_a_home_sets_no_codex_home_and_writes_no_skill() {
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Native {
+            scratch: scratch.path().to_path_buf(),
+        };
+        spec.model = Some("gpt-5.5".to_string());
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(write_skill(skills_src.path(), "my-skill")),
+        });
+
+        let launch = Codex::new()
+            .provision_home(&spec, None, scratch.path())
+            .unwrap();
+
+        assert!(!launch.env.iter().any(|(k, _)| k == "CODEX_HOME"));
+        assert_eq!(
+            overrides_as_toml(&launch.args)["model"].as_str(),
+            Some("gpt-5.5")
+        );
+        let scratch_entries: Vec<_> = std::fs::read_dir(scratch.path()).unwrap().collect();
+        assert!(
+            scratch_entries.is_empty(),
+            "scratch got: {scratch_entries:?}"
+        );
+    }
+
+    #[test]
+    fn provision_home_places_skills_and_hooks_in_the_home_and_replaces_them_whole() {
+        use crate::spec::HookRef;
+
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let skills_src = tempfile::TempDir::new().unwrap();
+        let skill_path = write_skill(skills_src.path(), "my-skill");
+        std::fs::write(skill_path.join("extra.md"), "old").unwrap();
+        let mut spec = RunSpec::new("codex".to_string(), PathBuf::from("."));
+        spec.skills.push(SkillRef {
+            id: "my-skill".to_string(),
+            source: crate::source::Source::Dir(skill_path.clone()),
+        });
+        spec.hooks.push(HookRef {
+            id: "notify".to_string(),
+            event: "PreToolUse".to_string(),
+            command: "notify-send hi".to_string(),
+            matcher: None,
+        });
+
+        let codex = Codex::new();
+        codex
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+        // The second run's copy replaces the first's whole: a file gone from the source is gone.
+        std::fs::remove_file(skill_path.join("extra.md")).unwrap();
+        codex
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+
+        let skills_dir = home.path().join(".agents/skills");
+        assert!(skills_dir.join("my-skill/SKILL.md").is_file());
+        assert!(!skills_dir.join("my-skill/extra.md").exists());
+        assert!(!skills_dir.join(".am-stage").exists());
+        assert!(!skills_dir.join(".am-old").exists());
+        let hooks: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(home.path().join("hooks.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            hooks["PreToolUse"][0]["command"].as_str(),
+            Some("notify-send hi")
+        );
+        // Neither config.toml nor AGENTS.md: those stay the profile user's.
+        assert!(!home.path().join("config.toml").exists());
+        assert!(!home.path().join("AGENTS.md").exists());
+    }
+
+    /// `codex-acp` takes the native variant's `-c` overrides, with no subcommand and no MCP
+    /// server among them — those go over the wire — and `CODEX_HOME` only under a home.
+    #[test]
+    fn codex_acp_shares_a_home_by_c_with_mcp_left_to_the_wire() {
+        let home = tempfile::TempDir::new().unwrap();
+        let scratch = tempfile::TempDir::new().unwrap();
+        let spec = home_spec(home.path(), scratch.path());
+        let acp = Codex::new_acp();
+        assert!(acp.shares_home() && Codex::new().shares_home());
+
+        let launch = acp
+            .provision_home(&spec, Some(home.path()), scratch.path())
+            .unwrap();
+        assert_eq!(launch.program, "codex-acp");
+        assert!(
+            launch.args.chunks(2).all(|c| c[0] == "-c"),
+            "{:?}",
+            launch.args
+        );
+        let doc = overrides_as_toml(&launch.args);
+        assert_eq!(doc["model"].as_str(), Some("gpt-5.5"));
+        assert_eq!(doc["sandbox_mode"].as_str(), Some("read-only"));
+        assert!(doc["developer_instructions"].is_str());
+        assert!(!doc.contains_key("mcp_servers"));
+        assert_eq!(
+            launch.env,
+            vec![("CODEX_HOME".to_string(), home.path().display().to_string())]
+        );
+
+        let native = acp.provision_home(&spec, None, scratch.path()).unwrap();
+        assert!(!native.env.iter().any(|(k, _)| k == "CODEX_HOME"));
+        assert_eq!(native.args, launch.args);
+
+        // A passthrough pane is the real `codex`, so its servers stay on the command line.
+        let mut passthrough = spec.clone();
+        passthrough.io = crate::spec::IoModes::Passthrough;
+        let pane = acp
+            .provision_home(&passthrough, Some(home.path()), scratch.path())
+            .unwrap();
+        assert_eq!(pane.program, "codex");
+        assert!(overrides_as_toml(&pane.args).contains_key("mcp_servers"));
+
+        assert_eq!(
+            acp.login_home(home.path()).unwrap().args,
+            Codex::new().login_home(home.path()).unwrap().args
+        );
+    }
+
+    #[test]
+    fn login_home_logs_in_through_codex_home_and_writes_nothing() {
+        let home = tempfile::TempDir::new().unwrap();
+        let launch = Codex::new().login_home(home.path()).unwrap();
+
+        assert_eq!(launch.program, "codex");
+        assert_eq!(launch.args, vec!["login"]);
+        assert_eq!(
+            launch.env,
+            vec![("CODEX_HOME".to_string(), home.path().display().to_string())]
+        );
+        assert!(std::fs::read_dir(home.path()).unwrap().next().is_none());
     }
 }

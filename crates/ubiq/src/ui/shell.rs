@@ -580,8 +580,8 @@ fn close_pane_confirm(
 
 /// The conversation's Close, asked before it is done.
 ///
-/// Destructive and irreversible — the transcript and the run directory, seeded credentials
-/// included, go with it — so it is confirmed rather than fired on the click. The wording names
+/// Destructive and irreversible — the transcript and the run directory go with it — so it is
+/// confirmed rather than fired on the click. The wording names
 /// Hide, the row above it in both menus that offer this, because the two read alike and only one
 /// of them cannot be taken back.
 fn end_conversation_confirm(
@@ -594,8 +594,7 @@ fn end_conversation_confirm(
         "conversation-delete-confirm",
         "Close conversation",
         &format!(
-            "Close {}? Its transcript and run directory \u{2014} seeded credentials included \
-             \u{2014} go with it. This cannot be undone \u{2014} use Hide to put the view away and \
+            "Close {}? Its transcript and run directory go with it. This cannot be undone \u{2014} use Hide to put the view away and \
              leave the conversation running.",
             app.workbench
                 .confirm_end_conversation

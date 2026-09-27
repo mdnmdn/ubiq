@@ -20,7 +20,7 @@ use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system}
 use tracing::{info, warn};
 
 use crate::Result;
-use crate::harness::{Harness, Launch};
+use crate::harness::Launch;
 use crate::provision::Provisioned;
 
 /// Spawn `launch` in a fresh PTY with working dir `cwd` and initial size
@@ -85,7 +85,6 @@ fn apply_env(cmd: &mut CommandBuilder, launch: &Launch) {
 /// after the spawn — the pump, the resize watcher, the exit code, the cleanup
 /// — is the same, because confinement replaces the argv and nothing else.
 pub fn run(
-    harness: &dyn Harness,
     provisioned: &Provisioned,
     cwd: &Path,
     keep_config: bool,
@@ -98,7 +97,7 @@ pub fn run(
     let (child, master) = spawn_in_pty(&launch, cwd, terminal_size())?;
     let code = run_with(child, master, cwd)?;
 
-    cleanup(harness, provisioned, keep_config);
+    cleanup(provisioned, keep_config);
 
     Ok(code)
 }
@@ -182,32 +181,12 @@ fn spawn_resize_watcher(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
 #[cfg(not(unix))]
 fn spawn_resize_watcher(_master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {}
 
-/// Harvest a refreshed login back to where it was seeded from, then best-effort
-/// removal of the ephemeral config dir, unless it was pinned (`!ephemeral`) or
-/// the caller asked to keep it (`keep_config`). Errors are swallowed: cleanup is
-/// a courtesy, not something worth failing the run over after the child has
-/// already produced its result.
-///
-/// The harvest runs whether or not the dir is ephemeral — a pinned dir diverges
-/// from its origin just the same.
-///
-/// ponytail: harvesting at teardown means a token the harness rotated mid-run is
-/// lost if this process is killed. Upgrade path is a watcher on the credential
-/// file, writing back as it changes.
-fn cleanup(harness: &dyn Harness, provisioned: &Provisioned, keep_config: bool) {
-    info!(
-        dir = %provisioned.dir.display(),
-        has_login_origin = provisioned.login_origin.is_some(),
-        "run cleanup starting"
-    );
-    if let Some(origin) = &provisioned.login_origin {
-        match crate::harness::harvest_login(harness, &provisioned.dir, origin) {
-            Ok(()) => info!(dir = %provisioned.dir.display(), "harvested login back to its origin"),
-            Err(err) => {
-                warn!(dir = %provisioned.dir.display(), error = %err, "harvest_login failed")
-            }
-        }
-    }
+/// Best-effort removal of the ephemeral config dir, unless it was pinned
+/// (`!ephemeral`) or the caller asked to keep it (`keep_config`). Errors are
+/// swallowed: cleanup is a courtesy, not something worth failing the run over
+/// after the child has already produced its result.
+fn cleanup(provisioned: &Provisioned, keep_config: bool) {
+    info!(dir = %provisioned.dir.display(), "run cleanup starting");
     if provisioned.ephemeral && !keep_config {
         info!(dir = %provisioned.dir.display(), "removing the ephemeral run dir");
         if let Err(err) = std::fs::remove_dir_all(&provisioned.dir) {

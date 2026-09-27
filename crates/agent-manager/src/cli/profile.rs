@@ -59,6 +59,14 @@ enum ProfileCommand {
         #[arg(long)]
         force: bool,
     },
+    /// Sign a profile's harness home in, with the harness's own login (`D193`).
+    Login {
+        /// Profile name (must exist in the profile store).
+        name: String,
+        /// Harness to sign in. Default: the profile's harness pin, else `claude-code`.
+        #[arg(long)]
+        harness: Option<String>,
+    },
 }
 
 /// Run a profile subcommand, given argv AFTER the `profile` word.
@@ -97,7 +105,76 @@ pub(super) fn run(args: &[String]) -> Result<()> {
             skills,
             force,
         }),
+        ProfileCommand::Login { name, harness } => cmd_login(&name, harness.as_deref()),
     }
+}
+
+/// `am profile login <name> [--harness <h>]`: prepare the profile's config home for the
+/// harness ([`crate::provision::prepare_home`]) and run the harness's own login into it,
+/// interactively. The login stays in the home, where every run of the profile reads it and the
+/// harness refreshes it; nothing is captured or read back. A first terminal run's own login
+/// screen reaches the same place, so this is the explicit route, not the only one.
+fn cmd_login(name: &str, harness_key: Option<&str>) -> Result<()> {
+    let store = build_store();
+    let templates = crate::harness::FsTemplateStore::from_default();
+    let (_, home, launch) = login_plan(store.as_ref(), name, harness_key, &templates)?;
+    let provisioned = crate::provision::Provisioned {
+        dir: home.clone(),
+        launch,
+        ephemeral: false, // the profile's home — never removed
+        home: Some(home.clone()),
+        resume: None,
+        model: None,
+        mcp_servers: Vec::new(),
+        #[cfg(feature = "inproc-mcp")]
+        inproc_servers: Vec::new(),
+    };
+    let cwd = std::env::current_dir()?;
+    let code = crate::run::run(&provisioned, &cwd, true, None)?;
+    if code != 0 {
+        bail!("harness login exited with code {code}");
+    }
+    println!("profile '{name}' signed in ({})", home.display());
+    Ok(())
+}
+
+/// What [`cmd_login`] runs, with the home already prepared: the harness, the profile's home
+/// for it, and the harness's login launch into that home.
+fn login_plan(
+    store: &dyn ProfileStore,
+    name: &str,
+    harness_key: Option<&str>,
+    templates: &dyn crate::harness::TemplateStore,
+) -> Result<(
+    Box<dyn crate::harness::Harness>,
+    PathBuf,
+    crate::harness::Launch,
+)> {
+    let Some(profile) = store.profile(name)? else {
+        bail!("unknown profile '{name}'");
+    };
+    let key = harness_key
+        .map(str::to_string)
+        .or(profile.harness)
+        .unwrap_or_else(|| "claude-code".to_string());
+    let harness = crate::harness::resolve(&key).ok_or_else(|| {
+        anyhow!(
+            "unknown harness '{key}'; known: {}",
+            crate::harness::known_ids().join(", ")
+        )
+    })?;
+    if !harness.shares_home() {
+        bail!(
+            "harness '{}' does not run from a profile home",
+            harness.id()
+        );
+    }
+    let home = store
+        .home(name, &harness.id())
+        .ok_or_else(|| anyhow!("the profile store names no home for '{name}'"))?;
+    crate::provision::prepare_home(harness.as_ref(), &home, templates)?;
+    let launch = harness.login_home(&home)?;
+    Ok((harness, home, launch))
 }
 
 /// Build the profile store from the default profiles root. Falls back to an
@@ -327,6 +404,10 @@ fn cmd_create(opts: CreateOpts) -> Result<()> {
         mode: None,
         max_subagents: None,
         mission_assistant: None,
+        mission_coordinator: None,
+        mission_worker: None,
+        disabled: None,
+        description: None,
     };
 
     let path = store.save(&profile)?;
@@ -343,6 +424,43 @@ mod tests {
         // An empty argv parses to the List subcommand (no panic / error at parse).
         let parsed = ProfileArgs::try_parse_from(["am-profile", "ls"]).unwrap();
         assert!(matches!(parsed.command, ProfileCommand::List));
+    }
+
+    /// `am profile login`: the harness comes from the profile's pin, the home is prepared (the
+    /// marker is there) before the login runs, and the login goes into that home.
+    #[test]
+    fn login_prepares_the_profile_home_and_logs_into_it() -> Result<()> {
+        let parsed = ProfileArgs::try_parse_from(["am-profile", "login", "work"]).unwrap();
+        assert!(
+            matches!(parsed.command, ProfileCommand::Login { ref name, harness: None } if name == "work")
+        );
+
+        let temp = tempfile::TempDir::new()?;
+        let store = FsProfileStore::new(temp.path().join("profiles"));
+        store.save(&Profile {
+            id: "work".to_string(),
+            harness: Some("claude".to_string()),
+            ..Default::default()
+        })?;
+        let templates = crate::harness::FsTemplateStore::new(temp.path().join("templates"));
+
+        let (harness, home, launch) = login_plan(&store, "work", None, &templates)?;
+
+        assert_eq!(harness.id(), "claude-code");
+        assert_eq!(home, store.home_dir("work", "claude-code"));
+        assert!(home.join(".am-home").is_file());
+        assert!(home.join("settings.json").is_file(), "templates applied");
+        assert!(
+            launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &home.display().to_string())
+        );
+        assert!(login_plan(&store, "nobody", None, &templates).is_err());
+        // `claude-code-acp` has a home of its own and signs in as Claude Code does.
+        let (_, acp_home, _) = login_plan(&store, "work", Some("claude-code-acp"), &templates)?;
+        assert_eq!(acp_home, store.home_dir("work", "claude-code-acp"));
+        Ok(())
     }
 
     #[test]

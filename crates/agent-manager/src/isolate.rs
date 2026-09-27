@@ -35,17 +35,17 @@
 //! `refs/isol8/_docs/integration.md` for the host-integration contract this
 //! module implements.
 
-use std::ffi::OsStr;
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, anyhow};
-use tracing::{debug, info};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use tracing::debug;
+use tracing::info;
 
 use crate::Result;
 use crate::harness::Launch;
 use crate::source::Source;
-use crate::spec::{Isolation, RunSpec};
+use crate::spec::{ConfigStrategy, Isolation, RunSpec};
 
 /// NT device paths a confined process needs open before it can use a socket.
 ///
@@ -161,6 +161,30 @@ impl IsolateOptions {
     /// explicit grant is the last word on a path the environment also named.
     pub fn grant_toolchains_from_env(&mut self) {
         self.grant_toolchains(|name| std::env::var_os(name));
+    }
+
+    /// Grant a run the config home it runs from (`D193`), read-write: a profile's home under
+    /// [`ConfigStrategy::Home`], the harness's own [`Harness::default_homes`] under
+    /// [`ConfigStrategy::Native`]. The policy grants the run's scratch dir by itself, never the
+    /// home, which is shared by every run of the profile — or is the user's own. A per-run dir
+    /// needs nothing more.
+    ///
+    /// [`Harness::default_homes`]: crate::harness::Harness::default_homes
+    pub fn grant_config_home(
+        &mut self,
+        harness: &dyn crate::harness::Harness,
+        config: &ConfigStrategy,
+    ) {
+        let homes = match config {
+            ConfigStrategy::Home { home, .. } => vec![home.clone()],
+            ConfigStrategy::Native { .. } => harness.default_homes(),
+            ConfigStrategy::Ephemeral | ConfigStrategy::Fixed(_) => Vec::new(),
+        };
+        for home in homes {
+            if !self.extra_rw.contains(&home) {
+                self.extra_rw.push(home);
+            }
+        }
     }
 
     /// [`grant_toolchains_from_env`](Self::grant_toolchains_from_env) over a
@@ -317,8 +341,7 @@ pub struct Confined {
 ///
 /// See [`BROKEN_LAYERS`] before adding a layer here.
 pub const DEV_LAYERS: &[&str] = &[
-    // Not optional: see the note above — except for a harness in
-    // [`KEYCHAIN_DENIED`], where reaching the keychain is the bug.
+    // Not optional: see the note above.
     "integrations/keychain",
     "integrations/macos-gui",
     // `~/.gitconfig` — without it a commit has no author, which fails as
@@ -343,121 +366,6 @@ pub const DEV_LAYERS: &[&str] = &[
     "toolchains/perl",
     "toolchains/elixir",
 ];
-
-/// The layer whose content [`write_keychain_override`] replaces for a harness
-/// in [`KEYCHAIN_DENIED`]. Named once so the override and the built-in it
-/// shadows cannot drift apart.
-const KEYCHAIN_LAYER: &str = "integrations/keychain";
-
-/// Harnesses that must **not** reach the login keychain, because reaching it
-/// changes where they persist their credential.
-///
-/// Claude Code carries two credential backends and picks at launch, with no
-/// setting to force either. When `~/Library/Keychains` is reachable it stores
-/// the login in a generic password named
-/// `Claude Code-credentials-<sha256($CLAUDE_CONFIG_DIR)[:8]>`, migrates any
-/// seeded `.credentials.json` into it and **deletes the file**. When the
-/// keychain is unreachable it reads and rewrites
-/// `$CONFIG_DIR/.credentials.json` on every refresh — the contract
-/// [`crate::harness::sync_login`] and `SeedFile::credential` assume.
-///
-/// Only the second backend is one this crate can see. A run's config dir is a
-/// fresh ULID, so its keychain key is unique to that run: a refreshed token
-/// lands in an item keyed to a directory teardown deletes, the item is never
-/// cleaned up, and the next run is seeded the stale copy from the account
-/// origin — whose refresh token an earlier run may already have spent. The
-/// symptom is a pane that works for hours and then cannot refresh, with
-/// `.credentials.json` gone from the run dir.
-///
-/// Denying the keychain is what [`login_confined`] already does for a capture,
-/// and for the same reason. Measured against Claude Code 2.1.270; a standalone
-/// install under a relocated `$HOME` has run on the file backend for a month,
-/// which is the evidence this path is maintained rather than merely present.
-/// `_docs/wip/claude-auth-problem.md` holds the rest.
-const KEYCHAIN_DENIED: &[&str] = &["claude-code", "claude-code-acp"];
-
-/// Whether this harness gets the [`write_keychain_override`] profile path.
-/// macOS-only: the keychain is the thing being withheld, and elsewhere there
-/// is nothing to withhold.
-fn keychain_denied(harness: &str) -> bool {
-    isol8::Platform::current() == isol8::Platform::Macos && KEYCHAIN_DENIED.contains(&harness)
-}
-
-/// Write the [`KEYCHAIN_LAYER`] override into its own directory under
-/// `state_dir`, and return that directory for [`isol8::Config::profile_paths`].
-///
-/// It is a *replacement* for the built-in layer, not an addition, so it keeps
-/// everything the built-in grants except the user's login keychain. That
-/// distinction is the reason this is not simply an omission: the built-in's
-/// mach-lookups (`securityd`, `trustd`) and `/Library/Keychains/System.keychain`
-/// are what rustls-based tools validate TLS through, and dropping those breaks
-/// `cargo` and `mise` inside the pane — see [`DEV_LAYERS`]. Only
-/// `~/Library/Keychains` is withheld, under both the subtree and the metadata
-/// grant, because a harness that can stat it may still choose it.
-///
-/// Its own directory, because a profile path replaces every same-named layer
-/// under it: sharing the caller's profile root would impose this override on
-/// every other harness too.
-///
-/// Being a replacement, the grants below are a **copy** of the built-in's:
-/// an isol8 release that changes `integrations/keychain` has to be mirrored
-/// here, or a denied run silently keeps the old ones. That is the standing
-/// cost of the approach, recorded in `D126`.
-fn write_keychain_override(options: &IsolateOptions) -> Result<PathBuf> {
-    let root = options.state_dir.join("profiles-no-keychain");
-    // A layer's name *is* its path under the profile root, so deriving both
-    // from the constant is what keeps the override shadowing the built-in.
-    let (group, name) = KEYCHAIN_LAYER
-        .split_once('/')
-        .context("the keychain layer name must be <group>/<layer>")?;
-    let dir = root.join(group);
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("creating the isolation profile dir {}", dir.display()))?;
-    let path = dir.join(format!("{name}.toml"));
-    let body = concat!(
-        "# integrations/keychain — generated by agent-manager, do not edit.\n",
-        "# Overrides the built-in layer for a harness whose credential backend\n",
-        "# is chosen by whether it can reach the login keychain. Everything TLS\n",
-        "# needs is kept; only ~/Library/Keychains is withheld. See\n",
-        "# KEYCHAIN_DENIED in crates/agent-manager/src/isolate.rs.\n",
-        "\n",
-        "requires = [\"macos/system-runtime\"]\n",
-        "\n",
-        "paths = [\n",
-        "  { path = \"~/Library/Keychains\", access = \"none\" },\n",
-        "  { path = \"~/Library/Keychains\", access = \"none\", match = \"literal\" },\n",
-        "  { path = \"~/Library/Preferences/com.apple.security.plist\", access = \"rw\", match = \"literal\" },\n",
-        "  { path = \"/Library/Preferences/com.apple.security.plist\", access = \"ro\", match = \"literal\" },\n",
-        "  { path = \"/Library/Keychains/System.keychain\", access = \"ro\", match = \"literal\" },\n",
-        "  { path = \"/private/var/db/mds\", access = \"ro\" },\n",
-        "  { path = \"~/Library\", access = \"metadata\", match = \"literal\" },\n",
-        "  { path = \"/Library\", access = \"metadata\", match = \"literal\" },\n",
-        "  { path = \"/Library/Keychains\", access = \"metadata\", match = \"literal\" },\n",
-        "]\n",
-        "\n",
-        "[macos]\n",
-        "raw = '''\n",
-        "(allow mach-lookup\n",
-        "    (global-name \"com.apple.SecurityServer\")\n",
-        "    (global-name \"com.apple.security.agent\")\n",
-        "    (global-name \"com.apple.securityd.xpc\")\n",
-        "    (global-name \"com.apple.security.authhost\")\n",
-        "    (global-name \"com.apple.secd\")\n",
-        "    (global-name \"com.apple.trustd\")\n",
-        ")\n",
-        "(allow ipc-posix-shm-read-data ipc-posix-shm-write-create ipc-posix-shm-write-data\n",
-        "    (ipc-posix-name \"com.apple.AppleDatabaseChanged\")\n",
-        ")\n",
-        "'''\n",
-    );
-    // Rewritten whenever it differs, so an older version's copy cannot outlive
-    // the code that expects it.
-    if !std::fs::read_to_string(&path).is_ok_and(|held| held == body) {
-        std::fs::write(&path, body)
-            .with_context(|| format!("writing the isolation profile {}", path.display()))?;
-    }
-    Ok(root)
-}
 
 /// The .NET layer this crate generates, because isol8 (v0.4.0) ships no
 /// `toolchains/*` layer for it.
@@ -829,8 +737,8 @@ pub const ENV_PASS: &[&str] = &[
 ///
 /// `dir` is the ephemeral config dir the provisioner populated; it is granted
 /// read-write, along with the run's working directory. Everything the run
-/// reaches *through* that dir — a skill's catalog folder, a profile's overlay,
-/// an account's captured login — is granted read-only, because the
+/// reaches *through* that dir — a skill's catalog folder, a profile's overlay —
+/// is granted read-only, because the
 /// provisioner links rather than copies wherever it can.
 pub fn plan(
     launch: &Launch,
@@ -884,17 +792,6 @@ pub fn plan(
     if !layer.is_empty() {
         cfg.default_profiles.push(layer.clone());
     }
-    // Override the layer's *content* rather than dropping its name: a named
-    // layer can be dragged back in by another layer's `requires` — which is
-    // exactly what `agents/claude-code` does — and a later-named deny layer
-    // loses to it, because auto-matched layers resolve after named ones.
-    // A profile path replaces a same-named built-in wherever it is pulled in,
-    // so this is the one form that cannot be outranked. See [`KEYCHAIN_DENIED`].
-    let deny_keychain = keychain_denied(&run.harness);
-    if deny_keychain {
-        cfg.profile_paths
-            .push(path_string(&write_keychain_override(options)?));
-    }
 
     let spec = isol8::resolve::spec_from_config(&cfg, base, cmd, &ctx)
         .context("resolving the isolation policy for this run")?;
@@ -904,256 +801,10 @@ pub fn plan(
         rw = ?spec.add_dirs_rw,
         ro = ?spec.add_dirs_ro,
         home = ?options.home,
-        keychain_denied = deny_keychain,
         "resolved sandboxed run policy"
     );
 
     Ok(Some(Confined { spec, ctx }))
-}
-
-/// The policy an interactive **login capture** runs under.
-///
-/// A login is confined for the opposite reason a run is. A run is confined to keep the
-/// harness away from the machine; a login is confined to keep it away from the *operating
-/// system's keychain*, so that it writes the plaintext credential a capture can collect.
-///
-/// That indirection is not a preference. For Claude Code 2.1.218+ a relocated `$HOME` alone
-/// leaves the keychain merely *unreachable* — no `~/Library/Keychains` — which that version
-/// reports as an error rather than falling back to a file, so the capture gets nothing.
-/// Denying the keychain at the policy layer does still take the clean file-fallback path.
-///
-/// So the layer set is chosen rather than discovered: `auto_profiles` is **off**, because
-/// isol8 would otherwise match the harness's own layer on the command name and that layer
-/// requires `integrations/keychain` — the one thing this policy exists to withhold. A
-/// `layer` given by the caller joins the defaults, as it does in [`plan`].
-///
-/// `home` is the account's capture home: the login's `$HOME`, its only writable directory,
-/// and where [`crate::account::AccountStore::capture_login`] reads the result from.
-pub fn login_confined(
-    home: &Path,
-    plan: &crate::harness::LoginPlan,
-    layer: Option<&str>,
-    options: &IsolateOptions,
-) -> Result<Confined> {
-    let cmd = command_of(&plan.launch);
-    let ctx = isol8::Context {
-        real_home: isol8::home::real_home(),
-        // A login belongs to an account rather than to a project, so the automatic
-        // cwd grant is the capture home and no project folder is reachable at all.
-        cwd: home.to_path_buf(),
-        platform: isol8::Platform::current(),
-        config_dir: options.state_dir.clone(),
-        managed_root: options.state_dir.join("homes"),
-    };
-
-    let mut base = isol8::Spec::new(cmd.clone());
-    base.add_dirs_rw = vec![path_string(home)];
-    base.add_dirs_rw
-        .extend(WINDOWS_DEVICE_RW.iter().map(|d| (*d).to_string()));
-    // A relocated toolchain root is as unreachable to a login as it is to a run — the caller
-    // names it the same way, so this honours `extra_rw` the same way [`plan`] does.
-    for extra in &options.extra_rw {
-        let grant = path_string(extra);
-        if !base.add_dirs_rw.contains(&grant) {
-            base.add_dirs_rw.push(grant);
-        }
-    }
-    base.home = Some(path_string(home));
-    base.set_env = plan
-        .launch
-        .env
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect();
-    // The same allowlist a run gets. A login is a harness reaching the network behind whatever
-    // proxy and certificate store this machine has, in whatever locale it runs — a shorter list
-    // here is a login that fails where the run beside it works.
-    base.env_pass = ENV_PASS.iter().map(|name| (*name).to_string()).collect();
-
-    // A login's `$HOME` is the capture directory, and isol8 auto-grants nothing from the
-    // real home when the home is replaced — so a harness that is not a self-contained
-    // binary in a directory this policy already names cannot even start.
-    for grant in login_runtime_grants(Path::new(&plan.launch.program)) {
-        let grant = path_string(&grant);
-        if !base.add_dirs_ro.contains(&grant) {
-            base.add_dirs_ro.push(grant);
-        }
-    }
-    // The caller's own escape hatch, for any toolchain the list above misses.
-    for extra in &options.extra_ro {
-        let grant = path_string(extra);
-        if !base.add_dirs_ro.contains(&grant) {
-            base.add_dirs_ro.push(grant);
-        }
-    }
-
-    let profiles = options.state_dir.join("profiles");
-    std::fs::create_dir_all(&profiles)
-        .with_context(|| format!("creating the isolation profile root {}", profiles.display()))?;
-
-    let mut cfg = isol8::Config::builtin_defaults();
-    // Never the harness's own layer: it pulls in the keychain this policy withholds.
-    cfg.auto_profiles = false;
-    cfg.profile_paths = vec![path_string(&profiles)];
-    match layer {
-        Some(name) if !name.is_empty() => cfg.default_profiles.push(name.to_string()),
-        _ => {
-            if isol8::Platform::current() == isol8::Platform::Macos {
-                // What the harness needs to open a browser and finish an OAuth flow, and
-                // deliberately not `integrations/keychain`.
-                cfg.default_profiles
-                    .push("integrations/launch-services".to_string());
-                cfg.default_profiles
-                    .push("integrations/browser-native-messaging".to_string());
-            } else if isol8::Platform::current() == isol8::Platform::Windows {
-                // Nothing to add: `builtin_defaults` already carries
-                // `windows/system-runtime`, and the macOS OAuth layers would
-                // only contribute macOS paths here. The hook backend is
-                // path-only, so no credential API is denied by this policy —
-                // a Windows login capture rests on the relocated-HOME
-                // fallback, the same as the plain path.
-            }
-        }
-    }
-
-    let spec = isol8::resolve::spec_from_config(&cfg, base, cmd, &ctx)
-        .context("resolving the isolation policy for this login")?;
-
-    Ok(Confined { spec, ctx })
-}
-
-/// Runtime-manager and package roots under the real home that a login may need but whose
-/// realpath chain does not reveal — a mise shim's realpath ends at `mise` itself, not the
-/// `installs/` tree it then execs into. Order and existence are checked by the caller.
-const WELL_KNOWN_RUNTIME_ROOTS: &[&str] = &[
-    ".local/share/mise",
-    ".config/mise",
-    ".cache/mise",
-    ".local/state/mise",
-    ".nvm",
-    ".fnm",
-    ".local/share/fnm",
-    ".volta",
-    ".asdf",
-    ".bun",
-    ".local/share/pnpm",
-    ".npm-global",
-    ".local/bin",
-    ".local/share/claude",
-];
-
-/// The real-home paths a login has to read to run at all.
-///
-/// Shared with the CLI's hand-rolled login sandbox (`cli::account::login`),
-/// which cannot use [`login_confined`] — that returns a [`Confined`] for a
-/// caller-owned terminal, while the CLI lets isol8 own the spawn.
-///
-/// A login's `$HOME` is the capture directory, and isol8 auto-grants nothing from the real
-/// home when the home is replaced — so a harness that is not a self-contained binary in a
-/// directory this policy already names cannot even start. `confine_executable` grants the
-/// script and its npm package but never reads the shebang, so the interpreter is ours to
-/// find. Every entry is guarded by existence, so a machine without a given runtime manager
-/// pays nothing.
-///
-/// On Windows the same shape holds with Windows content: the realpath chain
-/// yields the install directory, and the well-known roots simply do not exist
-/// and contribute nothing.
-pub(crate) fn login_runtime_grants(program: &Path) -> Vec<PathBuf> {
-    let mut grants: Vec<PathBuf> = Vec::new();
-    // Canonicalised before it becomes a grant. A relative symlink target joins as
-    // `<dir>/../lib/...`, which `is_dir` happily accepts — but isol8 renders a grant as a
-    // literal `(subpath "...")` and the process opens the resolved path, so an unnormalised
-    // grant matches nothing and denies silently.
-    let push = |grants: &mut Vec<PathBuf>, dir: PathBuf| {
-        let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
-        if dir.is_dir() && !grants.contains(&dir) {
-            grants.push(dir);
-        }
-    };
-
-    for hop in realpath_chain(program) {
-        if let Some(parent) = hop.parent() {
-            push(&mut grants, parent.to_path_buf());
-        }
-    }
-
-    let path_var = std::env::var_os("PATH");
-    if let Some(interpreter) = interpreter_of(program, path_var.as_deref()) {
-        for hop in realpath_chain(&interpreter) {
-            if let Some(parent) = hop.parent() {
-                push(&mut grants, parent.to_path_buf());
-            }
-        }
-    }
-
-    if let Some(base_dirs) = directories::BaseDirs::new() {
-        let home = base_dirs.home_dir();
-        for rel in WELL_KNOWN_RUNTIME_ROOTS {
-            push(&mut grants, home.join(rel));
-        }
-    }
-
-    grants
-}
-
-/// Every hop of `path`'s symlink chain, `path` itself included, ending at the first
-/// non-symlink (or a broken link). A relative link target resolves against the link's own
-/// parent, the way `readlink` + a shell would. Bounded at 16 hops so a symlink cycle cannot
-/// spin.
-fn realpath_chain(path: &Path) -> Vec<PathBuf> {
-    let mut hops = Vec::new();
-    let mut current = path.to_path_buf();
-    for _ in 0..16 {
-        hops.push(current.clone());
-        let Ok(target) = std::fs::read_link(&current) else {
-            break;
-        };
-        current = if target.is_absolute() {
-            target
-        } else {
-            current
-                .parent()
-                .map(|parent| parent.join(&target))
-                .unwrap_or(target)
-        };
-    }
-    hops
-}
-
-/// The interpreter a script's shebang names, resolved against `path_var` (a `PATH`-shaped
-/// value, taken as a parameter rather than read from the environment so this is testable
-/// without touching process-global state).
-///
-/// Reads only the first 256 bytes: a shebang line is always in that prefix, and this must
-/// stay cheap since it runs on every login. Returns `None` when `program` has no `#!` line —
-/// a native binary, or one too short to hold one.
-fn interpreter_of(program: &Path, path_var: Option<&OsStr>) -> Option<PathBuf> {
-    let mut buf = [0u8; 256];
-    let mut file = std::fs::File::open(program).ok()?;
-    let read = file.read(&mut buf).ok()?;
-    let head = &buf[..read];
-    let rest = head.strip_prefix(b"#!")?;
-    let line = rest.split(|&b| b == b'\n').next().unwrap_or(rest);
-    let line = std::str::from_utf8(line).ok()?;
-    let mut words = line.split_whitespace();
-    let first = words.next()?;
-    let name = if Path::new(first).file_name() == Some(OsStr::new("env")) {
-        words.next()?
-    } else {
-        first
-    };
-
-    let candidate = Path::new(name);
-    if candidate.is_absolute() {
-        return candidate.is_file().then(|| candidate.to_path_buf());
-    }
-    for dir in std::env::split_paths(path_var?) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
 }
 
 /// The effective policy for `confined`, resolved and rendered but not applied
@@ -1182,22 +833,6 @@ pub fn describe(confined: &Confined) -> Result<isol8::DryRun> {
 /// until isol8 grows the seam (`refs/isol8-pty-seam-update.md` for unix;
 /// ConPTY is separate work).
 pub fn confined_launch(confined: &Confined) -> Result<Launch> {
-    confined_launch_running(confined, None)
-}
-
-/// The [`Launch`] that runs `argv` under `confined`'s policy instead of the
-/// harness the policy was resolved for.
-///
-/// The policy is resolved from the harness's own program first and only then is
-/// the command swapped, so a probe inspects exactly the sandbox a real run would
-/// get rather than one computed for a shell. The argv shape a confined launch
-/// takes differs per platform and belongs here — a caller asks for a different
-/// command, never for a different argument list.
-pub fn confined_probe_launch(confined: &Confined, argv: Vec<String>) -> Result<Launch> {
-    confined_launch_running(confined, Some(argv))
-}
-
-fn confined_launch_running(confined: &Confined, instead: Option<Vec<String>>) -> Result<Launch> {
     // Rendering the policy ourselves bypasses the guard `isol8::Sandbox::spawn`
     // applies, so it is applied here: a sandbox cannot nest, and the honest
     // answer is that this process cannot confine anything — not a
@@ -1210,12 +845,6 @@ fn confined_launch_running(confined: &Confined, instead: Option<Vec<String>>) ->
     isol8::home::materialize(&effective.home).context("materializing the confined run's home")?;
     isol8::resolve::confine_executable(&mut effective.profile, &mut effective.cmd)
         .context("granting the harness binary to the policy that confines it")?;
-
-    // After `confine_executable`, so the policy still grants the harness binary
-    // the run was planned around and the swap changes nothing about the sandbox.
-    if let Some(argv) = instead {
-        effective.cmd = argv;
-    }
 
     let env: Vec<(String, String)> = effective.env.into_iter().collect();
 
@@ -1266,7 +895,7 @@ fn confined_launch_running(confined: &Confined, instead: Option<Vec<String>>) ->
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (env, effective);
+        let _ = (env, effective.profile, effective.cmd);
     }
 
     #[allow(unreachable_code)]
@@ -1550,9 +1179,6 @@ fn read_only_grants(run: &RunSpec, options: &IsolateOptions) -> Vec<String> {
     for base in &run.config_bases {
         push(base);
     }
-    if let Some(login) = &run.account_login {
-        push(login);
-    }
     // The Apple SDK trees no layer this module may name reaches — see
     // [`APPLE_SDK_RO_ROOTS`].
     if on_macos() {
@@ -1612,63 +1238,6 @@ mod tests {
         assert!(confined.is_none());
     }
 
-    // 1b. A login capture exists to make the harness write a plaintext credential, and it
-    // only does that when the OS keychain is *denied* rather than merely absent. So the
-    // resolved layer stack must not contain `integrations/keychain` — and the way it would
-    // sneak back in is isol8 matching the harness's own layer on the command name, since
-    // `agents/claude-code` requires it. Asserting on the resolved stack is what catches
-    // both the direct and the transitive route.
-    #[test]
-    fn a_login_policy_never_resolves_the_keychain_layer() {
-        let state = TempDir::new().expect("state dir");
-        let home = TempDir::new().expect("capture home");
-        let plan = crate::harness::LoginPlan {
-            launch: Launch {
-                // The name isol8 would match `agents/claude-code` on, which is exactly the
-                // layer that would drag the keychain in.
-                program: "claude".to_string(),
-                args: vec!["auth".to_string(), "login".to_string()],
-                env: vec![("HOME".to_string(), home.path().display().to_string())],
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
-        };
-        let options = IsolateOptions::new(state.path().to_path_buf());
-
-        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
-        let resolved = describe(&confined).expect("rendering the login policy");
-
-        let layers: Vec<&str> = resolved
-            .layer_names
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        assert!(
-            !layers.contains(&"integrations/keychain"),
-            "a login policy must deny the keychain, got layers {layers:?}"
-        );
-        assert!(
-            !layers.contains(&"agents/claude-code"),
-            "auto-selection must be off, or the agent layer brings the keychain back: {layers:?}"
-        );
-        // The capture home is the login's own $HOME and the only directory it may
-        // write. The device grants beside it are not directories: they are what
-        // lets the login open a socket at all (see [`WINDOWS_DEVICE_RW`]), and a
-        // login that cannot reach the network cannot capture anything.
-        assert_eq!(
-            confined.spec.home.as_deref(),
-            Some(home.path().display().to_string().as_str())
-        );
-        let directories: Vec<&String> = confined
-            .spec
-            .add_dirs_rw
-            .iter()
-            .filter(|grant| !WINDOWS_DEVICE_RW.contains(&grant.as_str()))
-            .collect();
-        assert_eq!(directories, vec![&home.path().display().to_string()]);
-    }
-
     // 2. A sandboxed run must grant its ephemeral config dir and its cwd
     // read-write, or the harness can neither write its own config nor its
     // working files and the run fails on first touch.
@@ -1690,7 +1259,7 @@ mod tests {
         assert!(rw.contains(&cwd.path().display().to_string()));
     }
 
-    // 3. Every Source::Dir a run's skills, profile overlays and captured login
+    // 3. Every Source::Dir a run's skills and profile overlays
     // point at must become a read-only grant, or the provisioner's
     // symlink-else-copy walks out of the granted config dir on the very first
     // launch. A Source::Files (materialized as real bytes, already inside the
@@ -1702,7 +1271,6 @@ mod tests {
     fn read_only_grants_cover_every_dir_source_once_and_skip_files() {
         let skill_dir = PathBuf::from("/skills/writer");
         let profile_dir = PathBuf::from("/profiles/base");
-        let login_dir = PathBuf::from("/accounts/marco/home");
 
         let mut run = RunSpec::new("claude-code".to_string(), PathBuf::from("/work"));
         run.skills = vec![
@@ -1721,14 +1289,12 @@ mod tests {
             Source::Dir(profile_dir.clone()),
             Source::Dir(profile_dir.clone()),
         ];
-        run.account_login = Some(Source::Dir(login_dir.clone()));
 
         let options = IsolateOptions::new(PathBuf::from("/state"));
         let grants = read_only_grants(&run, &options);
 
         assert!(grants.contains(&skill_dir.display().to_string()));
         assert!(grants.contains(&profile_dir.display().to_string()));
-        assert!(grants.contains(&login_dir.display().to_string()));
         let apple = if on_macos() {
             APPLE_SDK_RO_ROOTS.len()
         } else {
@@ -1741,7 +1307,7 @@ mod tests {
         };
         assert_eq!(
             grants.len(),
-            3 + apple + windows,
+            2 + apple + windows,
             "a Source::Files entry and a duplicate Source::Dir must not add grants: {grants:?}"
         );
     }
@@ -1802,199 +1368,6 @@ mod tests {
         for rel in APPLE_RW_HOME_ROOTS {
             let want = real_home().join(rel).display().to_string();
             assert!(rw.contains(&want), "{want} missing from {rw:?}");
-        }
-    }
-
-    // 9. A native binary (no shebang, no symlink) must yield its own directory as a login
-    // runtime grant, and nothing script-shaped alongside it — a login for a self-contained
-    // harness like Claude Code's Mach-O binary needs nothing more than that.
-    #[test]
-    fn login_runtime_grants_yields_native_binary_own_directory() {
-        let dir = TempDir::new().expect("bin dir");
-        let bin = dir.path().join("claude");
-        std::fs::write(&bin, b"\x7fELFnotarealbinarybutnotascripteither").expect("write bin");
-
-        let grants = login_runtime_grants(&bin);
-
-        // Canonicalised, because that is what a grant has to be: on macOS a temp dir lives
-        // under `/var`, which is itself a symlink to `/private/var`, and a policy naming the
-        // unresolved form matches nothing the process actually opens.
-        let want = std::fs::canonicalize(dir.path()).expect("canonical bin dir");
-        assert!(
-            grants.contains(&want),
-            "expected {} in {grants:?}",
-            want.display()
-        );
-    }
-
-    // 10. interpreter_of must read a `#!/usr/bin/env node` shebang, see through `env` to the
-    // named interpreter, and resolve it against the given PATH — the whole point being that
-    // this is testable without mutating the process environment (parallel tests would flake).
-    #[test]
-    fn interpreter_of_resolves_env_shebang_against_given_path() {
-        let script_dir = TempDir::new().expect("script dir");
-        let script = script_dir.path().join("cli.js");
-        std::fs::write(&script, b"#!/usr/bin/env node\nconsole.log('hi');\n")
-            .expect("write script");
-
-        let path_dir = TempDir::new().expect("path dir");
-        let node = path_dir.path().join("node");
-        std::fs::write(&node, b"not a real node binary").expect("write node");
-
-        let path_var = std::ffi::OsString::from(path_dir.path());
-        let resolved = interpreter_of(&script, Some(path_var.as_os_str())).expect("interpreter");
-
-        assert_eq!(resolved, node);
-    }
-
-    // 10b. A native binary has no shebang, so interpreter_of must say so rather than guess.
-    #[test]
-    fn interpreter_of_returns_none_for_a_native_binary() {
-        let dir = TempDir::new().expect("bin dir");
-        let bin = dir.path().join("claude");
-        std::fs::write(&bin, b"\x7fELFnotascript").expect("write bin");
-
-        assert!(interpreter_of(&bin, None).is_none());
-    }
-
-    // 11. A symlink chain a -> b -> c must yield all three parents, not just the first hop
-    // or the final target — confine_executable only grants the resolved end, so anything a
-    // login needs from an intermediate hop's directory would otherwise be unreachable.
-    #[cfg(unix)]
-    #[test]
-    fn realpath_chain_collects_every_hop_parent() {
-        let dir_a = TempDir::new().expect("dir a");
-        let dir_b = TempDir::new().expect("dir b");
-        let dir_c = TempDir::new().expect("dir c");
-
-        let c = dir_c.path().join("c");
-        std::fs::write(&c, b"real file").expect("write c");
-        let b = dir_b.path().join("b");
-        std::os::unix::fs::symlink(&c, &b).expect("symlink b -> c");
-        let a = dir_a.path().join("a");
-        std::os::unix::fs::symlink(&b, &a).expect("symlink a -> b");
-
-        let hops = realpath_chain(&a);
-        let parents: Vec<PathBuf> = hops
-            .iter()
-            .filter_map(|p| p.parent().map(Path::to_path_buf))
-            .collect();
-
-        assert!(parents.contains(&dir_a.path().to_path_buf()));
-        assert!(parents.contains(&dir_b.path().to_path_buf()));
-        assert!(parents.contains(&dir_c.path().to_path_buf()));
-    }
-
-    // A relative symlink target joins as `<dir>/../lib/...`. isol8 renders a grant as a
-    // literal subpath and the process opens the resolved path, so a grant that still carries
-    // `..` matches nothing and denies without saying so — which is how a working-looking
-    // policy starves a harness.
-    #[cfg(unix)]
-    #[test]
-    fn login_runtime_grants_normalise_a_relative_hop() {
-        let root = TempDir::new().expect("root");
-        let bin = root.path().join("bin");
-        let lib = root.path().join("lib").join("pkg");
-        std::fs::create_dir_all(&bin).expect("bin");
-        std::fs::create_dir_all(&lib).expect("lib");
-        let real = lib.join("cli.js");
-        std::fs::write(&real, b"#!/usr/bin/env node\n").expect("script");
-        let link = bin.join("cli");
-        std::os::unix::fs::symlink("../lib/pkg/cli.js", &link).expect("symlink");
-
-        let grants = login_runtime_grants(&link);
-        assert!(
-            grants.iter().all(|g| !g.to_string_lossy().contains("/../")),
-            "a grant still carries `..`: {grants:?}"
-        );
-        let want = std::fs::canonicalize(&lib).expect("canonical lib");
-        assert!(grants.contains(&want), "{want:?} missing from {grants:?}");
-    }
-
-    // 12. A well-known root that does not exist on this machine must contribute nothing, or
-    // every login pays for every runtime manager whether or not it is installed.
-    #[test]
-    fn login_runtime_grants_skips_absent_well_known_roots() {
-        let dir = TempDir::new().expect("bin dir");
-        let bin = dir.path().join("claude");
-        std::fs::write(&bin, b"native binary").expect("write bin");
-
-        // Not asserting on the real machine's actual home (which may or may not have mise,
-        // nvm, etc. installed) — just that a root this test knows cannot exist contributes
-        // nothing when checked directly.
-        let grants = login_runtime_grants(&bin);
-        let bogus = PathBuf::from("/nonexistent-well-known-root-for-this-test");
-        assert!(!grants.contains(&bogus));
-    }
-
-    // 13. `extra_ro` must reach a login policy's grants the same way it reaches a run's, or
-    // the escape hatch documented for `IsolateOptions::extra_ro` is a run-only lie.
-    #[test]
-    fn login_confined_honours_extra_ro() {
-        let state = TempDir::new().expect("state dir");
-        let home = TempDir::new().expect("capture home");
-        let toolchain = TempDir::new().expect("toolchain dir");
-        let plan = crate::harness::LoginPlan {
-            launch: Launch {
-                program: "claude".to_string(),
-                args: vec!["auth".to_string(), "login".to_string()],
-                env: vec![("HOME".to_string(), home.path().display().to_string())],
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
-        };
-        let mut options = IsolateOptions::new(state.path().to_path_buf());
-        options.extra_ro = vec![toolchain.path().to_path_buf()];
-
-        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
-
-        assert!(
-            confined
-                .spec
-                .add_dirs_ro
-                .contains(&toolchain.path().display().to_string())
-        );
-    }
-
-    // 13b. …and `extra_rw` the same way, or a relocated toolchain root a login needs to write
-    // is denied where the run beside it may write it. The whole ENV_PASS allowlist must reach
-    // a login too: a shorter list is a sign-in that cannot see this machine's proxy, locale or
-    // certificate store.
-    #[test]
-    fn login_confined_honours_extra_rw_and_passes_the_run_env_allowlist() {
-        let state = TempDir::new().expect("state dir");
-        let home = TempDir::new().expect("capture home");
-        let cache = TempDir::new().expect("writable root");
-        let plan = crate::harness::LoginPlan {
-            launch: Launch {
-                program: "copilot".to_string(),
-                args: vec!["login".to_string()],
-                env: vec![(
-                    "COPILOT_HOME".to_string(),
-                    home.path().display().to_string(),
-                )],
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![PathBuf::from("config.json")],
-        };
-        let mut options = IsolateOptions::new(state.path().to_path_buf());
-        options.extra_rw = vec![cache.path().to_path_buf()];
-
-        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
-
-        assert!(
-            confined
-                .spec
-                .add_dirs_rw
-                .contains(&cache.path().display().to_string())
-        );
-        for name in ENV_PASS {
-            assert!(
-                confined.spec.env_pass.iter().any(|passed| passed == name),
-                "{name} is in ENV_PASS but not passed to a login"
-            );
         }
     }
 
@@ -2280,10 +1653,6 @@ mod tests {
         let state = TempDir::new().expect("state dir");
         let cwd = TempDir::new().expect("cwd");
         let cfg_dir = TempDir::new().expect("config dir");
-        // Not a KEYCHAIN_DENIED harness: this test is about the list resolving
-        // whole, and `claude-code` is the one harness that drops a layer from
-        // it. `keychain_denied_harness_swaps_the_keychain_layer_for_the_deny`
-        // covers that case.
         let mut run = sandboxed_run(cwd.path(), "");
         run.harness = "codex".to_string();
         let launch = Launch {
@@ -2322,127 +1691,34 @@ mod tests {
         }
     }
 
-    // Reaching the login keychain changes where Claude Code persists its
-    // credential — into a per-config-dir keychain item this crate cannot see,
-    // deleting the seeded file on the way (see KEYCHAIN_DENIED). Assert on the
-    // merged grant rather than the layer list: `agents/claude-code` pulls the
-    // keychain layer in through `requires`, so the layer is *expected* to be
-    // present and only its content is overridden.
-    #[cfg(target_os = "macos")]
+    // The home a run runs from is granted read-write: a profile's under `Home`, the harness's own
+    // default under `Native`, and nothing more for a per-run dir the policy grants already.
     #[test]
-    fn a_keychain_denied_harness_cannot_reach_the_login_keychain() {
-        let state = TempDir::new().expect("state dir");
-        let cwd = TempDir::new().expect("cwd");
-        let cfg_dir = TempDir::new().expect("config dir");
-        let run = sandboxed_run(cwd.path(), "");
-        assert!(
-            keychain_denied(&run.harness),
-            "this test is about a harness that must not reach the keychain"
-        );
-        // The real binary name, so isol8 auto-matches `agents/claude-code` and
-        // its `requires` are in play — the path that defeated a deny layer.
-        let launch = Launch {
-            program: "claude".to_string(),
-            ..Launch::default()
+    fn grant_config_home_grants_the_home_the_run_runs_from() {
+        use crate::harness::Harness as _;
+        let claude = crate::harness::Claude::new();
+        let scratch = PathBuf::from("/tmp/scratch");
+        let granted = |config: ConfigStrategy| {
+            let mut options = IsolateOptions::new("/tmp/state");
+            options.grant_config_home(&claude, &config);
+            options.extra_rw
         };
-        let options = IsolateOptions::new(state.path().to_path_buf());
 
-        let confined = plan(&launch, &run, cfg_dir.path(), &options)
-            .expect("plan")
-            .expect("sandboxed run must produce a policy");
-        let resolved = describe(&confined).expect("every named layer must resolve");
-
-        for grant in &resolved.profile.paths {
-            if grant.path.contains("Library/Keychains") && !grant.path.starts_with('/') {
-                assert_eq!(
-                    grant.access,
-                    isol8::profile::Access::None,
-                    "the login keychain must be denied, not {:?}: {grant:?}",
-                    grant.access
-                );
-            }
-        }
-        // TLS validates through the trust daemon, not the login keychain, so
-        // the override must keep the rest of the layer: a run that cannot
-        // reach `System.keychain` cannot `cargo fetch`. See DEV_LAYERS.
-        assert!(
-            resolved
-                .profile
-                .paths
-                .iter()
-                .any(|g| g.path.contains("System.keychain")
-                    && g.access != isol8::profile::Access::None),
-            "the system trust store must survive the override: {:?}",
-            resolved.profile.paths
+        let home = PathBuf::from("/tmp/profile-home");
+        assert_eq!(
+            granted(ConfigStrategy::Home {
+                home: home.clone(),
+                scratch: scratch.clone(),
+            }),
+            vec![home]
         );
-    }
-
-    // isol8 ships no .NET layer, so `toolchains/dotnet` only exists because
-    // `plan` wrote it. Assert on the merged grant, not the file: a layer that
-    // is written but never reaches the profile path resolves to nothing, and
-    // the symptom is the one this layer exists to fix — `dotnet` reporting it
-    // cannot determine a home directory, because `~/.dotnet` is denied.
-    #[test]
-    fn the_generated_dotnet_layer_grants_the_cli_home() {
-        let state = TempDir::new().expect("state dir");
-        let cwd = TempDir::new().expect("cwd");
-        let cfg_dir = TempDir::new().expect("config dir");
-        let mut run = sandboxed_run(cwd.path(), "");
-        run.harness = "codex".to_string();
-        let options = IsolateOptions::new(state.path().to_path_buf());
-
-        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
-            .expect("plan")
-            .expect("sandboxed run must produce a policy");
-        let resolved = describe(&confined).expect("every named layer must resolve");
-
-        assert!(
-            state
-                .path()
-                .join("profiles-dotnet/toolchains/dotnet.toml")
-                .is_file(),
-            "the layer DEV_LAYERS names must be generated under the state dir"
-        );
-        for want in [".dotnet", ".nuget"] {
-            assert!(
-                resolved
-                    .profile
-                    .paths
-                    .iter()
-                    .any(|g| g.path.contains(want) && g.access == isol8::profile::Access::Rw),
-                "{want} must be writable: {:?}",
-                resolved.profile.paths
-            );
-        }
-    }
-
-    // A harness with no keychain quarrel keeps the real layer, or the fix for
-    // one harness has quietly narrowed the sandbox for every other.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn a_harness_outside_the_deny_list_keeps_the_login_keychain() {
-        let state = TempDir::new().expect("state dir");
-        let cwd = TempDir::new().expect("cwd");
-        let cfg_dir = TempDir::new().expect("config dir");
-        let mut run = sandboxed_run(cwd.path(), "");
-        run.harness = "codex".to_string();
-        let options = IsolateOptions::new(state.path().to_path_buf());
-
-        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
-            .expect("plan")
-            .expect("sandboxed run must produce a policy");
-        let resolved = describe(&confined).expect("every named layer must resolve");
-
-        assert!(
-            resolved
-                .profile
-                .paths
-                .iter()
-                .any(|g| g.path.contains("Library/Keychains")
-                    && g.access == isol8::profile::Access::Rw),
-            "a harness outside KEYCHAIN_DENIED keeps {KEYCHAIN_LAYER} whole: {:?}",
-            resolved.profile.paths
-        );
+        let native = granted(ConfigStrategy::Native {
+            scratch: scratch.clone(),
+        });
+        assert!(!native.is_empty(), "Claude Code names its own config home");
+        assert_eq!(native, claude.default_homes());
+        assert!(granted(ConfigStrategy::Fixed(scratch)).is_empty());
+        assert!(granted(ConfigStrategy::Ephemeral).is_empty());
     }
 
     // The real home is the entire point of Inherit: a `~`-relative layer grant
@@ -2609,79 +1885,5 @@ mod tests {
             ConfinePayload::take(Path::new(&launch.args[1])).expect("payload round-trips");
         assert_eq!(payload.cwd, cwd.path());
         assert!(!Path::new(&launch.args[1]).exists(), "taking it removes it");
-    }
-
-    // A default login on Windows resolves the Windows system layer, not the
-    // macOS OAuth pair — the composition `run_login_isolated` mirrors.
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn a_default_login_policy_resolves_the_windows_system_layer() {
-        let state = TempDir::new().expect("state dir");
-        let home = TempDir::new().expect("capture home");
-        let plan = crate::harness::LoginPlan {
-            launch: Launch {
-                program: "claude".to_string(),
-                args: vec!["auth".to_string(), "login".to_string()],
-                env: vec![("HOME".to_string(), home.path().display().to_string())],
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
-        };
-        let options = IsolateOptions::new(state.path().to_path_buf());
-
-        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
-        let resolved = describe(&confined).expect("rendering the login policy");
-        let layers: Vec<&str> = resolved
-            .layer_names
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        assert!(
-            layers.contains(&"windows/system-runtime"),
-            "a Windows login needs the system runtime layer, got {layers:?}"
-        );
-        assert!(
-            !layers.iter().any(|name| name.starts_with("integrations/")),
-            "no macOS OAuth layer belongs on a Windows login, got {layers:?}"
-        );
-    }
-
-    // The macOS mirror: a default login resolves the OAuth pair and never the
-    // keychain (covered transitively by
-    // `a_login_policy_never_resolves_the_keychain_layer`, asserted directly
-    // here for the composition itself).
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn a_default_login_policy_resolves_the_macos_oauth_layers() {
-        let state = TempDir::new().expect("state dir");
-        let home = TempDir::new().expect("capture home");
-        let plan = crate::harness::LoginPlan {
-            launch: Launch {
-                program: "claude".to_string(),
-                args: vec!["auth".to_string(), "login".to_string()],
-                env: vec![("HOME".to_string(), home.path().display().to_string())],
-                env_remove: Vec::new(),
-                env_clear: false,
-            },
-            credential_files: vec![PathBuf::from(".claude/.credentials.json")],
-        };
-        let options = IsolateOptions::new(state.path().to_path_buf());
-
-        let confined = login_confined(home.path(), &plan, None, &options).expect("login policy");
-        let resolved = describe(&confined).expect("rendering the login policy");
-        let layers: Vec<&str> = resolved
-            .layer_names
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        assert!(
-            layers.contains(&"integrations/launch-services"),
-            "a macOS login needs the OAuth browser layers, got {layers:?}"
-        );
-        assert!(
-            layers.contains(&"integrations/browser-native-messaging"),
-            "a macOS login needs the OAuth browser layers, got {layers:?}"
-        );
     }
 }

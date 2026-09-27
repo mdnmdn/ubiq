@@ -154,7 +154,7 @@ src/
 │   ├── mod.rs        #   Args, top-level dispatch
 │   ├── run.rs        #   `am <harness> …`
 │   ├── catalog.rs    #   `am catalog ls|import|…`
-│   └── account.rs    #   `am account ls|use|import`         (P2)
+│   └── account.rs    #   `am account ls|use`                (P2)
 ├── spec.rs           # RunSpec, McpRef, SkillRef, IoModes, ConfigStrategy, …
 ├── resolve.rs        # (flags + config file + catalog) -> RunSpec
 ├── settings.rs       # load/merge the toml|yaml settings file
@@ -213,9 +213,10 @@ pub trait Harness {
     /// and whether its provider states how much of the plan is left.
     fn io_support(&self) -> IoSupport;
 
-    /// How much of `account`'s plan is left. Default: an error naming this harness —
-    /// which for Copilot, opencode and Grok is the permanent and correct answer.
-    fn quota(&self, account: &Account, login: Option<&Source>) -> Result<QuotaSnapshot>;
+    /// How much of `account`'s plan is left, read from the login the harness keeps in
+    /// `home` (a profile's, or its own default for `None`). Default: an error naming this
+    /// harness — which for Copilot, opencode and Grok is the permanent and correct answer.
+    fn quota(&self, account: &str, home: Option<&Path>) -> Result<QuotaSnapshot>;
 }
 
 pub struct Launch {
@@ -243,7 +244,8 @@ invocation", "MCP at launch", and "Skills at launch" sections of
 - **No secret material on disk by `am`.** Accounts inject *references*, not
   secrets (see [overview](./overview.md) and the account section of the
   roadmap). A quota probe is the one thing that *spends* a token rather than
-  passing it to a child: it reads the credential, spends it on one request and
+  passing it to a child: it reads the credential in place from the home the harness
+  keeps it in, spends it on one request and
   returns percentages. Nothing token-shaped reaches a `QuotaSnapshot`, a log or
   the caller.
 - **Failure is per-run and clean.** A failed provision leaves no partial state

@@ -321,41 +321,9 @@ mode, so headless/CI runs only need the env vars set.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's login into an ephemeral run. Records file **structure and non-secret
-> metadata only** — token values are copied opaquely.
-
-> **Disk correction:** the sections above describe an API-key model
-> (`~/.grok/user-settings.json → apiKey`). On disk the live login is OAuth 2.0
-> (OIDC to `https://auth.x.ai`) stored in **`~/.grok/auth.json`** — trust disk.
-> The API-key path still works via `GROK_API_KEY` but is not what an interactive
-> subscription login writes.
-
-- **Bundle files (the credential snapshot):**
-  - `~/.grok/auth.json` — **required**; JSON keyed by `<oidc_issuer>::<user_id>`
-    (e.g. `https://auth.x.ai::<uuid>`), each entry holding `key` (JWT),
-    `refresh_token`, `expires_at`, plus identity fields.
-  - `~/.grok/user-settings.json` — *optional*; only if an `apiKey` / model
-    override is in use.
-- **Relocation lever:** no config-dir override env var — set `HOME` to relocate
-  the whole `~/.grok/` tree.
-- **Force file storage (skip keychain):** N/A — Grok is **always plaintext file**
-  (mode `0600`), no OS keychain integration. The ideal case for capture.
-- **Login command (fresh-auth-into-temp):** no documented `grok auth login`
-  verb; the interactive TUI triggers the OAuth flow on first run under a fresh
-  `HOME`. Headless: inject `GROK_API_KEY` instead of snapshotting OAuth.
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | `email` | `auth.json → <entry>.email` | account email *(identifying — redact)* |
-  | `user_id` / `principal_id` | `auth.json → <entry>.user_id` | user account id (UUID) |
-  | `team_id` | `auth.json → <entry>.team_id` | team/org membership (UUID) |
-  | `expires_at` | `auth.json → <entry>.expires_at` | token expiry (ISO 8601) |
-  | `auth_mode` / `oidc_issuer` | `auth.json → <entry>.*` | auth type (`oidc`) + provider |
-
-- **Do not copy:** `sessions/`, `projects/`, `logs/`, `worktrees.db`,
-  `models_cache.json`, `agent_id`, `*.lock` — session/machine-bound state.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ## Permissions
 
@@ -591,6 +559,36 @@ caller: `session/request_permission` is an agent-to-client request, and
   2026-09-10 — see "ACP mode" above).
 - **Model id format:** e.g. `grok-4.6`, `grok-4.5` (verified 2026-09-10).
 - **Default model:** `grok-4.6`, per `session/new`'s `models.currentModelId` (verified 2026-09-10).
+
+## Shared-home run
+
+Under `D193` a profile owns one persistent fake `HOME` for grok, since `HOME` is its only
+relocation lever. `Grok::shares_home` answers `true`, and `Grok::provision_home` builds the run:
+
+- **Home run** (`ConfigStrategy::Home`): `HOME=<home>`. The home holds `.grok/auth.json` and grok's
+  own state (`sessions/`, `config.toml`); grok refreshes the login there, and nothing is seeded,
+  captured or read back. The rest of the child's environment, `PATH` included, is inherited as on
+  the legacy path; only `HOME`-relative dotfiles (shell rc, `~/.gitconfig`, version-manager shims)
+  are lost.
+- **Per-run by argv and env**, as on the legacy path: model, reasoning effort, `--permission-mode`
+  or `--always-approve`, `--session`, instructions folded into `--prompt`, and `GROK_API_KEY` /
+  `GROK_BASE_URL` from the account.
+- **Profile-owned**, because grok has no per-run route for them: skills go into
+  `<home>/.agents/skills/<id>/`, each swapped in whole under a lock; MCP servers are merged by id
+  into `<home>/.grok/user-settings.json`'s `mcpServers`, a read-modify-write under a lock that keeps
+  every other key (an `apiKey` among them) and is renamed into place at `0600`. Two runs of one
+  profile that differ here overwrite each other, and a server or skill dropped from the profile
+  stays. `auth.json` is never written.
+- **Native run** (no profile): `HOME` is left alone and grok uses the user's own `~/.grok`. Skills
+  and MCP are dropped with a warning, so nothing is written into the user's config.
+- **Sign-in:** `Grok::login_home` launches bare `grok` with `HOME=<home>`. There is no login verb
+  (`G118`); the TUI is expected to start the OAuth flow on a first run that finds no `auth.json`.
+- **Transcripts:** `sessions/` exists, but no per-session file layout is documented, so
+  `session_transcripts` stays at the default `None`.
+
+Not verified against 1.0.13: that the official binary reads `.grok/user-settings.json` →
+`mcpServers` or `~/.agents/skills/` at all, and that the first-run TUI signs in under a relocated
+`HOME`. The session/log leak noted under "Format quirks / gotchas" applies here too.
 
 ## Format quirks / gotchas
 

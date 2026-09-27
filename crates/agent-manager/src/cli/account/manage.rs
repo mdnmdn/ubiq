@@ -1,43 +1,5 @@
 use super::*;
 
-/// `am account delete <name> --harness <id> [--yes]`
-pub(super) fn cmd_delete(name: &str, harness: &str, yes: bool) -> Result<()> {
-    let h = resolve_harness(harness)?;
-    let default_account = configured_default_account()?;
-    if default_account.as_deref() == Some(name) && !yes {
-        bail!("refusing to delete the default account '{name}' without --yes");
-    }
-
-    let id = CredentialId {
-        harness: h.id(),
-        name: name.to_string(),
-    };
-    let store = build_secret_store()?;
-    store.delete(&id)?;
-    println!(
-        "deleted stored credential ({}, {}) — the account index entry, if any, is untouched",
-        id.harness, id.name
-    );
-    Ok(())
-}
-
-/// `am account rename <old> <new> --harness <id>`
-pub(super) fn cmd_rename(old: &str, new: &str, harness: &str) -> Result<()> {
-    let h = resolve_harness(harness)?;
-    let id = CredentialId {
-        harness: h.id(),
-        name: old.to_string(),
-    };
-    let store = build_secret_store()?;
-    store.rename(&id, new)?;
-    println!("renamed credential ({}, {old}) -> {new}", id.harness);
-
-    if configured_default_account()?.as_deref() == Some(old) {
-        set_defaults_account(new, true)?;
-    }
-    Ok(())
-}
-
 /// Describe which reference fields an account carries, e.g. `(api_key_env, base_url)`.
 fn describe_refs(acct: &Account) -> String {
     let mut parts = Vec::new();
@@ -53,9 +15,6 @@ fn describe_refs(acct: &Account) -> String {
     if acct.helper.is_some() {
         parts.push("helper");
     }
-    if acct.home.is_some() {
-        parts.push("home");
-    }
     if parts.is_empty() {
         "(no references set)".to_string()
     } else {
@@ -65,49 +24,15 @@ fn describe_refs(acct: &Account) -> String {
 
 /// `am account ls`
 pub(super) fn cmd_list() -> Result<()> {
-    // Harness-scoped credentials in the secret store (the primary view — one
-    // row per `(harness, name)`, so each harness's `default` shows up). Best
-    // effort: if no store is configured, just skip this section.
-    let creds = crate::credentials::build_secret_store(&effective_settings())
-        .and_then(|s| s.list())
-        .unwrap_or_default();
-
-    // Reference-only accounts (env keys, base URLs, legacy file homes).
-    let store = build_store();
-    let accounts = store.accounts()?;
-
-    if creds.is_empty() && accounts.is_empty() {
+    let accounts = build_store().accounts()?;
+    if accounts.is_empty() {
         println!("no accounts configured");
         return Ok(());
     }
-
-    if !creds.is_empty() {
-        println!("stored credentials:");
-        for m in &creds {
-            println!(
-                "  {:<14} {:<10} [engine: {}]",
-                m.id.harness, m.id.name, m.engine
-            );
-        }
+    println!("accounts (references):");
+    for acct in accounts {
+        println!("  {}  {}", acct.id, describe_refs(&acct));
     }
-
-    if !accounts.is_empty() {
-        if !creds.is_empty() {
-            println!();
-        }
-        println!("accounts (references):");
-        for acct in accounts {
-            let mut line = format!("  {}  {}", acct.id, describe_refs(&acct));
-            if let Some(home) = &acct.home {
-                let captured = effective_harnesses(home);
-                if !captured.is_empty() {
-                    line.push_str(&format!("  [captured: {}]", captured.join(", ")));
-                }
-            }
-            println!("{line}");
-        }
-    }
-
     Ok(())
 }
 
@@ -149,27 +74,4 @@ pub(super) fn cmd_use(id: &str) -> Result<()> {
 
     println!("default account set to '{id}' ({})", config_path.display());
     Ok(())
-}
-
-/// Render an [`Account`] as an inline `[[account]]` TOML snippet.
-pub(super) fn account_toml_snippet(acct: &Account) -> String {
-    let mut s = String::new();
-    s.push_str("[[account]]\n");
-    s.push_str(&format!("id = \"{}\"\n", acct.id));
-    if let Some(v) = &acct.api_key_env {
-        s.push_str(&format!("api_key_env = \"{v}\"\n"));
-    }
-    if let Some(v) = &acct.auth_token_env {
-        s.push_str(&format!("auth_token_env = \"{v}\"\n"));
-    }
-    if let Some(v) = &acct.base_url {
-        s.push_str(&format!("base_url = \"{v}\"\n"));
-    }
-    if let Some(v) = &acct.helper {
-        s.push_str(&format!("helper = \"{v}\"\n"));
-    }
-    if let Some(v) = &acct.home {
-        s.push_str(&format!("home = \"{}\"\n", v.display()));
-    }
-    s
 }

@@ -514,49 +514,45 @@ the best available store per platform.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's login into an ephemeral run. Records file **structure and non-secret
-> metadata only** — token values are copied opaquely, never parsed into `am`'s
-> account store.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
-- **Bundle files (the credential snapshot):**
-  - `~/.codex/auth.json` — **required**; the sole credential file (`auth_mode`,
-    `OPENAI_API_KEY`, `tokens.{id_token,access_token,refresh_token,account_id}`,
-    `last_refresh`).
-  - `~/.codex/config.toml` — *optional*; only if `cli_auth_credentials_store` /
-    model overrides should travel with the identity. **Strip `[projects.*]`**
-    (machine/path-bound trust entries) before reuse.
-- **Relocation lever:** `CODEX_HOME` (default `~/.codex/`) moves the entire tree
-  including `auth.json` — the clean, first-class isolation lever.
-- **Force file storage (skip keychain):** `cli_auth_credentials_store = "file"`
-  in `$CODEX_HOME/config.toml` — the documented, explicit knob. Write it *before*
-  `codex login` so the token lands in `auth.json` instead of the OS keychain
-  (critical under isol8/iter8 where the keychain is unavailable). Values:
-  `auto` | `file` | `keyring`.
-- **Default backend / observed:** macOS Keychain service `Codex Auth`
-  (`keyring`) per doc; **observed file-based on this machine** (no Keychain
-  entry; token present in `auth.json`) — trust disk.
-- **Login command (fresh-auth-into-temp):**
-  `CODEX_HOME=/tmp/x codex login` (browser OAuth), or headless
-  `codex login --device-code` (prints URL + code — the sandbox-friendly path),
-  or `codex login --api-key "$OPENAI_API_KEY"` (writes `auth.json` directly, no
-  browser). Set `cli_auth_credentials_store = "file"` first.
-- **Extractable metadata (non-secret):**
+### Shared-home run (agent-manager, `D193`)
 
-  | field | source | identifies |
-  |---|---|---|
-  | `auth_mode` | `auth.json → auth_mode` | auth type: `chatgpt` (subscription OAuth) vs API key |
-  | `OPENAI_API_KEY` presence | `auth.json → OPENAI_API_KEY` | API-key path in use vs `null` |
-  | `tokens.account_id` | `auth.json → tokens.account_id` | ChatGPT account id *(identifying — redact)* |
-  | `last_refresh` | `auth.json → last_refresh` | token freshness (>30 days forces re-login) |
+> How `Codex::provision_home` runs from a profile's persistent `CODEX_HOME` instead of a per-run
+> copy. Both `codex` and `codex-acp` share a home; the differences for `codex-acp` are its own
+> bullet below.
 
-  Codex stores **less** plan/org metadata locally than Claude — subscription
-  tier/org lives only inside the JWT `id_token`/`access_token` claims, which are
-  treated as opaque secrets and **not decoded**.
-- **Do not copy:** `history.jsonl`, `sessions/`, `logs_*.sqlite*`,
-  `state_*.sqlite*`, `memories_*.sqlite*`, `installation_id`, `cache/`,
-  `shell_snapshots/`, `models_cache.json` — session/machine-bound state
-  (`installation_id` is a machine identity, do not transplant).
+- **Home:** the profile's `CODEX_HOME`, holding `auth.json`, `sessions/` and anything the
+  profile's user put there. Codex refreshes its own login; nothing is seeded or read back. With no
+  profile (`ConfigStrategy::Native`) `CODEX_HOME` is not set and Codex runs from `~/.codex`.
+- **Sign-in:** `CODEX_HOME=<home> codex login` (`Codex::login_home`). No `config.toml` is written
+  first, so the store is Codex's default for the platform (see "Token storage" above).
+- **Per-run settings by `-c key=value`,** ahead of any subcommand (`codex -c … app-server --listen
+  stdio://` or `codex -c … [prompt]`), each value an inline TOML value: `model`,
+  `model_reasoning_effort`, `sandbox_mode` + `approval_policy = "never"`, one
+  `mcp_servers.<id>` inline table per server, and the run's instructions as
+  `developer_instructions` (a config-layer key — see "Custom-agent TOML schema"). A `-c` layers
+  over the home's `config.toml`, so a server listed there still loads; there is no strict-MCP
+  switch. Nothing is written into `scratch`.
+- **Per-profile only:** skills (`.agents/skills/<id>/`, MCP-as-skill pointers included) and
+  `hooks.json` have no per-run route, so they are written into the home — each skill dir built
+  beside it and renamed over the old one, `hooks.json` staged and renamed, under a lock. `RunSpec`
+  does not mark which skills come from the profile, so two runs of one profile with different
+  skills or hooks overwrite each other, and a skill dropped from the profile stays in the home. A
+  native run drops skills and hooks with a warning. `AGENTS.md` and `config.toml` are never
+  written.
+- **`codex-acp`:** the same home, sign-in (`codex login`) and profile-owned skills and hooks. Its
+  structured argv is `codex-acp -c … [passthrough_args…]` — the adapter's `main` parses Codex's own
+  `CliConfigOverrides` (read from `zed-industries/codex-acp` `src/main.rs`, not run here) — with
+  every `-c` above but `mcp_servers.*`. The MCP servers go in ACP `session/new` / `session/load`
+  `mcpServers` instead (`Provisioned::mcp_servers`, sent by `AcpBridge::with_mcp_servers`);
+  `codex-acp` advertises `mcpCapabilities.http` only, so an sse server is dropped with a warning,
+  and it adds the servers to the home's own, as a `-c` does. A passthrough `codex-acp` pane is the
+  real `codex`, composed exactly as above.
+- **Transcripts:** rollouts land in `<home>/sessions/YYYY/MM/DD/*.jsonl`, but this document does
+  not say how a file names its thread, so `session_transcripts` answers `None`.
 
 ## Permissions
 
@@ -712,15 +708,17 @@ app-server protocol documented below — see [`../io-modes.md`](../io-modes.md).
 Structured argv is exactly:
 
 ```
-codex-acp [passthrough_args...]
+codex-acp [-c key=value ...] [passthrough_args...]
 ```
 
-Nothing else is on the command line: no `app-server --listen stdio://`, no `-m`/`--model`, no
-resume flag. The prompt is a `session/prompt` request over the wire, a resume is `session/load`
-against the id the previous run reported, and the model/reasoning effort still reach the run
-through `config.toml` under `CODEX_HOME` (written exactly as for the native `codex` harness — see
-"Model & reasoning at launch" below). Passthrough argv is unchanged by any of this: `codex-acp` is
-not a TUI, so a pane still gets the real, interactive `codex`.
+The `-c` overrides appear only on a shared-home run (see "Shared-home run" above); a fixed-dir run
+passes none. Nothing else is on the command line: no `app-server --listen stdio://`, no
+`-m`/`--model`, no resume flag. The prompt is a `session/prompt` request over the wire, a resume is
+`session/load` against the id the previous run reported, and the model/reasoning effort reach the
+run through `config.toml` under `CODEX_HOME` on a fixed dir, or by `-c` under a shared home. MCP
+servers are in that `config.toml` on a fixed dir, where the bridge sends `mcpServers: []`; under a
+shared home they travel in `session/new`'s `mcpServers`. Passthrough argv is unchanged by any of
+this: `codex-acp` is not a TUI, so a pane still gets the real, interactive `codex`.
 
 Verified against `@agentclientprotocol/codex-acp` 1.10.0: the bin is named `codex-acp`, and unlike
 Claude's `claude-agent-acp` it answers `--version` directly (prints `<name> <version>`, exits 0),

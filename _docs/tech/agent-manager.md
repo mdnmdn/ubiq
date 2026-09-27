@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-26
-verified: 2026-09-26
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -96,8 +96,13 @@ the caller chose.
 
 **Ubiq does not build the `RunSpec` itself — `resolve` does.** `agent.rs` calls
 `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and
-overrides exactly four fields of what comes back: the configuration directory (Ubiq owns where a
-run's state lives), the I/O mode (Ubiq owns which face the workspace wears), the isolation
+overrides exactly four fields of what comes back: the configuration strategy (Ubiq owns where a
+run's state lives — `agent.rs`'s `run_config`: for a harness that `Harness::shares_home`,
+`ConfigStrategy::Home` on the agent definition's own home, named by `ProfileStore::home` on the
+store the definition resolved in, or with no definition — or a store naming no home —
+`ConfigStrategy::Native` on the user's own config, confined or not; `ConfigStrategy::Fixed` on the
+run directory only for a harness that cannot share a home, which no built-in one is — `D193`),
+the I/O mode (Ubiq owns which face the workspace wears), the isolation
 (Ubiq's own settings own the toggle, and it applies to a conversation exactly as to a pane), and —
 when that isolation is on — the permission mode, because a confined run is contained by the sandbox
 rather than by the prompts and would otherwise stop on every ask the sandbox has already answered.
@@ -177,87 +182,30 @@ other: `IoModes::Structured`, and a `structured_bridge` over the harness's own J
 launch, because a conversation's harness writes frames on a pipe rather than drawing a screen. What
 differs between them beyond the mode is the run directory's name and the isolation, both below.
 
-**A bare run with no account and no agent definition still reuses the login already on the machine.**
-`seed_zero_config_login` in `crates/agent-manager/src/provision.rs` runs after agent definition resolution
-finds no login named, and tries two tiers in order: first, copy the harness's own
-`Harness::config_anchor().login_seed` files out of the real `$HOME` — correct for every harness
-whose credential is a plain file, since that is the same file the harness itself reads. If that
-copy places no **credential**, it falls back to `Harness::ambient_login()`, a harness's own account
-of its live login when that login is **not** a `$HOME` file the first tier could ever find — Claude
-Code overrides it to read the OAuth blob the macOS Keychain holds, which is where it actually keeps
-a session rather than in `~/.claude/.credentials.json`. Either tier is skipped once a login has
-already landed from an account home or an agent definition overlay, and `ambient_login`'s default is `None`,
-so a harness that keeps no such out-of-band login is unaffected.
+**A harness login lives in the harness's own config home, and nothing reads, copies or roams it
+(`D193`).** Every built-in harness answers `Harness::shares_home`, so `run_config` gives each run
+`ConfigStrategy::Home` — the definition's own home, from the store's `ProfileStore::home` — or, with
+no definition, `ConfigStrategy::Native`, the harness's own default config in place; the run directory
+is a scratch dir of per-run flag files beside it. The harness keeps its login in that home and
+refreshes it there, exactly as it does for a user running several copies against one default home.
+A run with no definition therefore uses the login already on the machine, unseeded. The legacy
+`provision` into a per-run directory remains for a third-party harness that cannot share a home;
+it seeds no login. An account is credential references only — environment-variable names, a base
+URL, a key helper — and `AccountInfo` carries its id and nothing about a login.
 
-**Only a `SeedFile::credential` counts as a login having landed** — in both tier checks, in
-`account_login_origin`, and in Ubiq's own `Agents::has_login`. A login seed also names identity and
-onboarding companions (Claude Code's `.claude.json`), and on the machine this matters for those
-companions are exactly the files that *are* present: a macOS user has `~/.claude.json` and no
-`~/.claude/.credentials.json`, because the token is in the Keychain. Counting a companion as a
-login makes tier 1 return before the Keychain is ever read, and the run starts with an
-authenticated identity and no token — which the harness reports as a plain login failure, with
-`has_login` suppressing the "not logged in" diagnostic that would have named it.
-
-**A login the run refreshes is written back to where it was seeded from, at teardown.** An OAuth
-refresh rotates the refresh token, so once a harness rewrites the copy in its run directory the
-original is revoked — deleting that directory would log the user out everywhere. `Agents::archive`
-calls the library's `harness::harvest_login` before either teardown path removes a run directory,
-and it is the one place both `retire` and `sweep` pass through. The origin it writes to is recorded
-on the run's `SessionMeta::login_home` rather than held in memory, because nothing holds the
-`Composed` that long; a login that came from no directory at all (Claude Code's macOS Keychain) is
-found again through `Harness::ambient_login` and stored through `Harness::adopt_login`. Only the
-files the harness marks `SeedFile::credential` travel back — the identity and onboarding state a
-login also seeds picks up a run's own project history, and must not reach the user's real file.
-
-**Every action on a credential is logged, and never the credential.** A seed, a harvest, a
-hand-back into a stale run, a Keychain read or write, and every removal of a run directory each
-write one line under `Subsystem::Harness`, carrying `credentials::login_digest` — byte length, the
-`login_is_usable` flag, every `*expire*` field, the time the access token has left, and an 8-hex
-fingerprint per token string. The fingerprint is what makes a **rotation** visible: two digests
-naming different fingerprints are two different logins, which is the only way to tell a refresh that
-was written somewhere from one that never happened. No token value is ever logged in any form. The
-seed also writes `0600`, matching every other credential write in the crate rather than the process
-umask. `_docs/wip/claude-auth-problem.md` is what this instrumentation was added for.
-
-**A changed blob is not automatically a better one, and `harvest_login` checks both ways a
-"changed" copy can be worse than what it would replace.** A harness that rewrites its credential
-with blank tokens and a zeroed expiry — Claude Code does this on a failed refresh, and the blob
-still carries a `refreshTokenExpiresAt` weeks out, so it does not even look expired —
-is not a login at all; `credentials::login_is_usable` says so, and a copy that fails it is left
-where it is rather than written over the origin. And two runs sharing one account each hold their
-own copy, so the one that refreshed and the one that did not both read as "changed" against the
-origin; comparing them by which file changed would let whichever run tears down last overwrite a
-newer token with a stale one. `harvest_login` instead reads the expiry each blob claims
-(`credentials::expiry_of`) and keeps whichever is later. The same `login_is_usable` check is what
-`credential_validity` applies before reading any blob's expiry at all, so an account a harness has
-silently signed out of reads as `Validity::Empty` rather than as a session with weeks left on it —
-the failure mode being guarded against is the same one, read at two different times.
-
-**A confined Claude Code run is denied the login keychain, so it never picks that backend.**
-`isolate::plan` overrides the `integrations/keychain` layer for a harness in `KEYCHAIN_DENIED`
-(Claude Code, Claude Code ACP, macOS only), keeping every mach-lookup TLS needs but denying
-`~/Library/Keychains`, so the harness stays on the `.credentials.json` file backend `sync_login`
-and `harvest_login` read instead of a per-run keychain item nothing cleans up. See `D126`.
-
-**Writing the refreshed token back is not enough, and teardown is the wrong time to do it.** A
-refresh **rotates** the refresh token: the provider revokes the one the run was seeded from the
-instant a run uses it. Every other run holds its own copy of that revoked token and will fail its
-own next refresh, and every agent launched from the account home before the write-back lands seeds
-the revoked token too — `OAuth session expired and could not be refreshed`, on an account whose
-badge reads valid. With Claude Code's access token living about four hours and its refresh window
-28 days, a single pane left open overnight was enough to put the account into that state and keep
-it there. So `harness::sync_login` takes all the runs sharing one origin together: it picks the
-blob claiming the latest expiry, writes it to the origin, and writes it back into every run dir
-still holding an older one, which is what keeps a second concurrent agent alive.
-`harvest_login` is that call for a single directory.
-
-**Ubiq drives it on a timer, not on a teardown.** `Coordinator::sync_logins_due` calls
-`Agents::sync_logins` every thirty seconds, grouping the run directories by the account home their
-`SessionMeta` recorded; the run loop's wait is bounded by the same interval whenever a pane exists,
-because a harness in passthrough says nothing for hours while rotating its token the whole time.
-The teardown harvest stays, for a run that ends between two ticks, and `Agents::refresh_login` runs
-one more before a resume composes over a directory that is already there — the copy a crashed run
-left behind may be the only live token, and provisioning is about to overwrite it.
+`archive` copies only a run's own session out of the shared home — `Harness::session_transcripts`
+for the harness session id `remember_session` wrote, recorded with the strategy on
+`SessionMeta::config`, nothing when there is none — and a teardown removes the run directory, which
+under `Home` is the scratch beside the home, never the home. A confined run is granted the home it
+runs from read-write through `IsolateOptions::grant_config_home` — the definition's under `Home`, the
+library's `Harness::default_homes` (`~/.claude` and `~/.claude.json`, `~/.codex`, …) under `Native`
+— and on macOS the Keychain layer, where Claude Code keeps a home's login in an item named by a
+hash of the home's path (`G381`). **A definition signs its home in** with `BeginHarnessLogin`:
+`Agents::begin_home_login` runs `provision::prepare_home`, then the library's `Harness::login_home`
+in a login pane, confined exactly when a run would be and under a `Home` run's policy, so the login
+lands where a run of that definition reads it; nothing is captured, and the outcome is the process's
+exit code, which the pane's reaper notes (`pty::reap_noting`) before the window closes the pane —
+`HarnessHomeSignedIn` on a clean exit, `HarnessLoginFailed` otherwise.
 
 **The bridge is owned by a pump thread, and `crates/ubiq-host/src/conversation.rs` is that thread.**
 `IoBridge::next_event` blocks and both its methods take `&mut self`, so whoever reads a bridge
@@ -299,7 +247,11 @@ session id is relaunched anyway and answers with no memory of the turn before it
 (`crates/agent-manager/src/io/acp_client.rs`) is an Agent Client Protocol v1 client: it drives the
 child over newline-delimited JSON-RPC on its stdio, handshakes with `initialize` and `session/new`,
 sends each turn as `session/prompt`, and serves the `fs/read_text_file` and `fs/write_text_file`
-requests the agent makes back, confined to the session root. It names no harness, so adding an
+requests the agent makes back, confined to the session root. A harness running from a shared home
+(`D193`) passes the run's MCP servers to `AcpBridge::with_mcp_servers` — carried on
+`Provisioned::mcp_servers` — and they go in `session/new`'s and `session/load`'s `mcpServers`, an
+http or sse server only when `initialize` advertised that transport; every other run sends `[]`
+and keeps its MCP in the harness's own files or flags. It names no harness, so adding an
 ACP-speaking one is a `harness_identity!` entry and a launch argv rather than a second bridge.
 `IoSupport::acp` is that declaration — the structured bridge speaks ACP rather than a
 harness-specific wire — and it says nothing when `structured` is false. Two consequences reach this
@@ -387,7 +339,8 @@ second mapping anywhere else is the boundary being crossed.
 
 Four things in these files are Ubiq's rather than the library's, and all four concern ownership
 rather than configuration. **A run's configuration directory belongs to whatever owns the run**: it
-is `ConfigStrategy::Fixed` under Ubiq's own config root, named by the pane id or by the agent id —
+is the `Fixed` directory — or the `Home`/`Native` scratch — under Ubiq's own config root, named by
+the pane id or by the agent id —
 both ULIDs, so neither can be read as the other's — deleted when that pane closes or that
 conversation is retired, and swept at startup for whatever a killed process left. **An agent in a
 pane is confined unless the host settings say otherwise** — the policy grants the project's folder
@@ -415,7 +368,7 @@ never happens; the agent then holds `cargo` on its `PATH` and is denied the mome
 `<config root>/environment.toml` at startup — an `[env]` table of variables and a `[[grants]]` list of
 `path`/`write` pairs, absent by default, and a missing or malformed file is the empty environment,
 logged rather than fatal. `Agents::set_environment` holds it, and two helpers are the only readers — `Agents::add_machine_env`
-and `Agents::isolate_options` — used by `compose_run` **and by `begin_login`**, because a login is a
+and `Agents::isolate_options` — used by `compose_run` **and by `begin_home_login`**, because a login is a
 run with a different argv and every grant one needs the other needs. They do three things: the
 file's `[env]` vars are appended to the launch environment before the harness's own
 (never over a name the harness already set), the now-public `IsolateOptions::grant_toolchains` is
@@ -504,9 +457,7 @@ agent definition files ship with their `filter.os` commented out rather than set
 this side zeroes them — inert, never functional (`G302`). All three are written up with their
 evidence in [`../inbox/isol8-upstream.md`](../inbox/isol8-upstream.md); only the first is fixed
 here.
-`isolate::confined_probe_launch` runs a different command under a login's exact policy, resolving it
-from the harness's own program before swapping in the argv — `crates/ubiq-host/src/agent.rs`'s login
-probe is the caller. Landlock has no rendered
+Landlock has no rendered
 form, applying between `fork` and `exec`, so `confined_launch` errors on Linux;
 `refs/isol8-pty-seam-update.md` specifies the seam that replaces it on unix.
 
@@ -573,7 +524,8 @@ the library's, like every other harness fact, and a quota probe lives behind `Ha
 decides *when* to ask and what to do with the answer; it never learns where the answer comes from.
 
 **7. Credential material is spent inside the library and never comes back out.** A probe reads the
-account's token, spends it on one request and drops it — the snapshot that crosses the boundary is
+token the harness keeps in the home it runs from, in place, spends it on one request and drops it
+(`G380`) — the snapshot that crosses the boundary is
 percentages, a plan name and a timestamp. This is the account invariant applied to the one operation
 that uses a credential itself rather than handing it to a child process.
 

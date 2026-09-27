@@ -62,9 +62,8 @@ and the whole `provision()` shape, so make it first and get it right:
 - [ ] **Class A — unified root**: one env var relocates config *and*
       credentials (Claude's `CLAUDE_CONFIG_DIR`, Codex's `CODEX_HOME`,
       Copilot CLI's `COPILOT_HOME` — the last one initially looked Class C
-      until the lever was actually tested; see the Copilot lesson above). A
-      private-home account's captured login is *seeded* into the ephemeral
-      dir; `HOME` is never touched.
+      until the lever was actually tested; see the Copilot lesson above).
+      `HOME` is never touched.
 - [ ] **Class B — split store**: a config-dir lever exists, but credentials
       live in a separate HOME-relative (or other-lever-relative) location
       (opencode: `OPENCODE_CONFIG_DIR` for config, `XDG_DATA_HOME` for the
@@ -74,11 +73,8 @@ and the whole `provision()` shape, so make it first and get it right:
 - [ ] **Class C — HOME-only**: no config-dir lever at all; the harness's
       whole tree derives from `$HOME` (Grok's `~/.grok`, with no
       `GROK_CONFIG_DIR`-equivalent found on inspection). `HOME` itself must
-      relocate to the
-      ephemeral dir, and a captured login is *seeded into that relocated
-      HOME* — never point `HOME` at the account's persistent home directly
-      (that would make the ephemeral dir's own injected config invisible,
-      and would let a run mutate the account's persistent home in place).
+      relocate — to a profile's persistent fake `HOME`, which holds the
+      login (`D193`).
       Set `requires_home_relocation: true` — this is the isol8-pairing
       signal (see profiles.md §8): relocating `HOME` strips the user's real
       toolchain (`nvm`/`mise`/`pyenv`, shell rc, PATH shims), which isol8
@@ -93,26 +89,13 @@ and the whole `provision()` shape, so make it first and get it right:
 
 ## 3. `config_anchor()`
 
-> A new harness needs **no** store changes. Credential seeding flows generically
-> through `super::seed_login(dir, &Source, login_seed)` (the login content comes
-> from `AccountStore::login_source`, a `Source` that is a dir for the filesystem
-> store or bytes for a database-backed one), and preference templates flow
-> through the injected `TemplateStore`. You declare only `config_anchor()` and
-> (optionally) `templates()`; the stores are harness-agnostic. See
-> `_docs/am-as-library.md`.
+> A new harness needs **no** store changes. Preference templates flow through
+> the injected `TemplateStore`. You declare only `config_anchor()` and
+> (optionally) `templates()`; the stores are harness-agnostic. No login is
+> seeded (`D193`). See `_docs/am-as-library.md`.
 
 - [ ] `levers`: the env var(s) + `Relocate` variant from step 2 (empty for
       Class C).
-- [ ] `login_seed`: every file a captured login writes, as `src` (relative to
-      the account's persistent `home`, matching exactly what `login()` below
-      writes) → `dst` (relative to the relocated dir). Index `[0]` is the
-      file the caller checks for after a capture — required; anything after
-      is optional bonus metadata. Don't add a bonus seed file speculatively —
-      an earlier Copilot draft seeded a `gh` CLI interop file
-      (`~/.config/gh/hosts.yml`) that turned out to be dead weight once
-      `copilot login --help` was actually read: the CLI's login/env chain
-      only reads env vars, never that file directly, so capturing it helped
-      nothing. Verify a bonus file is actually consumed before adding it.
 - [ ] `requires_home_relocation`: `true` only for Class C.
 
 ## 4. `provision(spec, dir)`
@@ -186,9 +169,7 @@ no-op here — a fidelity gap, not a user mistake").
       If the harness has no env-var equivalent for a field (e.g. a
       provider-specific `base_url` scheme), leave a `TODO(P2+)` comment
       naming the config surface that *would* carry it rather than silently
-      dropping it or faking an unsupported flag. For `account.home`, seed
-      (never relocate `HOME` to it directly) via `super::seed_login(dir,
-      home, &self.config_anchor().login_seed)`.
+      dropping it or faking an unsupported flag.
 - [ ] **Never write into `spec.cwd`.** Every existing harness only ever
       writes into the `dir` it's given (the ephemeral/relocated config
       root) — even when the harness's own doc documents a project-tier file
@@ -198,19 +179,11 @@ no-op here — a fidelity gap, not a user mistake").
       decision in a comment so a future reader knows it's deliberate scope,
       not an oversight.
 
-## 5. `login(home)`
+## 5. `login_home(home)`
 
-- [ ] Point the harness at `home` via whatever env var actually relocates
-      its credential store for login purposes (`HOME` for Class C; the
-      Class A/B config lever otherwise).
-- [ ] If the harness supports a keychain/OS-credential-store fallback that
-      would defeat plaintext capture, force file-based storage *before*
-      launching login (Codex's `cli_auth_credentials_store = "file"`
-      pre-write is the precedent) — only if such a knob exists; Class C
-      harnesses with no keychain integration (Grok, Copilot) need no such
-      step, say so in a comment so it reads as a checked case, not a gap.
-- [ ] Return `credential_files` in the same src-relative shape as
-      `login_seed`'s `src` side — `[0]` required, rest optional.
+- [ ] For a harness that `shares_home`: the launch that logs the harness in
+      straight into a profile's home — the config lever pointed at `home`, the
+      harness's own login command. Nothing is captured or read back (`D193`).
 
 ## 6. `discover_models()`
 
@@ -329,15 +302,10 @@ are the templates) — at minimum:
 - [ ] `McpRef::InProcess` is an error mentioning "in-process".
 - [ ] Account `api_key_env`/`auth_token_env` map to the right env var(s);
       an unset var names itself in the error.
-- [ ] Account `home` seeds credentials into the ephemeral/relocated dir
-      *without* pointing `HOME`/the config lever at the account home
-      directly, and without seeding when the home holds no captured login
-      yet (still launches successfully).
 - [ ] A **no-secret-on-disk invariant**: `walkdir` the provisioned dir after
       an account-env test and assert the secret value never appears in any
       file's contents.
-- [ ] `login()` points the relocation lever at the capture dir and names the
-      right credential file(s).
+- [ ] `login_home()` points the relocation lever at the home.
 - [ ] `resolve(<id>)` finds the harness.
 - [ ] Structured-vs-passthrough argv shape, including any resume/model
       flag placement decided in step 4.
@@ -354,10 +322,6 @@ are the templates) — at minimum:
       match arm if structured I/O landed.
 - [ ] `src/io/mod.rs`: `pub mod <id>; pub use <id>::<Id>Bridge;` if a bridge
       landed.
-- [ ] `src/cli/account.rs`'s `cmd_import` candidates array: one entry
-      `(\"<id>-<file>\", home.join(\"<default credential path>\"))` so
-      `am account import` surfaces an existing login for this harness, and
-      bump the array's fixed-size type annotation.
 
 ## 11. Verification
 

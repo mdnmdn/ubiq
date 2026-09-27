@@ -396,78 +396,9 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
 
 ### Credential capture & reuse (agent-manager)
 
-> How `am account capture` / `am account login` snapshot and replay this
-> harness's subscription login into an ephemeral run. This records file
-> **structure and non-secret metadata only** — token values are copied opaquely,
-> never parsed into `am`'s account store.
-
-- **Bundle files (the credential snapshot):**
-  - `~/.claude/.credentials.json` — **required**; the OAuth token blob (single
-    top-level key `claudeAiOauth`). *(Doc historically calls this
-    `credentials.json`; the real file name has a leading dot — trust disk.)*
-  - `~/.claude.json` — *optional*; carries the `oauthAccount` identity block
-    (email/org/plan) and `userID`. Capture it for metadata; the harness re-fetches
-    most of it from the API on next launch.
-- **Relocation lever:** `CLAUDE_CONFIG_DIR` relocates Claude Code's **entire**
-  config into one dir — `.credentials.json`, `.claude.json`, `projects/`,
-  `sessions/`, `backups/` all move there; `HOME` is left untouched. *(Verified
-  empirically against Claude Code 2.1.206: with `CLAUDE_CONFIG_DIR` set to a
-  temp dir, `.claude.json` was created inside it and `HOME` stayed empty. This
-  supersedes older behavior where `CLAUDE_CONFIG_DIR` moved only `.claude/` and
-  `~/.claude.json` stayed HOME-relative.)* So `CLAUDE_CONFIG_DIR` alone is a
-  **full** snapshot lever — and the one `am` uses, because relocating `HOME`
-  instead would strip the user's toolchain (`nvm`/`mise`/`pyenv`, shell rc, PATH
-  shims). `HOME` relocation is reserved for full isol8-style isolation.
-- **Login reuse (seeding):** to reuse an `am account login` without re-onboarding,
-  `am` *copies* the captured `<home>/.claude/.credentials.json` →
-  `$CLAUDE_CONFIG_DIR/.credentials.json` and `<home>/.claude.json` →
-  `$CLAUDE_CONFIG_DIR/.claude.json` into the ephemeral run dir, leaving `HOME`
-  (and the real `~/.claude*`) untouched. See `_docs/profiles.md`.
-- **Force file storage (skip keychain):** Claude Code ≥ 2.1.218 no longer falls
-  back to the plaintext `.credentials.json` when the OS keychain is merely
-  unreachable (missing or relocated `HOME`). Instead, a missing default keychain
-  is a hard error ("A keychain cannot be found"), and login fails without
-  writing a credential file. The working approach: **deny keychain access at the
-  sandbox layer** using `am account login <id> --harness claude-code --isolate`.
-  isol8's deny-by-default sandbox (Seatbelt on macOS, hook DLL on Windows) makes the keychain
-  *inaccessible* (not missing), which triggers Claude's file-fallback path and
-  writes `.credentials.json` cleanly. Use bare `--isolate` for the default
-  layer set (`macos/system-runtime` plus the OAuth browser layers on macOS,
-  `windows/system-runtime` on Windows), or `--isolate=<name>` to select a named policy. Verify
-  post-capture that `$HOME/.claude/.credentials.json` exists in the account home.
-- **Default backend / observed:** macOS Keychain service `Claude Code-credentials`
-  (account attribute = `$USER`). The on-disk `~/.claude/.credentials.json` is
-  often an empty stub while Keychain holds the real tokens — which is why
-  zero-config file seed into `CLAUDE_CONFIG_DIR` can leave `am claude`
-  unauthenticated even when bare `claude auth status` is fine.
-- **`am account import --write` (macOS):** extracts the Keychain blob via
-  `security find-generic-password -a $USER -s 'Claude Code-credentials' -w`,
-  normalizes it to `{"claudeAiOauth":{…}}`, writes
-  `accounts/default/.claude/.credentials.json` (+ copies `~/.claude.json`
-  identity when present), records account id `default` with that home, and
-  sets `[defaults].account = "default"` so bare `am claude` seeds a real
-  session into the ephemeral dir (account id is always `default`). Re-run
-  to refresh tokens after re-login. First Keychain read may prompt for
-  allow; headless/ACL-denied sessions fail the extract step.
-- **Login command (fresh-auth-into-temp):** `HOME=/tmp/x claude auth login`
-  (browser OAuth). No device-code flow is documented; for CI prefer an
-  `ANTHROPIC_API_KEY` reference account over an OAuth snapshot.
-- **Extractable metadata (non-secret):**
-
-  | field | source | identifies |
-  |---|---|---|
-  | `subscriptionType` | `.credentials.json → claudeAiOauth.subscriptionType` | plan tier (e.g. `pro`) |
-  | `rateLimitTier` | `.credentials.json → claudeAiOauth.rateLimitTier` | rate-limit bucket |
-  | `scopes` | `.credentials.json → claudeAiOauth.scopes` | OAuth scopes → auth type = subscription OAuth |
-  | `expiresAt` / `refreshTokenExpiresAt` | `.credentials.json → claudeAiOauth.*` | token expiry (epoch ms) |
-  | `emailAddress` | `~/.claude.json → oauthAccount.emailAddress` | account email *(identifying — store hashed/redacted)* |
-  | `organizationName` / `organizationType` | `~/.claude.json → oauthAccount.*` | org name / plan class (e.g. `claude_pro`) |
-  | `billingType` | `~/.claude.json → oauthAccount.billingType` | billing (e.g. `stripe_subscription`) |
-
-- **Do not copy:** `projects/`, `history.jsonl`, `sessions/`, `session-env/`,
-  `shell-snapshots/`, `tasks/`, `telemetry/`, `cache/`, `backups/`,
-  `file-history/` — session/telemetry/machine-bound state. `~/.claude.json`'s
-  `machineID` is machine-bound; let the harness regenerate it.
+None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
+config home, signed in there by `am profile login` or the first run, and refreshes it itself
+(`D193` in Ubiq's `_docs/tech/decisions.md`).
 
 ### Usage limits (agent-manager)
 
@@ -696,6 +627,70 @@ forever, if a future check finds otherwise.
 ### Skills at launch
 
 A coordinator materialises skills into `<workdir>/.claude/skills/<name>/SKILL.md` before launch (the project skills path). Always-on context is written into `<workdir>/CLAUDE.md`, ideally inside a managed marker block so user-authored content is preserved. (Cross-reference Skills and Policies/Rules/Memory.)
+
+### Shared-home run (agent-manager, `D193`)
+
+`ConfigStrategy::Home { home, scratch }` runs the native `claude-code` from a
+profile's persistent `CLAUDE_CONFIG_DIR` (`home`), shared read-write by every
+concurrent run of the profile (`Claude::provision_home`). Nothing per-run is
+written into `home`; each piece goes into the run's `scratch` and is passed by
+flag (verified against 2.1.283):
+
+| Piece | File | Flag |
+|---|---|---|
+| MCP servers | `<scratch>/mcp.json` | `--mcp-config <file> --strict-mcp-config` |
+| permissions, hooks, `apiKeyHelper` | `<scratch>/settings.json` | `--settings <file>` — layered over the home's own user settings; no `--setting-sources` |
+| instructions | — | `--append-system-prompt <text>`, plain text |
+| skills, MCP-as-skill | `<scratch>/plugin/` — `.claude-plugin/plugin.json` (`name: "am"`) plus `skills/<id>/` | `--plugin-dir <dir>`, only when there is a skill |
+
+A `--plugin-dir` whose top holds `.claude-plugin/plugin.json` is one plugin
+(`claude --plugin-dir <dir> plugin details am` lists its skills); its skills are
+named `am:<skill>`. With `--system-prompt-snapshot` on (the default), a resumed
+conversation reuses the prompt recorded on its first request, whatever
+`--append-system-prompt` a later launch passes.
+
+The login is either the first terminal run's own login screen or `claude auth
+login` with `CLAUDE_CONFIG_DIR=<home>` and the real `HOME` untouched
+(`Claude::login_home`, `am profile login`); Claude Code keeps it in the home or
+in the Keychain item keyed by that home, and refreshes it itself. The home takes
+the theme/TUI templates once in its life (`provision::prepare_home`, behind a
+`.am-home` marker), and `.claude.json`'s onboarding flag and cwd trust entry
+only when missing, under a lock (`profiles.md` §14.2).
+
+**`claude-code-acp` shares a home too** (`Claude::provision_acp_home`), with
+`CLAUDE_CONFIG_DIR=<home>` and the same sign-in. Its adapter,
+`claude-agent-acp`, takes no argv, so no table row above reaches it:
+
+| Piece | Route |
+|---|---|
+| MCP servers | ACP `session/new` / `session/load` `mcpServers` (`Provisioned::mcp_servers`, sent by `AcpBridge::with_mcp_servers`); an http or sse server only when `initialize` advertised `mcpCapabilities.http` / `.sse`, dropped with a warning otherwise |
+| skills, MCP-as-skill | `<home>/skills/<id>/`, each staged and swapped in whole under a lock |
+| permissions, hooks, `apiKeyHelper` | those keys of `<home>/settings.json`, a locked read-modify-write; every other key kept |
+| instructions | `am`'s managed block in `<home>/CLAUDE.md`, replaced in place or appended; the rest of the file kept |
+
+The last three are **profile-owned**: the adapter's Claude Code loads user
+settings, memory and skills from its config dir (`settingSources` includes
+`user`), and `RunSpec` cannot tell a profile's piece from a run's, so two runs
+of one profile that differ there overwrite each other, and a piece dropped from
+the profile stays in the home. A stdio server's `command` is sent as the spec
+names it, though ACP asks for an absolute path. Nothing goes into `scratch`. A
+passthrough `claude-code-acp` pane is the real `claude` and is composed exactly
+as the table above. With no profile (`Native`) the three are dropped with a
+warning. On the legacy fixed-dir path nothing changes: MCP never reaches the
+adapter, and the bridge sends `[]`.
+
+`ConfigStrategy::Native { scratch }` — a run with no profile — is the same
+launch with no home: no `CLAUDE_CONFIG_DIR` is set (an inherited one is kept, as
+the user's own default), so Claude Code runs from `~/.claude` and its own login,
+and nothing is written there — no template, no onboarding flag, no trust entry.
+`-p` skips the trust dialog; a terminal run shows Claude's own.
+
+One session's transcript in a shared or native home is
+`<home>/projects/<slug(cwd)>/<session-id>.jsonl`, the slug being the cwd with
+every character but an ASCII letter or digit turned into `-`; subagent
+transcripts sit in the `<session-id>/` dir beside it
+(`Claude::session_transcripts`, which falls back to finding the id under any
+project when Claude Code shortened a long cwd's slug).
 
 ### Tool approval in headless mode
 

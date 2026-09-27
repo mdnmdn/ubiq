@@ -34,7 +34,7 @@ each. This file covers the ones this skill owns. `agent.rs` and `conversation.rs
 | `focused: HashMap<ClientId, PaneId>` | One focused pane *per window* — two windows have two, and neither is more focused |
 | `watchers: HashMap<(ClientId, ProjectId), Watcher>` | One filesystem watch per window per open project |
 | `conversations`, `conversation_owners`, `pending_conversations` | The agents skill's; the same two routing reasons as panes |
-| `logins: HashMap<PaneId, PendingLogin>` | Whether a login captured anything is only answerable once its process exits |
+| `logins: HashMap<PaneId, PendingLogin>` | Whether a definition's sign-in worked is only answerable once its process exits |
 | `active_searches`, `active_suggests` | `Arc<AtomicBool>` cancel flags, doubling as "this is over" — the worker sets the flag on its way out, and the next request reaps set entries |
 | `started: Instant` | Uptime, measured from the coordinator's thread rather than from `main` |
 | `agents_this_run: usize` | A counter, not a length: what it counts has gone |

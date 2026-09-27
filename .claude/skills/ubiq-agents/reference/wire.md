@@ -40,10 +40,9 @@ precedence is flags, then the profile.
 | `types() -> Vec<AgentTypeInfo>` | `harness::all()` projected, each marked with whether its binary is on this machine |
 | `is_agent_type(id)` | A spawn naming one of those ids composes a run; anything else is a program name, which is what a shell is |
 | `discover_models(agent_type)` | The harness's own model list |
-| `accounts()`, `rename_account()`, `delete_account()`, `delete_harness_login()` | The account store |
+| `accounts()`, `rename_account()`, `delete_account()` | The account store — credential references only |
 | `profiles()`, `save_profile(ProfileInfo)` | Read/write through `FsProfileStore` at `<root>/profiles`; a profile pinning no harness is skipped. **There is no delete, because the library offers none** |
-| `check_login(agent_type, account, now_ms) -> LoginStatus` | A credential that is absent is an answer |
-| `begin_login(...) -> PendingLogin`, `finish_login(&PendingLogin)` | An interactive harness login, run in a real terminal inside a modal |
+| `begin_home_login(agent_type, definition, project) -> PendingLogin` | A definition's sign-in (`D193`), run in a real terminal inside a modal; the outcome is the exit code |
 | `compose(...) -> Composed` | The terminal face: `IoModes::Passthrough`, `Composed::exec() -> Launch` |
 | `converse(...)` | The conversation face: `IoModes::Structured` and a `structured_bridge` |
 | `agent_dir(agent)`, `retire(pane)`, `retire_agent(agent)`, `sweep()` | Run directories — `ConfigStrategy::Fixed` under Ubiq's root, named by the pane id or agent id (both ULIDs, so neither reads as the other's), deleted on close, swept at startup |
@@ -85,16 +84,16 @@ approval RPC, opencode runs `--dangerously-skip-permissions` and Copilot `--allo
 | `CancelTurn { agent_id }` | The turn ends; the conversation and harness stay |
 | `AnswerPermission { agent_id, request_id, option_id }` | Answers one `PermissionRequest`. The option id is echoed back unchanged |
 | `SetAgentConfig { agent_id, config_id, value }` | A model, a mode, a thinking level — one message for all of them, because upstream has one mechanism for all of them |
-| `UnloadConversation { agent_id }` | Kills the harness, keeps the conversation: the transcript stays, the run directory stays (seeded credentials included), and the same id restarts |
+| `UnloadConversation { agent_id }` | Kills the harness, keeps the conversation: the transcript stays, the run directory stays, and the same id restarts |
 | `AbortConversation { agent_id }` | The same unload, for a harness that does not act on the ask: kills the process (`IoBridge::killer`) and reaps it rather than asking it to shut down and waiting. Answered by the same `ConversationUnloaded` |
 | `ResumeConversation { agent_id }` | Starts an unloaded conversation's harness again under the same id, with no prompt |
 | `EndConversation { agent_id }` | Stops the agent and cleans up after it |
 
 Adjacent families: `SpawnWorkspace` / `WorkspaceSpawned` / `CloseWorkspace` (the *terminal* face of
 the same thing), `ListAgentTypes` / `AgentTypes`, `CheckAgentCommand`, `ListAccounts` / `Accounts`
-/ `RenameAccount` / `DeleteAccount` / `DeleteHarnessLogin` / `AccountError`, the harness-login
-family (`BeginHarnessLogin` → `HarnessLoginStarted` → zero or more `HarnessLoginLink` →
-`HarnessLoginCaptured` or `HarnessLoginFailed`; `CheckHarnessLogin` → `HarnessLoginStatus`), and
+/ `RenameAccount` / `DeleteAccount` / `AccountError`, the definition sign-in family
+(`BeginHarnessLogin` → `HarnessLoginStarted` → zero or more `HarnessLoginLink` →
+`HarnessHomeSignedIn` or `HarnessLoginFailed`), and
 `ListProfiles` / `Profiles` / `SaveProfile`.
 
 ## Message family — host → UI
@@ -142,7 +141,7 @@ Supporting types in `crates/ubiq-proto/src/conversation.rs`: `ConvContent`, `Too
 | Record | Fields, and the rule behind them |
 |---|---|
 | `AgentTypeInfo` | `id` (library harness id, e.g. `claude-code`), `label`, `command` (what the library *would* run — a placeholder a custom command is typed over, **never** something the interface composes a launch from), `available` (binary found, or a custom command configured — a row that cannot start says so before it is picked), `modes` (this harness's advertised permission modes; empty where it has no such axis, because a mode is not a universal concept) |
-| `AccountInfo` | `id`, `logged_in` (harness ids with a captured login — **derived**, not recorded: an account is a home, and a harness is logged in there when the files it names are present; an empty list means an env-var reference rather than a captured session). No credential and no path ever appears here |
+| `AccountInfo` | `id`. An account is credential references; a harness login is a definition's (`D193`). No credential and no path ever appears here |
 | `ProfileInfo` | `id`, `agent_type`, `account`, `model`, `mode` — every field a *reference*, `None` meaning the profile does not mention that axis and a lower layer decides |
 | `WorkspaceInfo` | `id` (also its pane's), `session_id`, `agent_type` (what the coordinator actually started), `project_id`, `rel_path`, `cols`, `rows`, `running`. No process, no writer, no pseudo-terminal |
 | `LoginStatus` | `Valid { expires_at_ms }`, `Expired { expires_at_ms }`, `Unknown` (stored but names no expiry — an API key looks like this and is usually fine), `Missing` |
