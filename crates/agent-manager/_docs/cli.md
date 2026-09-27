@@ -36,8 +36,11 @@ there is one (`ConfigStrategy::Home`), and from the user's own default config,
 untouched, when there is none (`ConfigStrategy::Native`) — in both cases with a
 fresh run dir under `AM_RUNS` as scratch for the run's own files, removed on
 exit like an ephemeral dir (never the home). A profile store that names no
-home, a confined run (the sandbox grants the run dir, not a home) and every
-other harness keep the per-run ephemeral dir. `am` has no flag naming a config
+home runs `Native` too. A confined run takes the same strategy, and the sandbox
+is granted that home read-write (`IsolateOptions::grant_config_home`: the
+profile's home, or `Harness::default_homes` under `Native`) and on macOS the
+Keychain layer. Only a harness that cannot share a home keeps the per-run
+ephemeral dir, and no built-in one is such. `am` has no flag naming a config
 dir. A run with no profile ignores an account's captured OAuth login (with a
 warning); an API-key, auth-token or helper account still applies.
 

@@ -1060,9 +1060,9 @@ impl Agents {
     /// back; the harness keeps the login there and refreshes it, and whether it worked is how
     /// the process exits.
     ///
-    /// Confined exactly when a run would be, so the login lands where a run of this machine
-    /// looks for it: a policy that denies a run the keychain denies this login it too, and the
-    /// harness writes its credential into the home instead.
+    /// Confined exactly when a run would be, and under the policy a run from this home gets, so
+    /// the login lands where a run of this machine looks for it: on macOS that is the Keychain
+    /// item the harness keys to the home, which a run from a home reaches (`D193`).
     pub fn begin_home_login(
         &self,
         agent_type: &str,
@@ -1099,6 +1099,11 @@ impl Agents {
         if self.isolate {
             let mut spec = agent_manager::spec::RunSpec::new(harness.id(), home.clone());
             spec.isolation = Isolation::Sandboxed(String::new());
+            // A run from this home, not a per-run dir: the keychain is reached, not denied.
+            spec.config = ConfigStrategy::Home {
+                home: home.clone(),
+                scratch: home.clone(),
+            };
             let confined = isolate::plan(&launch, &spec, &home, &self.isolate_options())
                 .with_context(|| {
                     format!("resolving the policy a {agent_type} sign-in runs under")
@@ -1427,7 +1432,6 @@ impl Agents {
             definition.as_deref(),
             &definitions,
             self.run_dir_for(key),
-            self.isolate,
         );
         let owns_login = matches!(
             spec.config,
@@ -1509,11 +1513,9 @@ impl Agents {
         // both are settings a person set on this machine, and the library has no way to ask.
         let mut options = self.isolate_options();
         options.home = home_mode(&self.home);
-        // A definition's home is where the harness keeps its login and its sessions, shared by
-        // every run of the definition; the policy grants the run's own scratch dir, not that.
-        if let ConfigStrategy::Home { home, .. } = &spec.config {
-            options.extra_rw.push(home.clone());
-        }
+        // A definition's home — or, with none, the harness's own — is where the harness keeps
+        // its login and its sessions; the policy grants the run's own scratch dir, not that.
+        options.grant_config_home(harness.as_ref(), &spec.config);
 
         let confined = isolate::plan(&provisioned.launch, &spec, &provisioned.dir, &options)
             .with_context(|| format!("resolving the policy for a {agent_type} run"))?;
@@ -2119,27 +2121,21 @@ fn session_transcripts(
 }
 
 /// Where a run's configuration lives (`D193`), for a harness that can run from a shared home:
-/// the definition's own home when the run has one, and with none the user's own config in
-/// place, every per-run file in `scratch` either way. A harness that cannot share a home, a
-/// store naming no home for the definition, and a confined run with no definition — the
-/// sandbox grants a home Ubiq names, and the user's own config is not one — keep the per-run
-/// directory, seeded as it always was.
+/// the definition's own home when the run has one and the store names it, and otherwise the
+/// user's own config in place, every per-run file in `scratch` either way — confined or not,
+/// since the sandbox is granted that home ([`IsolateOptions::grant_config_home`]). Only a
+/// harness that cannot share a home keeps the per-run directory, seeded as it always was.
 fn run_config(
     harness: &dyn harness::Harness,
     definition: Option<&str>,
     definitions: &dyn ProfileStore,
     scratch: PathBuf,
-    confined: bool,
 ) -> ConfigStrategy {
     if !harness.shares_home() {
         return ConfigStrategy::Fixed(scratch);
     }
-    match definition {
-        Some(id) => match definitions.home(id, &harness.id()) {
-            Some(home) => ConfigStrategy::Home { home, scratch },
-            None => ConfigStrategy::Fixed(scratch),
-        },
-        None if confined => ConfigStrategy::Fixed(scratch),
+    match definition.and_then(|id| definitions.home(id, &harness.id())) {
+        Some(home) => ConfigStrategy::Home { home, scratch },
         None => ConfigStrategy::Native { scratch },
     }
 }
@@ -3141,8 +3137,8 @@ mod tests {
     }
 
     /// Which strategy a run gets (`D193`): the definition's home, the user's own config with no
-    /// definition, and the seeded run directory for a harness that cannot share a home, a store
-    /// that names no home, and a confined run with no definition.
+    /// definition or a store that names no home, and the seeded run directory only for a harness
+    /// that cannot share a home — never for a built-in one.
     #[test]
     fn run_config_picks_the_home_native_or_the_run_directory() {
         let root = tempfile::TempDir::new().unwrap();
@@ -3176,38 +3172,110 @@ mod tests {
         }
         let claude = harness::resolve("claude-code").unwrap();
         let unshared = Unshared;
-        let pick = |harness: &dyn harness::Harness,
-                    definition: Option<&str>,
-                    store: &dyn ProfileStore,
-                    confined: bool| {
-            run_config(harness, definition, store, scratch.clone(), confined)
-        };
+        let pick =
+            |harness: &dyn harness::Harness, definition: Option<&str>, store: &dyn ProfileStore| {
+                run_config(harness, definition, store, scratch.clone())
+            };
         let home = ConfigStrategy::Home {
             home: store.home_dir("work", "claude-code"),
             scratch: scratch.clone(),
         };
+        let native = ConfigStrategy::Native {
+            scratch: scratch.clone(),
+        };
 
-        assert_eq!(pick(claude.as_ref(), Some("work"), &store, false), home);
-        assert_eq!(pick(claude.as_ref(), Some("work"), &store, true), home);
-        assert_eq!(
-            pick(claude.as_ref(), None, &store, false),
-            ConfigStrategy::Native {
-                scratch: scratch.clone()
-            }
-        );
-        let fixed = ConfigStrategy::Fixed(scratch.clone());
-        assert_eq!(pick(claude.as_ref(), None, &store, true), fixed);
+        assert_eq!(pick(claude.as_ref(), Some("work"), &store), home);
+        assert_eq!(pick(claude.as_ref(), None, &store), native);
         assert_eq!(
             pick(
                 claude.as_ref(),
                 Some("work"),
-                &agent_manager::profile::EmptyProfileStore,
-                false
+                &agent_manager::profile::EmptyProfileStore
             ),
-            fixed
+            native
         );
-        assert_eq!(pick(&unshared, Some("work"), &store, false), fixed);
-        assert_eq!(pick(&unshared, None, &store, false), fixed);
+        let fixed = ConfigStrategy::Fixed(scratch.clone());
+        assert_eq!(pick(&unshared, Some("work"), &store), fixed);
+        assert_eq!(pick(&unshared, None, &store), fixed);
+        for harness in harness::all() {
+            for definition in [None, Some("work")] {
+                assert!(
+                    matches!(
+                        pick(harness.as_ref(), definition, &store),
+                        ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. }
+                    ),
+                    "{} with definition {definition:?} took the per-run dir",
+                    harness.id()
+                );
+            }
+        }
+    }
+
+    /// A confined run takes the same strategy an unconfined one does (`D193`), and its policy is
+    /// granted the home it runs from read-write: the definition's with one, the harness's own
+    /// default config with none.
+    #[test]
+    fn a_confined_run_is_granted_the_home_it_runs_from() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let mut agents = Agents::new(root.path(), false);
+        agents.set_isolate(true);
+        let granted = |composed: &Composed, path: &Path| {
+            composed
+                .confined
+                .as_ref()
+                .expect("a confined run has a policy")
+                .spec
+                .add_dirs_rw
+                .contains(&path.display().to_string())
+        };
+
+        let pane = PaneId::generate();
+        let composed = agents
+            .compose(
+                pane,
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                ConverseOptions::default(),
+            )
+            .expect("composing a confined claude-code run with no definition");
+        let meta = session::load(&agents.sessions_dir(), &pane.to_string()).unwrap();
+        assert_eq!(
+            meta.config,
+            Some(ConfigStrategy::Native {
+                scratch: agents.run_dir(pane),
+            })
+        );
+        let claude = harness::resolve("claude-code").unwrap();
+        assert!(!claude.default_homes().is_empty());
+        for home in claude.default_homes() {
+            assert!(granted(&composed, &home), "{} not granted", home.display());
+        }
+        agents.retire(pane);
+
+        given_an_account(root.path(), "default", "work");
+        let pane = PaneId::generate();
+        let composed = agents
+            .compose(
+                pane,
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                ConverseOptions::default(),
+            )
+            .expect("composing a confined claude-code run against the default definition");
+        let home = agents.definition_store().home_dir("default", "claude-code");
+        let meta = session::load(&agents.sessions_dir(), &pane.to_string()).unwrap();
+        assert_eq!(
+            meta.config,
+            Some(ConfigStrategy::Home {
+                home: home.clone(),
+                scratch: agents.run_dir(pane),
+            })
+        );
+        assert!(granted(&composed, &home), "the definition's home");
+        agents.retire(pane);
     }
 
     /// A run from a home the harness owns is never reconciled, harvested or scrubbed: its

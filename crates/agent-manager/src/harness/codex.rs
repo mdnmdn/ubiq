@@ -349,6 +349,13 @@ impl Harness for Codex {
         true
     }
 
+    /// `$CODEX_HOME`, else `~/.codex`: the whole tree, `auth.json` included.
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        super::env_dir_or_home("CODEX_HOME", ".codex")
+            .into_iter()
+            .collect()
+    }
+
     /// A run against a profile's shared `CODEX_HOME` (`D193`), which holds `auth.json` and
     /// `sessions/` and which Codex refreshes itself. Nothing per-run is written into `home`;
     /// each per-run setting is a `-c key=value` override ahead of any subcommand

@@ -304,6 +304,13 @@ impl Harness for Copilot {
         true
     }
 
+    /// `$COPILOT_HOME`, else `~/.copilot`: `config.json`, token and settings together.
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        super::env_dir_or_home("COPILOT_HOME", ".copilot")
+            .into_iter()
+            .collect()
+    }
+
     /// A run against a profile's shared `COPILOT_HOME` (`D193`), whose `config.json` holds the
     /// login and the user's settings together — so nothing here writes it, and nothing per-run
     /// lands in `home`:

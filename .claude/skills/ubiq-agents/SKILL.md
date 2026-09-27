@@ -70,8 +70,9 @@ Plus the standing architecture rule: `crates/ubiq` does not depend on `crates/ub
 It calls `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and folder,
 and overrides exactly **four** fields of what comes back — the configuration strategy (`run_config`,
 `D193`: a harness that `shares_home` runs `Home` on the definition's own home, or `Native` on the
-user's own config with no definition; anything else, and a confined run with no definition, keeps
-`Fixed` on the run directory — a `Home`/`Native` run is never seeded, synced, harvested or
+user's own config with no definition, confined or not — a confined one is granted that home through
+`IsolateOptions::grant_config_home`; only a non-sharing harness keeps `Fixed` on the run directory,
+and no built-in one is such — a `Home`/`Native` run is never seeded, synced, harvested or
 scrubbed, and a definition signs its home in through `BeginHarnessLogin { definition }`), the I/O
 mode, the isolation, and, when a run is isolated, the permission mode: the sandbox contains it, so
 it asks nothing, and `Harness::unattended_mode` is the library's word for which mode that is (an

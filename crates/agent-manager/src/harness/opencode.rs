@@ -169,6 +169,19 @@ impl Harness for Opencode {
         true
     }
 
+    /// The data dir (`$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`), holding auth and
+    /// sessions, and the config dir (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`).
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        [
+            ("XDG_DATA_HOME", ".local/share"),
+            ("XDG_CONFIG_HOME", ".config"),
+        ]
+        .into_iter()
+        .filter_map(|(var, default)| super::env_dir_or_home(var, default))
+        .map(|dir| dir.join("opencode"))
+        .collect()
+    }
+
     /// A run against a profile's shared data home (`D193`): `XDG_DATA_HOME=<home>`, where
     /// opencode keeps `opencode/auth.json` and its session store and refreshes the login itself.
     /// Nothing per-run is written into `home`; `opencode.json` (MCP, instructions, permissions),

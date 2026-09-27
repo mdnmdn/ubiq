@@ -629,6 +629,15 @@ fn newest_login<'a>(
         .or(stored)
 }
 
+/// `$var` when the environment sets it, else `~/<default>` under the user's home: how a harness
+/// finds its own config when nothing relocates it ([`Harness::default_homes`]).
+pub(crate) fn env_dir_or_home(var: &str, default: &str) -> Option<PathBuf> {
+    std::env::var_os(var)
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().join(default)))
+}
+
 /// Take an exclusive lock on `<file>.am-lock`, the sibling lock file every read-modify-write
 /// of a file in a shared config home goes through. Blocks until the lock is free; released when
 /// the returned handle drops.
@@ -960,6 +969,14 @@ pub trait Harness {
     /// would a [`crate::spec::ConfigStrategy::Fixed`] one.
     fn shares_home(&self) -> bool {
         false
+    }
+    /// Where this harness keeps its config and login when nothing relocates it — what a
+    /// [`crate::spec::ConfigStrategy::Native`] run reads and writes, and so what a confined one
+    /// has to be granted read-write (`D193`). Every path, since one directory is not always all
+    /// of it (Claude Code's `~/.claude.json` sits beside `~/.claude`). Computed, never created;
+    /// read from this process's environment. Default: none.
+    fn default_homes(&self) -> Vec<PathBuf> {
+        Vec::new()
     }
     /// Compose a run against the shared config `home`, writing nothing per-run into it: every
     /// per-run file goes into `scratch` and reaches the harness by flag. `None` is

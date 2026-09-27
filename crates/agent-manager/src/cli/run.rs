@@ -117,7 +117,6 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
     let profile = crate::resolve::effective_profile(&flags, &settings, profiles.as_ref())?;
     let scratch_run = match cli_config(
         harness,
-        &spec,
         profile.as_deref(),
         profiles.as_ref(),
         provision::new_run_dir,
@@ -145,7 +144,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         &provisioned.launch,
         &spec,
         &provisioned.dir,
-        &isolate_options(&settings, &spec)?,
+        &isolate_options(&settings, harness, &spec)?,
     )?;
 
     if run_args.print_config {
@@ -186,26 +185,23 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
 ///
 /// A harness that [`Harness::shares_home`] runs from the profile's home when the run has a
 /// profile ([`ConfigStrategy::Home`]), and from the user's own default config when it has none
-/// ([`ConfigStrategy::Native`]), with a new `scratch` dir for its own files either way. A
-/// profile store that names no home, and a confined run — the sandbox grants the run's dir,
-/// not a home (`G376`) — keep the per-run dir.
+/// or the profile store names no home ([`ConfigStrategy::Native`]), with a new `scratch` dir for
+/// its own files either way — confined or not, since the sandbox is granted that home
+/// ([`crate::isolate::IsolateOptions::grant_config_home`]). Only a harness that cannot share a
+/// home keeps the per-run dir.
 fn cli_config(
     harness: &dyn Harness,
-    spec: &crate::spec::RunSpec,
     profile: Option<&str>,
     profiles: &dyn ProfileStore,
     scratch: impl FnOnce() -> crate::Result<PathBuf>,
 ) -> Result<Option<ConfigStrategy>> {
-    if !harness.shares_home() || !matches!(spec.isolation, crate::spec::Isolation::None) {
+    if !harness.shares_home() {
         return Ok(None);
     }
-    let config = match profile {
-        Some(profile) => match profiles.home(profile, &harness.id()) {
-            Some(home) => ConfigStrategy::Home {
-                home,
-                scratch: scratch()?,
-            },
-            None => return Ok(None),
+    let config = match profile.and_then(|profile| profiles.home(profile, &harness.id())) {
+        Some(home) => ConfigStrategy::Home {
+            home,
+            scratch: scratch()?,
         },
         None => ConfigStrategy::Native {
             scratch: scratch()?,
@@ -511,6 +507,7 @@ fn print_models(harness: &dyn Harness, models: &[crate::harness::ModelInfo]) {
 /// logins and caches; a run with no account keys it by the harness.
 fn isolate_options(
     settings: &crate::settings::Settings,
+    harness: &dyn Harness,
     spec: &crate::spec::RunSpec,
 ) -> Result<crate::isolate::IsolateOptions> {
     let base = std::env::var("AM_CONFIG_FOLDER")
@@ -524,6 +521,9 @@ fn isolate_options(
     // A relocated toolchain root is named by the environment and granted by
     // nothing else: the shipped layers cover a default install only.
     options.grant_toolchains_from_env();
+    // The home the run runs from — a profile's, or the harness's own — is where its login and
+    // sessions live, and the policy grants only the run's scratch dir by itself (`D193`).
+    options.grant_config_home(harness, &spec.config);
 
     if let Some(mode) = settings.isolate.home.as_deref() {
         let id = spec
@@ -588,47 +588,96 @@ fn print_config(dir: &Path, launch: &crate::harness::Launch, keep_config: bool) 
 mod tests {
     use super::*;
 
-    /// `D193` in the CLI: a profile runs from its home, no profile runs from the harness's own
-    /// config, and a store with no home or a confined run keeps the per-run dir.
+    /// A harness that cannot share a home, standing in for the legacy per-run path.
+    struct Unshared;
+
+    impl Harness for Unshared {
+        fn id(&self) -> crate::spec::HarnessId {
+            "unshared".to_string()
+        }
+        fn display_name(&self) -> &str {
+            "unshared"
+        }
+        fn command(&self) -> &str {
+            "unshared"
+        }
+        fn aliases(&self) -> &[&str] {
+            &[]
+        }
+        fn io_support(&self) -> crate::harness::IoSupport {
+            crate::harness::IoSupport::default()
+        }
+        fn provision(
+            &self,
+            _spec: &crate::spec::RunSpec,
+            _dir: &Path,
+        ) -> crate::Result<crate::harness::Launch> {
+            Ok(crate::harness::Launch::default())
+        }
+    }
+
+    /// `D193` in the CLI: a profile runs from its home, no profile — or a store that names no
+    /// home — runs from the harness's own config, and only a harness that cannot share a home
+    /// keeps the per-run dir. Every built-in harness shares one, so none of them ever does.
     #[test]
     fn cli_config_picks_home_with_a_profile_and_native_without() {
         let temp = tempfile::TempDir::new().unwrap();
         let store = FsProfileStore::new(temp.path().join("profiles"));
         let scratch = temp.path().join("scratch");
         let claude = crate::harness::Claude::new();
-        let spec = crate::spec::RunSpec::new("claude-code".to_string(), PathBuf::from("."));
-        let pick = |harness: &dyn Harness,
-                    spec: &crate::spec::RunSpec,
-                    profile: Option<&str>,
-                    profiles: &dyn ProfileStore| {
-            cli_config(harness, spec, profile, profiles, || Ok(scratch.clone())).unwrap()
+        let pick = |harness: &dyn Harness, profile: Option<&str>, profiles: &dyn ProfileStore| {
+            cli_config(harness, profile, profiles, || Ok(scratch.clone())).unwrap()
         };
+        let native = Some(ConfigStrategy::Native {
+            scratch: scratch.clone(),
+        });
 
         assert_eq!(
-            pick(&claude, &spec, Some("work"), &store),
+            pick(&claude, Some("work"), &store),
             Some(ConfigStrategy::Home {
                 home: store.home_dir("work", "claude-code"),
                 scratch: scratch.clone(),
             })
         );
-        assert_eq!(
-            pick(&claude, &spec, None, &store),
-            Some(ConfigStrategy::Native {
-                scratch: scratch.clone()
-            })
-        );
-        assert_eq!(pick(&claude, &spec, Some("work"), &EmptyProfileStore), None);
-        // `claude-code-acp` shares a home too.
-        let acp = crate::harness::Claude::new_acp();
-        assert_eq!(
-            pick(&acp, &spec, None, &store),
-            Some(ConfigStrategy::Native {
-                scratch: scratch.clone()
-            })
-        );
-        let mut confined = spec.clone();
-        confined.isolation = crate::spec::Isolation::Sandboxed(String::new());
-        assert_eq!(pick(&claude, &confined, None, &store), None);
+        assert_eq!(pick(&claude, None, &store), native);
+        assert_eq!(pick(&claude, Some("work"), &EmptyProfileStore), native);
+        assert_eq!(pick(&Unshared, None, &store), None);
+        for harness in crate::harness::all() {
+            for profile in [None, Some("work")] {
+                assert!(
+                    matches!(
+                        pick(harness.as_ref(), profile, &store),
+                        Some(ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. })
+                    ),
+                    "{} with profile {profile:?} took the per-run dir",
+                    harness.id()
+                );
+            }
+        }
+    }
+
+    /// A confined run is granted the home it runs from: the profile's under `Home`, the
+    /// harness's own under `Native`.
+    #[test]
+    fn a_confined_run_is_granted_its_config_home() {
+        let claude = crate::harness::Claude::new();
+        let mut spec = crate::spec::RunSpec::new("claude-code".to_string(), PathBuf::from("."));
+        spec.isolation = crate::spec::Isolation::Sandboxed(String::new());
+        let home = PathBuf::from("/tmp/profiles/work/home/claude-code");
+        spec.config = ConfigStrategy::Home {
+            home: home.clone(),
+            scratch: PathBuf::from("/tmp/scratch"),
+        };
+        let options = isolate_options(&Settings::default(), &claude, &spec).unwrap();
+        assert!(options.extra_rw.contains(&home), "{:?}", options.extra_rw);
+
+        spec.config = ConfigStrategy::Native {
+            scratch: PathBuf::from("/tmp/scratch"),
+        };
+        let options = isolate_options(&Settings::default(), &claude, &spec).unwrap();
+        for home in claude.default_homes() {
+            assert!(options.extra_rw.contains(&home), "{:?}", options.extra_rw);
+        }
     }
 
     #[test]

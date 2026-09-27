@@ -2655,7 +2655,8 @@ the child is given, not what OpenSSH does with them.
 ### D126 — A confined Claude Code run is denied the login keychain, so its credential stays on the file backend
 
 **Superseded by `D193`.** What follows is the reasoning as it stood while every run had a fresh
-config dir and a captured login.
+config dir and a captured login. The denial is kept only for a run on a per-run dir
+(`Ephemeral`, `Fixed`); a `Home` or `Native` run gets the whole Keychain layer.
 
 Claude Code on macOS picks between two credential backends at launch: the login keychain when
 `~/Library/Keychains` is reachable, or `.credentials.json` in `$CLAUDE_CONFIG_DIR` when it is not,

@@ -99,9 +99,9 @@ the caller chose.
 overrides exactly four fields of what comes back: the configuration strategy (Ubiq owns where a
 run's state lives — `agent.rs`'s `run_config`: for a harness that `Harness::shares_home`,
 `ConfigStrategy::Home` on the agent definition's own home, named by `ProfileStore::home` on the
-store the definition resolved in, or with no definition `ConfigStrategy::Native` on the user's own
-config; `ConfigStrategy::Fixed` on the run directory for any other harness, a store naming no home,
-and a confined run with no definition, whose sandbox grants no home Ubiq did not name — `D193`),
+store the definition resolved in, or with no definition — or a store naming no home —
+`ConfigStrategy::Native` on the user's own config, confined or not; `ConfigStrategy::Fixed` on the
+run directory only for a harness that cannot share a home, which no built-in one is — `D193`),
 the I/O mode (Ubiq owns which face the workspace wears), the isolation
 (Ubiq's own settings own the toggle, and it applies to a conversation exactly as to a pane), and —
 when that isolation is on — the permission mode, because a confined run is contained by the sandbox
@@ -238,11 +238,13 @@ newer token with a stale one. `harvest_login` instead reads the expiry each blob
 silently signed out of reads as `Validity::Empty` rather than as a session with weeks left on it —
 the failure mode being guarded against is the same one, read at two different times.
 
-**A confined Claude Code run is denied the login keychain, so it never picks that backend.**
-`isolate::plan` overrides the `integrations/keychain` layer for a harness in `KEYCHAIN_DENIED`
-(Claude Code, Claude Code ACP, macOS only), keeping every mach-lookup TLS needs but denying
-`~/Library/Keychains`, so the harness stays on the `.credentials.json` file backend `sync_login`
-and `harvest_login` read instead of a per-run keychain item nothing cleans up. See `D126`.
+**A confined Claude Code run on a per-run directory is denied the login keychain, so it never
+picks that backend.** `isolate::plan` overrides the `integrations/keychain` layer for a harness in
+`KEYCHAIN_DENIED` (Claude Code, Claude Code ACP, macOS only) whose `RunSpec::config` is `Ephemeral`
+or `Fixed`, keeping every mach-lookup TLS needs but denying `~/Library/Keychains`, so the harness
+stays on the `.credentials.json` file backend `sync_login` and `harvest_login` read instead of a
+per-run keychain item nothing cleans up (`D126`). A `Home` or `Native` run gets the whole layer
+instead: its directory is kept for good, so the item keyed to it is the login itself (`D193`).
 
 **Writing the refreshed token back is not enough, and teardown is the wrong time to do it.** A
 refresh **rotates** the refresh token: the provider revokes the one the run was seeded from the
@@ -271,10 +273,13 @@ nothing back, `sync_logins` skips it and `scrub_login` leaves its scratch alone;
 one in the home, and the harness refreshes it. `archive` copies only that run's own session out of
 the shared home — `Harness::session_transcripts` for the harness session id `remember_session`
 wrote, nothing when there is none — and a teardown removes the run directory, which under `Home`
-is the scratch beside the home, never the home. A confined `Home` run is granted the home
-read-write through `IsolateOptions::extra_rw`. **A definition signs its home in** with
+is the scratch beside the home, never the home. A confined run is granted the home it runs from
+read-write through `IsolateOptions::grant_config_home` — the definition's under `Home`, the
+library's `Harness::default_homes` (`~/.claude` and `~/.claude.json`, `~/.codex`, …) under
+`Native` — and on macOS the Keychain layer. **A definition signs its home in** with
 `BeginHarnessLogin`'s `definition`: `Agents::begin_home_login` runs `provision::prepare_home`, then
-the library's `Harness::login_home` in a login pane, confined exactly when a run would be; nothing
+the library's `Harness::login_home` in a login pane, confined exactly when a run would be and under
+a `Home` run's policy, so the login lands in the Keychain item a confined run reads; nothing
 is captured, and the outcome is the process's exit code, which the pane's reaper notes
 (`pty::reap_noting`) before the window closes the pane. The legacy capture and roaming above stays
 for every other run until `G376` deletes it.

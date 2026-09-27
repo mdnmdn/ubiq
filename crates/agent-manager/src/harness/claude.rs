@@ -590,6 +590,16 @@ impl Harness for Claude {
         true
     }
 
+    /// [`default_config_dir`], and with no `CLAUDE_CONFIG_DIR` the `~/.claude.json` Claude Code
+    /// keeps beside it in `$HOME`, which that variable otherwise moves inside the dir.
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        let mut homes: Vec<_> = default_config_dir().into_iter().collect();
+        if std::env::var_os("CLAUDE_CONFIG_DIR").is_none_or(|dir| dir.is_empty()) {
+            homes.extend(directories::BaseDirs::new().map(|b| b.home_dir().join(".claude.json")));
+        }
+        homes
+    }
+
     /// A run against a profile's shared `CLAUDE_CONFIG_DIR` (`D193`). Nothing per-run is written
     /// into `home`; each per-run file goes into `scratch` and is passed by flag:
     ///
@@ -912,10 +922,7 @@ fn read_ambient_keychain_login() -> Result<(Vec<u8>, Option<Vec<u8>>)> {
 /// Claude Code's config dir when `am` names none: `$CLAUDE_CONFIG_DIR` when the environment
 /// sets it (a native run inherits it — see `Claude::launch`), else `~/.claude`.
 fn default_config_dir() -> Option<std::path::PathBuf> {
-    std::env::var_os("CLAUDE_CONFIG_DIR")
-        .filter(|dir| !dir.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().join(".claude")))
+    super::env_dir_or_home("CLAUDE_CONFIG_DIR", ".claude")
 }
 
 /// The directory name Claude Code files a cwd's transcripts under in `projects/`: the path

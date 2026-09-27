@@ -47,7 +47,7 @@ use tracing::info;
 use crate::Result;
 use crate::harness::Launch;
 use crate::source::Source;
-use crate::spec::{Isolation, RunSpec};
+use crate::spec::{ConfigStrategy, Isolation, RunSpec};
 
 /// NT device paths a confined process needs open before it can use a socket.
 ///
@@ -163,6 +163,30 @@ impl IsolateOptions {
     /// explicit grant is the last word on a path the environment also named.
     pub fn grant_toolchains_from_env(&mut self) {
         self.grant_toolchains(|name| std::env::var_os(name));
+    }
+
+    /// Grant a run the config home it runs from (`D193`), read-write: a profile's home under
+    /// [`ConfigStrategy::Home`], the harness's own [`Harness::default_homes`] under
+    /// [`ConfigStrategy::Native`]. The policy grants the run's scratch dir by itself, never the
+    /// home, which is shared by every run of the profile — or is the user's own. A per-run dir
+    /// needs nothing more.
+    ///
+    /// [`Harness::default_homes`]: crate::harness::Harness::default_homes
+    pub fn grant_config_home(
+        &mut self,
+        harness: &dyn crate::harness::Harness,
+        config: &ConfigStrategy,
+    ) {
+        let homes = match config {
+            ConfigStrategy::Home { home, .. } => vec![home.clone()],
+            ConfigStrategy::Native { .. } => harness.default_homes(),
+            ConfigStrategy::Ephemeral | ConfigStrategy::Fixed(_) => Vec::new(),
+        };
+        for home in homes {
+            if !self.extra_rw.contains(&home) {
+                self.extra_rw.push(home);
+            }
+        }
     }
 
     /// [`grant_toolchains_from_env`](Self::grant_toolchains_from_env) over a
@@ -320,7 +344,7 @@ pub struct Confined {
 /// See [`BROKEN_LAYERS`] before adding a layer here.
 pub const DEV_LAYERS: &[&str] = &[
     // Not optional: see the note above — except for a harness in
-    // [`KEYCHAIN_DENIED`], where reaching the keychain is the bug.
+    // [`KEYCHAIN_DENIED`] on a per-run dir, where reaching the keychain is the bug.
     "integrations/keychain",
     "integrations/macos-gui",
     // `~/.gitconfig` — without it a commit has no author, which fails as
@@ -351,8 +375,16 @@ pub const DEV_LAYERS: &[&str] = &[
 /// shadows cannot drift apart.
 const KEYCHAIN_LAYER: &str = "integrations/keychain";
 
-/// Harnesses that must **not** reach the login keychain, because reaching it
-/// changes where they persist their credential.
+/// Harnesses that must **not** reach the login keychain on a per-run config
+/// dir, because reaching it changes where they persist their credential.
+///
+/// Only on a per-run dir ([`ConfigStrategy::Ephemeral`], [`ConfigStrategy::Fixed`]),
+/// the seeded path this denial was made for. A run from a home the harness owns
+/// ([`ConfigStrategy::Home`], [`ConfigStrategy::Native`]) keeps its dir for good,
+/// so the keychain item named after it is stable and is the login itself: that run
+/// gets the whole [`KEYCHAIN_LAYER`] (`D193`, which replaces `D126`'s denial there).
+/// The layer grants `~/Library/Keychains` whole — a path policy cannot name one
+/// item in it (`G376`).
 ///
 /// Claude Code carries two credential backends and picks at launch, with no
 /// setting to force either. When `~/Library/Keychains` is reachable it stores
@@ -378,11 +410,21 @@ const KEYCHAIN_LAYER: &str = "integrations/keychain";
 /// `_docs/wip/claude-auth-problem.md` holds the rest.
 const KEYCHAIN_DENIED: &[&str] = &["claude-code", "claude-code-acp"];
 
-/// Whether this harness gets the [`write_keychain_override`] profile path.
-/// macOS-only: the keychain is the thing being withheld, and elsewhere there
-/// is nothing to withhold.
-fn keychain_denied(harness: &str) -> bool {
-    isol8::Platform::current() == isol8::Platform::Macos && KEYCHAIN_DENIED.contains(&harness)
+/// Whether this run gets the [`write_keychain_override`] profile path: a
+/// [`KEYCHAIN_DENIED`] harness on a per-run config dir. macOS-only: the keychain
+/// is the thing being withheld, and elsewhere there is nothing to withhold.
+fn keychain_denied(run: &RunSpec) -> bool {
+    keychain_denied_on(isol8::Platform::current(), run)
+}
+
+/// [`keychain_denied`] on `platform`, so the choice is testable on any host.
+fn keychain_denied_on(platform: isol8::Platform, run: &RunSpec) -> bool {
+    platform == isol8::Platform::Macos
+        && KEYCHAIN_DENIED.contains(&run.harness.as_str())
+        && matches!(
+            run.config,
+            ConfigStrategy::Ephemeral | ConfigStrategy::Fixed(_)
+        )
 }
 
 /// Write the [`KEYCHAIN_LAYER`] override into its own directory under
@@ -892,7 +934,7 @@ pub fn plan(
     // loses to it, because auto-matched layers resolve after named ones.
     // A profile path replaces a same-named built-in wherever it is pulled in,
     // so this is the one form that cannot be outranked. See [`KEYCHAIN_DENIED`].
-    let deny_keychain = keychain_denied(&run.harness);
+    let deny_keychain = keychain_denied(run);
     if deny_keychain {
         cfg.profile_paths
             .push(path_string(&write_keychain_override(options)?));
@@ -2338,7 +2380,7 @@ mod tests {
         let cfg_dir = TempDir::new().expect("config dir");
         let run = sandboxed_run(cwd.path(), "");
         assert!(
-            keychain_denied(&run.harness),
+            keychain_denied(&run),
             "this test is about a harness that must not reach the keychain"
         );
         // The real binary name, so isol8 auto-matches `agents/claude-code` and
@@ -2445,6 +2487,70 @@ mod tests {
             "a harness outside KEYCHAIN_DENIED keeps {KEYCHAIN_LAYER} whole: {:?}",
             resolved.profile.paths
         );
+    }
+
+    // `D193`: a run from a home the harness owns reaches the keychain item it keeps there, so
+    // only the seeded per-run dir is still denied — and only on macOS, for a denied harness.
+    #[test]
+    fn the_keychain_is_denied_only_on_a_per_run_dir() {
+        let cwd = TempDir::new().expect("cwd");
+        let dir = cwd.path().to_path_buf();
+        let on = |config: ConfigStrategy, harness: &str, platform: isol8::Platform| {
+            let mut run = sandboxed_run(cwd.path(), "");
+            run.harness = harness.to_string();
+            run.config = config;
+            keychain_denied_on(platform, &run)
+        };
+        let macos = isol8::Platform::Macos;
+        for harness in KEYCHAIN_DENIED {
+            assert!(on(ConfigStrategy::Ephemeral, harness, macos));
+            assert!(on(ConfigStrategy::Fixed(dir.clone()), harness, macos));
+            let home = ConfigStrategy::Home {
+                home: dir.clone(),
+                scratch: dir.clone(),
+            };
+            assert!(!on(home, harness, macos), "{harness} on a home");
+            let native = ConfigStrategy::Native {
+                scratch: dir.clone(),
+            };
+            assert!(!on(native, harness, macos), "{harness} on its own config");
+            assert!(!on(
+                ConfigStrategy::Ephemeral,
+                harness,
+                isol8::Platform::Linux
+            ));
+        }
+        assert!(!on(ConfigStrategy::Ephemeral, "codex", macos));
+    }
+
+    // The home a run runs from is granted read-write: a profile's under `Home`, the harness's own
+    // default under `Native`, and nothing more for a per-run dir the policy grants already.
+    #[test]
+    fn grant_config_home_grants_the_home_the_run_runs_from() {
+        use crate::harness::Harness as _;
+        let claude = crate::harness::Claude::new();
+        let scratch = PathBuf::from("/tmp/scratch");
+        let granted = |config: ConfigStrategy| {
+            let mut options = IsolateOptions::new("/tmp/state");
+            options.grant_config_home(&claude, &config);
+            options.extra_rw
+        };
+
+        let home = PathBuf::from("/tmp/profile-home");
+        assert_eq!(
+            granted(ConfigStrategy::Home {
+                home: home.clone(),
+                scratch: scratch.clone(),
+            }),
+            vec![home]
+        );
+        let native = granted(ConfigStrategy::Native {
+            scratch: scratch.clone(),
+        });
+        assert!(!native.is_empty(), "Claude Code names its own config home");
+        assert_eq!(native, claude.default_homes());
+        assert!(granted(ConfigStrategy::Fixed(scratch)).is_empty());
+        assert!(granted(ConfigStrategy::Ephemeral).is_empty());
     }
 
     // The real home is the entire point of Inherit: a `~`-relative layer grant

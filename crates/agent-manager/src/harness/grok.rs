@@ -437,6 +437,15 @@ impl Harness for Grok {
         true
     }
 
+    /// `~/.grok`, holding `auth.json` and `user-settings.json`. grok relocates only `HOME`, and
+    /// whether it reads `~/.agents/skills` is unobserved (`G379`), so that is not named.
+    fn default_homes(&self) -> Vec<std::path::PathBuf> {
+        directories::BaseDirs::new()
+            .map(|b| b.home_dir().join(".grok"))
+            .into_iter()
+            .collect()
+    }
+
     /// A run against a profile's shared fake `HOME` (`D193`), whose `.grok/auth.json` holds the
     /// login grok refreshes itself — so nothing here writes it, and no login is seeded. Model,
     /// reasoning effort, permissions, resume and instructions (folded into `--prompt`) reach the

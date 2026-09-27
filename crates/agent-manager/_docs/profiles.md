@@ -235,7 +235,7 @@ Beyond `prepare_home`, the home takes only §14.2's fix-ups. No login is seeded
 leaves it false, and a caller that made the scratch for one run (the CLI) sets
 it — no cleanup reaches the home, which lives under the profiles root, where
 `sweep_old_runs` never looks. A harness that cannot share a home
-(`claude-code-acp`, every non-Claude harness today) is provisioned into
+(no built-in one) is provisioned into
 `scratch` as under `ConfigStrategy::Fixed`. The profile overlay (§9) is not
 applied under a shared home.
 
@@ -249,6 +249,16 @@ trust dialog; a terminal run shows Claude's own. An account's captured OAuth
 login is not used there (a `warn!` says so); API-key, auth-token and helper
 accounts still apply, by env and `--settings`. A harness that cannot share a
 home runs a `Native` spec in `scratch` as under `ConfigStrategy::Fixed`.
+
+A **confined** `Home` or `Native` run is granted the home it runs from
+read-write — `IsolateOptions::grant_config_home` adds the profile's home, or
+under `Native` the harness's `Harness::default_homes()` (Claude: `~/.claude`,
+or `$CLAUDE_CONFIG_DIR`, plus `~/.claude.json` when that is unset; Codex
+`$CODEX_HOME` or `~/.codex`; Copilot `$COPILOT_HOME` or `~/.copilot`; opencode
+its XDG data and config dirs; grok `~/.grok`). On macOS it also keeps the whole
+`integrations/keychain` layer: the item Claude keys to the home is the login
+itself. Only a per-run dir (`Ephemeral`, `Fixed`) of a `KEYCHAIN_DENIED`
+harness still has the keychain withheld (§8).
 
 `Harness::session_transcripts(config_home, cwd, session_id)` names ONE
 session's files in a shared or native home, where `transcripts` would answer
