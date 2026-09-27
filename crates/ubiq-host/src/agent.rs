@@ -3148,8 +3148,34 @@ mod tests {
         let root = tempfile::TempDir::new().unwrap();
         let store = FsProfileStore::new(root.path().join("definitions"));
         let scratch = root.path().join("runs").join("key");
+        // Every built-in harness shares a home, so the one that does not is a stand-in.
+        struct Unshared;
+        impl harness::Harness for Unshared {
+            fn id(&self) -> agent_manager::spec::HarnessId {
+                "unshared".to_string()
+            }
+            fn display_name(&self) -> &str {
+                "unshared"
+            }
+            fn command(&self) -> &str {
+                "unshared"
+            }
+            fn aliases(&self) -> &[&str] {
+                &[]
+            }
+            fn io_support(&self) -> harness::IoSupport {
+                harness::IoSupport::default()
+            }
+            fn provision(
+                &self,
+                _spec: &agent_manager::spec::RunSpec,
+                _dir: &Path,
+            ) -> Result<Launch> {
+                bail!("not launched in this test")
+            }
+        }
         let claude = harness::resolve("claude-code").unwrap();
-        let grok = harness::resolve("grok").unwrap();
+        let unshared = Unshared;
         let pick = |harness: &dyn harness::Harness,
                     definition: Option<&str>,
                     store: &dyn ProfileStore,
@@ -3180,8 +3206,8 @@ mod tests {
             ),
             fixed
         );
-        assert_eq!(pick(grok.as_ref(), Some("work"), &store, false), fixed);
-        assert_eq!(pick(grok.as_ref(), None, &store, false), fixed);
+        assert_eq!(pick(&unshared, Some("work"), &store, false), fixed);
+        assert_eq!(pick(&unshared, None, &store, false), fixed);
     }
 
     /// A run from a home the harness owns is never reconciled, harvested or scrubbed: its
@@ -3283,7 +3309,7 @@ mod tests {
                 .any(|(_, value)| value == &home.display().to_string()),
             "the login is pointed at the home"
         );
-        assert!(agents.begin_home_login("grok", "work", None).is_err());
+        assert!(agents.begin_home_login("no-such-harness", "work", None).is_err());
         assert!(
             agents
                 .begin_home_login("claude-code", "nobody", None)

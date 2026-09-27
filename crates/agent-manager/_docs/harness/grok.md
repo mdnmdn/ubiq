@@ -592,6 +592,36 @@ caller: `session/request_permission` is an agent-to-client request, and
 - **Model id format:** e.g. `grok-4.6`, `grok-4.5` (verified 2026-09-10).
 - **Default model:** `grok-4.6`, per `session/new`'s `models.currentModelId` (verified 2026-09-10).
 
+## Shared-home run
+
+Under `D193` a profile owns one persistent fake `HOME` for grok, since `HOME` is its only
+relocation lever. `Grok::shares_home` answers `true`, and `Grok::provision_home` builds the run:
+
+- **Home run** (`ConfigStrategy::Home`): `HOME=<home>`. The home holds `.grok/auth.json` and grok's
+  own state (`sessions/`, `config.toml`); grok refreshes the login there, and nothing is seeded,
+  captured or read back. The rest of the child's environment, `PATH` included, is inherited as on
+  the legacy path; only `HOME`-relative dotfiles (shell rc, `~/.gitconfig`, version-manager shims)
+  are lost.
+- **Per-run by argv and env**, as on the legacy path: model, reasoning effort, `--permission-mode`
+  or `--always-approve`, `--session`, instructions folded into `--prompt`, and `GROK_API_KEY` /
+  `GROK_BASE_URL` from the account.
+- **Profile-owned**, because grok has no per-run route for them: skills go into
+  `<home>/.agents/skills/<id>/`, each swapped in whole under a lock; MCP servers are merged by id
+  into `<home>/.grok/user-settings.json`'s `mcpServers`, a read-modify-write under a lock that keeps
+  every other key (an `apiKey` among them) and is renamed into place at `0600`. Two runs of one
+  profile that differ here overwrite each other, and a server or skill dropped from the profile
+  stays. `auth.json` is never written.
+- **Native run** (no profile): `HOME` is left alone and grok uses the user's own `~/.grok`. Skills
+  and MCP are dropped with a warning, so nothing is written into the user's config.
+- **Sign-in:** `Grok::login_home` launches bare `grok` with `HOME=<home>`. There is no login verb
+  (`G118`); the TUI is expected to start the OAuth flow on a first run that finds no `auth.json`.
+- **Transcripts:** `sessions/` exists, but no per-session file layout is documented, so
+  `session_transcripts` stays at the default `None`.
+
+Not verified against 1.0.13: that the official binary reads `.grok/user-settings.json` →
+`mcpServers` or `~/.agents/skills/` at all, and that the first-run TUI signs in under a relocated
+`HOME`. The session/log leak noted under "Format quirks / gotchas" applies here too.
+
 ## Format quirks / gotchas
 
 - **No config-dir override env var.** `~/.grok/` follows the OS home
