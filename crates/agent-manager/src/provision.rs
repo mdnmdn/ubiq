@@ -26,16 +26,18 @@ use crate::spec::{ConfigStrategy, RunSpec};
 #[derive(Debug)]
 pub struct Provisioned {
     /// The (created, populated) ephemeral config dir — under
-    /// [`ConfigStrategy::Home`], the run's scratch dir.
+    /// [`ConfigStrategy::Home`] and [`ConfigStrategy::Native`], the run's scratch dir.
     pub dir: PathBuf,
     /// How to launch the harness against `dir`.
     pub launch: Launch,
-    /// True if `dir` is a throwaway the runner should delete on exit
-    /// (`Ephemeral`); false if the user pinned it (`Fixed`, `Home`).
+    /// True if `dir` is a throwaway the runner removes on exit. `provision` sets it for
+    /// `Ephemeral` only; a caller that made a `Home` or `Native` scratch dir for one run sets
+    /// it too (`am`'s CLI does). It only ever removes `dir` — never [`Self::home`].
     pub ephemeral: bool,
     /// The profile's shared config home the harness runs from, when it runs
     /// from one ([`ConfigStrategy::Home`] with a harness that
-    /// [`Harness::shares_home`]). Never removed by the run. `None` elsewhere.
+    /// [`Harness::shares_home`]). Never removed by the run. `None` elsewhere,
+    /// a native run's own config included.
     pub home: Option<PathBuf>,
     /// Where this run's login was seeded *from*, when one was — the origin
     /// [`crate::harness::harvest_login`] writes a refreshed credential back to
@@ -92,14 +94,20 @@ impl Clone for Provisioned {
 /// other than `~/.config/agent-manager/templates`.
 ///
 /// [`ConfigStrategy::Home`] runs a harness that [`Harness::shares_home`] from
-/// the profile's shared home (see `provision_shared_home`); any other harness
-/// is provisioned into the run's scratch dir as under [`ConfigStrategy::Fixed`].
+/// the profile's shared home, and [`ConfigStrategy::Native`] from the harness's
+/// own default config (see `provision_shared_home`); any other harness is
+/// provisioned into the run's scratch dir as under [`ConfigStrategy::Fixed`].
 pub fn provision(
     harness: &dyn Harness,
     spec: &RunSpec,
     templates: &dyn TemplateStore,
 ) -> Result<Provisioned> {
-    if let ConfigStrategy::Home { home, scratch } = &spec.config {
+    let shared = match &spec.config {
+        ConfigStrategy::Home { home, scratch } => Some((Some(home.as_path()), scratch)),
+        ConfigStrategy::Native { scratch } => Some((None, scratch)),
+        ConfigStrategy::Fixed(_) | ConfigStrategy::Ephemeral => None,
+    };
+    if let Some((home, scratch)) = shared {
         if harness.shares_home() {
             return provision_shared_home(harness, spec, templates, home, scratch);
         }
@@ -111,7 +119,9 @@ pub fn provision(
     }
     let (dir, ephemeral) = match &spec.config {
         ConfigStrategy::Fixed(path) => (path.clone(), false),
-        ConfigStrategy::Home { scratch, .. } => (scratch.clone(), false),
+        ConfigStrategy::Home { scratch, .. } | ConfigStrategy::Native { scratch } => {
+            (scratch.clone(), false)
+        }
         ConfigStrategy::Ephemeral => (new_run_dir()?, true),
     };
 
@@ -167,34 +177,67 @@ pub fn provision(
     }
 }
 
-/// Provision a run against a profile's shared config `home` (`D193`).
+/// The marker [`prepare_home`] leaves in a home once its preference templates are applied.
+const HOME_MARKER: &str = ".am-home";
+
+/// Make `home`, a profile's shared config home for `harness` (`D193`), ready to run from or
+/// to log into: create it when missing, and apply the harness's preference templates **once**
+/// in its life. Once is tracked by a marker file in the home, written after the templates, under
+/// a lock beside it — so a home logged into before its first run still gets them, a home whose
+/// user has since changed a preference keeps the change, and two first runs racing on one home
+/// apply them once. Templates only add keys a file lacks, so a login already there is kept.
+pub fn prepare_home(
+    harness: &dyn Harness,
+    home: &Path,
+    templates: &dyn TemplateStore,
+) -> Result<()> {
+    std::fs::create_dir_all(home)
+        .with_context(|| format!("creating config home {}", home.display()))?;
+    let marker = home.join(HOME_MARKER);
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = crate::harness::lock_beside(&marker)?;
+    if marker.exists() {
+        return Ok(());
+    }
+    crate::harness::apply_templates(home, &harness.id(), &harness.templates(), templates)?;
+    std::fs::write(&marker, format!("{}\n", harness.id()))
+        .with_context(|| format!("writing {}", marker.display()))?;
+    info!(home = %home.display(), harness = %harness.id(), "prepared a config home");
+    Ok(())
+}
+
+/// Provision a run against a profile's shared config `home`, or with no home against the
+/// harness's own default config (`D193`).
 ///
 /// The harness writes every per-run file into `scratch` and passes it by flag
-/// ([`Harness::provision_home`]); `home` takes only the preference templates,
-/// once, when this run is the one that creates it, and whatever
-/// [`Harness::post_seed`] adds when missing. No login is seeded — the login
-/// lives in the home and the harness owns it — so `login_origin` is `None`.
-/// Neither dir is ephemeral: the scratch is kept for a resume, and the home is
-/// never removed by a run.
+/// ([`Harness::provision_home`]); `home` takes only what [`prepare_home`] puts there once and
+/// whatever [`Harness::post_seed`] adds when missing. A native run (`home` `None`) writes
+/// nothing outside `scratch` at all. No login is seeded — it lives in the home, or is the
+/// user's own — so `login_origin` is `None`. Neither dir is ephemeral here: the home is never
+/// removed by a run, and a caller that made the scratch for one run marks it.
 fn provision_shared_home(
     harness: &dyn Harness,
     spec: &RunSpec,
     templates: &dyn TemplateStore,
-    home: &Path,
+    home: Option<&Path>,
     scratch: &Path,
 ) -> Result<Provisioned> {
-    // Decided before anything creates it: a home already in use keeps what its
-    // runs and its login left there.
-    let new_home = std::fs::read_dir(home).map_or(true, |mut it| it.next().is_none());
-    std::fs::create_dir_all(home)
-        .with_context(|| format!("creating config home {}", home.display()))?;
+    if let Some(home) = home {
+        prepare_home(harness, home, templates)?;
+    } else if spec.account_login.is_some()
+        || spec.account.as_ref().is_some_and(|a| a.home.is_some())
+    {
+        warn!(
+            account = spec.account.as_ref().map(|a| a.id.as_str()).unwrap_or(""),
+            "the account's captured login is not used by a run with no profile; the harness's own login applies"
+        );
+    }
     std::fs::create_dir_all(scratch)
         .with_context(|| format!("creating scratch dir {}", scratch.display()))?;
     info!(
-        home = %home.display(),
+        home = %home.map_or_else(|| "(harness default)".into(), |h| h.display().to_string()),
         scratch = %scratch.display(),
         harness = %harness.id(),
-        new_home,
         "provisioned run against a shared home"
     );
     if !spec.config_bases.is_empty() {
@@ -215,15 +258,14 @@ fn provision_shared_home(
     let effective_spec = spec;
 
     let launch = harness.provision_home(effective_spec, home, scratch)?;
-    if new_home {
-        crate::harness::apply_templates(home, &harness.id(), &harness.templates(), templates)?;
+    if let Some(home) = home {
+        harness.post_seed(effective_spec, home)?;
     }
-    harness.post_seed(effective_spec, home)?;
     Ok(Provisioned {
         dir: scratch.to_path_buf(),
         launch,
         ephemeral: false,
-        home: Some(home.to_path_buf()),
+        home: home.map(Path::to_path_buf),
         login_origin: None,
         resume: spec.resume.clone(),
         model: spec.model.clone(),
@@ -402,8 +444,9 @@ fn account_login_origin(harness: &dyn Harness, spec: &RunSpec, dir: &Path) -> Op
 /// `~/.config/agent-manager/runs` ([`crate::settings::default_config_dir`]) —
 /// the same base dir as every other agent-manager store. `<run-id>` is
 /// `<unix-millis>-<pid>`, which is unique enough for a single-host tool
-/// without pulling in a UUID dependency.
-fn new_run_dir() -> Result<PathBuf> {
+/// without pulling in a UUID dependency. Also the CLI's throwaway scratch dir for a
+/// [`ConfigStrategy::Home`] or [`ConfigStrategy::Native`] run.
+pub(crate) fn new_run_dir() -> Result<PathBuf> {
     let base = std::env::var("AM_RUNS")
         .ok()
         .filter(|s| !s.is_empty())
@@ -667,7 +710,13 @@ mod tests {
         assert!(provisioned.login_origin.is_none());
         assert_eq!(
             names_in(&home),
-            vec![".claude.json", ".claude.json.am-lock", "settings.json"]
+            vec![
+                ".am-home",
+                ".am-home.am-lock",
+                ".claude.json",
+                ".claude.json.am-lock",
+                "settings.json"
+            ]
         );
         let home_settings: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(home.join("settings.json")).unwrap())
@@ -684,17 +733,17 @@ mod tests {
         assert_eq!(names_in(&scratch), vec!["mcp.json", "settings.json"]);
     }
 
-    /// A home somebody already logged into or ran from is not "new": its settings are its
-    /// user's, and the templates stay out of it.
+    /// A home logged into before its first run still gets the templates, which only fill the
+    /// keys it lacks: the login's own state is kept.
     #[test]
-    fn home_strategy_leaves_the_templates_out_of_a_home_in_use() {
+    fn home_strategy_templates_a_home_logged_into_before_its_first_run() {
         let root = tempfile::TempDir::new().unwrap();
         let home = root.path().join("home");
         let scratch = root.path().join("scratch");
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(
             home.join(".claude.json"),
-            r#"{"hasCompletedOnboarding":true}"#,
+            r#"{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"a@b"}}"#,
         )
         .unwrap();
 
@@ -707,11 +756,117 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!home.join("settings.json").exists());
+        assert!(home.join("settings.json").is_file());
         let claude_json: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(home.join(".claude.json")).unwrap())
                 .unwrap();
-        assert!(claude_json.get("claudeInChromeDefaultEnabled").is_none());
+        assert_eq!(
+            claude_json["claudeInChromeDefaultEnabled"].as_bool(),
+            Some(false)
+        );
+        assert_eq!(
+            claude_json["oauthAccount"]["emailAddress"].as_str(),
+            Some("a@b")
+        );
+    }
+
+    /// `prepare_home` applies the templates once in a home's life: after the marker, a
+    /// preference the user removed stays removed, however many runs follow.
+    #[test]
+    fn prepare_home_applies_the_templates_once_behind_its_marker() {
+        let root = tempfile::TempDir::new().unwrap();
+        let home = root.path().join("home");
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+
+        prepare_home(&Claude::new(), &home, &templates).unwrap();
+        assert!(home.join(HOME_MARKER).is_file());
+        assert!(home.join("settings.json").is_file());
+
+        std::fs::remove_file(home.join("settings.json")).unwrap();
+        prepare_home(&Claude::new(), &home, &templates).unwrap();
+        provision(
+            &Claude::new(),
+            &home_spec(&home, &root.path().join("scratch"), "/tmp/project"),
+            &templates,
+        )
+        .unwrap();
+        assert!(!home.join("settings.json").exists());
+    }
+
+    /// `D193`, no profile: the run uses the harness's own config in place. Every file it writes
+    /// is in its scratch dir, and the launch names no `CLAUDE_CONFIG_DIR` — nor strips one the
+    /// user exported, which is then their default.
+    #[test]
+    fn native_strategy_writes_nothing_outside_scratch_and_names_no_config_dir() {
+        let root = tempfile::TempDir::new().unwrap();
+        let scratch = root.path().join("scratch");
+        let account_home = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(account_home.path().join(".claude")).unwrap();
+        std::fs::write(
+            account_home.path().join(".claude/.credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
+        )
+        .unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("/tmp/project"));
+        spec.config = ConfigStrategy::Native {
+            scratch: scratch.clone(),
+        };
+        spec.mcps.push(http_mcp("docs", "https://example.com/mcp/"));
+        spec.policy = Some(crate::spec::Policy {
+            permission_mode: Some("plan".to_string()),
+            ..Default::default()
+        });
+        spec.account = Some(crate::account::Account {
+            id: "acct".to_string(),
+            home: Some(account_home.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&Claude::new(), &spec, &templates).unwrap();
+
+        assert_eq!(provisioned.dir, scratch);
+        assert!(provisioned.home.is_none());
+        assert!(provisioned.login_origin.is_none());
+        assert_eq!(names_in(root.path()), vec!["scratch"]);
+        assert_eq!(names_in(&scratch), vec!["mcp.json", "settings.json"]);
+        assert!(names_in(tmpl_dir.path()).is_empty(), "no template was read");
+        let launch = &provisioned.launch;
+        assert!(!launch.env.iter().any(|(k, _)| k == "CLAUDE_CONFIG_DIR"));
+        assert!(!launch.env_remove.iter().any(|k| k == "CLAUDE_CONFIG_DIR"));
+        assert!(launch.env_remove.iter().any(|k| k == "CLAUDECODE"));
+        assert!(
+            launch.args.windows(2).any(|w| w[0] == "--mcp-config"
+                && w[1] == scratch.join("mcp.json").display().to_string())
+        );
+    }
+
+    /// A harness that cannot share a home runs a native spec in its scratch dir exactly as a
+    /// fixed dir, and names that dir as its config.
+    #[test]
+    fn native_strategy_falls_back_to_scratch_for_a_harness_that_cannot_share() {
+        let root = tempfile::TempDir::new().unwrap();
+        let scratch = root.path().join("scratch");
+        let mut spec = RunSpec::new("claude-code-acp".to_string(), PathBuf::from("."));
+        spec.config = ConfigStrategy::Native {
+            scratch: scratch.clone(),
+        };
+
+        let tmpl_dir = tempfile::TempDir::new().unwrap();
+        let templates = crate::harness::FsTemplateStore::new(tmpl_dir.path());
+        let provisioned = provision(&Claude::new_acp(), &spec, &templates).unwrap();
+
+        assert_eq!(provisioned.dir, scratch);
+        assert!(provisioned.home.is_none());
+        assert!(
+            provisioned
+                .launch
+                .env
+                .iter()
+                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &scratch.display().to_string())
+        );
     }
 
     /// Two runs of one profile share its home but not their MCP servers: each run's URL (Ubiq's

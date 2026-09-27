@@ -12,6 +12,7 @@ and otherwise treats the first positional as a **harness name** to wrap:
 am <harness> [am-flags] [-- harness-args…]     # wrap & run a harness
 am catalog   <ls|import|show|path> …            # manage the catalog
 am account   <ls|use|import|login|dump|check|renew|rename|delete> …  # manage accounts + credentials
+am profile   <ls|show|use|create|login> …       # manage profiles
 am session   <ls|show|resume> …                 # manage session history  (ls/show/resume landed)
 am help | am --version
 ```
@@ -28,6 +29,17 @@ am claude --mcps postgres,figma --skills web-designer --safe
 am codex  --skills reviewer --account work
 am opencode --config ./run.toml
 ```
+
+**Where the harness's config comes from (`D193`).** A harness that runs from a
+config home (native Claude Code) runs from the resolved profile's home when
+there is one (`ConfigStrategy::Home`), and from the user's own default config,
+untouched, when there is none (`ConfigStrategy::Native`) — in both cases with a
+fresh run dir under `AM_RUNS` as scratch for the run's own files, removed on
+exit like an ephemeral dir (never the home). A profile store that names no
+home, a confined run (the sandbox grants the run dir, not a home) and every
+other harness keep the per-run ephemeral dir. `am` has no flag naming a config
+dir. A run with no profile ignores an account's captured OAuth login (with a
+warning); an API-key, auth-token or helper account still applies.
 
 ### The core run flags (Phase 1 unless noted)
 
@@ -322,6 +334,18 @@ minus the keychain (`macos/system-runtime` plus the OAuth browser layers on macO
 `windows/system-runtime` on Windows, `base` elsewhere);
 `--isolate=<name>` selects a named policy.
 
+### Signing a profile in with `am profile login`
+
+`am profile login <profile> [--harness <h>]` signs a profile's own config home in
+(`D193`) — the harness defaults to the profile's pin, else `claude-code`, and must
+be one that runs from a home. It prepares the home (`provision::prepare_home`:
+created, templates applied once) and runs the harness's own login into it
+interactively (`Harness::login_home`; Claude: `CLAUDE_CONFIG_DIR=<home> claude
+auth login`). Nothing is captured, verified or read back: the harness keeps the
+login in the home and refreshes it. The profile's first terminal run reaches the
+same place through Claude's own login screen, so this is the explicit route, not
+a required step.
+
 ## Session commands
 
 ```bash
@@ -345,9 +369,11 @@ dir plus the harness's native resume flag:
 Resume only works for sessions that captured a harness-native session id
 (structured runs) and whose config dir is still on disk (recorded sessions
 now retain their config dir rather than deleting it — see "Exit codes &
-passthrough fidelity" below). Per-run mcps/skills/hooks/account from the
-original run are **not** re-applied on resume — only the conversation itself,
-via the retained config dir.
+passthrough fidelity" below). A run from a profile home or the native config
+records that strategy in its session meta (`SessionMeta::config`) and resumes
+from the same home, with a fresh scratch, whether or not its run dir survived —
+the conversation is in the home. Per-run mcps/skills/hooks/account from the
+original run are **not** re-applied on resume — only the conversation itself.
 
 There's also a direct, from-scratch form: `am <harness> --resume <id>` takes
 a raw harness-native session id (no `am` session history lookup) and injects

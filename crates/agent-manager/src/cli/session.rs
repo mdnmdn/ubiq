@@ -144,8 +144,8 @@ fn cmd_show(id: &str) -> Result<()> {
 }
 
 /// `am session resume <id>`: reconstruct a [`RunSpec`] from the recorded
-/// session (see [`rebuild_spec`]), re-provision it (writes into the
-/// session's own retained config dir — see [`ConfigStrategy::Fixed`]), and
+/// session (see [`rebuild_spec`]), re-provision it (from the same config home,
+/// or into the session's own retained config dir — see [`ConfigStrategy::Fixed`]), and
 /// run it through the same provision-is-done tail `am <harness>` uses
 /// (`crate::cli::run::run_provisioned`), so a resumed run is recorded as its
 /// own new session just like any other.
@@ -193,9 +193,11 @@ fn cmd_resume(id: &str) -> Result<()> {
 }
 
 /// Reconstruct a minimal [`RunSpec`] to resume `meta`'s harness-native
-/// session: `config = Fixed(meta.config_dir)` (so re-provisioning writes
+/// session: `config` is the recorded [`ConfigStrategy::Home`] or
+/// [`ConfigStrategy::Native`] when the run had one (the conversation is in
+/// that home), else `Fixed(meta.config_dir)` (so re-provisioning writes
 /// into — and the launch points at — the dir the original run already
-/// populated), `resume = meta.harness_session_id` (the harness-native id the
+/// populated); `resume = meta.harness_session_id` (the harness-native id the
 /// provisioner turns into its native resume flag), and the same `io` mode
 /// the original run used.
 ///
@@ -216,16 +218,24 @@ fn rebuild_spec(meta: &SessionMeta) -> Result<RunSpec> {
         );
     };
 
-    if !meta.config_dir.exists() {
-        bail!(
-            "config dir for session '{}' was not retained ({}); cannot resume",
-            meta.id,
-            meta.config_dir.display()
-        );
-    }
-
     let mut spec = RunSpec::new(meta.harness.clone(), meta.cwd.clone());
-    spec.config = ConfigStrategy::Fixed(meta.config_dir.clone());
+    spec.config = match &meta.config {
+        // The conversation lives in the config home, so the run goes back to the same one; the
+        // scratch dir is provisioned afresh, whether or not the first run's was kept.
+        Some(config @ (ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. })) => {
+            config.clone()
+        }
+        _ => {
+            if !meta.config_dir.exists() {
+                bail!(
+                    "config dir for session '{}' was not retained ({}); cannot resume",
+                    meta.id,
+                    meta.config_dir.display()
+                );
+            }
+            ConfigStrategy::Fixed(meta.config_dir.clone())
+        }
+    };
     spec.io = match meta.io.as_str() {
         "structured" => IoModes::Structured,
         _ => IoModes::Passthrough,
@@ -318,6 +328,31 @@ mod tests {
             exit_code: Some(0),
             harness_session_id: Some("harness-abc".to_string()),
             login_home: None,
+            config: None,
+        }
+    }
+
+    /// A run from a config home resumes from the same one — a profile's, or the harness's own —
+    /// even when its scratch dir is gone, since the conversation is in the home.
+    #[test]
+    fn rebuild_spec_keeps_a_home_or_native_strategy() {
+        let gone = PathBuf::from("/definitely/does/not/exist/anywhere");
+        for config in [
+            ConfigStrategy::Home {
+                home: PathBuf::from("/profiles/work/home/claude-code"),
+                scratch: gone.clone(),
+            },
+            ConfigStrategy::Native {
+                scratch: gone.clone(),
+            },
+        ] {
+            let mut meta = sample_meta(gone.clone());
+            meta.config = Some(config.clone());
+
+            let spec = rebuild_spec(&meta).unwrap();
+
+            assert_eq!(spec.config, config);
+            assert_eq!(spec.resume.as_deref(), Some("harness-abc"));
         }
     }
 

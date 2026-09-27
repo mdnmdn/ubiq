@@ -629,6 +629,24 @@ fn newest_login<'a>(
         .or(stored)
 }
 
+/// Take an exclusive lock on `<file>.am-lock`, the sibling lock file every read-modify-write
+/// of a file in a shared config home goes through. Blocks until the lock is free; released when
+/// the returned handle drops.
+pub(crate) fn lock_beside(file: &Path) -> Result<std::fs::File> {
+    let mut name = file.as_os_str().to_owned();
+    name.push(".am-lock");
+    let lock_path = PathBuf::from(name);
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .with_context(|| format!("opening {}", lock_path.display()))?;
+    lock.lock()
+        .with_context(|| format!("locking {}", lock_path.display()))?;
+    Ok(lock)
+}
+
 /// Write a credential blob to `path`, creating parents, `0600` on unix.
 pub(crate) fn write_credential(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -897,9 +915,16 @@ pub trait Harness {
         false
     }
     /// Compose a run against the shared config `home`, writing nothing per-run into it: every
-    /// per-run file goes into `scratch` and reaches the harness by flag. Called only when
-    /// [`Self::shares_home`] answers `true`. Default: an error naming this harness.
-    fn provision_home(&self, _spec: &RunSpec, _home: &Path, _scratch: &Path) -> Result<Launch> {
+    /// per-run file goes into `scratch` and reaches the harness by flag. `None` is
+    /// [`crate::spec::ConfigStrategy::Native`]: the launch names no config home, so the harness
+    /// reads its own default. Called only when [`Self::shares_home`] answers `true`. Default:
+    /// an error naming this harness.
+    fn provision_home(
+        &self,
+        _spec: &RunSpec,
+        _home: Option<&Path>,
+        _scratch: &Path,
+    ) -> Result<Launch> {
         anyhow::bail!(
             "harness '{}' cannot run from a shared config home",
             self.id()
@@ -933,6 +958,19 @@ pub trait Harness {
     /// relocated config dir. Empty = this harness's record is not portable yet.
     fn transcripts(&self, _config_dir: &Path) -> Vec<PathBuf> {
         Vec::new()
+    }
+    /// The files the harness wrote for ONE of its sessions, `session_id`, run in `cwd` — the
+    /// accessor for a config home many runs share ([`crate::spec::ConfigStrategy::Home`]) or the
+    /// user's own ([`crate::spec::ConfigStrategy::Native`], `config_home` `None`), where
+    /// [`Self::transcripts`] would answer every run's. Only paths that exist are returned.
+    /// Default `None`: this harness cannot name one session's record.
+    fn session_transcripts(
+        &self,
+        _config_home: Option<&Path>,
+        _cwd: &Path,
+        _session_id: &str,
+    ) -> Option<Vec<PathBuf>> {
+        None
     }
     /// User-editable JSON template files merged into `dir` on every run —
     /// see [`apply_templates`]. Default: none. Overridden by harnesses with

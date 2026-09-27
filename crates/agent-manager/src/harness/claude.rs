@@ -83,12 +83,12 @@ impl Claude {
     }
 
     /// The launch shared by [`Harness::provision`] and [`Harness::provision_home`]:
-    /// `config_dir` becomes `CLAUDE_CONFIG_DIR`, and `config_args` — the flags naming this
-    /// run's own files — go right after the headless flags.
+    /// `config_dir` becomes `CLAUDE_CONFIG_DIR` (none is set for `None`, a native run), and
+    /// `config_args` — the flags naming this run's own files — go right after the headless flags.
     fn launch(
         &self,
         spec: &RunSpec,
-        config_dir: &Path,
+        config_dir: Option<&Path>,
         config_args: Vec<String>,
     ) -> Result<Launch> {
         // 5. Build the launch. Structured mode launches Claude Code headless
@@ -178,11 +178,15 @@ impl Claude {
             args.push(prompt.clone());
         }
 
-        // 6. Account: inject credential *references* into the child's env.
-        let mut env = vec![(
-            "CLAUDE_CONFIG_DIR".to_string(),
-            config_dir.display().to_string(),
-        )];
+        // 6. Account: inject credential *references* into the child's env. A native run sets no
+        // `CLAUDE_CONFIG_DIR` and does not strip an inherited one either: a user who exported it
+        // in their shell made that dir their default, and a bare `claude` typed there reads it —
+        // so does this run. The same holds nested inside another run, whose dir a `claude`
+        // typed in its shell would also read.
+        let mut env: Vec<(String, String)> = config_dir
+            .map(|dir| ("CLAUDE_CONFIG_DIR".to_string(), dir.display().to_string()))
+            .into_iter()
+            .collect();
         if let Some(account) = &spec.account {
             if let Some(base_url) = &account.base_url {
                 env.push(("ANTHROPIC_BASE_URL".to_string(), base_url.clone()));
@@ -340,6 +344,50 @@ impl Harness for Claude {
         found
     }
 
+    /// `<home>/projects/<slug(cwd)>/<session_id>.jsonl`, plus the `<session_id>/` directory
+    /// beside it when there is one (Claude Code keeps a session's subagent transcripts there).
+    /// With no `config_home` the root is Claude Code's own default, [`default_config_dir`]. The
+    /// slug is Claude Code's — every character but an ASCII letter or digit becomes `-` — and a
+    /// cwd it shortens past that (a very long path) is found by the id alone, under any project.
+    fn session_transcripts(
+        &self,
+        config_home: Option<&Path>,
+        cwd: &Path,
+        session_id: &str,
+    ) -> Option<Vec<std::path::PathBuf>> {
+        let Some(root) = config_home
+            .map(Path::to_path_buf)
+            .or_else(default_config_dir)
+        else {
+            return Some(Vec::new());
+        };
+        // A session id is one path segment; anything else names no session of ours.
+        if session_id.is_empty() || session_id.contains(['/', '\\']) || session_id == ".." {
+            return Some(Vec::new());
+        }
+        let projects = root.join("projects");
+        let file = format!("{session_id}.jsonl");
+        let slugged = projects.join(project_slug(cwd)).join(&file);
+        let jsonl = if slugged.is_file() {
+            Some(slugged)
+        } else {
+            std::fs::read_dir(&projects).ok().and_then(|dirs| {
+                dirs.flatten()
+                    .map(|project| project.path().join(&file))
+                    .find(|path| path.is_file())
+            })
+        };
+        let Some(jsonl) = jsonl else {
+            return Some(Vec::new());
+        };
+        let mut found = vec![jsonl.clone()];
+        let companion = jsonl.with_extension("");
+        if companion.is_dir() {
+            found.push(companion);
+        }
+        Some(found)
+    }
+
     /// Live model list via headless stream-json + the `/model` slash command.
     ///
     /// Claude Code has no dedicated list/JSON CLI. The preferred path (see
@@ -459,7 +507,7 @@ impl Harness for Claude {
             mcp_path.display().to_string(),
             "--strict-mcp-config".to_string(),
         ];
-        let launch = self.launch(spec, dir, config_args)?;
+        let launch = self.launch(spec, Some(dir), config_args)?;
 
         // 6b. Account login: reuse a prior `am account login`.
         if let Some(account) = &spec.account
@@ -508,8 +556,15 @@ impl Harness for Claude {
     ///   there is a skill. Claude Code names a plugin's skill `<plugin>:<skill>`, so a skill
     ///   here is `am:<id>` (layout checked against 2.1.283's `claude plugin details`).
     ///
-    /// No login is seeded: it lives in the home, put there by [`Harness::login_home`].
-    fn provision_home(&self, spec: &RunSpec, home: &Path, scratch: &Path) -> Result<Launch> {
+    /// No login is seeded: it lives in the home, put there by [`Harness::login_home`] or by the
+    /// first terminal run's own login screen. With no `home` (a native run) the launch sets no
+    /// `CLAUDE_CONFIG_DIR`, and Claude Code runs from the user's own config and login.
+    fn provision_home(
+        &self,
+        spec: &RunSpec,
+        home: Option<&Path>,
+        scratch: &Path,
+    ) -> Result<Launch> {
         let mcp_path = write_mcp_json(spec, scratch)?;
         let mut config_args = vec![
             "--mcp-config".to_string(),
@@ -798,6 +853,25 @@ fn read_ambient_keychain_login() -> Result<(Vec<u8>, Option<Vec<u8>>)> {
     Ok((creds, identity))
 }
 
+/// Claude Code's config dir when `am` names none: `$CLAUDE_CONFIG_DIR` when the environment
+/// sets it (a native run inherits it — see `Claude::launch`), else `~/.claude`.
+fn default_config_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().join(".claude")))
+}
+
+/// The directory name Claude Code files a cwd's transcripts under in `projects/`: the path
+/// with every character but an ASCII letter or digit replaced by `-` (`/tmp/a.b` →
+/// `-tmp-a-b`).
+fn project_slug(cwd: &Path) -> String {
+    cwd.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
 /// Render one [`McpServer`] into the JSON shape Claude Code's `--mcp-config`
 /// file expects, keyed by transport.
 fn server_json(server: &McpServer) -> Value {
@@ -925,18 +999,10 @@ fn write_settings_json(spec: &RunSpec, dir: &Path) -> Result<Option<std::path::P
 /// other key — the login's identity, other runs' projects, Claude Code's own state — is left
 /// as it was, and a document already holding both is not rewritten at all.
 fn post_seed_shared_home(spec: &RunSpec, home: &Path) -> Result<()> {
-    let lock_path = home.join(".claude.json.am-lock");
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&lock_path)
-        .with_context(|| format!("opening {}", lock_path.display()))?;
-    // Released when `lock` drops, at the end of this function.
-    lock.lock()
-        .with_context(|| format!("locking {}", lock_path.display()))?;
-
     let path = home.join(".claude.json");
+    // Released when `_lock` drops, at the end of this function.
+    let _lock = super::lock_beside(&path)?;
+
     let mut doc: Value = match std::fs::read_to_string(&path) {
         Ok(raw) => {
             serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?
@@ -1207,6 +1273,60 @@ mod tests {
             Claude::new().transcripts(config_dir.path()),
             vec![transcript]
         );
+    }
+
+    /// One session out of a shared home: its own transcript under the cwd's slug and the
+    /// companion dir beside it, never another run's; a slug Claude Code shortened is found by
+    /// the id alone; an unknown or unsafe id finds nothing.
+    #[test]
+    fn session_transcripts_names_one_sessions_files_in_a_shared_home() {
+        let home = tempfile::TempDir::new().unwrap();
+        let cwd = Path::new("/tmp/my.project");
+        assert_eq!(project_slug(cwd), "-tmp-my-project");
+        let project = home.path().join("projects/-tmp-my-project");
+        std::fs::create_dir_all(project.join("sess-a/subagents")).unwrap();
+        std::fs::write(project.join("sess-a.jsonl"), b"{}\n").unwrap();
+        std::fs::write(project.join("sess-b.jsonl"), b"{}\n").unwrap();
+        let elsewhere = home.path().join("projects/-shortened-1a2b");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("sess-c.jsonl"), b"{}\n").unwrap();
+
+        let claude = Claude::new();
+        let found = |id: &str| claude.session_transcripts(Some(home.path()), cwd, id);
+        assert_eq!(
+            found("sess-a"),
+            Some(vec![project.join("sess-a.jsonl"), project.join("sess-a")])
+        );
+        assert_eq!(found("sess-b"), Some(vec![project.join("sess-b.jsonl")]));
+        assert_eq!(found("sess-c"), Some(vec![elsewhere.join("sess-c.jsonl")]));
+        assert_eq!(found("sess-z"), Some(Vec::new()));
+        assert_eq!(found("../projects"), Some(Vec::new()));
+    }
+
+    /// A native run: no `CLAUDE_CONFIG_DIR` in the launch, every per-run file passed by flag
+    /// from scratch, and no trust or onboarding write anywhere.
+    #[test]
+    fn provision_home_without_a_home_names_no_config_dir() {
+        let scratch = tempfile::TempDir::new().unwrap();
+        let mut spec = RunSpec::new("claude-code".to_string(), PathBuf::from("/tmp/p"));
+        spec.config = crate::spec::ConfigStrategy::Native {
+            scratch: scratch.path().to_path_buf(),
+        };
+        spec.initial = Some(crate::spec::Instructions {
+            instructions: Some("BE BRIEF".to_string()),
+            prompt: None,
+        });
+
+        let launch = Claude::new()
+            .provision_home(&spec, None, scratch.path())
+            .unwrap();
+
+        assert!(launch.env.iter().all(|(k, _)| k != "CLAUDE_CONFIG_DIR"));
+        assert_eq!(
+            flag_value(&launch.args, "--append-system-prompt"),
+            Some("BE BRIEF")
+        );
+        assert!(!scratch.path().join(".claude.json").exists());
     }
 
     #[test]
@@ -1948,7 +2068,7 @@ mod tests {
         let spec = home_spec(home.path(), scratch.path(), &skill_path);
 
         let launch = Claude::new()
-            .provision_home(&spec, home.path(), scratch.path())
+            .provision_home(&spec, Some(home.path()), scratch.path())
             .unwrap();
 
         // Nothing per-run lands in the shared home.
@@ -2007,7 +2127,7 @@ mod tests {
         };
 
         let launch = Claude::new()
-            .provision_home(&spec, home.path(), scratch.path())
+            .provision_home(&spec, Some(home.path()), scratch.path())
             .unwrap();
 
         assert!(launch.args.contains(&"--mcp-config".to_string()));

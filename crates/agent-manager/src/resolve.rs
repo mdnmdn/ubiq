@@ -165,6 +165,27 @@ fn suggest(query: &str, available: &[String]) -> Vec<String> {
     matches
 }
 
+/// The profile a run of `flags` resolves: `--profile` > `[harness.<id>].profile` >
+/// `[defaults].profile` > the implicit `default` (used only if it actually exists, so a machine
+/// with no profiles still resolves). `None` is a run with no profile.
+pub fn effective_profile(
+    flags: &RunFlags,
+    settings: &Settings,
+    profiles: &dyn ProfileStore,
+) -> Result<Option<String>> {
+    let per_harness = settings.harness.get(&flags.harness);
+    match flags
+        .profile
+        .clone()
+        .or_else(|| per_harness.and_then(|h| h.profile.clone()))
+        .or_else(|| settings.defaults.profile.clone())
+    {
+        Some(name) => Ok(Some(name)),
+        // Implicit "default": used only if it actually exists.
+        None => Ok(profiles.profile("default")?.map(|_| "default".to_string())),
+    }
+}
+
 /// Resolve `flags` + `settings` + `registry` + `accounts` into a fully-resolved [`RunSpec`].
 pub fn resolve(
     flags: &RunFlags,
@@ -176,20 +197,8 @@ pub fn resolve(
     let per_harness = settings.harness.get(&flags.harness);
 
     // --- select + flatten the effective profile ---
-    // Which profile: --profile > [harness.<id>].profile > [defaults].profile >
-    // the implicit "default" (used only if it actually exists, so a machine
-    // with no profiles still resolves). `resolve_flattened` folds the
-    // `extends` inheritance chain root->leaf.
-    let profile_name: Option<String> = match flags
-        .profile
-        .clone()
-        .or_else(|| per_harness.and_then(|h| h.profile.clone()))
-        .or_else(|| settings.defaults.profile.clone())
-    {
-        Some(name) => Some(name),
-        // Implicit "default": used only if it actually exists.
-        None => profiles.profile("default")?.map(|_| "default".to_string()),
-    };
+    // `resolve_flattened` folds the `extends` inheritance chain root->leaf.
+    let profile_name = effective_profile(flags, settings, profiles)?;
     let profile: Option<Profile> = match &profile_name {
         Some(name) => Some(
             crate::profile::resolve_flattened(profiles, name)

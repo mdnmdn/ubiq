@@ -722,13 +722,28 @@ named `am:<skill>`. With `--system-prompt-snapshot` on (the default), a resumed
 conversation reuses the prompt recorded on its first request, whatever
 `--append-system-prompt` a later launch passes.
 
-The login is `claude auth login` with `CLAUDE_CONFIG_DIR=<home>` and the real
-`HOME` untouched (`Claude::login_home`); Claude Code keeps it in the home or in
-the Keychain item keyed by that home, and refreshes it itself. The home takes
-the theme/TUI templates when a run creates it, and `.claude.json`'s onboarding
-flag and cwd trust entry only when missing, under a lock
-(`profiles.md` §14.2). `claude-code-acp` takes no argv, so it cannot share a
-home and is provisioned into `scratch` as a fixed dir.
+The login is either the first terminal run's own login screen or `claude auth
+login` with `CLAUDE_CONFIG_DIR=<home>` and the real `HOME` untouched
+(`Claude::login_home`, `am profile login`); Claude Code keeps it in the home or
+in the Keychain item keyed by that home, and refreshes it itself. The home takes
+the theme/TUI templates once in its life (`provision::prepare_home`, behind a
+`.am-home` marker), and `.claude.json`'s onboarding flag and cwd trust entry
+only when missing, under a lock (`profiles.md` §14.2). `claude-code-acp` takes
+no argv, so it cannot share a home and is provisioned into `scratch` as a fixed
+dir.
+
+`ConfigStrategy::Native { scratch }` — a run with no profile — is the same
+launch with no home: no `CLAUDE_CONFIG_DIR` is set (an inherited one is kept, as
+the user's own default), so Claude Code runs from `~/.claude` and its own login,
+and nothing is written there — no template, no onboarding flag, no trust entry.
+`-p` skips the trust dialog; a terminal run shows Claude's own.
+
+One session's transcript in a shared or native home is
+`<home>/projects/<slug(cwd)>/<session-id>.jsonl`, the slug being the cwd with
+every character but an ASCII letter or digit turned into `-`; subagent
+transcripts sit in the `<session-id>/` dir beside it
+(`Claude::session_transcripts`, which falls back to finding the id under any
+project when Claude Code shortened a long cwd's slug).
 
 ### Tool approval in headless mode
 

@@ -68,6 +68,12 @@ pub struct SessionMeta {
     /// [`crate::harness::Harness::ambient_login`] is what finds it again.
     #[serde(default)]
     pub login_home: Option<PathBuf>,
+    /// The config strategy the run was provisioned under, when it ran from a config home — a
+    /// profile's ([`crate::spec::ConfigStrategy::Home`]) or the harness's own
+    /// ([`crate::spec::ConfigStrategy::Native`]) — so a resume runs from the same one, where
+    /// the conversation is. `None` for a run in its own dir, which [`Self::config_dir`] names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<crate::spec::ConfigStrategy>,
 }
 
 impl SessionMeta {
@@ -96,6 +102,7 @@ impl SessionMeta {
             exit_code: None,
             harness_session_id: None,
             login_home: None,
+            config: None,
         }
     }
 }
@@ -382,6 +389,7 @@ mod tests {
             exit_code: None,
             harness_session_id: None,
             login_home: None,
+            config: None,
         }
     }
 

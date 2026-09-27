@@ -137,6 +137,16 @@ pub enum ConfigStrategy {
         /// This run's own directory for per-run files.
         scratch: PathBuf,
     },
+    /// The harness's own default config, used in place and untouched, plus this run's scratch
+    /// dir: a run with no profile (`D193`). Nothing is copied and nothing is written into the
+    /// user's config — no templates, no onboarding or trust entry, no login — and the harness
+    /// is left to find its config where it would without `am`. `scratch` is as under
+    /// [`ConfigStrategy::Home`]; a harness that cannot share a home is provisioned into it as
+    /// [`ConfigStrategy::Fixed`] would.
+    Native {
+        /// This run's own directory for per-run files.
+        scratch: PathBuf,
+    },
 }
 
 /// Sandbox settings (isol8). Off by default.

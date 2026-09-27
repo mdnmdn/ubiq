@@ -4710,9 +4710,12 @@ questions, so a conversation going takes real user input with it.
 Every profile — Ubiq's agent definition, the library's `Profile` — owns one fixed, persistent config
 home per harness. Every instance started from that profile uses it directly as the harness's config
 home (`CLAUDE_CONFIG_DIR` for Claude Code), concurrently, read-write for all of them. The login is
-performed into that home — `CLAUDE_CONFIG_DIR=<home> claude auth login` — and from then on the
-harness owns refresh and cross-process sharing, exactly as it does for a user running several
-`claude` against `~/.claude`. Neither `crates/agent-manager` nor Ubiq reads, copies, captures or
+performed into that home, one of two ways — the profile's first terminal run shows the harness's own
+login screen, or an explicit sign-in runs `CLAUDE_CONFIG_DIR=<home> claude auth login` — and from
+then on the harness owns refresh and cross-process sharing, exactly as it does for a user running
+several `claude` against `~/.claude`. A run with **no profile** runs the harness against the user's
+own default config in place: no `CLAUDE_CONFIG_DIR` is set, nothing is copied, and nothing — no
+template, no onboarding or trust entry — is written into it. Neither `crates/agent-manager` nor Ubiq reads, copies, captures or
 roams a harness token: `seed_login`, `harvest_login`, `sync_login`, `newest_login`, `scrub_login`,
 `Agents::sync_logins`' thirty-second pass, `am account import`'s Keychain extraction and zero-config
 seeding through `Claude::ambient_login` all go. The home is chosen **per profile, not per account**:
@@ -4728,8 +4731,9 @@ flag: MCP by `--mcp-config <scratch>/mcp.json --strict-mcp-config` (Ubiq's own M
 run key, so a shared file would cross runs); permissions, hooks and `apiKeyHelper` by `--settings
 <scratch>/settings.json`, layered over the home's user settings, which hold nothing per-run; instructions by
 `--append-system-prompt`; skills and MCP-as-skill by a per-run `--plugin-dir`, so a skill is named
-`plugin:skill`; the profile overlay folded into those. Onboarding flags and theme and TUI templates
-are written into the home once, at creation. The one per-run write the home still takes is the cwd
+`plugin:skill`; the profile overlay folded into those. Theme and TUI templates are written into the
+home once in its life, behind a marker, so a home signed in before its first run still gets them;
+the onboarding flag is added only when missing. The one per-run write the home still takes is the cwd
 trust entry in `.claude.json` — only when missing, read-modify-write under a lock, never a
 whole-file replace. `ConfigStrategy` gains a variant separating home from scratch; `archive` filters
 transcripts by the run's harness session id, since `projects/` holds every run's; resume replays the

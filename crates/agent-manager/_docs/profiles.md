@@ -198,7 +198,9 @@ composition) → wrap for isolation (§8) → launch.** Consequences that fall o
 captures your existing login on first use**: seed `profiles/default/base/claude/`
 once from the real `~/.claude` (creds + `.claude.json`), persist it, reuse it
 forever after. First run bootstraps; every run after is logged-in with zero
-flags. Named profiles and per-run flags layer on top.
+flags. Named profiles and per-run flags layer on top. A harness that runs from
+a config home (Claude Code) takes none of this: with no profile it runs from
+the user's own config in place (§6.2, `ConfigStrategy::Native`).
 
 ### 6.2 The per-profile home (`D193`)
 
@@ -206,25 +208,53 @@ A profile also owns one **persistent harness config home** per harness,
 `profiles/<name>/home/<harness>/` beside `base/` — `ProfileStore::home(id,
 harness)` names it (`FsProfileStore::home_dir` computes it; the default and a
 store with no filesystem answer `None`; `ScopedProfileStore` answers from the
-root that holds the profile). The login is performed straight into it by
-`Harness::login_home` (Claude: `CLAUDE_CONFIG_DIR=<home> claude auth login`),
-and the harness owns it and its refresh from then on: nothing is captured,
-seeded, harvested or read back.
+root that holds the profile). The login lands in it one of two ways: the
+profile's first terminal run shows the harness's own login screen, or an
+explicit sign-in runs `Harness::login_home` (Claude: `CLAUDE_CONFIG_DIR=<home>
+claude auth login`; the CLI's `am profile login`). Either way the harness owns
+the login and its refresh from then on: nothing is captured, seeded, harvested
+or read back.
+
+`provision::prepare_home(harness, home, templates)` makes a home ready for
+either: it creates it and applies the §14.1 templates **once in its life**,
+tracked by a `.am-home` marker written after them under a lock on
+`.am-home.am-lock`. A home signed in before its first run still gets them, a
+preference its user later changes stays changed, and two first runs racing on
+one home apply them once. Templates only fill missing keys, so a login already
+there is kept.
 
 A run from it carries `ConfigStrategy::Home { home, scratch }`. `provision()`
-hands a harness whose `Harness::shares_home()` is true to
-`Harness::provision_home(spec, home, scratch)`, which writes every per-run file
-into `scratch` and passes it by flag, so concurrent runs of one profile share
-the home read-write and never see each other's MCP servers, settings or skills
-(Claude's composition: `_docs/harness/claude-code.md`). The home takes only the
-§14.1 templates, when this run creates it, and §14.2's fix-ups. No login is
-seeded (`Provisioned::login_origin` is `None`), `Provisioned::dir` is the
-scratch, `Provisioned::home` the home, and neither is `ephemeral`, so no
-cleanup reaches the home — which lives under the profiles root, where
+calls `prepare_home`, then hands a harness whose `Harness::shares_home()` is
+true to `Harness::provision_home(spec, Some(home), scratch)`, which writes
+every per-run file into `scratch` and passes it by flag, so concurrent runs of
+one profile share the home read-write and never see each other's MCP servers,
+settings or skills (Claude's composition: `_docs/harness/claude-code.md`).
+Beyond `prepare_home`, the home takes only §14.2's fix-ups. No login is seeded
+(`Provisioned::login_origin` is `None`), `Provisioned::dir` is the scratch and
+`Provisioned::home` the home. `ephemeral` only ever removes `dir`: `provision`
+leaves it false, and a caller that made the scratch for one run (the CLI) sets
+it — no cleanup reaches the home, which lives under the profiles root, where
 `sweep_old_runs` never looks. A harness that cannot share a home
 (`claude-code-acp`, every non-Claude harness today) is provisioned into
 `scratch` as under `ConfigStrategy::Fixed`. The profile overlay (§9) is not
 applied under a shared home.
+
+A run with **no profile** carries `ConfigStrategy::Native { scratch }`: the
+harness's own default config, in place. A sharing harness gets
+`provision_home(spec, None, scratch)` — for Claude, no `CLAUDE_CONFIG_DIR` in
+the launch, and an inherited one is left alone, since a user who exported it
+made it their default — and nothing is written outside `scratch`: no
+templates, no onboarding or trust entry, no login. Print mode skips Claude's
+trust dialog; a terminal run shows Claude's own. An account's captured OAuth
+login is not used there (a `warn!` says so); API-key, auth-token and helper
+accounts still apply, by env and `--settings`. A harness that cannot share a
+home runs a `Native` spec in `scratch` as under `ConfigStrategy::Fixed`.
+
+`Harness::session_transcripts(config_home, cwd, session_id)` names ONE
+session's files in a shared or native home, where `transcripts` would answer
+every run's (Claude: `projects/<slug(cwd)>/<id>.jsonl` plus the `<id>/` dir
+beside it; `None` for the home is `$CLAUDE_CONFIG_DIR`, else `~/.claude`).
+Default `None`: the harness cannot name one session.
 
 ## 7. Resolution & the default question
 
@@ -484,10 +514,10 @@ global profiles come first.
 - `src/harness/{claude,codex,opencode,grok,copilot}.rs` — per-harness `config_anchor()` + seed-not-relocate provision.
 - `src/harness/claude.rs` — `templates()` (theme/tui/Claude-in-Chrome defaults) + `post_seed()` (onboarding/trust-dialog fix-ups); see §14.
 - `src/profile.rs` — profile store + `extends` inheritance + `ProfileStore::home` (§6.2).
-- `src/harness/mod.rs` — `Harness::shares_home` / `provision_home` / `login_home` (§6.2).
-- `src/resolve.rs` — profile selection + 4-layer `pick` + `config_bases`.
+- `src/harness/mod.rs` — `Harness::shares_home` / `provision_home` / `login_home` / `session_transcripts` (§6.2).
+- `src/resolve.rs` — profile selection (`effective_profile`) + 4-layer `pick` + `config_bases`.
 - `src/overlay.rs` — `materialize` + `sweep_old_runs`.
-- `src/provision.rs` — overlay materialize + GC hook + `seed_zero_config_login` + `apply_templates` + `post_seed` (§14).
+- `src/provision.rs` — overlay materialize + GC hook + `seed_zero_config_login` + `apply_templates` + `post_seed` (§14); `prepare_home` and the `Home` / `Native` path (§6.2).
 - `src/cli/{profile,agent}.rs` + `src/cli/mod.rs` — `am profile` / `am agent`.
 - `src/settings.rs` — `[defaults].profile`.
 
