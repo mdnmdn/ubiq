@@ -100,13 +100,14 @@ isol8 = { git = "https://github.com/mdnmdn/isol8", rev = "14a87bd50e8062442859fd
 # Windows, Secret Service (zbus) on Linux.
 keyring = { version = "4", optional = true }
 
-# Sync HTTP client. Core (not feature-gated): `quota::claude` asks the provider
-# how much of the plan is left, and that question has to be answerable in lib
-# mode, where the embedder builds this crate with `--no-default-features`.
-ureq = { version = "2", default-features = false, features = ["tls", "json"] }
-
 [dev-dependencies]
 tempfile = "3"
+
+# Sync HTTP client, tests only: the in-process MCP server's own test posts to
+# the loopback endpoint it hosts. Nothing in the library reaches the network on
+# its own any more — `quota::claude` asks Claude Code's `/usage` and lets the
+# harness make the call with the login it already holds.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 # Job objects for a confine run (`isolate::confine_entrypoint`): the host kills that
 # process, and the job is what takes the harness underneath down with it. A safe

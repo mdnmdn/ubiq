@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-27
-verified: 2026-09-26
+updated: 2026-09-28
+verified: 2026-09-28
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -759,7 +759,7 @@ stand as written for Unix.
 
 `pty::spawn` starts a program with no arguments that `shells::is_shell()` recognises the way a
 terminal application starts a shell: argv0 prefixed with `-` on Unix, which is what makes
-`.zprofile` and `.agent definition` run. The menu on the new-pane control offers a fixed candidate list the
+`.zprofile` and `.profile` run. The menu on the new-pane control offers a fixed candidate list the
 host checked for existence — never a path the interface guessed at, and never an open field.
 
 **Why:** a non-login shell reads `.zshrc` and not the agent definition that put Homebrew, `pyenv` and the
@@ -3486,6 +3486,18 @@ a mode settles, and an unattached tab goes in only where the right region is ope
 which is `toggle_region`'s own gesture. It used to go in wherever that region happened to be open,
 which is how Git's blob acquired a chat tab beside its changes panel.
 
+**Dropping a placement is not closing a tab** (`T-52`). Keeping the entity and dropping only the
+placement is the move both rules above make, and the library reports a panel an arrangement was
+installed over exactly as it reports one whose × was clicked. `WorkbenchPanel::on_removed` told the
+two apart by the panel being put back in the same edit — which is the one thing these two branches
+deliberately do not do — so the sweep read itself as the user closing the tab: `closed_chat_tab`
+took the tab out of `OpenProject::chats` *and* the panel out of `AppState::panels`, and the mode's
+own blob was left naming a leaf nothing could rebuild. Returning found the region empty, collapsed
+it, and wrote the collapsed arrangement back — the write-back this card exists to stop, reached
+through a third door. The leftover loop says so itself, through `WorkbenchPanel::displace`: a
+flag set only for a panel that was on screen, and taken rather than read, so it can answer for the
+removal it was set for and no other.
+
 **A mission panel is placed by the user, never by a switch** (`T-256`), for the chat tab's reason
 one kind along. Both of its shapes are `Free` and both are opened by a gesture — the side panel into
 the right region, the full view into the centre — so one left open in Agents mode was a leftover in
@@ -4712,6 +4724,10 @@ questions, so a conversation going takes real user input with it.
 
 ### D193 — A harness login lives in one fixed home per profile, and nothing captures or roams a token
 
+**Rekeyed by `D194`.** What changed is the key alone — the home is the account's, not the
+profile's — and everything below about *not* capturing, copying, seeding or roaming a token still
+holds, unamended. Read this entry for the reasoning and `D194` for the key.
+
 Every profile — Ubiq's agent definition, the library's `Profile` — owns one fixed, persistent config
 home per harness. Every instance started from that profile uses it directly as the harness's config
 home (`CLAUDE_CONFIG_DIR` for Claude Code), concurrently, read-write for all of them. The login is
@@ -4769,9 +4785,93 @@ skills, `AGENTS.md` and hooks, grok's skills, and everything but MCP for `claude
 per-profile, and two agents from one profile cannot differ there. Skills gain a `plugin:` prefix.
 The shared `.claude.json` takes a concurrent per-run write, safe only by the lock and the
 only-when-missing rule. The home's `projects/` grows with every run of the profile, and `D97`'s fork
-by directory copy stops carrying the conversation. And one token read is kept knowingly:
-`quota::claude` reads `accessToken` from the login to ask for usage (`G380`). The gaps between this
-and the tree are `G377` to `G381`.
+by directory copy stops carrying the conversation. The rule about the token itself is kept without
+an exception: nothing in the library opens a login to use it, the quota probe included (`D195`).
+The gaps between this and the tree are `G377` to `G379` and `G381`.
+
+### D194 — The fixed home is the account's, not the profile's
+
+One fixed, persistent config home per **account** and harness. Every run that names that account —
+from any agent definition, inside any project, concurrently — uses it directly as the harness's
+config home (`CLAUDE_CONFIG_DIR` for Claude Code), read-write for all of them, and the harness owns
+refresh and cross-process sharing exactly as it does for a user running several `claude` against
+`~/.claude`. A run that names **no** account runs against the user's own config in place: no lever
+is set, nothing is copied, and nothing is written into it — `D193`'s rule for a run with no profile,
+unchanged.
+
+Everything `D193` decided about the token itself stands: nothing captures, copies, seeds, harvests
+or roams a login, and the library exposes the home through an accessor so Ubiq still names no
+harness path. Only the key changed.
+
+**A login is performed into the home two ways.** Settings → Harnesses signs an account in — the
+harness's own login, unmodified, in a pane of its own, confined exactly as a run from that home is
+and granted the home read-write, which is what makes the login land where the runs look for it. Or
+the first terminal run of an agent as that account shows the harness's own login screen and reaches
+the same place. A sign-in that ends cleanly is also **how an account is made**: an identity with no
+record on disk gets a bare one, so it appears in the list and a definition can name it. Signing one
+harness out removes that one home; renaming an account moves its homes; deleting one deletes them.
+
+**Why.** The per-profile key made the login a property of the recipe rather than of the identity,
+and the ordinary case — a coordinator and a worker as the same person — became two independent OAuth
+grants and two interactive logins to keep alive, for one account. "As whom" is the account's
+question: quota is already keyed by account, and a definition names an account precisely so that
+runs of it are that person. The per-profile key also removed the only way the interface had of
+making an account at all, which left a fresh installation with no route from the Settings panel to a
+signed-in harness.
+
+What `D193`'s key bought — no two homes ever holding one refresh token — is kept where it matters:
+two homes are two accounts, one account's home is one grant, and the sharing inside it is the
+harness's own, which is the one thing the harness does correctly.
+
+**Cost.** Two definitions on one account cannot differ in anything the home owns — Codex's skills,
+`AGENTS.md` and hooks, grok's skills, everything but MCP for `claude-code-acp` (`G378`, `G379`) —
+already true per profile and now true at a coarser grain, where the colliding writers are two
+definitions of one identity rather than two runs of one definition (`G383`). The home's `projects/` grows with every
+run of the account rather than of the definition. On macOS the Keychain item is keyed by a hash of
+the home's path, so renaming an account moves the home and orphans that item, and the harness signs
+in again. And one read of a login is left, knowingly: the `Check` status line reads the expiry a
+login states about itself, in place, in the account's home (`G382`) — kept until something can
+answer "is this still good" without reading the login. It is the only one. The quota probe was the
+other, and `D195` removed it.
+
+### D195 — The quota probe asks the harness, not the provider
+
+Claude's remaining-quota reading is taken by running Claude Code headless and sending it `/usage`.
+`harness::claude::usage_via_jsonl` spawns `claude -p --output-format stream-json --input-format
+stream-json --verbose --permission-mode bypassPermissions --max-turns 1`, writes one NDJSON user
+line whose text is `/usage`, sets `CLAUDE_CONFIG_DIR` to the account's home when the run names one
+(`D194`), and reads the `usage_report` object Claude Code attaches to its answer. It is the same
+zero-token synthetic slash path the `/model` discovery probe takes, so the reading bills
+nothing. What it replaces is a `GET https://api.anthropic.com/api/oauth/usage` with an
+`anthropic-beta: oauth-2025-04-20` header and the account's `accessToken`, read out of the home's
+`.credentials.json` or the macOS Keychain item keyed by that home.
+
+**The harness is the source, so nothing here reads a credential and nothing here reaches the
+network.** Claude Code holds the login and asks the provider on its own account; `ureq` is a
+dev-dependency, and the library makes no request of its own. That is what makes `D193`'s rule
+about the token unconditional rather than nearly so — the one exception it recorded was this probe,
+and it is gone. It also makes how Claude Code stores or renews a login none of this crate's
+business: a move to a new store, a new item name or a new grant type is no longer a change here.
+
+**The gauges are whatever the report names.** `quota::claude` reads `rate_limits.limits` — a list
+of `{kind, group, percent, resets_at, scope, …}` — and maps `session` to "Session", `weekly_all`
+to "Week" and `weekly_scoped` to "Week (<model>)"; a `kind` it does not know draws under its own
+name, so a window Claude adds later needs no change. `extra_usage` draws an "Extra usage" gauge
+only when it is enabled and states a utilization. `plan` is `None` for Claude, because `/usage`
+names no subscription tier and `D110`'s rule is that an unstated fact is not drawn as a guess.
+
+**`QuotaSource::Probe` keeps its name and means one thing less.** It said "askable with no process
+at all"; it says "askable with no *conversation* running — a short-lived process of its own, or one
+request". `probeable()` and every consumer are unchanged, because what the caller needed to know
+was always whether it could ask before it had a turn to ask on.
+
+**Cost.** A reading is a process launch rather than an HTTP round trip, so it is slower and it
+depends on `claude` being on the machine and signed in — the condition every other thing the
+harness answers rests on too. The host runs every account's probe on one thread, so the probe
+kills the child after `USAGE_TIMEOUT`, 60 seconds; an unbounded wait would stall every other
+account's reading. And the shape of `usage_report` is Claude Code's, not a published contract, so it can
+change under us — `tests/fixtures/claude-usage-report.json` is a recorded answer with parse tests
+over it, which is what turns that into a failing test rather than a blank panel.
 
 ## Related docs
 

@@ -514,11 +514,11 @@ the best available store per platform.
 
 ### Credential capture & reuse (agent-manager)
 
-None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
-config home, signed in there by `am profile login` or the first run, and refreshes it itself
-(`D193` in Ubiq's `_docs/tech/decisions.md`).
+None. `am` neither captures, copies nor roams this login: the harness keeps it in the account's
+own config home, signed in there by `am account login` or the first run, and refreshes it itself
+(`D194` in Ubiq's `_docs/tech/decisions.md`).
 
-### Shared-home run (agent-manager, `D193`)
+### Shared-home run (agent-manager, `D194`)
 
 > How `Codex::provision_home` runs from a profile's persistent `CODEX_HOME` instead of a per-run
 > copy. Both `codex` and `codex-acp` share a home; the differences for `codex-acp` are its own

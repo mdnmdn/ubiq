@@ -62,8 +62,17 @@ pub const TITLEBAR_HEIGHT: f32 = 34.0;
 pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 pub const RAIL_WIDTH: f32 = 56.0;
 
+/// The thin half of a split button: a chevron flush against the control it belongs to, half the
+/// 30px an icon button keeps. Deliberately not square — that is the whole affordance, and the one
+/// place a chrome control is allowed to break the rule.
+pub const SPLIT_CHEVRON_WIDTH: f32 = 15.0;
+
 pub fn titlebar_height() -> f32 {
     scaled(TITLEBAR_HEIGHT)
+}
+
+pub fn split_chevron_width() -> f32 {
+    scaled(SPLIT_CHEVRON_WIDTH)
 }
 
 pub fn status_bar_height() -> f32 {

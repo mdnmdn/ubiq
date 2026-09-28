@@ -7,16 +7,17 @@
 //! relocated with the `CLAUDE_CONFIG_DIR` environment variable. Provisioning
 //! points that variable at the ephemeral dir instead of the real `~/.claude`,
 //! so skills/settings/memory are injected without ever touching the user's
-//! real config. Under a profile's shared home (`D193`) the variable names that
+//! real config. Under the account's shared home (`D194`) the variable names that
 //! home instead, and every per-run file reaches the run by flag from its
 //! scratch dir — see [`Claude::provision_home`](super::Harness::provision_home).
 //! `claude-code-acp`, which takes no flag, gets its MCP servers over the wire
 //! and the rest as profile-owned content in the home.
 
 use std::collections::BTreeMap;
-use std::io::Write;
-use std::path::Path;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
@@ -221,7 +222,7 @@ impl Claude {
         })
     }
 
-    /// A structured `claude-code-acp` run against a shared `CLAUDE_CONFIG_DIR` (`D193`). The
+    /// A structured `claude-code-acp` run against a shared `CLAUDE_CONFIG_DIR` (`D194`). The
     /// adapter takes no argv, so the one per-run route is the wire: its MCP servers travel in
     /// `session/new`'s `mcpServers` ([`crate::provision::Provisioned::mcp_servers`], sent by
     /// [`Harness::structured_bridge`]), and nothing goes into `scratch`. Settings, instructions
@@ -303,10 +304,10 @@ impl Harness for Claude {
             structured: true,
             multi_turn: true,
             acp: self.acp,
-            // A stored OAuth token and one request, so the answer needs no process at all —
-            // which is exactly the case that matters, since the question is asked *before* a
-            // long run. The live bridge's own `RateLimitUpdate` is a fresher reading of the
-            // same fact, not a second one.
+            // One headless `/usage` run, so the answer needs no *conversation* — which is
+            // exactly the case that matters, since the question is asked *before* a long run.
+            // The live bridge's own `RateLimitUpdate` is a fresher reading of the same fact,
+            // not a second one.
             quota: super::QuotaSource::Probe,
         }
     }
@@ -339,7 +340,7 @@ impl Harness for Claude {
     /// while the real `HOME` stays intact. See `_docs/profiles.md` §5. With the
     /// keychain reachable, Claude Code keeps the login in a generic password
     /// named `Claude Code-credentials-<sha256($CLAUDE_CONFIG_DIR)[:8]>`, stable
-    /// for a profile's fixed home (`D193`); otherwise in `.credentials.json`.
+    /// for the account's fixed home (`D194`); otherwise in `.credentials.json`.
     fn config_anchor(&self) -> ConfigAnchor {
         ConfigAnchor {
             levers: vec![("CLAUDE_CONFIG_DIR".to_string(), Relocate::All)],
@@ -552,7 +553,7 @@ impl Harness for Claude {
         homes
     }
 
-    /// A run against a profile's shared `CLAUDE_CONFIG_DIR` (`D193`). Nothing per-run is written
+    /// A run against a profile's shared `CLAUDE_CONFIG_DIR` (`D194`). Nothing per-run is written
     /// into `home`; each per-run file goes into `scratch` and is passed by flag:
     ///
     /// - MCP → `<scratch>/mcp.json`, `--mcp-config … --strict-mcp-config`, as a fixed dir has it;
@@ -625,10 +626,18 @@ impl Harness for Claude {
         })
     }
 
-    /// One request against the OAuth token Claude Code keeps in `home`. Unofficial and
-    /// rate-limited, so a failure is a sentence the user reads and never a number —
-    /// `crate::quota::claude` owns the endpoint, the header and the defensive parse, because
-    /// naming a provider's URL is this library's job and nobody else's.
+    /// Claude Code keeps its OAuth login in `.credentials.json` at the root of
+    /// `CLAUDE_CONFIG_DIR` — the home itself, since that lever relocates the whole tree. On
+    /// macOS it may use the Keychain (`Claude Code-credentials`) instead, so an absent file is
+    /// not proof of no login.
+    fn login_files(&self) -> Vec<PathBuf> {
+        vec![PathBuf::from(".credentials.json")]
+    }
+
+    /// One headless `/usage` run against the login Claude Code keeps in `home`. Claude Code
+    /// asks the provider, so nothing here reads a token — `crate::quota::claude` owns the
+    /// defensive parse of the `usage_report` it answers with, and
+    /// [`usage_via_jsonl`] owns the spawn.
     fn quota(&self, account: &str, home: Option<&Path>) -> Result<crate::quota::QuotaSnapshot> {
         crate::quota::claude(account, &self.id(), home)
     }
@@ -870,7 +879,7 @@ fn settings_keys(spec: &RunSpec) -> serde_json::Map<String, Value> {
 }
 
 /// Set the keys `am` owns ([`settings_keys`]) in a shared home's `settings.json`, as
-/// profile-owned content for `claude-code-acp` (`D193`, `G378`): a read-modify-write under a
+/// profile-owned content for `claude-code-acp` (`D194`, `G378`): a read-modify-write under a
 /// lock beside the file, every other key — the theme and TUI templates, the user's own — left
 /// as it was, and nothing rewritten when the values are already there. A key the spec does not
 /// set is left alone too, so a policy dropped from the profile stays until changed by hand.
@@ -907,7 +916,7 @@ fn write_profile_settings(spec: &RunSpec, home: &Path) -> Result<()> {
 }
 
 /// Put `text` into a shared home's `CLAUDE.md` as `am`'s managed block, as profile-owned
-/// instructions for `claude-code-acp` (`D193`, `G378`): the block replaced in place when the
+/// instructions for `claude-code-acp` (`D194`, `G378`): the block replaced in place when the
 /// file has one, appended when it has not, and the rest of the file — the user's own memory —
 /// kept byte for byte. A read-modify-write under a lock beside the file.
 fn write_profile_instructions(path: &Path, text: &str) -> Result<()> {
@@ -1094,6 +1103,132 @@ fn discover_models_via_jsonl() -> Result<Vec<ModelInfo>> {
         bail!("could not parse any model ids from claude /model output: {text:?}");
     }
     Ok(models)
+}
+
+/// How long a `/usage` probe may take before it is killed.
+///
+/// Generous, because it pays for a cold `claude` start and one round trip to the provider — but
+/// bounded, because the host runs every account's probe on one thread (`ubiq-host`'s
+/// `quota::Quota`) and a `claude` that never exits would otherwise stall every reading behind it.
+const USAGE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Ask Claude Code itself how much of the plan is left: headless stream-json, one NDJSON user
+/// line whose text is `/usage`, and the `usage_report` object it attaches to the answer.
+///
+/// **Nothing here reads a credential.** Claude Code holds the login — in `home`'s
+/// `.credentials.json`, in the macOS Keychain item keyed by that home, in whatever it moves to
+/// next — and asks the provider on its own account. That is the whole point of going through the
+/// CLI rather than the endpoint: the one place a token was read is gone, and a change to how
+/// Claude Code stores a login is no longer a change here.
+///
+/// `home` is the account's shared config home (`D194`), named the way every other launch names
+/// it — `CLAUDE_CONFIG_DIR`, which relocates the whole tree including the login. `None` means the
+/// default home, and then nothing is set rather than an inherited value stripped, matching
+/// [`Claude::launch`](super::Harness::launch).
+///
+/// The slash command is answered locally and bills nothing (`message.model: "<synthetic>"`), the
+/// same zero-token path [`discover_models_via_jsonl`] uses for `/model`.
+pub(crate) fn usage_via_jsonl(home: Option<&Path>) -> Result<Value> {
+    let mut cmd = Command::new("claude");
+    cmd.args([
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--input-format",
+        "stream-json",
+        // stream-json output requires --verbose when using -p.
+        "--verbose",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "1",
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    // Nothing reads stderr, and an undrained pipe is what deadlocks a child that fills it.
+    .stderr(Stdio::null());
+    for key in ENV_HYGIENE {
+        cmd.env_remove(key);
+    }
+    if let Some(home) = home {
+        cmd.env("CLAUDE_CONFIG_DIR", home);
+    }
+    cmd.current_dir(super::shared::probe_cwd());
+    #[cfg(windows)]
+    super::shared::no_window(&mut cmd);
+    let mut child = cmd
+        .spawn()
+        .context("spawning `claude` to read the usage limits (is the claude binary on PATH?)")?;
+
+    let prompt = json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "/usage"}],
+        },
+    });
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("claude stdin not piped"))?;
+        writeln!(stdin, "{prompt}").context("writing the /usage prompt to claude stdin")?;
+        // Drop closes stdin so Claude sees EOF after the single user line.
+    }
+
+    // stdout is drained on its own thread while the deadline is watched here: `wait_with_output`
+    // would be simpler, but it has no deadline, and see `USAGE_TIMEOUT`.
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("claude stdout not piped"))?;
+    let reader = std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = stdout.read_to_string(&mut buf);
+        buf
+    });
+    let deadline = Instant::now() + USAGE_TIMEOUT;
+    let status = loop {
+        match child
+            .try_wait()
+            .context("waiting for the claude /usage probe")?
+        {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!(
+                    "Claude Code did not answer /usage within {}s",
+                    USAGE_TIMEOUT.as_secs()
+                );
+            }
+            None => std::thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    let stdout = reader.join().unwrap_or_default();
+    if !status.success() {
+        bail!("Claude Code could not answer /usage ({status}); signing in again may fix it");
+    }
+
+    extract_usage_report(&stdout).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Claude Code answered /usage with no usage report (got {} bytes of stream-json)",
+            stdout.len()
+        )
+    })
+}
+
+/// Pull the `usage_report` object out of a stream-json NDJSON stdout.
+///
+/// Read defensively, like every other answer from a CLI whose output is not a published
+/// contract: an event that carries no `rate_limits` is not the one being looked for, so the scan
+/// keeps going rather than returning a report with nothing in it.
+fn extract_usage_report(stdout: &str) -> Option<Value> {
+    stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        .find(|event| event.pointer("/usage_report/rate_limits").is_some())
+        .and_then(|event| event.get("usage_report").cloned())
 }
 
 /// Pull free-text from a stream-json NDJSON stdout for a synthetic slash

@@ -3,10 +3,10 @@ id: wip-claude-auth-problem
 title: Claude credentials vanish from a run directory
 kind: wip
 status: current
-summary: "A Claude Code pane loses its OAuth login after some hours. Root cause found: Claude Code stores the login in a macOS keychain item keyed by sha256 of $CLAUDE_CONFIG_DIR whenever the keychain is reachable, migrating the seeded .credentials.json into it and deleting the file, so every refresh is invisible to agent-manager and a per-run config dir makes the key per-run. The fix denies a Claude run the login keychain. This is the full record — evidence, the discarded hypotheses, the fix as landed, and what to check if it is not resolutive."
-read_when: you are working on Claude account credentials, the per-run config directory, the isol8 policy a run gets, or the token write-back
-updated: 2026-09-14
-verified: 2026-09-24
+summary: "Closed by D193 and D194. A Claude Code pane loses its OAuth login after some hours. Root cause found and still true: Claude Code stores the login in a macOS keychain item keyed by sha256 of $CLAUDE_CONFIG_DIR whenever the keychain is reachable, migrating the seeded .credentials.json into it and deleting the file, so a per-run config dir makes the key per-run. Both the seeding and the per-run dir are gone, and with them the fix. The record is kept for the evidence and the discarded hypotheses."
+read_when: you are asked why Claude Code's login seemed to vanish, or you are tempted to seed, capture or reconcile a harness token again
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/run.rs, crates/agent-manager/src/overlay.rs, crates/agent-manager/src/account.rs, crates/agent-manager/src/credentials/mod.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs]
 depends_on: [tech-agent-manager, feat-logs]
 ---
@@ -17,6 +17,17 @@ A long-lived Claude Code pane stops working after some hours, and
 `$CLAUDE_CONFIG_DIR/.credentials.json` is gone. **This document is written to be read cold.**
 Everything needed to resume the investigation is here; nothing depends on remembering a
 conversation. Append to the watch log at the end, do not rewrite the sections above it.
+
+> **Closed 2026-09-27 by `D193` and `D194`.** The investigation below is complete and its root
+> cause stands — Claude Code keys its Keychain item by `sha256($CLAUDE_CONFIG_DIR)` — but the tree
+> it was fixed in is gone, and so is the fix. A config dir is no longer per run: it is one fixed
+> home per account and harness (`D194`), stable for the life of the account, so the Keychain key is
+> stable too and the login stays where the harness put it. Nothing is seeded into a run and nothing
+> is captured out of one, so there is no write-back to lose (`D193`), and `D126`'s denial of the
+> login keychain goes with it — a confined run and a confined sign-in are both granted the home
+> read-write and that one Keychain item. Read `D193` and `D194` in
+> [`../tech/decisions.md`](../tech/decisions.md). §1-§21 are kept for the falsified hypotheses,
+> which are what stop the next reader repeating them.
 
 > **Resolved 2026-09-14 — read §16, §19, §20, §21 first.** Claude Code has two credential
 > backends. Whenever `~/Library/Keychains` is reachable it keeps the login in

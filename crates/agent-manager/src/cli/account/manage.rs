@@ -75,3 +75,103 @@ pub(super) fn cmd_use(id: &str) -> Result<()> {
     println!("default account set to '{id}' ({})", config_path.display());
     Ok(())
 }
+
+/// Resolve `harness_key` to a harness that can run from a shared config home, and this
+/// account's home for it. The path is computed, not created.
+fn account_home(
+    id: &str,
+    harness_key: &str,
+) -> Result<(Box<dyn crate::harness::Harness>, PathBuf)> {
+    let harness = crate::harness::resolve(harness_key).ok_or_else(|| {
+        anyhow!(
+            "unknown harness '{harness_key}'; known: {}",
+            crate::harness::known_ids().join(", ")
+        )
+    })?;
+    if !harness.shares_home() {
+        bail!(
+            "harness '{}' does not run from a shared config home",
+            harness.id()
+        );
+    }
+    let home = build_homes()?
+        .home(id, &harness.id())
+        .ok_or_else(|| anyhow!("'{id}' is not a usable account name"))?;
+    Ok((harness, home))
+}
+
+/// `am account login <id> --harness <h>`: prepare this account's config home for the harness
+/// ([`crate::provision::prepare_home`]) and run the harness's own login into it, interactively
+/// (`D194`).
+///
+/// The login stays in the home, where every run naming this account reads it and the harness
+/// refreshes it; nothing is captured or read back. A first terminal run's own login screen
+/// reaches the same place, so this is the explicit route, not the only one.
+pub(super) fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
+    let (harness, home) = account_home(id, harness_key)?;
+    let templates = crate::harness::FsTemplateStore::from_default();
+    crate::provision::prepare_home(harness.as_ref(), &home, &templates)?;
+    let launch = harness.login_home(&home)?;
+    let provisioned = crate::provision::Provisioned {
+        dir: home.clone(),
+        launch,
+        ephemeral: false, // the account's home — never removed by a run
+        home: Some(home.clone()),
+        resume: None,
+        model: None,
+        mcp_servers: Vec::new(),
+        #[cfg(feature = "inproc-mcp")]
+        inproc_servers: Vec::new(),
+    };
+    let cwd = std::env::current_dir()?;
+    let code = crate::run::run(&provisioned, &cwd, true, None)?;
+    if code != 0 {
+        bail!("harness login exited with code {code}");
+    }
+    println!(
+        "account '{id}' signed in to {} ({})",
+        harness.id(),
+        home.display()
+    );
+    Ok(())
+}
+
+/// `am account logout <id> --harness <h>`: remove this account's config home for that harness —
+/// the sign-out. Removing one that is not there is success.
+pub(super) fn cmd_logout(id: &str, harness_key: &str) -> Result<()> {
+    let (harness, home) = account_home(id, harness_key)?;
+    build_homes()?.forget(id, &harness.id())?;
+    println!(
+        "account '{id}' signed out of {} ({})",
+        harness.id(),
+        home.display()
+    );
+    Ok(())
+}
+
+/// `am account check <id> --harness <h>`: say whether that home holds a login and what expiry
+/// the login states about itself ([`crate::home::login_validity`]).
+///
+/// An absent file is not proof of no login — on macOS a harness may keep it in the Keychain.
+pub(super) fn cmd_check(id: &str, harness_key: &str) -> Result<()> {
+    let (harness, home) = account_home(id, harness_key)?;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let line = match crate::home::login_validity(harness.as_ref(), &home, now_ms) {
+        crate::Validity::Valid { expires_at_ms } => match expires_at_ms {
+            Some(ms) => format!("signed in (expires at {ms} epoch-ms)"),
+            None => "signed in".to_string(),
+        },
+        crate::Validity::Expired { expires_at_ms } => {
+            format!("expired (at {expires_at_ms} epoch-ms)")
+        }
+        crate::Validity::Unknown => "signed in (the login states no expiry)".to_string(),
+        crate::Validity::Empty => {
+            "no login file here (the harness may keep one in the OS keychain)".to_string()
+        }
+    };
+    println!("{id} / {}: {line}  ({})", harness.id(), home.display());
+    Ok(())
+}

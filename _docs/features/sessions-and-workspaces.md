@@ -70,7 +70,7 @@ for that run, and the harness is launched against it with the environment the li
 what that composition reads and writes is the harness library's, in
 [`../tech/agent-manager.md`](../tech/agent-manager.md). The directory belongs to
 the pane: it is named by it, and it is deleted when the pane closes. No login is in it — a
-harness keeps its login in a definition's own home (`D193`). One left behind by a process that was killed is deleted at the next start.
+harness keeps its login in the account's own home (`D194`). One left behind by a process that was killed is deleted at the next start.
 
 **The record outlives the run directory.** A run is recorded under Ubiq's own root the moment it is
 composed — one directory per run, named by the pane's or the agent's id, holding the metadata of

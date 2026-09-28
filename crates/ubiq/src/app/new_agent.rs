@@ -183,11 +183,19 @@ impl AppState {
             .agent_types
             .iter()
             .find(|it| it.id == last.agent_type && it.available && it.chat)?;
-        // The target list offers bare harnesses, so a remembered start opens on its harness row.
-        Some(Target::Harness {
-            agent_type: harness.id.clone(),
-            account: None,
-        })
+        // The target list offers pairs, so a remembered start with no identity has no row to open
+        // on — and picking it would leave the identity row, which is not drawn for a pair, as the
+        // one answer the form could no longer show.
+        let account = last.account.clone()?;
+        self.workbench
+            .settings
+            .accounts_for(&harness.id)
+            .iter()
+            .any(|it| it.id == account)
+            .then(|| Target::Harness {
+                agent_type: harness.id.clone(),
+                account: Some(account),
+            })
     }
 
     /// Do what the form is for: start the conversation, or write the definition down.

@@ -3,13 +3,14 @@
 //!
 //! `AddProject` is not exercised here: it runs `AppState::choose_folder`, which opens the
 //! platform's own folder dialog through `cx.prompt_for_paths` — nothing this suite can answer
-//! headless. `new_project_rows`'s order covers it as plain data instead.
+//! headless. The menu's own row order covers it instead.
 
 use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
-use ubiq::state::{NewProjectRow, WorkbenchState};
+use ubiq::ext::ids;
+use ubiq::ui::menus;
 use ubiq_proto::bus;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
@@ -63,6 +64,17 @@ impl Fixture {
             .expect("the window is open");
         cx.run_until_parked();
     }
+
+    /// The menu's rows as the reader sees them: the one list the overlay draws and a pick
+    /// resolves against, labels and all.
+    fn rows(&self, cx: &mut TestAppContext) -> Vec<String> {
+        self.state.read_with(cx, |state, cx| {
+            menus::entries(ids::MENU_NEW_PROJECT, state, cx)
+                .iter()
+                .map(|entry| entry.label.to_string())
+                .collect()
+        })
+    }
 }
 
 fn a_project() -> ProjectSnapshot {
@@ -93,17 +105,17 @@ fn a_project() -> ProjectSnapshot {
     }
 }
 
-/// `new_project_rows` is pure state — a fixed order, the same one the project picker's foot
-/// draws its three ways in.
-#[test]
-fn the_menu_offers_add_clone_and_remote_in_the_pickers_own_order() {
-    let workbench = WorkbenchState::default();
+/// A fixed order, the same one the project picker's foot draws its three ways in — read off the
+/// one list the menu draws and a pick resolves against (`ui::menus::new_project`).
+#[gpui::test]
+fn the_menu_offers_add_clone_and_remote_in_the_pickers_own_order(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
     assert_eq!(
-        workbench.new_project_rows(),
+        fixture.rows(cx),
         vec![
-            NewProjectRow::AddProject,
-            NewProjectRow::CloneProject,
-            NewProjectRow::RemoteProject,
+            "Add a project\u{2026}".to_string(),
+            "Clone a project\u{2026}".to_string(),
+            "Open remote project\u{2026}".to_string(),
         ]
     );
 }

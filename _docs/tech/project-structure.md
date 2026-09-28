@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-26
-verified: 2026-09-26
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -68,8 +68,9 @@ project's own folder — `D30` — with one exception the person creating a proj
 │                            version string — a cache, not a catalogue: safe to delete
 ├── catalog/                 the harness catalogue the library resolves against
 ├── harness-templates/       template workspaces a run is provisioned from
-├── accounts/                one identity per folder: its record, and its HOME-shaped login capture
-├── agent definitions/                agent definitions — the composition a conversation starts from
+├── accounts/                one identity per record: credential references, never material
+├── harness-homes/<account>/<harness>/   the config home that identity's harness signs into (D194)
+├── agent-definitions/       agent definitions — the composition a conversation starts from
 ├── runs/                    one live workspace per run, deleted when the run ends
 ├── sessions/                what a finished run left behind: its meta, and the harness's transcript
 ├── isol8/                   the sandbox's own state, managed homes among it
@@ -100,7 +101,7 @@ A tree written in the flat shape that came before — `tasks.toml`, `tasks-archi
 `ui/`, `index/`, `kb/` all at the top — is moved into this one by `project_dir::migrate`, once, as
 the catalogue loads and again the first time a store asks for a directory the catalogue did not
 name. Each entry is a rename within the directory, so it is never in neither place; an entry whose
-new name is already taken is left where it is and logged rather than merged over, which is what
+new name is taken is left where it is and logged rather than merged over, which is what
 makes a half-migrated directory open rather than lose anything.
 
 `cache/` holds answers the host could re-derive by asking a harness again, never anything the user

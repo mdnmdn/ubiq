@@ -74,8 +74,8 @@
 //!   its value via `=`, not a separate argv token — it's an optional-value
 //!   option).
 //!
-//! **Shared home (`D193`).** Under `ConfigStrategy::Home` a run uses the
-//! profile's `COPILOT_HOME` directly ([`Harness::provision_home`]): per-run
+//! **Shared home (`D194`).** Under `ConfigStrategy::Home` a run uses the
+//! account's `COPILOT_HOME` directly ([`Harness::provision_home`]): per-run
 //! MCP and instructions reach it by flag and env from the run's scratch dir,
 //! skills are profile-owned, and the login is the home's own, made by
 //! [`Harness::login_home`] and refreshed by Copilot. `--additional-mcp-config`
@@ -284,7 +284,7 @@ impl Harness for Copilot {
         Ok(launch)
     }
 
-    /// Copilot CLI runs from a profile's shared `COPILOT_HOME` (`D193`).
+    /// Copilot CLI runs from the account's shared `COPILOT_HOME` (`D194`).
     fn shares_home(&self) -> bool {
         true
     }
@@ -296,7 +296,7 @@ impl Harness for Copilot {
             .collect()
     }
 
-    /// A run against a profile's shared `COPILOT_HOME` (`D193`), whose `config.json` holds the
+    /// A run against the account's shared `COPILOT_HOME` (`D194`), whose `config.json` holds the
     /// login and the user's settings together — so nothing here writes it, and nothing per-run
     /// lands in `home`:
     ///
@@ -359,6 +359,13 @@ impl Harness for Copilot {
             env_remove: Vec::new(),
             env_clear: false,
         })
+    }
+
+    /// Copilot CLI keeps its GitHub token in `config.json` at the root of `COPILOT_HOME` — the
+    /// home itself. On macOS a harness may keep the login in the OS keychain instead, so an
+    /// absent file is not proof of no login.
+    fn login_files(&self) -> Vec<PathBuf> {
+        vec![PathBuf::from("config.json")]
     }
 
     fn structured_bridge(
@@ -462,7 +469,7 @@ fn write_skills(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
 }
 
 /// Put the run's skills into a shared home's `skills/` — profile-owned, since Copilot CLI has
-/// no per-run skill route (`D193`). Each skill is staged whole in `skills/.am-stage/` and
+/// no per-run skill route (`D194`). Each skill is staged whole in `skills/.am-stage/` and
 /// renamed into place, so a concurrent run never reads half a skill folder; staging and swap
 /// happen under a lock beside `skills/`, so two runs of one profile never interleave. A skill
 /// the home already holds under that id is replaced; one the run does not name is left alone.

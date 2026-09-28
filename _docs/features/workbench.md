@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-09-27
-verified: 2026-09-26
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+updated: 2026-09-28
+verified: 2026-09-28
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -121,6 +121,13 @@ nobody asked for and then writing it down as Git's. **A mission panel answers th
 (`T-256`): both of its shapes are opened by a gesture and belong to the mode the gesture was made
 in, so a mission left open in Agents is not carried into Tasks' right region or Git's centre, where
 it would arrive as the displayed tab and cover the chat or the columns the user had left there.
+**Dropping the placement is not closing the tab** (`T-52`): both of those panels keep their entity
+and lose only their place in the tree, and a panel the dock has just taken out reads to
+`on_removed` exactly as one whose × was clicked — so the sweep was closing the chat tab it meant to
+set aside, taking it out of the project and out of the window's panel map, and the mode's own blob
+was then naming a leaf nothing could rebuild. Returning to the mode found the region empty and
+collapsed it. The sweep says which of the two it is instead (`WorkbenchPanel::displace`), so a mode
+comes back with the chat tab it was left with, and the same tab rather than a fresh one.
 
 **A side panel defaults to the dock, and only a panel meaningful in exactly one mode stays out of
 it.** `PanelKind` (`state/dock.rs`) is the shared, draggable, per-window arrangement — `Terminal`,
@@ -260,8 +267,8 @@ Forget actions on each row, in a list that scrolls rather than a menu that keeps
 beside the project picker and runs Add directly — the same folder chooser the picker's own Add row
 raises. A chevron beside it opens a small menu offering the identical three rows, Add, Clone and
 Open remote project, worded exactly as the picker's foot words them; picking one runs the same
-`AppState` method the picker's row would. `WorkbenchState::new_project_rows` is the one list both
-read, the rule every position-matched menu in this window follows.
+`AppState` method the picker's row would — `ui::menus::new_project` is the one list the menu draws
+and a pick resolves against.
 
 **Every row is one line, and the name has the right of way.** The name takes the space it can; the
 path, when it has a parent, is the last component with a leading `.../`, and it is printed **only
@@ -675,7 +682,13 @@ the titlebar's own play triangle and chevron are where a project's tools are rea
 project the same reason the pane region's own `+` does: **New agent** (`IconName::Bot`) raises the
 New agent form directly, picking the chat strip as its surface in IDE mode and the agents screen
 everywhere else — the same aim the `+` menu's own first row makes, with that menu's first stage
-skipped; **New terminal** (`IconName::SquareTerminal`) opens the bottom region if it is shut and
+skipped. **A narrow chevron is flush against it**, half the width of a control and with no gap, so
+the pair reads as one split button rather than two: it opens the **hidden agents** — every agent
+pane a tab's `Hide` took off the screen, harness still running behind nothing. Each row names the
+harness and the tab's title, and picking one *reattaches* that pane: the panel comes back over the
+screen the harness never stopped writing to, and nothing is respawned. With nothing hidden the menu
+says so in one disabled row rather than opening empty. Then **New terminal**
+(`IconName::SquareTerminal`) opens the bottom region if it is shut and
 spawns exactly one pane, never two, whether the region was already open or had to be opened onto
 panes still in it. Then the notification bell, then a chevron gathering four controls reached
 occasionally rather than every session — Connect to a remote host, Explore the project in browser
@@ -937,10 +950,12 @@ something that no longer exists. Nothing here imports or exports a theme file, f
 appearance, or is per project — a theme is a property of the person, like every other appearance
 value (`D151`, `D152`).
 
-**The Harnesses section lists every harness the host offers, then the accounts.** One row per
-harness — its display name, drawn faint when its binary is not on this machine, a **Command** button
-and, for a harness that speaks ACP, the icon that opens what it said it can do. A harness login is
-not here: it belongs to an agent definition, which signs itself in (`D193`, below).
+**The Harnesses section is two lists: the tools this machine has, then the identities they are
+signed in as.** Under `Installed`, one row per harness the host offers — its display name, drawn
+faint when its binary is not on this machine, a **Command** button and, for a harness that speaks
+ACP, the icon that opens what it said it can do. Under `Identities`, **Add harness** and one block
+per account. The split is the section's whole claim: a harness is a tool, an account is who it runs
+as, and a login belongs to the second (`D194`).
 
 **Command opens the login modal on its one question: the command Ubiq starts that harness with.**
 The picker lists every harness, installed or not, because an override is what makes an absent one
@@ -962,6 +977,39 @@ word is "Delete" rather than "Forget". A refusal — a rename to a name already 
 host would not do — is not a dialog of its own: it surfaces as a dismissible banner over the
 section, in the same warning shape a project's own row confirmations use, and clears itself the
 next time the user opens a dialog, starts a sign-in, or dismisses it by hand.
+
+**Under the name, one row per harness the account is signed in to.** The harness's name, the status
+of its login when it has been asked for, and three controls: **Check**, which asks the host what the
+login says about its own expiry and writes the answer in place — `valid`, `expires`, `expired`,
+`unknown`, `missing` — without a modal; **Re-authenticate**, the same login flow with the harness
+and the identity already known, so it skips the picker; and **Sign out**, which removes that one
+harness's home behind a confirmation and leaves the account and its other harnesses alone. The rows
+come from `AccountInfo::logged_in`, which carries harness ids and nothing else — not the home, not
+the login, not a path. A `Check` that reads `missing` on a machine where the harness is plainly
+signed in is the honest answer to a question asked of the wrong store: on macOS the login may be in
+the keychain, which this reading cannot see (`G382`).
+
+**Under each harness row whose provider states a limit sits how much of that login's plan is
+left.** One row per window the provider states — its own label, a meter, the reading, and when it
+resets — then the plan where the provider names one, how old the reading is, and a Refresh. Claude
+names none: `/usage` states windows and no subscription tier, so that line is simply absent rather
+than filled with a guess. It is keyed by the harness and the
+account, and read from the login the harness keeps in that account's home (`G380`). This is the
+surface that answers when nothing is running, which is the moment the question is actually asked, so
+it is filled by asking the host for every signed-in pair on the page when the accounts arrive;
+Refresh is the one control that makes the provider be asked again, because asking costs a harness
+process of its own.
+
+**Add harness is the way in, and the way an account is made.** The modal asks two things — which
+harness, from the ones that run from a config home of their own (`AgentTypeInfo::shares_home`), and
+what to call the identity — and then runs the harness's **own** login, unmodified, in a terminal
+pane inside the modal: the same screen the tool shows in a shell, sandboxed exactly as a run of it
+would be and able to write the home it is signing in. A URL the login prints is offered as a button
+under the pane, because clicking beats selecting text in a terminal; the bytes themselves are
+untouched, so the real output is still there to read. Closing the modal abandons the login and
+costs nothing. A login that exits cleanly *is* the account: the host writes the record, the list
+grows it, and every agent that names that identity from then on starts signed in. Ubiq captures,
+copies and stores nothing — the login is the harness's, in the harness's own home (`D194`).
 
 **Signing in is a modal with a real terminal in it, because the harness runs its own login.** The
 harness's own flow runs in a pane inside the modal, browser round-trip included. That running step
@@ -1007,27 +1055,14 @@ read in full from. Each row carries `Clone` and `Edit`, and `+ Add agent` opens 
 Nothing here deletes or renames — see [`../backlog.md`](../backlog.md) — so correcting an agent definition
 means saving over its id, and typing a different name saves a second agent definition beside the first.
 
-**A definition whose harness keeps its login in the definition's own home signs itself in.** For
-a harness whose `AgentTypeInfo::shares_home` is true — Claude Code — and installed here, the row
-carries `Sign in` before `Clone`: it raises the login modal, and the harness's own login runs
-straight into that definition's home (`D193`), where every run of the definition reads it and the
-harness refreshes it. Nothing is captured and no account appears; the modal says the definition is
-signed in when the login exits cleanly, and not signed in otherwise. It is the explicit route — the
-definition's first terminal run shows the harness's own login and lands in the same home. A
-project's own definition signs in its project-scoped home.
-
-**Under each definition whose provider states a limit sits how much of that login's plan is
-left.** One row per window the provider states — its own label, a meter, the reading, and when it
-resets — then the plan, how old the reading is, and a Refresh. It is keyed by the harness and the
-account the definition names, empty for none, and read from the login the harness keeps in that
-definition's home (`G380`). This is the surface that answers when nothing is running, which is the
-moment the question is actually asked, so it is filled by asking the host for every definition on
-the page when the definitions arrive; Refresh is the one control that makes the provider be asked
-again, because the endpoint behind Claude's is unofficial and rate-limits.
+**Nothing here signs in.** A login is the account's (`D194`), not the definition's, so the way in
+is the identity a definition names — under Harnesses, above. Two definitions naming one account
+start signed in as the same person, off one login, which is the ordinary case a definition is
+written for.
 
 **Every negative answer is drawn in place rather than hidden.** A provider that answered and named
 no limit says so. A failure is drawn as the sentence the host sent, since it is written to be read —
-"Claude is rate-limiting the usage endpoint" is not the same news as "this harness does not report
+"Claude Code did not answer /usage within 60s" is not the same news as "this harness does not report
 usage limits". A reading with no denominator anybody stated — a count against no ceiling, a credit
 balance — draws the figure and **no meter**, on the rule the Control screen already keeps: a meter
 needs a denominator, and a fraction of an invented total is drawn with more confidence than the
@@ -1698,15 +1733,33 @@ that mode's blob to `pending_layout` and, for a mode never arranged, its `defaul
 `pending_regions` and Git's own panels to `queue_git_furniture()` — a project left in Git opens on
 Git's screen, side panels and all, rather than wearing the IDE's regions.
 
-**The titlebar's overflow chevron is one more menu on the same `MenuId` device.**
-`WorkbenchState::overflow_menu` holds the point it opened at, exactly as the new-pane and tab menus
-hold theirs, and `WorkbenchState::overflow_rows(has_project, capture_offered)` builds the row list a
-project and a capture backend narrow: remote host, then web export and capture when a project is
-open (capture only when the platform offers it too), then settings always. `AppState::open_overflow_menu`,
-`pick_overflow_menu` and `dismiss_overflow_menu` are the same three-verb shape every menu in the
-window follows, and `crate::ui::overflow_menu` paints it from the window root beside the tab menu
-and the new-pane menu, for the same reason: the titlebar draws the chevron but does not own what the
-menu offers.
+**The bar menus are one list each, and the list carries its own actions** (`T-267`).
+`crate::ui::menus` is that list: a `MenuEntry` holds a label, an icon, a tooltip, an `enabled` and
+a `visible` predicate, an optional nested `submenu`, and the closure the row runs. One walker —
+`menus::overlay` — turns a `Vec<MenuEntry>` into the `kit::context_menu` every one of them is
+drawn with, and `menus::flatten` is what an index means: invisible rows dropped, a submenu
+laid out under its parent. Reordering a menu is moving a line and removing a row is commenting one
+out; nothing reads a row list twice, so a row and the action behind it cannot drift apart.
+
+Each of the five — new-project, run-tool, new-pane, overflow and hidden-agents — keeps the same
+three-verb shape (`AppState::open_*_menu`, `pick_*_menu`, `dismiss_*_menu`) and the same
+`MenuId` + anchor-point device: `WorkbenchState::overflow_menu`, `run_tool_menu`, `new_pane_menu`,
+`new_project_menu` and `hidden_agents_menu` each hold the point their chevron opened at. Every
+`pick_*_menu` is one call to `AppState::pick_menu_row`, which resolves the index against
+`menus::entries` — the very list the overlay drew — and runs what it finds; a heading, a hairline
+or an index past the end does nothing. The overlays (`ui::overflow_menu`, `ui::run_tool_menu`,
+`ui::new_pane_menu`, `ui::new_project_menu`, `ui::hidden_agents_menu`) are a `let Some(at)` and one
+call each, painted from the window root beside the tab menu, for the same reason: the titlebar
+draws the chevron but does not own what the menu offers.
+
+**A bar menu is an extension container** (`D177`, `D178`), the third after the settings nav and the
+rail. `ext::menu` holds a `MenuBlockSpec` — an id, the menu it belongs to, and an
+`fn(&AppState, &App) -> Vec<MenuEntry>`. A *block* rather than a row is the registered thing
+because a menu's rows are not a fixed list: the shells are the machine's, the tools are the
+project's, the hidden agents are whatever is running. The base registers exactly five blocks, one
+per menu, and a second edition inserts, reorders or removes blocks on the
+`ubiq_app::Contributions::bar_menus` registry it is handed — with every base builder in
+`ui::menus` `pub`, a replacement block that wants the base's rows minus one calls it and filters.
 
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
 `size.rs`, `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/`, `teams/`
@@ -1861,9 +1914,11 @@ popover, `WorkbenchState::size_presets` for the pill row it and the Size setting
 `WorkbenchState::size_prompt` for the `SizePrompt::Save` / `Rename { name }` naming question both
 raise, `MenuId::ViewerKind` for the file-kind chip beside it, `MenuId::Tab` with the tab's `PanelKind` and anchor in
 `WorkbenchState::tab_menu` for a tab's right-click, `MenuId::NewPane` with its anchor
-in `WorkbenchState::new_pane_menu` and its rows in `WorkbenchState::shells` for the new-pane
-control's chevron, and `MenuId::Overflow` with its anchor in `WorkbenchState::overflow_menu` and its
-rows in `WorkbenchState::overflow_rows` for the titlebar's own chevron, and `MenuId::Kb` with its row
+in `WorkbenchState::new_pane_menu` for the new-pane control's chevron, `MenuId::Overflow` with its
+anchor in `WorkbenchState::overflow_menu` for the titlebar's own chevron, `MenuId::HiddenAgents`
+with its anchor in `WorkbenchState::hidden_agents_menu` for the narrow chevron beside New agent —
+all four with their rows in `ui::menus` rather than here, because a row carries the action behind
+it — and `MenuId::Kb` with its row
 in `KbState::menu` for the KB explorer's right-click — its own id rather than `MenuId::Explorer`
 reused, because both panels can be on screen and only one menu is open; `settings.rs` for the Ui-layer
 schema, the overlay's nav, and how a blob is read;

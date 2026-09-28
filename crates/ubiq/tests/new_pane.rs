@@ -13,10 +13,12 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
+use ubiq::ext::ids;
+use ubiq::state::NewAgentSurface;
 use ubiq::state::WindowRegistry;
 use ubiq::state::dock::Region;
 use ubiq::state::new_agent::Target;
-use ubiq::state::{NewAgentSurface, NewPaneRow, WorkbenchState};
+use ubiq::ui::menus;
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::{AgentPicks, AgentTypeInfo, Message, ShellInfo};
@@ -116,6 +118,17 @@ impl Fixture {
         cx.run_until_parked();
     }
 
+    /// The menu's rows as the reader sees them: the one list the overlay draws and a pick
+    /// resolves against, labels and all. A separator's label is empty.
+    fn rows(&self, cx: &mut TestAppContext) -> Vec<String> {
+        self.state.read_with(cx, |state, cx| {
+            menus::entries(ids::MENU_NEW_PANE, state, cx)
+                .iter()
+                .map(|entry| entry.label.to_string())
+                .collect()
+        })
+    }
+
     /// The arrangement as the dock serialises it, which is where a panel's presence is a fact
     /// rather than a pixel.
     fn arrangement(&self, cx: &mut TestAppContext) -> String {
@@ -190,97 +203,43 @@ fn a_project() -> ProjectSnapshot {
     }
 }
 
-/// `new_pane_rows` is pure state — no window needed to check the order it puts rows in, and no
-/// harness is one of them however many the host listed.
-#[test]
-fn shells_lead_and_no_harness_is_offered() {
-    let workbench = WorkbenchState {
-        agent_types: vec![
+/// The menu's rows, read off the one list the overlay draws and a pick resolves against
+/// (`ui::menus::new_pane`): the shells lead, then the console, and no harness is one of them
+/// however many the host listed. A separator is a row with an empty label.
+#[gpui::test]
+fn shells_lead_and_no_harness_is_offered(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(
+        vec![
             an_agent("claude-code", "Claude Code", true),
             an_agent("codex", "Codex", false),
         ],
-        shells: vec![a_shell("zsh", "/bin/zsh", true)],
-        ..Default::default()
-    };
+        cx,
+    );
+    fixture.answer_shells(vec![a_shell("zsh", "/bin/zsh", true)], cx);
 
-    let rows = workbench.new_pane_rows(true, 0);
     assert_eq!(
-        rows,
+        fixture.rows(cx),
         vec![
-            NewPaneRow::Shell(0),
-            NewPaneRow::Separator,
-            NewPaneRow::Console,
+            "zsh (default)".to_string(),
+            String::new(),
+            "Logs".to_string(),
         ],
         "the shells lead, then the console — a harness is the New agent form's job"
     );
 }
 
-/// No folder, no pane — the menu with no project open offers nothing to start, agents included.
-#[test]
-fn no_rows_are_offered_without_a_project() {
-    let workbench = WorkbenchState {
-        agent_types: vec![an_agent("claude-code", "Claude Code", true)],
-        shells: vec![a_shell("zsh", "/bin/zsh", true)],
-        ..Default::default()
-    };
+/// A machine the host found no shell on is offered the console alone: no stray separator, and no
+/// row that would start nothing.
+#[gpui::test]
+fn an_empty_shell_list_degrades_to_the_console(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_shells(Vec::new(), cx);
 
     assert_eq!(
-        workbench.new_pane_rows(false, 0),
-        vec![NewPaneRow::Console],
-        "a window with no project was offered more than the console"
-    );
-}
-
-/// A machine with no shells and no tools is offered the console alone.
-#[test]
-fn an_empty_shell_list_degrades_to_the_console() {
-    let workbench = WorkbenchState {
-        shells: vec![a_shell("zsh", "/bin/zsh", true)],
-        ..Default::default()
-    };
-
-    assert_eq!(
-        workbench.new_pane_rows(true, 0),
-        vec![
-            NewPaneRow::Shell(0),
-            NewPaneRow::Separator,
-            NewPaneRow::Console
-        ],
+        fixture.rows(cx),
+        vec!["Logs".to_string()],
         "the shell group left a stray separator or row"
-    );
-}
-
-/// A detached pane's group leads the menu, its own heading and separator with it, and vanishes
-/// whole when there is nothing detached — same rule the shell group already follows.
-#[test]
-fn detached_panes_lead_with_their_own_heading_and_separator() {
-    let workbench = WorkbenchState {
-        shells: vec![a_shell("zsh", "/bin/zsh", true)],
-        ..Default::default()
-    };
-
-    assert_eq!(
-        workbench.new_pane_rows(true, 2),
-        vec![
-            NewPaneRow::DetachedHeading,
-            NewPaneRow::Detached(0),
-            NewPaneRow::Detached(1),
-            NewPaneRow::Separator,
-            NewPaneRow::Shell(0),
-            NewPaneRow::Separator,
-            NewPaneRow::Console,
-        ],
-        "detached panes lead, then a separator, then the shells, then the console"
-    );
-
-    assert_eq!(
-        workbench.new_pane_rows(true, 0),
-        vec![
-            NewPaneRow::Shell(0),
-            NewPaneRow::Separator,
-            NewPaneRow::Console
-        ],
-        "no detached pane means no heading and no separator either"
     );
 }
 

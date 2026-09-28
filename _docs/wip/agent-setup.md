@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-25
-verified: 2026-09-25
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
 review_cycle: monthly
@@ -30,15 +30,15 @@ remains is the thinking level and permissions (P7).
 
 **Two corrections to earlier notes in this tree, both load-bearing.**
 
-`_docs/wip/agent-login-note.md` concluded that a Ubiq run receives no login. It does:
-`seed_zero_config_login` (`crates/agent-manager/src/provision.rs`) copies the harness's own
-login files from the real `$HOME` into the run directory whenever no account is named, and — for a
-harness whose login is not a `$HOME` file at all, Claude Code's Keychain-held OAuth token — falls
-back to `Harness::ambient_login()` when that copy lands no credential. (Until 2026-09-12 the check
-was "lands nothing", which the identity companion `~/.claude.json` satisfied on its own, so the
-Keychain tier never ran on macOS.) The "Not logged in" transcript that
-prompted the note was a **stale token**, not missing wiring. Account selection was still worth
-building — but for owning several identities, not for repairing authentication.
+`_docs/wip/agent-login-note.md` concluded that a Ubiq run receives no login, and that a captured
+one has to be wired through to reach it. `D193` and `D194` answer both by removing the capture:
+a run that names an account runs *from* that account's fixed config home, where the harness itself
+keeps and refreshes the login, and a run that names none runs against the user's own config in
+place. Nothing is seeded, copied or reconciled, so there is no wiring left to do and no window in
+which a run can hold a login a refresh has moved on from. The "Not logged in" transcript that
+prompted the note was a **stale token**, which a home the harness owns does not produce. Account
+selection is still worth building — but for owning several identities, and now it is also what
+keys the home. See `D193` and `D194` in [`../tech/decisions.md`](../tech/decisions.md).
 
 And a model **cannot be changed mid-conversation on a native bridge**. `spec.model` is applied at
 launch (`crates/agent-manager/src/harness/claude.rs:195`), and both native bridges refuse
@@ -430,10 +430,10 @@ one lever it does have, `--always-approve`.
 — documented in [`../tech/transport-contract.md`](../tech/transport-contract.md). `account` stays
 beside `agent definition` on `StartConversation` rather than being folded into it: a bare harness row starts
 with no agent definition at all, and `resolve` puts `flags.account` above the agent definition's, which is the "the
-user picked this one" rule. Host-side, `crates/ubiq-host/src/agent.rs` grows `agent definitions()` and
-`save_profile()` over an `FsProfileStore` rooted at `<ubiq root>/profiles` — a profile that pins no
-harness is skipped, since a row with no `agent_type` names nothing that can be started — and
-`compose_run` and `converse` thread the id through to `RunFlags.agent definition`. The pane path passes
+user picked this one" rule. Host-side, `crates/ubiq-host/src/agent.rs` grows `definitions()` and
+`save_definition()` over an `FsProfileStore` rooted at `<ubiq root>/agent-definitions` — a
+definition that pins no harness is skipped, since a row with no `agent_type` names nothing that can
+be started — and `compose` and `converse` thread the id through to `RunFlags.profile`. The pane path passes
 `None`: P4 is conversation-only.
 
 **The trap, and it is P3's ordering coming back.** A launch passes the picked model as
@@ -464,6 +464,19 @@ real list before the first turn. No `thinking`, because `resolve` has no agent d
 `refuse_conversation` already reports.
 
 ### P5 — Credentials, through a login modal — **landed**
+
+> **Rekeyed and de-captured 2026-09-27 by `D193` and `D194`.** What survives is the insight and
+> the modal: a login is an interactive subprocess that needs a real terminal, and Ubiq spawns it
+> in one. What goes is everything below about capture — `LoginPlan`, the credential files to
+> capture, the mtime stamp that decided the outcome, `capture_login`, `Account.home`,
+> `login_confined` and its hand-named layer stack, and `HarnessLoginCaptured`. A sign-in runs
+> `Harness::login_home` straight into the account's own config home (`BeginHarnessLogin { agent_type,
+> account }`), confined under the policy an ordinary run from that home gets and granted the home
+> read-write, so the harness's own keychain item is reachable rather than denied; a clean exit is
+> `HarnessHomeSignedIn`, writes the account record if the name is new, and is followed by
+> `Accounts`. Read `D194` in [`../tech/decisions.md`](../tech/decisions.md), the account family in
+> [`../tech/transport-contract.md`](../tech/transport-contract.md), and the Harnesses section in
+> [`../features/workbench.md`](../features/workbench.md).
 
 The insight that made it cheap: **a login is an interactive subprocess that needs a real terminal,
 and Ubiq already owns terminals.** `Harness::login` answers a `LoginPlan` — a launch plus the

@@ -73,8 +73,8 @@ and the whole `provision()` shape, so make it first and get it right:
 - [ ] **Class C — HOME-only**: no config-dir lever at all; the harness's
       whole tree derives from `$HOME` (Grok's `~/.grok`, with no
       `GROK_CONFIG_DIR`-equivalent found on inspection). `HOME` itself must
-      relocate — to a profile's persistent fake `HOME`, which holds the
-      login (`D193`).
+      relocate — to the account's persistent fake `HOME`, which holds the
+      login (`D194`).
       Set `requires_home_relocation: true` — this is the isol8-pairing
       signal (see profiles.md §8): relocating `HOME` strips the user's real
       toolchain (`nvm`/`mise`/`pyenv`, shell rc, PATH shims), which isol8
@@ -92,7 +92,7 @@ and the whole `provision()` shape, so make it first and get it right:
 > A new harness needs **no** store changes. Preference templates flow through
 > the injected `TemplateStore`. You declare only `config_anchor()` and
 > (optionally) `templates()`; the stores are harness-agnostic. No login is
-> seeded (`D193`). See `_docs/am-as-library.md`.
+> seeded (`D194`). See `_docs/am-as-library.md`.
 
 - [ ] `levers`: the env var(s) + `Relocate` variant from step 2 (empty for
       Class C).
@@ -182,8 +182,15 @@ no-op here — a fidelity gap, not a user mistake").
 ## 5. `login_home(home)`
 
 - [ ] For a harness that `shares_home`: the launch that logs the harness in
-      straight into a profile's home — the config lever pointed at `home`, the
-      harness's own login command. Nothing is captured or read back (`D193`).
+      straight into the account's home — the config lever pointed at `home`, the
+      harness's own login command. Nothing is captured or read back (`D194`).
+
+- [ ] `login_files()`: the paths, **relative to that home**, in which this
+      harness keeps its login (claude `.credentials.json`, codex `auth.json`,
+      copilot `config.json`, opencode `opencode/auth.json`, grok
+      `.grok/auth.json`). `HomeStore::signed_in` and `home::login_validity` read
+      them; nothing copies them. On macOS the login may be in the OS keychain
+      instead, so an absent file is not proof of no login.
 
 ## 6. `discover_models()`
 

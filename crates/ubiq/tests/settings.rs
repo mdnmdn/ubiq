@@ -1150,3 +1150,169 @@ fn the_definition_form_carries_the_scope_it_was_opened_from(cx: &mut TestAppCont
         "an edit saves the definition back where it came from"
     );
 }
+
+/// A harness that signs into an account's own config home (`D194`).
+fn a_shared_home_harness(id: &str, label: &str) -> ubiq_proto::messages::AgentTypeInfo {
+    ubiq_proto::messages::AgentTypeInfo {
+        id: id.to_string(),
+        label: label.to_string(),
+        command: id.to_string(),
+        available: true,
+        chat: true,
+        acp: false,
+        modes: Vec::new(),
+        unattended_mode: None,
+        keeps_sessions: true,
+        quota: Default::default(),
+        shares_home: true,
+    }
+}
+
+/// The whole of the restored sign-in, end to end: the modal names the identity, the send carries
+/// the harness and that name, and the account the host answers with is the one the block draws.
+///
+/// The point of the assertion on `Accounts`: under `D194` the account is *made* by a sign-in that
+/// ends cleanly, so a flow that reported success and left nothing listed would be the bug.
+#[gpui::test]
+fn a_sign_in_that_ends_cleanly_leaves_the_account_listed(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![a_shared_home_harness("claude-code", "Claude Code")],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_harness_login(window, cx);
+        state
+            .login_account_input
+            .update(cx, |field, cx| field.set_value("work", window, cx));
+        state.pick_login_harness("claude-code".to_string(), window, cx);
+        state.start_harness_login(cx);
+    });
+
+    let begun = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::BeginHarnessLogin {
+                agent_type,
+                account,
+            } => Some((agent_type, account)),
+            _ => None,
+        })
+        .expect("the sign-in was sent");
+    assert_eq!(
+        begun,
+        ("claude-code".to_string(), "work".to_string()),
+        "the send carries the harness picked and the name typed, and the name is never empty"
+    );
+
+    fixture.host.send(
+        To::Everyone,
+        Message::HarnessHomeSignedIn {
+            agent_type: "claude-code".to_string(),
+            account: "work".to_string(),
+        },
+    );
+    fixture.host.send(
+        To::Everyone,
+        Message::Accounts {
+            accounts: vec![ubiq_proto::messages::AccountInfo {
+                id: "work".to_string(),
+                logged_in: vec!["claude-code".to_string()],
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.state.read_with(cx, |state, _| {
+        let login = state
+            .workbench
+            .settings
+            .login
+            .as_ref()
+            .expect("the modal stays up to say how it went");
+        assert!(
+            matches!(
+                login.step,
+                ubiq::state::settings::LoginStep::Done {
+                    signed_in: true,
+                    ..
+                }
+            ),
+            "a clean end draws the signed-in outcome"
+        );
+        assert_eq!(
+            state.workbench.settings.accounts_for("claude-code")[0].id,
+            "work",
+            "the account exists from that moment, and can start the harness it signed in to"
+        );
+    });
+}
+
+/// Signing one harness out leaves the identity and its other harnesses alone: the send names the
+/// pair, and the shorter `logged_in` the host answers with is what the block draws.
+#[gpui::test]
+fn signing_out_shortens_logged_in(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::Accounts {
+            accounts: vec![ubiq_proto::messages::AccountInfo {
+                id: "work".to_string(),
+                logged_in: vec!["claude-code".to_string(), "codex".to_string()],
+            }],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, _, cx| {
+        state.open_sign_out("codex".to_string(), "work".to_string(), cx);
+        state.confirm_sign_out(cx);
+    });
+
+    let signed_out = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::DeleteHarnessLogin {
+                agent_type,
+                account,
+            } => Some((agent_type, account)),
+            _ => None,
+        })
+        .expect("the sign-out was sent");
+    assert_eq!(
+        signed_out,
+        ("codex".to_string(), "work".to_string()),
+        "the send names the one home to remove, not the account"
+    );
+
+    fixture.host.send(
+        To::Everyone,
+        Message::Accounts {
+            accounts: vec![ubiq_proto::messages::AccountInfo {
+                id: "work".to_string(),
+                logged_in: vec!["claude-code".to_string()],
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.state.read_with(cx, |state, _| {
+        assert_eq!(
+            state.workbench.settings.accounts[0].logged_in,
+            vec!["claude-code".to_string()],
+            "the account survives, one harness shorter"
+        );
+        assert!(
+            state.workbench.settings.accounts_for("codex").is_empty(),
+            "and no picker offers it for the harness it signed out of"
+        );
+    });
+}

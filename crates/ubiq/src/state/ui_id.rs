@@ -271,6 +271,7 @@ pub const TITLEBAR_REGION_LEFT: UiId = UiId::new("titlebar.region-left");
 pub const TITLEBAR_REGION_BOTTOM: UiId = UiId::new("titlebar.region-bottom");
 pub const TITLEBAR_REGION_RIGHT: UiId = UiId::new("titlebar.region-right");
 pub const TITLEBAR_NEW_AGENT: UiId = UiId::new("titlebar.new-agent");
+pub const TITLEBAR_HIDDEN_AGENTS: UiId = UiId::new("titlebar.hidden-agents");
 pub const TITLEBAR_NEW_TERMINAL: UiId = UiId::new("titlebar.new-terminal");
 pub const TITLEBAR_NEW_TERMINAL_MENU: UiId = UiId::new("titlebar.new-terminal-menu");
 pub const TITLEBAR_SEARCH: UiId = UiId::new("titlebar.search");
@@ -314,6 +315,7 @@ pub const CATALOGUE: &[UiId] = &[
     TITLEBAR_REGION_BOTTOM,
     TITLEBAR_REGION_RIGHT,
     TITLEBAR_NEW_AGENT,
+    TITLEBAR_HIDDEN_AGENTS,
     TITLEBAR_NEW_TERMINAL,
     TITLEBAR_NEW_TERMINAL_MENU,
     TITLEBAR_SEARCH,
@@ -564,6 +566,15 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
             label: "New agent",
             blurb: "Start a conversation: pick the harness, the identity, the model and the \
                     permission level in one question.",
+        },
+    ),
+    (
+        TITLEBAR_HIDDEN_AGENTS,
+        TargetInfo {
+            label: "Hidden agents",
+            blurb: "The agents whose tab was hidden rather than closed: still running, nothing \
+                    drawing them. Picking one brings its panel back over the screen it never \
+                    stopped writing to.",
         },
     ),
     (

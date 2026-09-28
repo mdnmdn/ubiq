@@ -164,6 +164,17 @@ impl Fixture {
         names(&self.dump(cx))
     }
 
+    /// The chat tabs the project on screen holds, by id — `OpenProject::chats`, which is a tab's
+    /// own source of truth and the thing a mode switch must not edit.
+    fn chat_tabs(&self, cx: &mut TestAppContext) -> Vec<String> {
+        self.state.read_with(cx, |state, cx| {
+            state
+                .open_project(cx)
+                .map(|open| open.chats.iter().map(|tab| tab.id.to_string()).collect())
+                .unwrap_or_default()
+        })
+    }
+
     fn holds(&self, name: &str, cx: &mut TestAppContext) -> bool {
         self.panels(cx).iter().any(|leaf| leaf == name)
     }
@@ -862,4 +873,107 @@ fn a_document_and_its_view_mode_survive_a_trip_away_from_ide(cx: &mut TestAppCon
         Some(ViewLayout::Source),
         "the layout the viewer was left in is still the one it is in"
     );
+}
+
+/// **Coming back to a mode restores the chat tab the mode was left with** (`T-52`).
+///
+/// The round trip is the whole test, twice, because the first one used to pass by accident: the
+/// mode-switch sweep drops a chat tab's *placement* and keeps the entity (`D156`), and the library
+/// reports that removal exactly as it reports the user clicking the tab's ×. `on_removed` told the
+/// two apart by the panel being put back in the same edit — which this sweep deliberately does not
+/// do — so it read the sweep as a close: `closed_chat_tab` took the tab out of `OpenProject::chats`
+/// and the panel out of `AppState::panels`, and the IDE's own blob was then naming a leaf nothing
+/// could rebuild. The right region came back empty, was collapsed, and the collapsed arrangement
+/// was written over the blob. The first return still *looked* right, because the project's seeded
+/// idle tab filled the emptied region with a different, empty chat; the second had nothing left.
+///
+/// Tasks is visited once before the chat is opened so that it has a blob of its own — a mode with
+/// none keeps the tree it arrived on, and there is no sweep to get wrong.
+#[gpui::test]
+fn a_mode_round_trip_brings_the_chat_tab_back(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.switch_to(RailMode::TASKS, cx);
+    fixture.switch_to(RailMode::IDE, cx);
+
+    // The user's own click on the right switch is what opens the region onto a chat tab.
+    fixture.toggle_region(Region::Right, cx);
+    assert!(
+        fixture.holds("ubiq.chat", cx),
+        "the switch opens the right region onto a chat tab: {:?}",
+        fixture.panels(cx)
+    );
+    let opened = fixture.chat_tabs(cx);
+
+    for round in 0..2 {
+        fixture.switch_to(RailMode::TASKS, cx);
+        let in_tasks = fixture.panels(cx);
+        assert!(
+            !in_tasks.contains(&"ubiq.chat".to_string()),
+            "round {round}: the chat is not placed in Tasks: {in_tasks:?}"
+        );
+        assert_eq!(
+            fixture.chat_tabs(cx),
+            opened,
+            "round {round}: and dropping its placement is not closing its tab"
+        );
+
+        fixture.switch_to(RailMode::IDE, cx);
+        assert!(
+            fixture.holds("ubiq.chat", cx),
+            "round {round}: the IDE's blob puts the chat back: {:?}",
+            fixture.panels(cx)
+        );
+        assert!(
+            fixture.regions_open(cx).2,
+            "round {round}: in the region the IDE was left with on screen"
+        );
+        assert_eq!(
+            fixture.chat_tabs(cx),
+            opened,
+            "round {round}: and it is the same tab, not a fresh one filling an emptied region"
+        );
+    }
+}
+
+/// The other half of `D156`, kept across the same round trip: **search, the log and help are asked
+/// for, never inherited**, and a switch re-reveals none of them.
+///
+/// This is the shape the card was filed about — panels appearing in modes nobody opened them in,
+/// opening a region as they landed — so it is asserted on the regions as well as the leaves, and
+/// on the way back as well as the way out.
+#[gpui::test]
+fn a_mode_switch_re_reveals_no_window_furniture(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.reveal_search(cx);
+    fixture.reveal_console(cx);
+    // Follow off, which is how help opens: with it on, help travelling is the one exception.
+    fixture.reveal_help(cx);
+    for name in ["ubiq.search", "ubiq.logs", "ubiq.help"] {
+        assert!(fixture.holds(name, cx), "{name} is what the gesture opened");
+    }
+
+    for round in 0..2 {
+        fixture.switch_to(RailMode::TASKS, cx);
+        let in_tasks = fixture.panels(cx);
+        for name in ["ubiq.search", "ubiq.logs", "ubiq.help"] {
+            assert!(
+                !in_tasks.contains(&name.to_string()),
+                "round {round}: {name} does not follow the switch: {in_tasks:?}"
+            );
+        }
+        assert!(
+            !fixture.regions_open(cx).1,
+            "round {round}: and nothing opened Tasks' bottom region on the way in"
+        );
+
+        // The IDE's own blob is the only thing that brings them back, and it brings back all three.
+        fixture.switch_to(RailMode::IDE, cx);
+        for name in ["ubiq.search", "ubiq.logs", "ubiq.help"] {
+            assert!(
+                fixture.holds(name, cx),
+                "round {round}: the IDE named {name} in its own blob: {:?}",
+                fixture.panels(cx)
+            );
+        }
+    }
 }

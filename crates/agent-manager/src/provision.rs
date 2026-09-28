@@ -33,7 +33,7 @@ pub struct Provisioned {
     /// `Ephemeral` only; a caller that made a `Home` or `Native` scratch dir for one run sets
     /// it too (`am`'s CLI does). It only ever removes `dir` — never [`Self::home`].
     pub ephemeral: bool,
-    /// The profile's shared config home the harness runs from, when it runs
+    /// The account's shared config home the harness runs from, when it runs
     /// from one ([`ConfigStrategy::Home`] with a harness that
     /// [`Harness::shares_home`]). Never removed by the run. `None` elsewhere,
     /// a native run's own config included.
@@ -50,7 +50,7 @@ pub struct Provisioned {
     /// already happened.
     pub model: Option<String>,
     /// The run's MCP servers, in-process ones already hosted, for an ACP adapter whose only
-    /// per-run MCP route is `session/new`'s `mcpServers` (`D193`). A harness opts in by handing
+    /// per-run MCP route is `session/new`'s `mcpServers` (`D194`). A harness opts in by handing
     /// them to [`crate::io::AcpBridge::with_mcp_servers`] from its
     /// [`Harness::structured_bridge`]; every other harness ignores them. Filled on the
     /// shared-home path ([`ConfigStrategy::Home`], [`ConfigStrategy::Native`]) only — empty on
@@ -95,7 +95,7 @@ impl Clone for Provisioned {
 /// other than `~/.config/agent-manager/templates`.
 ///
 /// [`ConfigStrategy::Home`] runs a harness that [`Harness::shares_home`] from
-/// the profile's shared home, and [`ConfigStrategy::Native`] from the harness's
+/// the account's shared home, and [`ConfigStrategy::Native`] from the harness's
 /// own default config (see `provision_shared_home`); any other harness is
 /// provisioned into the run's scratch dir as under [`ConfigStrategy::Fixed`].
 pub fn provision(
@@ -177,7 +177,7 @@ pub fn provision(
 /// The marker [`prepare_home`] leaves in a home once its preference templates are applied.
 const HOME_MARKER: &str = ".am-home";
 
-/// Make `home`, a profile's shared config home for `harness` (`D193`), ready to run from or
+/// Make `home`, the account's shared config home for `harness` (`D194`), ready to run from or
 /// to log into: create it when missing, and apply the harness's preference templates **once**
 /// in its life. Once is tracked by a marker file in the home, written after the templates, under
 /// a lock beside it — so a home logged into before its first run still gets them, a home whose
@@ -203,8 +203,8 @@ pub fn prepare_home(
     Ok(())
 }
 
-/// Provision a run against a profile's shared config `home`, or with no home against the
-/// harness's own default config (`D193`).
+/// Provision a run against the account's shared config `home`, or with no home against the
+/// harness's own default config (`D194`).
 ///
 /// The harness writes every per-run file into `scratch` and passes it by flag
 /// ([`Harness::provision_home`]); `home` takes only what [`prepare_home`] puts there once and
@@ -396,7 +396,7 @@ mod tests {
         names
     }
 
-    /// `D193`: a shared home takes the templates and the trust entry and nothing else — no
+    /// `D194`: a shared home takes the templates and the trust entry and nothing else — no
     /// per-run file.
     #[test]
     fn home_strategy_writes_only_templates_and_trust_into_a_new_home() {
@@ -512,7 +512,7 @@ mod tests {
         assert!(!home.join("settings.json").exists());
     }
 
-    /// `D193`, no profile: the run uses the harness's own config in place. Every file it writes
+    /// `D194`, no profile: the run uses the harness's own config in place. Every file it writes
     /// is in its scratch dir, and the launch names no `CLAUDE_CONFIG_DIR` — nor strips one the
     /// user exported, which is then their default.
     #[test]

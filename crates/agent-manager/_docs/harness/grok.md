@@ -321,9 +321,9 @@ mode, so headless/CI runs only need the env vars set.
 
 ### Credential capture & reuse (agent-manager)
 
-None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
-config home, signed in there by `am profile login` or the first run, and refreshes it itself
-(`D193` in Ubiq's `_docs/tech/decisions.md`).
+None. `am` neither captures, copies nor roams this login: the harness keeps it in the account's
+own config home, signed in there by `am account login` or the first run, and refreshes it itself
+(`D194` in Ubiq's `_docs/tech/decisions.md`).
 
 ## Permissions
 
@@ -562,7 +562,7 @@ caller: `session/request_permission` is an agent-to-client request, and
 
 ## Shared-home run
 
-Under `D193` a profile owns one persistent fake `HOME` for grok, since `HOME` is its only
+Under `D194` an account owns one persistent fake `HOME` for grok, since `HOME` is its only
 relocation lever. `Grok::shares_home` answers `true`, and `Grok::provision_home` builds the run:
 
 - **Home run** (`ConfigStrategy::Home`): `HOME=<home>`. The home holds `.grok/auth.json` and grok's

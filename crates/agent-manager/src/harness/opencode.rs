@@ -13,11 +13,11 @@
 //! toolchain intact. This mirrors Claude Code, unlike Codex which unifies
 //! everything under a single `$CODEX_HOME`.
 //!
-//! The same split lets a run share a profile's home (`D193`, [`Harness::provision_home`]):
-//! `XDG_DATA_HOME` is the profile's persistent home, logged into once and refreshed by opencode
+//! The same split lets a run share an account's home (`D194`, [`Harness::provision_home`]):
+//! `XDG_DATA_HOME` is the account's persistent home, logged into once and refreshed by opencode
 //! itself, and the config tier is the run's own scratch dir — nothing is seeded.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
@@ -140,7 +140,7 @@ impl Harness for Opencode {
         launch(spec, dir, Some(dir))
     }
 
-    /// Every run's `XDG_DATA_HOME` can be a profile's shared home: the per-run config tier has
+    /// Every run's `XDG_DATA_HOME` can be the account's shared home: the per-run config tier has
     /// its own levers, `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG`.
     fn shares_home(&self) -> bool {
         true
@@ -159,7 +159,7 @@ impl Harness for Opencode {
         .collect()
     }
 
-    /// A run against a profile's shared data home (`D193`): `XDG_DATA_HOME=<home>`, where
+    /// A run against the account's shared data home (`D194`): `XDG_DATA_HOME=<home>`, where
     /// opencode keeps `opencode/auth.json` and its session store and refreshes the login itself.
     /// Nothing per-run is written into `home`; `opencode.json` (MCP, instructions, permissions),
     /// `skills/` and `AGENTS.md` go into `scratch`, named by `OPENCODE_CONFIG_DIR=<scratch>` and
@@ -187,6 +187,14 @@ impl Harness for Opencode {
             env_remove: Vec::new(),
             env_clear: false,
         })
+    }
+
+    /// opencode keeps its provider credentials in `<data home>/opencode/auth.json`, and the
+    /// home is what `XDG_DATA_HOME` points at (the lever [`Self::login_home`] sets). On macOS a
+    /// harness may keep the login in the OS keychain instead, so an absent file is not proof of
+    /// no login.
+    fn login_files(&self) -> Vec<PathBuf> {
+        vec![PathBuf::from("opencode").join("auth.json")]
     }
 
     fn structured_bridge(

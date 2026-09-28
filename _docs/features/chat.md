@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-26
-verified: 2026-09-26
+updated: 2026-09-28
+verified: 2026-09-28
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -766,7 +766,13 @@ chat beside Git's changes panel and then wrote it into Git's blob (`D156`).
 the incoming mode's blob does not name and drops only its *placement*: the panel is the one thing a
 rebuild cannot make again — a `ChatId` is minted fresh every process, so a saved leaf naming one this
 window no longer holds names nothing — while the tab comes back on screen from the blob of the mode
-it was opened in, or from the user's own reveal.
+it was opened in, or from the user's own reveal. **Dropping the placement is not closing the tab**
+(`T-52`): the library reports a panel an arrangement was installed over exactly as it reports one
+whose × was clicked, so the sweep was firing `closed_chat_tab` on the very tab it meant to keep —
+taking it out of `OpenProject::chats` and out of `AppState::panels`, so the blob's own leaf could
+never be rebuilt and the emptied right region was collapsed and written back on the way home. The
+sweep marks the panel as the window's doing (`WorkbenchPanel::displace`) rather than the user's, and
+the mark is taken rather than read, so it answers for that one removal only.
 
 Rendering is two modules under `crates/ubiq/src/ui/chat/`: `mod.rs` resolves a tab's own attachment
 once — `attached`, read by both children below rather than asked twice — and hands it to the shared

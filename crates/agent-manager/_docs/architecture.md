@@ -214,7 +214,7 @@ pub trait Harness {
     fn io_support(&self) -> IoSupport;
 
     /// How much of `account`'s plan is left, read from the login the harness keeps in
-    /// `home` (a profile's, or its own default for `None`). Default: an error naming this
+    /// `home` (the account's, or its own default for `None`). Default: an error naming this
     /// harness — which for Copilot, opencode and Grok is the permanent and correct answer.
     fn quota(&self, account: &str, home: Option<&Path>) -> Result<QuotaSnapshot>;
 }

@@ -205,15 +205,20 @@ hits, no timer; `SearchProgress` every 100 files. Ceilings: `HITS_PER_FILE` 100,
 
 ### 10. Account — the identities a harness runs as
 
-`ListAccounts`/`Accounts`, `BeginHarnessLogin` (a definition's sign-in, `D193`),
-`HarnessLoginStarted`, `HarnessHomeSignedIn`, `HarnessLoginFailed`, `HarnessLoginLink`,
+`ListAccounts`/`Accounts`, `BeginHarnessLogin { agent_type, account }` (an account's sign-in,
+`D194`), `HarnessLoginStarted`, `HarnessHomeSignedIn { agent_type, account }`,
+`HarnessLoginFailed { agent_type, account, error }`, `HarnessLoginLink`,
+`CheckHarnessLogin` → `HarnessLoginStatus`, `DeleteHarnessLogin`,
 `RenameAccount`, `DeleteAccount`, `AccountError`.
 
-**References only, never material.** No credential and no path crosses. *The log sink listens to
-the same bus, so a secret here would be a secret in a log the user might paste into an issue.*
-A sign-in runs in a real pane that belongs to no project, straight into a definition's config
-home; nothing is captured, and **the outcome is the exit code**. An account is written as a file;
-there is no `AddAccount`.
+**References only, never material.** No credential and no path crosses — `AccountInfo` carries
+`id` and `logged_in`, which harnesses have a home under that account and nothing about the home
+itself. *The log sink listens to the same bus, so a secret here would be a secret in a log the user
+might paste into an issue.* A sign-in runs in a real pane that belongs to no project, straight into
+the account's own config home; nothing is captured, and **the outcome is the exit code** — a clean
+one answers `HarnessHomeSignedIn` and is followed by `Accounts`. **A clean sign-in is also how an
+account is made**, so there is no `AddAccount`. `CheckHarnessLogin` is the one message whose answer
+comes from reading the login in place, and it is blind to a macOS keychain login (`G382`).
 
 ### 11. Profile — saved setups
 

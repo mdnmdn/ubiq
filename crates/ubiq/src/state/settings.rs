@@ -290,38 +290,49 @@ impl Default for UiSettings {
     }
 }
 
-/// Where the login modal has got to. It shows exactly one of these at a time, and the user can
+/// Where a login has got to. A modal shows exactly one of these at a time, and the user can
 /// leave any of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoginStep {
-    /// Pick a harness and set the command Ubiq starts it with. Nothing is started, so leaving
-    /// costs nothing; `Save` writes the command.
+    /// Pick a harness and name the identity — and, folded into the same step, the command Ubiq
+    /// starts that harness with. Nothing has been started, so leaving costs nothing.
     Choosing {
         /// The harness id picked, or none while the user has not chosen.
         agent_type: Option<String>,
     },
-    /// `BeginHarnessLogin` is on its way to the host and nothing has answered yet. Without this
-    /// step nothing sat on screen until `HarnessLoginStarted` arrived, which read as the button
-    /// having done nothing.
+    /// `BeginHarnessLogin` is on its way to the host and nothing has answered yet — a first
+    /// login past the picker, or a re-authentication that skips the picker entirely. Without
+    /// this step the picker (or nothing at all) sat on screen until `HarnessLoginStarted`
+    /// arrived, which read as the button having done nothing.
     Starting { agent_type: String },
-    /// The harness's own login is running in this pane. Leaving abandons it, which is always
-    /// safe.
+    /// The harness's own login is running in this pane. Leaving abandons it, which is what
+    /// the abort button does and is always safe — an unfinished sign-in leaves the account's
+    /// home without a login, and nothing else.
     Running { pane: PaneId },
-    /// It ended. `signed_in` is whether it worked; `message` says so, or why not.
+    /// It ended. `signed_in` is whether the account's home came out of it signed in; `message`
+    /// says which harness, or why not.
     Done { signed_in: bool, message: String },
 }
 
-/// The login modal: a definition's sign-in (`D193`) and how far it has got, or the harness
-/// command editor on its `Choosing` step.
+/// The login modal: which account is signing which harness's home in (`D194`), and how far it
+/// has got — or, with [`Self::command_only`] set, the harness command editor, which shares the
+/// `Choosing` step because it asks the same first question.
 #[derive(Clone, Debug)]
 pub struct LoginState {
-    /// The agent definition being signed in; empty on the command editor.
-    pub definition: String,
+    /// The identity being signed in — the account whose config home the harness logs into.
+    /// Typed by the user before the flow starts, and kept afterwards so the outcome can name
+    /// it. Empty on the command editor, which signs nobody in.
+    pub account: String,
     pub step: LoginStep,
     /// URLs the running login's own output has printed, oldest first and capped at
     /// [`MAX_LOGIN_LINKS`]. Offered as buttons below the terminal, because a terminal is a
     /// poor place to click text — the bytes themselves are untouched.
     pub links: Vec<String>,
+    /// The modal was raised to edit a harness's command, not to sign anyone in: the `Choosing`
+    /// step draws without the name field and its footer saves instead of starting a login.
+    /// A flag rather than a second modal, because the question above it — which harness — and
+    /// the field below it are the same ones either way.
+    pub command_only: bool,
     /// Whether the custom-command field is showing. Opened by the button, and opened on its own
     /// when the picked harness already has an override to show.
     pub command_open: bool,
@@ -336,8 +347,12 @@ pub struct LoginState {
 pub enum AccountDialog {
     /// Seeded with the current id; confirming sends `RenameAccount`.
     Rename { account: String },
-    /// Deletes the account. Confirming sends `DeleteAccount`.
+    /// Deletes the account and every harness logged in under it. Confirming sends
+    /// `DeleteAccount`.
     Delete { account: String },
+    /// Signs one harness out, leaving the account and its other harnesses alone. Confirming
+    /// sends `DeleteHarnessLogin`.
+    SignOut { agent_type: String, account: String },
 }
 
 /// Where a connect flow has got to. One at a time, and the user can leave any of them —
@@ -643,8 +658,8 @@ pub struct SettingsState {
     /// The Host layer's own record. Owned and parsed by the host — this is only ever what the
     /// host last said it held, or the default while nothing has answered yet.
     pub host: HostSettings,
-    /// The accounts the host holds. References only — an id — and only ever what the host last
-    /// said, like `host` above.
+    /// The accounts the host holds. References only — an id and the harnesses it covers — and
+    /// only ever what the host last said, like `host` above.
     pub accounts: Vec<AccountInfo>,
     /// The saved setups the host holds — a harness plus the identity, model and mode to start it
     /// with. References only, like `accounts`, and only ever what the host last said.
@@ -664,7 +679,7 @@ pub struct SettingsState {
     pub definition_form: Option<crate::state::new_agent::NewAgentForm>,
     /// The login modal, while one is up.
     pub login: Option<LoginState>,
-    /// The rename or delete question over one account, while one is up.
+    /// The rename, delete or sign-out question over one account, while one is up.
     pub dialog: Option<AccountDialog>,
     /// The providers this build ships an application for, as the host last said. Empty until it
     /// answers, which reads correctly: a flow offers a "Default" only where there is one.
@@ -681,6 +696,11 @@ pub struct SettingsState {
     /// The certificate a flow is waiting on. Its own field rather than a `ConnectorDialog`,
     /// because it interrupts a running flow instead of being raised from the list.
     pub cert: Option<CertPrompt>,
+    /// What `CheckHarnessLogin` last answered for a harness on an account, keyed
+    /// `(agent_type, account)`. An absent entry means never checked, not `Missing` — those
+    /// read differently. Pruned whenever `Accounts` arrives, so a renamed or deleted pair
+    /// cannot linger here.
+    pub statuses: HashMap<(String, String), LoginStatus>,
     /// What the host last said about one connection's token, keyed by id.
     ///
     /// A map rather than a field on the record, because the records themselves ride
@@ -753,16 +773,16 @@ pub struct SettingsState {
     /// manual `Reconnect` bumps the generation and dials at once, `Disconnect`/`Forget` removes
     /// the entry and every scheduled retry aborts on the missing key.
     pub reconnects: HashMap<String, ReconnectState>,
-    /// What the host last refused — a rename, a delete, a sign-in. Cleared the next time the
+    /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
     /// user acts: opens a dialog, starts a login, or dismisses it.
     pub error: Option<String>,
     /// The tool row being added or edited, in either tools panel. The four textboxes live on
     /// `AppState` — one set, shared by both panels, which never stand open together — and this
     /// carries the rest of the form: which list it writes, which row, and the two choices.
     pub tool_editor: Option<ToolEditor>,
-    /// How much of each plan is left, keyed `(harness, account)` — the account a definition names,
-    /// empty for none — because it answers a question about one login rather than about an
-    /// account or a harness alone. Absent means nothing has answered yet, which reads
+    /// How much of each plan is left, keyed `(harness, account)` — the same key order
+    /// [`Self::statuses`] uses, because both answer a question about one login rather than about
+    /// an account or a harness alone. Absent means nothing has answered yet, which reads
     /// differently from a snapshot carrying no gauges: that one is a provider that was asked and
     /// named no limit.
     pub quotas: HashMap<(String, String), QuotaSnapshot>,
@@ -835,6 +855,15 @@ pub struct ReconnectState {
 }
 
 impl SettingsState {
+    /// The accounts that can run `agent_type`, for a picker that must not offer an identity
+    /// which would start the harness logged out.
+    pub fn accounts_for(&self, agent_type: &str) -> Vec<&AccountInfo> {
+        self.accounts
+            .iter()
+            .filter(|account| account.logged_in.iter().any(|id| id == agent_type))
+            .collect()
+    }
+
     /// The definitions on offer inside `project`: that project's own first, then every global one
     /// it does not shadow by name.
     ///
@@ -962,6 +991,7 @@ impl Default for SettingsState {
             connect: None,
             connector: None,
             cert: None,
+            statuses: HashMap::new(),
             connection_status: HashMap::new(),
             cli: None,
             assist: None,

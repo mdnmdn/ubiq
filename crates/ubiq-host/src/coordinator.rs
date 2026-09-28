@@ -1704,11 +1704,31 @@ impl Coordinator {
             ),
             Message::BeginHarnessLogin {
                 agent_type,
-                definition,
-                project,
+                account,
             } => {
-                self.begin_harness_login(client, agent_type, definition, project);
+                self.begin_harness_login(client, agent_type, account);
             }
+            Message::CheckHarnessLogin {
+                agent_type,
+                account,
+            } => {
+                let status = self.agents.check_login(&agent_type, &account, now_ms());
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessLoginStatus {
+                        agent_type,
+                        account,
+                        status,
+                    },
+                );
+            }
+            Message::DeleteHarnessLogin {
+                agent_type,
+                account,
+            } => match self.agents.delete_harness_login(&agent_type, &account) {
+                Ok(()) => self.send_accounts(client),
+                Err(error) => self.account_error(client, format!("{error:#}")),
+            },
             Message::RenameAccount {
                 account,
                 new_account,
@@ -6028,6 +6048,19 @@ impl Coordinator {
         }
     }
 
+    /// Tell every window which accounts exist, for the one thing that changes the set rather
+    /// than reads it: a sign-in that made a new identity (`D194`). An account belongs to the
+    /// machine, not to the window that happened to sign it in, so a second window's list would
+    /// otherwise be missing it until something asked again.
+    fn broadcast_accounts(&mut self) {
+        match self.agents.accounts() {
+            Ok(accounts) => self.host.send(To::Everyone, Message::Accounts { accounts }),
+            // Nothing to broadcast and nothing a window can do about it: every list already on
+            // screen is the one from before, which is better than emptying them all.
+            Err(error) => tracing::warn!("the accounts could not be read: {error:#}"),
+        }
+    }
+
     /// Tell one window which definitions exist. References only, the same rule as
     /// [`Self::send_accounts`] — a definition names an account, it never carries one.
     ///
@@ -6066,35 +6099,26 @@ impl Coordinator {
         }
     }
 
-    /// Open a pane running a harness's own sign-in into an agent definition's config home
-    /// (`D193`, [`Agents::begin_home_login`]), and remember which definition it is for.
+    /// Open a pane running a harness's own sign-in into an account's config home
+    /// (`D194`, [`Agents::begin_home_login`]), and remember which account it is for.
     ///
     /// A login pane is a pane in every respect but one: it belongs to no project, so it
     /// changes no project's count and closing it is not closing a workspace. What makes it a
     /// login is the entry in `logins` — read when the pane ends, whose exit is the outcome.
-    fn begin_harness_login(
-        &mut self,
-        client: ClientId,
-        agent_type: String,
-        definition: String,
-        project: Option<ProjectId>,
-    ) {
+    fn begin_harness_login(&mut self, client: ClientId, agent_type: String, account: String) {
         let refuse = |coordinator: &mut Self, error: String| {
-            tracing::warn!(harness = %agent_type, definition = %definition, "sign-in refused: {error}");
+            tracing::warn!(harness = %agent_type, account = %account, "sign-in refused: {error}");
             coordinator.host.send(
                 To::Client(client),
                 Message::HarnessLoginFailed {
                     agent_type: agent_type.clone(),
-                    definition: definition.clone(),
+                    account: account.clone(),
                     error,
                 },
             );
         };
 
-        let pending = match self
-            .agents
-            .begin_home_login(&agent_type, &definition, project)
-        {
+        let pending = match self.agents.begin_home_login(&agent_type, &account) {
             Ok(pending) => pending,
             Err(error) => return refuse(self, format!("{error:#}")),
         };
@@ -6129,7 +6153,7 @@ impl Coordinator {
 
         tracing::info!(
             harness = %agent_type,
-            definition = %definition,
+            account = %account,
             "sign-in started in pane {pane_id} for {client}"
         );
         mailbox.send(Message::HarnessLoginStarted {
@@ -6140,37 +6164,57 @@ impl Coordinator {
         });
     }
 
-    /// A sign-in pane has ended: say whether it signed the definition's home in. Nothing is
+    /// A sign-in pane has ended: say whether it signed the account's home in. Nothing is
     /// captured or read back — the harness either finished its own login there, or it did not,
     /// and how the process exited is the answer.
+    ///
+    /// A clean exit is also the one thing that makes an account (`D194`): the record is written
+    /// if it is not there yet, so the name the dialog took becomes an identity definitions can
+    /// name. The refreshed list then goes to **every** window, because an identity is not this
+    /// window's — the same rule the catalogue follows. A failed sign-in writes nothing.
     fn login_gone(&mut self, client: ClientId, pane_id: PaneId) {
         let Some(pending) = self.logins.remove(&pane_id) else {
             return;
         };
         let agent_type = pending.agent_type.clone();
-        let definition = pending.definition.clone();
-        let message = match pending.exit_code() {
+        let account = pending.account.clone();
+        match pending.exit_code() {
             Some(0) => {
-                tracing::info!(harness = %agent_type, definition = %definition, "home signed in");
-                Message::HarnessHomeSignedIn {
-                    agent_type,
-                    definition,
+                tracing::info!(harness = %agent_type, account = %account, "home signed in");
+                if let Err(error) = self.agents.record_sign_in(&agent_type, &account) {
+                    // The login is in the home either way; only Ubiq's note of it is missing, and
+                    // saying so is more use than turning a finished sign-in into a failure.
+                    tracing::warn!(
+                        harness = %agent_type,
+                        account = %account,
+                        "the sign-in finished but could not be recorded: {error:#}"
+                    );
                 }
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessHomeSignedIn {
+                        agent_type,
+                        account,
+                    },
+                );
+                self.broadcast_accounts();
             }
             code => {
                 let error = match code {
                     Some(code) => format!("the sign-in exited with code {code}"),
                     None => "the sign-in was closed before it finished".to_string(),
                 };
-                tracing::info!(harness = %agent_type, definition = %definition, "{error}");
-                Message::HarnessLoginFailed {
-                    agent_type,
-                    definition,
-                    error,
-                }
+                tracing::info!(harness = %agent_type, account = %account, "{error}");
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessLoginFailed {
+                        agent_type,
+                        account,
+                        error,
+                    },
+                );
             }
-        };
-        self.host.send(To::Client(client), message);
+        }
     }
 
     /// An account could not be renamed or deleted; say so to the window that asked, and nobody
@@ -7265,15 +7309,15 @@ mod tests {
             .expect("the project was added")
     }
 
-    // ── definition sign-ins ─────────────────────────────────────────────
+    // ── account sign-ins ────────────────────────────────────────────────
 
-    /// A sign-in into a definition's home (`D193`) is judged by how it exited and nothing else:
-    /// a clean exit is `HarnessHomeSignedIn`, anything else — a failing code, or a pane closed
-    /// before the login ended — is `HarnessLoginFailed`, and neither records an account.
+    /// A sign-in into an account's home (`D194`) is judged by how it exited and nothing else: a
+    /// failing code, or a pane closed before the login ended, is `HarnessLoginFailed` and writes
+    /// nothing — no account appears for a sign-in that did not finish.
     #[test]
-    fn a_home_sign_in_is_judged_by_its_exit_and_records_no_account() {
+    fn a_sign_in_that_did_not_finish_records_no_account() {
         let (mut coordinator, client) = test_coordinator();
-        for (code, signed_in) in [(Some(0), true), (Some(1), false), (None, false)] {
+        for code in [Some(1), None] {
             let pane_id = PaneId::generate();
             coordinator.logins.insert(
                 pane_id,
@@ -7285,24 +7329,96 @@ mod tests {
             let messages = drain_all(&client);
             assert_eq!(messages.len(), 1, "one outcome: {messages:?}");
             match &messages[0] {
-                Message::HarnessHomeSignedIn {
+                Message::HarnessLoginFailed {
                     agent_type,
-                    definition,
-                } => {
-                    assert!(signed_in, "{code:?} is not a sign-in");
-                    assert_eq!(
-                        (agent_type.as_str(), definition.as_str()),
-                        ("claude-code", "work")
-                    );
-                }
-                Message::HarnessLoginFailed { definition, .. } => {
-                    assert!(!signed_in, "{code:?} is a sign-in");
-                    assert_eq!(definition, "work");
-                }
+                    account,
+                    ..
+                } => assert_eq!(
+                    (agent_type.as_str(), account.as_str()),
+                    ("claude-code", "work")
+                ),
                 other => panic!("unexpected outcome {other:?}"),
             }
         }
         assert!(coordinator.agents.accounts().unwrap().is_empty());
+    }
+
+    /// A clean exit is the one thing that makes an account (`D194`): the outcome goes to the
+    /// window that asked, the record is written, and the refreshed list is broadcast so every
+    /// window's accounts grow the new identity rather than the one that happened to sign it in.
+    #[test]
+    fn a_clean_sign_in_records_the_account_and_tells_every_window() {
+        let (mut coordinator, client) = test_coordinator();
+        let pane_id = PaneId::generate();
+        coordinator.logins.insert(
+            pane_id,
+            PendingLogin::for_home_test("claude-code", "work", Some(0)),
+        );
+
+        coordinator.login_gone(client.id(), pane_id);
+
+        let messages = drain_all(&client);
+        assert_eq!(messages.len(), 2, "the outcome and the list: {messages:?}");
+        match &messages[0] {
+            Message::HarnessHomeSignedIn {
+                agent_type,
+                account,
+            } => assert_eq!(
+                (agent_type.as_str(), account.as_str()),
+                ("claude-code", "work")
+            ),
+            other => panic!("unexpected outcome {other:?}"),
+        }
+        match &messages[1] {
+            Message::Accounts { accounts } => {
+                assert_eq!(accounts.len(), 1);
+                assert_eq!(accounts[0].id, "work");
+            }
+            other => panic!("expected the refreshed accounts, got {other:?}"),
+        }
+        let recorded = coordinator.agents.accounts().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].id, "work");
+    }
+
+    /// Signing one harness out shortens the account's `logged_in` and leaves the identity: the
+    /// answer is the refreshed list, which is what the settings screen redraws from.
+    #[test]
+    fn deleting_a_harness_login_shortens_logged_in_and_keeps_the_account() {
+        let (mut coordinator, client) = test_coordinator();
+        let harness = agent_manager::harness::resolve("claude-code").expect("claude-code");
+        coordinator.agents.record_account("work").unwrap();
+        let home = coordinator
+            .agents
+            .home_store()
+            .home("work", &harness.id())
+            .unwrap();
+        let login = home.join(harness.login_files().first().expect("a login file"));
+        std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+        std::fs::write(&login, b"{}").unwrap();
+        assert_eq!(
+            coordinator.agents.accounts().unwrap()[0].logged_in,
+            ["claude-code"]
+        );
+
+        coordinator.dispatch(
+            client.id(),
+            Message::DeleteHarnessLogin {
+                agent_type: "claude-code".to_string(),
+                account: "work".to_string(),
+            },
+        );
+
+        let messages = drain_all(&client);
+        match messages.last() {
+            Some(Message::Accounts { accounts }) => {
+                assert_eq!(accounts.len(), 1, "the account survives");
+                assert_eq!(accounts[0].id, "work");
+                assert!(accounts[0].logged_in.is_empty(), "its login is gone");
+            }
+            other => panic!("expected the refreshed accounts, got {other:?}"),
+        }
+        assert!(!home.exists());
     }
 
     // ── the registered dialogs (`D175`) ─────────────────────────────

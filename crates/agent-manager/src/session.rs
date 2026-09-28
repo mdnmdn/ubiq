@@ -58,7 +58,7 @@ pub struct SessionMeta {
     /// step).
     pub harness_session_id: Option<String>,
     /// The config strategy the run was provisioned under, when it ran from a config home — a
-    /// profile's ([`crate::spec::ConfigStrategy::Home`]) or the harness's own
+    /// account's ([`crate::spec::ConfigStrategy::Home`]) or the harness's own
     /// ([`crate::spec::ConfigStrategy::Native`]) — so a resume runs from the same one, where
     /// the conversation is. `None` for a run in its own dir, which [`Self::config_dir`] names.
     #[serde(default, skip_serializing_if = "Option::is_none")]

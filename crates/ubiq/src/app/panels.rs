@@ -707,7 +707,21 @@ impl AppState {
             //
             // The panel is kept for the chat's second reason one step weaker: a mission panel is
             // rebuildable from its payload, but keeping the entity keeps what it had scrolled to.
+            //
+            // **Dropping the placement is not the user closing the tab** (`T-52`). The library
+            // reports a panel the arrangement was installed over exactly as it reports one whose
+            // × was clicked, and `WorkbenchPanel::on_removed` tells the two apart by the panel
+            // being put back in the same edit — which is the one thing this branch deliberately
+            // does not do. So the sweep said so itself: `closed_chat_tab` took the tab out of
+            // `OpenProject::chats` and the panel out of this map, and the mode's own blob was
+            // then naming a leaf nothing could rebuild — the right region came back empty, was
+            // collapsed, and the emptied arrangement was written over the blob. The panel is told
+            // the window is the one taking it out, and only when it was on screen, so the flag is
+            // consumed by the removal it was set for.
             if kind.chat_id().is_some() || kind.mission_id().is_some() {
+                if on_screen.contains(&kind) {
+                    panel.update(cx, |panel, _| panel.displace());
+                }
                 kept.insert(kind, panel);
                 continue;
             }

@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-25
-verified: 2026-09-24
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
+updated: 2026-09-28
+verified: 2026-09-28
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
 ---
@@ -87,7 +87,7 @@ project and is not drawn without one; the chevron is drawn either way, and with 
 console is the only row it offers, because a shell that cannot be started is not worth a row.
 
 **A shell pane is a login shell.** It is started the way the user's own terminal starts one, so
-`.zprofile`, `.zlogin` and `.agent definition` run and a pane's `PATH` is the `PATH` the user has everywhere
+`.zprofile`, `.zlogin` and `.profile` run and a pane's `PATH` is the `PATH` the user has everywhere
 else. Without it a tool that is genuinely installed reports as `command not found` in a pane while
 working in Terminal.app, because Ubiq launched from Finder inherits a `PATH` that nothing has set up
 yet. Only a shell started with no arguments is treated this way: a harness, or a shell handed a
@@ -150,7 +150,11 @@ arrangement being installed over it has not been closed at all and its harness i
 **A detached pane is computed, not stored** — a pane the project still holds that no panel draws.
 Nothing is written down when one detaches, which is what stops a flag disagreeing with the screen.
 The `+` menu lists them in a group of their own, above the harnesses, because a running agent
-nothing is drawing is the one thing on that menu the user did not just ask for.
+nothing is drawing is the one thing on that menu the user did not just ask for. **The titlebar's
+New agent split button offers the agents among them a second time**, on a narrow chevron of its
+own — the same set narrowed to panes whose harness is an agent type the host offers, one click from
+the control that starts a new one. Both reach the same `reattach_pane()`; neither respawns
+anything.
 
 **Pinning withholds the ×; it does not withhold ending the harness.** A pinned tab's × is
 suppressed, and so is Hide on its right-click menu, rather than either drawn and refused; Rename,
@@ -329,7 +333,10 @@ giving the panel the keyboard puts keystrokes on the harness with nothing in bet
 calls `focus_pane()` when the displayed tab is a terminal and `blur_panes()` when it is not, which
 is what makes "no pane holds the keyboard unless a terminal is focused" true by construction; and
 `on_removed()` waits a turn, guarded by `on_added_to()`, because the library reports a closed tab
-and a displaced panel the same way and only one of them is a real close; once it knows the tab was
+and a displaced panel the same way and only one of them is a real close; a panel the *window* takes
+out and deliberately does not put back — the mode switch's chat tab and mission panel — says so
+itself through `WorkbenchPanel::displace`, since being re-added in the same edit is the only other
+thing that tells the two apart (`T-52`, `D156`); once it knows the tab was
 really removed it reads `UiSettings::terminal_close` or `agent_terminal_close` — told apart by
 `AppState::pane_is_agent` — and calls `close_pane()` or `detach_pane()` accordingly. Which regions a
 terminal may sit in, and the tab, its dot, its Hide and its Close, belong to the workbench document.
@@ -371,10 +378,12 @@ with a project open, because a pane runs in a project's folder. `NewPane` carrie
 click, which is `spawn_pane(None, ..)`, and the chevron, which hands `AppState` the point the click
 landed on and nothing else. `crates/ubiq/src/ui/new_pane_menu.rs` paints the menu over the window,
 for the reason the file tab's menu is painted there — the skin does not name `AppState`, so it
-cannot draw a menu with state in it. **The rows themselves are `WorkbenchState::new_pane_rows()`**,
-which both the drawing and the pick read: a menu matched by position cannot have two lists.
-`pick_new_pane_menu()` maps a row back — a shell is `spawn_pane(Some(program), ..)`, the separator
-is a row and does nothing, and the console is `reveal_console()`, which is `dock::reveal()`: a
+cannot draw a menu with state in it. **The rows themselves are `ui::menus::new_pane()`**, one list
+of `MenuEntry` that carries the action behind each row — a detached pane is `reattach_pane(id)`, a
+shell is `spawn_pane(Some(program), ..)`, a separator is a row and does nothing, and the console is
+`reveal_console()`. `pick_new_pane_menu()` resolves an index against that same list through
+`AppState::pick_menu_row`, so the drawing and the pick cannot disagree. `reveal_console()` is
+`dock::reveal()`: a
 panel already in the tree has its region brought back and its tab brought forward, and one that is
 not is added to its home region first. `AppState::toggle_region()` is where opening an empty pane
 region starts a pane, and `pane_title()` is where a tab gets its number — a tool's name the same

@@ -5,9 +5,9 @@
 //! (`accounts.toml` / per-id toml) holds only env-var NAMES, a base URL and/or
 //! a helper-command string — never a secret value.** Secret values are read
 //! transiently from the environment at launch and placed into the child
-//! process's env in memory. A harness login is not an account's: it lives in
-//! the harness's own config home, one per profile, and nothing here reads,
-//! copies or captures it (`D193`).
+//! process's env in memory. A harness login is not one of those references: it lives in
+//! the harness's own config home, one per `(account, harness)` — [`crate::home::HomeStore`]
+//! keys it — and nothing here reads, copies or captures it (`D194`).
 //!
 //! This mirrors the shape of [`crate::registry`]: a trait ([`AccountStore`]) so
 //! embedders can back it with whatever they like, and a filesystem-backed

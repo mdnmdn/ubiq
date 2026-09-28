@@ -749,14 +749,14 @@ the three env vars — only fine-grained PATs and OAuth tokens are.
 
 ### Credential capture & reuse (agent-manager)
 
-None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
-config home, signed in there by `am profile login` or the first run, and refreshes it itself
-(`D193` in Ubiq's `_docs/tech/decisions.md`).
+None. `am` neither captures, copies nor roams this login: the harness keeps it in the account's
+own config home, signed in there by `am account login` or the first run, and refreshes it itself
+(`D194` in Ubiq's `_docs/tech/decisions.md`).
 
-### Shared-home run (agent-manager, `D193`)
+### Shared-home run (agent-manager, `D194`)
 
 Under `ConfigStrategy::Home`, `Copilot::provision_home` runs the CLI from the
-profile's own `COPILOT_HOME`. Its `config.json` holds the login and the
+account's own `COPILOT_HOME`. Its `config.json` holds the login and the
 user's settings together, so agent-manager never writes it: no login is
 seeded or read back, and Copilot refreshes its own. The sign-in is
 `COPILOT_HOME=<home> copilot login` (`login_home`). A native run (no

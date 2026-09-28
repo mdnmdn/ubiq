@@ -304,20 +304,17 @@ pub enum Message {
     Accounts {
         accounts: Vec<AccountInfo>,
     },
-    /// Sign an agent definition's config home in (`D193`): the harness's own login, unmodified,
-    /// runs in a pane of its own straight into the home every run of that definition reads, and
-    /// the harness keeps and refreshes it there. Nothing is captured and no account is made.
+    /// Sign an account's config home in (`D194`): the harness's own login, unmodified, runs in
+    /// a pane of its own straight into the one home every run as that account reads, and the
+    /// harness keeps and refreshes it there. Nothing is captured. An account that does not
+    /// exist yet is written when the login ends cleanly, so this is also how one is made.
     /// Only for a harness whose [`AgentTypeInfo::shares_home`] is true. Answered with
     /// [`Message::HarnessLoginStarted`], or [`Message::HarnessLoginFailed`] when there was
     /// nothing to start.
     BeginHarnessLogin {
         agent_type: String,
-        /// The agent definition whose home to sign in.
-        definition: String,
-        /// The project `definition` is scoped to, when it is one of a project's own; `None`
-        /// resolves it among the global definitions.
-        #[serde(default)]
-        project: Option<ProjectId>,
+        /// The account whose home to sign in. Never empty — the home is keyed by it.
+        account: String,
     },
     /// The login is running in this pane. The pane carries bytes and takes keystrokes like
     /// any other, and it belongs to no project — closing it abandons the login.
@@ -327,18 +324,19 @@ pub enum Message {
         cols: u16,
         rows: u16,
     },
-    /// A sign-in into an agent definition's home exited cleanly: the login is in that home,
-    /// where the harness keeps and refreshes it.
+    /// A sign-in into an account's home exited cleanly: the login is in that home, where the
+    /// harness keeps and refreshes it, and every run as that account reads it. The account
+    /// exists from this moment on, so [`Message::Accounts`] follows.
     HarnessHomeSignedIn {
         agent_type: String,
-        definition: String,
+        account: String,
     },
     /// The sign-in did not finish, and why: it was abandoned, the harness exited with an error,
     /// or it could not be started at all. Not an error in Ubiq — the ordinary outcome of a flow
-    /// the user closed.
+    /// the user closed. No account is written.
     HarnessLoginFailed {
         agent_type: String,
-        definition: String,
+        account: String,
         error: String,
     },
     /// A URL the running login printed. The host scans the login pane's own output for
@@ -352,16 +350,42 @@ pub enum Message {
         pane_id: PaneId,
         url: String,
     },
-    /// Rename an account. Answered with [`Message::Accounts`], or
+    /// Whether `account`'s home holds a usable login for `agent_type`. Answered with
+    /// [`Message::HarnessLoginStatus`], always — a login that is absent is an answer, not an
+    /// error.
+    ///
+    /// The host reads the expiry the login states about itself, in place, in the home the
+    /// harness owns; it copies nothing and writes nothing (`G380`, `G382`).
+    CheckHarnessLogin {
+        agent_type: String,
+        account: String,
+    },
+    /// The answer to [`Message::CheckHarnessLogin`].
+    HarnessLoginStatus {
+        agent_type: String,
+        account: String,
+        status: LoginStatus,
+    },
+    /// Sign one harness out of an account, leaving the identity and its other harnesses
+    /// alone: that harness's home for this account is removed, and with it the login the
+    /// harness kept there. The account survives with a shorter
+    /// [`AccountInfo::logged_in`]. Answered with [`Message::Accounts`], or
+    /// [`Message::AccountError`].
+    DeleteHarnessLogin {
+        agent_type: String,
+        account: String,
+    },
+    /// Rename an account — the identity, and so every harness home keyed by it, which moves
+    /// with the name and keeps its login. Answered with [`Message::Accounts`], or
     /// [`Message::AccountError`] when the new name is taken, empty, or not a name a
     /// file can carry.
     RenameAccount {
         account: String,
         new_account: String,
     },
-    /// Delete an account. It is gone from disk afterwards, which is why the word in
-    /// the interface is "Delete" and not "Forget" — unlike a project, there is nothing
-    /// left behind to come back to. Answered with [`Message::Accounts`], or
+    /// Delete an account and every harness home under it. It is gone from disk afterwards,
+    /// which is why the word in the interface is "Delete" and not "Forget" — unlike a project,
+    /// there is nothing left behind to come back to. Answered with [`Message::Accounts`], or
     /// [`Message::AccountError`].
     DeleteAccount {
         account: String,
@@ -3203,9 +3227,9 @@ pub struct AgentTypeInfo {
     /// hidden — an absent control reads as a missing feature, and this is not one.
     #[serde(default)]
     pub quota: QuotaSource,
-    /// Whether this harness runs from an agent definition's own config home, where its login
-    /// lives and the harness refreshes it (`D193`) — the library's `Harness::shares_home`. It is
-    /// what offers a definition of this harness a **Sign in** of its own.
+    /// Whether this harness runs from an account's own config home, where its login lives and
+    /// the harness refreshes it (`D194`) — the library's `Harness::shares_home`. It is what
+    /// puts this harness on the **Add harness** picker and offers an account a **Sign in**.
     #[serde(default)]
     pub shares_home: bool,
 }
@@ -3235,12 +3259,17 @@ pub struct CatalogueModel {
 /// a key helper — and what crosses the bus is only ever a *reference* to one: its id. The
 /// credential itself never appears here, and neither does a path — the domain rule is that
 /// accounts carry credential references, never credential material, and this type is where
-/// that rule is enforced or lost. A harness login is not an account's: it lives in an agent
-/// definition's home (`D193`).
+/// that rule is enforced or lost. A harness login is the account's (`D194`), and what crosses
+/// here is only which harnesses have one, never the login or the home holding it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountInfo {
     /// What the user named this identity, e.g. `work`.
     pub id: String,
+    /// The harnesses that have a config home under this account, by [`AgentTypeInfo::id`] —
+    /// the ones a run as this account starts signed in. A *reference*: that a home exists,
+    /// not where it is or what is in it. Empty is an account that is a name and nothing more.
+    #[serde(default)]
+    pub logged_in: Vec<String>,
 }
 
 /// One **agent definition**, as the UI is told about it.

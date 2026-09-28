@@ -13,15 +13,15 @@
 //! Class A (`CODEX_HOME` relocates the whole tree, `auth.json` included), and
 //! the child's real `HOME` is left intact.
 //!
-//! The shared-home run (`D193`, [`Codex::provision_home`]) is the other shape: `CODEX_HOME` is
-//! the profile's own persistent home, which holds `auth.json` and `sessions/` and which Codex
+//! The shared-home run (`D194`, [`Codex::provision_home`]) is the other shape: `CODEX_HOME` is
+//! the account's own persistent home, which holds `auth.json` and `sessions/` and which Codex
 //! refreshes itself. Nothing per-run is written there — MCP, model, effort, permissions and
 //! instructions go by `-c key=value` — and only what no flag carries, skills and `hooks.json`,
 //! is placed into it. `codex-acp` runs the same way, save that its MCP servers travel in ACP's
 //! `session/new`.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use tracing::warn;
@@ -327,7 +327,7 @@ impl Harness for Codex {
             .collect()
     }
 
-    /// A run against a profile's shared `CODEX_HOME` (`D193`), which holds `auth.json` and
+    /// A run against the account's shared `CODEX_HOME` (`D194`), which holds `auth.json` and
     /// `sessions/` and which Codex refreshes itself. Nothing per-run is written into `home`;
     /// each per-run setting is a `-c key=value` override ahead of any subcommand
     /// ([`config_overrides`]) — MCP servers, model, reasoning effort, sandbox and approval
@@ -388,6 +388,13 @@ impl Harness for Codex {
             env_remove: Vec::new(),
             env_clear: false,
         })
+    }
+
+    /// Codex keeps its login in `auth.json` at the root of `CODEX_HOME` — the home itself.
+    /// On macOS a harness may keep the login in the OS keychain instead, so an absent file is
+    /// not proof of no login.
+    fn login_files(&self) -> Vec<PathBuf> {
+        vec![PathBuf::from("auth.json")]
     }
 
     fn structured_bridge(

@@ -12,14 +12,15 @@
 //! extension point: a provider that genuinely reads differently adds a variant, and every gauge
 //! already drawn keeps drawing.
 //!
-//! **No credential material leaves this module.** A probe reads the token, spends it on one
-//! request and returns percentages; the token is never logged, never returned and never put in a
-//! snapshot. That is the same invariant [`crate::account`] states for the account index itself.
+//! **No credential material is read here at all.** A probe asks the *harness* — Claude Code's own
+//! `/usage`, run headless — and the harness asks the provider with the login it already holds. No
+//! token is opened, copied, returned or logged; a snapshot is percentages, a plan name and a
+//! timestamp. That is stronger than the invariant [`crate::account`] states for the account index
+//! itself, and it is the reason the ask is shaped this way.
 
 use std::path::Path;
-use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Whether a harness can be asked how much of the plan is left, and what asking costs.
@@ -36,14 +37,15 @@ pub enum QuotaSource {
     None,
     /// It arrives unasked on the structured stream while a turn runs, and there is no way to ask.
     Push,
-    /// It can be asked with no process at all — a stored credential and one request.
+    /// It can be asked with no conversation running — a short-lived process of its own, or one
+    /// request, and an answer.
     Probe,
     /// It can be asked, but only down a structured bridge that is already running.
     Bridge,
 }
 
 impl QuotaSource {
-    /// Whether [`crate::harness::Harness::quota`] can answer with no process running.
+    /// Whether [`crate::harness::Harness::quota`] can answer with no conversation running.
     pub fn probeable(self) -> bool {
         matches!(self, QuotaSource::Probe)
     }
@@ -152,140 +154,152 @@ impl QuotaSnapshot {
     }
 }
 
-/// Where Claude states what is left. Unofficial: it is the endpoint Claude Code's own client
-/// calls, it is not in the published API, and it rate-limits. Everything that reads it treats a
-/// failure as "not read" rather than as a number.
-const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
-
-/// The beta header the endpoint requires, as Claude Code sends it.
-const CLAUDE_OAUTH_BETA: &str = "oauth-2025-04-20";
-
-/// The macOS Keychain item Claude Code keeps its default config dir's login in.
-const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
-
-/// Ask Claude what is left for `account`, with the login Claude Code itself keeps in `home` — a
-/// profile's shared config home, or its own default when `None` (`D193`).
+/// Ask Claude what is left for `account`, by running Claude Code's own `/usage` against the
+/// login it keeps in `home` — a profile's shared config home, or its own default when `None`
+/// (`D194`).
 ///
-/// The access token is read here, in place, spent on one request and dropped. Nothing is copied
-/// or written; the token is never returned, never logged and never reaches a [`QuotaSnapshot`].
+/// **The harness is the source, not an endpoint.** Claude Code holds the login and asks the
+/// provider itself; what comes back is the `usage_report` it attaches to the answer, which is
+/// the same structured fact its own screen draws. Nothing here opens a credential file, reads a
+/// Keychain item or names a URL, so a change to how Claude Code stores or renews a login is not
+/// a change here.
+///
+/// A failure is a sentence the user reads and never a number: the run is best-effort by
+/// construction, and a window that states no percentage produces no gauge.
 pub fn claude(account: &str, harness: &str, home: Option<&Path>) -> Result<QuotaSnapshot> {
-    let creds = claude_credentials(home)?;
-    let value: serde_json::Value =
-        serde_json::from_slice(&creds).context("parsing Claude credentials JSON")?;
-    let oauth = value.get("claudeAiOauth").unwrap_or(&value);
-    let token = oauth
-        .get("accessToken")
-        .and_then(|t| t.as_str())
-        .filter(|t| !t.is_empty())
-        .context("the Claude login holds no access token, so its limits cannot be read")?;
-    let plan = oauth
-        .get("subscriptionType")
-        .and_then(|s| s.as_str())
-        .map(str::to_string);
-
-    let body: serde_json::Value = ureq::get(CLAUDE_USAGE_URL)
-        .timeout(Duration::from_secs(10))
-        .set("authorization", &format!("Bearer {token}"))
-        .set("anthropic-beta", CLAUDE_OAUTH_BETA)
-        .call()
-        .map_err(claude_refusal)?
-        .into_json()
-        .context("the usage endpoint answered something that is not JSON")?;
-
+    let report = crate::harness::claude::usage_via_jsonl(home)?;
     Ok(QuotaSnapshot {
         account: account.to_string(),
         harness: harness.to_string(),
-        plan: plan.or_else(|| {
-            body.get("subscription_type")
-                .and_then(|s| s.as_str())
-                .map(str::to_string)
-        }),
-        gauges: claude_gauges(&body),
+        // `/usage` names no plan — it says "your subscription" and nothing more. `None` is what
+        // a surface draws as nothing, which is the honest answer rather than a guessed tier.
+        plan: None,
+        gauges: claude_gauges(&report),
         as_of: now(),
     })
 }
 
-/// Read the credential bytes Claude Code keeps for `home`: its `.credentials.json`, or — for the
-/// default config dir on macOS, where Claude Code keeps the login in the Keychain instead — that
-/// Keychain item. A profile home's Keychain item is keyed by a hash of its path, which is not
-/// read here (`G380`).
-fn claude_credentials(home: Option<&Path>) -> Result<Vec<u8>> {
-    let dir = match home {
-        Some(home) => home.to_path_buf(),
-        None => crate::harness::env_dir_or_home("CLAUDE_CONFIG_DIR", ".claude")
-            .context("no home directory to find Claude Code's login in")?,
+/// Read whatever windows the report states.
+///
+/// `usage_report.rate_limits.limits` is a **list**, not a fixed set of fields, so a window Claude
+/// adds later draws itself with no change here: an unknown `kind` keeps its own name. It is read
+/// defensively all the same — a limit carrying no `percent` produces no gauge rather than a zero,
+/// the same rule [`QuotaReading::Count`] states about a missing denominator.
+fn claude_gauges(report: &serde_json::Value) -> Vec<QuotaGauge> {
+    let limits = report
+        .pointer("/rate_limits/limits")
+        .and_then(serde_json::Value::as_array);
+    let mut gauges: Vec<QuotaGauge> = limits
+        .into_iter()
+        .flatten()
+        .filter_map(claude_gauge)
+        .collect();
+    gauges.extend(claude_extra_usage(
+        report.pointer("/rate_limits/extra_usage"),
+    ));
+    gauges
+}
+
+/// One entry of `rate_limits.limits`.
+fn claude_gauge(limit: &serde_json::Value) -> Option<QuotaGauge> {
+    let used_pct = limit
+        .get("percent")
+        .and_then(serde_json::Value::as_f64)
+        .map(|pct| pct.round().clamp(0.0, 100.0) as u8)?;
+    // The provider's own word, as `/usage` prints it: "Current session", "Current week (all
+    // models)", "Current week (Fable)" — shortened to what fits beside a bar, and a scoped
+    // window carries the model it is scoped to because that is the only thing telling two
+    // weekly gauges apart.
+    let label = match limit.get("kind").and_then(serde_json::Value::as_str)? {
+        "session" => "Session".to_string(),
+        "weekly_all" => "Week".to_string(),
+        "weekly_scoped" => match limit
+            .pointer("/scope/model/display_name")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some(model) => format!("Week ({model})"),
+            None => "Week (scoped)".to_string(),
+        },
+        other => other.replace('_', " "),
     };
-    if let Ok(bytes) = std::fs::read(dir.join(".credentials.json")) {
-        return Ok(bytes);
-    }
-    if home.is_none() && cfg!(target_os = "macos") {
-        let output = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"])
-            .output()
-            .context("running `security find-generic-password`")?;
-        if output.status.success() {
-            return Ok(output.stdout);
-        }
-    }
-    anyhow::bail!(
-        "Claude Code holds no readable login in {} to read the usage limits with",
-        dir.display()
-    )
-}
-
-/// Turn a transport or status failure into a sentence a user reads, never a code.
-///
-/// A 429 from an endpoint that is unofficial in the first place is the expected failure, and it
-/// says so in its own words rather than as "error 429".
-fn claude_refusal(error: ureq::Error) -> anyhow::Error {
-    match error {
-        ureq::Error::Status(429, _) => {
-            anyhow::anyhow!("Claude is rate-limiting the usage endpoint; try again in a minute")
-        }
-        ureq::Error::Status(401 | 403, _) => anyhow::anyhow!(
-            "Claude refused the stored login when asked for usage limits; signing in again fixes it"
-        ),
-        ureq::Error::Status(code, _) => {
-            anyhow::anyhow!("Claude's usage endpoint answered {code}")
-        }
-        ureq::Error::Transport(transport) => {
-            anyhow::anyhow!("Claude's usage endpoint could not be reached: {transport}")
-        }
-    }
-}
-
-/// Read whatever windows the answer states.
-///
-/// The endpoint is unofficial, so its shape is read defensively: a window that is absent, or
-/// carries no utilization, produces no gauge rather than a zero. Both spellings seen in the wild
-/// are accepted for each field, and a fraction is rounded the same way
-/// [`crate::io::model::RateLimitWindow`] rounds one.
-fn claude_gauges(body: &serde_json::Value) -> Vec<QuotaGauge> {
-    [
-        ("five_hour", "5 hours"),
-        ("seven_day", "Week"),
-        ("seven_day_opus", "Week (Opus)"),
-    ]
-    .into_iter()
-    .filter_map(|(key, label)| {
-        let window = body.get(key)?;
-        let used_pct = window
-            .get("utilization")
-            .or_else(|| window.get("used_pct"))
-            .and_then(serde_json::Value::as_f64)
-            .map(|v| if v <= 1.0 { v * 100.0 } else { v })
-            .map(|v| v.round().clamp(0.0, 100.0) as u8)?;
-        Some(QuotaGauge {
-            label: label.to_string(),
-            reading: QuotaReading::Window { used_pct },
-            resets_at: window
-                .get("resets_at")
-                .and_then(serde_json::Value::as_i64)
-                .filter(|at| *at > 0),
-            detail: None,
-        })
+    Some(QuotaGauge {
+        label,
+        reading: QuotaReading::Window { used_pct },
+        resets_at: limit
+            .get("resets_at")
+            .and_then(serde_json::Value::as_str)
+            .and_then(unix_seconds),
+        detail: None,
     })
-    .collect()
+}
+
+/// The extra-usage wallet, where the account has one switched on.
+///
+/// Only `utilization` is read: the report also carries `used_credits` and `monthly_limit`, but
+/// both read `null` on every account observed so far, and a gauge built from an unobserved shape
+/// is a guess. An account with extra usage off states `is_enabled: false` and produces nothing.
+fn claude_extra_usage(extra: Option<&serde_json::Value>) -> Option<QuotaGauge> {
+    let extra = extra?;
+    if extra.get("is_enabled").and_then(serde_json::Value::as_bool) != Some(true) {
+        return None;
+    }
+    let used_pct = extra
+        .get("utilization")
+        .and_then(serde_json::Value::as_f64)
+        .map(|pct| if pct <= 1.0 { pct * 100.0 } else { pct })
+        .map(|pct| pct.round().clamp(0.0, 100.0) as u8)?;
+    Some(QuotaGauge {
+        label: "Extra usage".to_string(),
+        reading: QuotaReading::Window { used_pct },
+        resets_at: None,
+        detail: None,
+    })
+}
+
+/// An RFC-3339 timestamp — `2026-09-28T16:00:00.327867+00:00`, `…Z` — as unix seconds.
+///
+/// Hand-rolled rather than a date crate: this is the only timestamp `agent-manager` parses, and
+/// the crate stays free of `chrono`/`time` on purpose (`cli::session` says the same). Anything
+/// that does not parse answers `None`, which draws as a gauge with no reset rather than a wrong
+/// one.
+fn unix_seconds(stamp: &str) -> Option<i64> {
+    let (date, rest) = stamp.split_once('T')?;
+    let mut date = date.split('-');
+    let year: i64 = date.next()?.parse().ok()?;
+    let month: i64 = date.next()?.parse().ok()?;
+    let day: i64 = date.next()?.parse().ok()?;
+
+    // Everything after the `T` is `HH:MM:SS[.frac]<zone>`, and the zone is where the first `+`,
+    // `-` or `Z` appears — none of which can occur in the time itself.
+    let zone_at = rest.find(['+', '-', 'Z'])?;
+    let time_end = rest[..zone_at].find('.').unwrap_or(zone_at);
+    let mut time = rest[..time_end].split(':');
+    let hour: i64 = time.next()?.parse().ok()?;
+    let minute: i64 = time.next()?.parse().ok()?;
+    let second: i64 = time.next().unwrap_or("0").parse().ok()?;
+
+    let zone = &rest[zone_at..];
+    let offset = if zone.starts_with('Z') {
+        0
+    } else {
+        let sign = if zone.starts_with('-') { -1 } else { 1 };
+        let mut zone = zone[1..].split(':');
+        let zone_hours: i64 = zone.next()?.parse().ok()?;
+        let zone_minutes: i64 = zone.next().unwrap_or("0").parse().ok()?;
+        sign * (zone_hours * 3600 + zone_minutes * 60)
+    };
+
+    Some(days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second - offset)
+}
+
+/// Days from 1970-01-01 to a proleptic-Gregorian date — Howard Hinnant's `days_from_civil`.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 /// Now, in unix seconds.
@@ -305,23 +319,96 @@ pub(crate) fn unreported(harness: &str) -> anyhow::Error {
 mod tests {
     use super::*;
 
+    /// A real `/usage` answer, captured off the stream-json bridge — the recording `G248` asked
+    /// for, so a schema change is found by CI rather than by a user seeing no gauges.
+    const RECORDED: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/claude-usage-report.json"
+    ));
+
     #[test]
-    fn a_fraction_and_a_percentage_both_read_as_a_percentage() {
-        let body = serde_json::json!({
-            "five_hour": { "utilization": 0.07, "resets_at": 1_788_474_600i64 },
-            "seven_day": { "utilization": 21.0, "resets_at": 1_788_796_800i64 },
-        });
-        let gauges = claude_gauges(&body);
-        assert_eq!(gauges.len(), 2);
-        assert_eq!(gauges[0].reading, QuotaReading::Window { used_pct: 7 });
-        assert_eq!(gauges[0].resets_at, Some(1_788_474_600));
-        assert_eq!(gauges[1].reading, QuotaReading::Window { used_pct: 21 });
+    fn the_recorded_usage_report_parses_into_the_windows_it_states() {
+        let report: serde_json::Value = serde_json::from_str(RECORDED).unwrap();
+        let gauges = claude_gauges(&report);
+        let read: Vec<_> = gauges
+            .iter()
+            .map(|gauge| (gauge.label.as_str(), gauge.reading.used_pct()))
+            .collect();
+        assert_eq!(
+            read,
+            vec![
+                ("Session", Some(9)),
+                ("Week", Some(88)),
+                ("Week (Fable)", Some(0)),
+            ],
+            "a scoped weekly window is named by the model it is scoped to"
+        );
+        // `2026-09-28T10:50:00.327851+00:00`.
+        assert_eq!(gauges[0].resets_at, Some(1_790_592_600));
+        assert_eq!(
+            gauges.len(),
+            3,
+            "extra usage is off in the recording, so it draws nothing"
+        );
     }
 
     #[test]
-    fn a_window_that_states_nothing_produces_no_gauge() {
-        let body = serde_json::json!({ "five_hour": { "resets_at": 1i64 }, "seven_day": {} });
-        assert!(claude_gauges(&body).is_empty(), "no figure, no gauge");
+    fn a_limit_that_states_nothing_produces_no_gauge() {
+        let report = serde_json::json!({
+            "rate_limits": { "limits": [
+                { "kind": "session", "resets_at": "2026-09-28T10:50:00+00:00" },
+                { "kind": "weekly_all", "percent": 21 },
+            ]},
+        });
+        let gauges = claude_gauges(&report);
+        assert_eq!(gauges.len(), 1, "no figure, no gauge");
+        assert_eq!(gauges[0].label, "Week");
+        assert_eq!(gauges[0].resets_at, None);
+    }
+
+    #[test]
+    fn a_window_claude_adds_later_keeps_its_own_name() {
+        let report = serde_json::json!({
+            "rate_limits": { "limits": [{ "kind": "monthly_all", "percent": 4 }] },
+        });
+        let gauges = claude_gauges(&report);
+        assert_eq!(gauges[0].label, "monthly all");
+        assert_eq!(gauges[0].reading, QuotaReading::Window { used_pct: 4 });
+    }
+
+    #[test]
+    fn extra_usage_draws_only_when_it_is_switched_on_and_states_a_figure() {
+        let off = serde_json::json!({
+            "rate_limits": { "extra_usage": { "is_enabled": false, "utilization": 0.5 } },
+        });
+        assert!(claude_gauges(&off).is_empty());
+        let on = serde_json::json!({
+            "rate_limits": { "extra_usage": { "is_enabled": true, "utilization": 0.25 } },
+        });
+        assert_eq!(
+            claude_gauges(&on)[0].reading,
+            QuotaReading::Window { used_pct: 25 }
+        );
+    }
+
+    #[test]
+    fn a_timestamp_reads_with_its_fraction_and_its_zone() {
+        assert_eq!(
+            unix_seconds("2026-09-28T16:00:00.327867+00:00"),
+            Some(1_790_611_200)
+        );
+        assert_eq!(unix_seconds("2026-09-28T16:00:00Z"), Some(1_790_611_200));
+        assert_eq!(
+            unix_seconds("2026-09-28T18:00:00+02:00"),
+            Some(1_790_611_200),
+            "an offset is subtracted, not ignored"
+        );
+        assert_eq!(
+            unix_seconds("2026-09-28T14:00:00-02:00"),
+            Some(1_790_611_200)
+        );
+        assert_eq!(unix_seconds("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(unix_seconds("whenever"), None, "no guess from a bad stamp");
     }
 
     #[test]

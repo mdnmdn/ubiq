@@ -4,8 +4,8 @@
 > defaults, and a default isolation policy — from which every run makes a
 > **throwaway overlay**. An **agent** is a profile with its composition frozen.
 > This doc defines the model, the cross-harness "cleanest solution" it rests on,
-> and the phased path to get there. A login lives in a profile's own config home
-> (§6.2, `D193`); nothing in `am` captures, seeds or roams one. §4 and §5 record
+> and the phased path to get there. A login lives in the account's own config home
+> (§6.2, `D194`); nothing in `am` captures, seeds or roams one. §4 and §5 record
 > the seeding design that preceded it.
 
 ## 1. Why: two config lifetimes
@@ -74,7 +74,7 @@ under a synthetic `HOME` loses everything anchored there:
 All of it is reconstructable, but only *deliberately*. So the governing rule:
 
 > **Never relocate `HOME` merely to inject config. Relocate the harness's own
-> config/data dirs via its native env levers — a profile's own config home — and
+> config/data dirs via its native env levers — the account's own config home — and
 > leave the real `HOME` (and the toolchain) intact.**
 
 `HOME` relocation is reserved for the **explicit `home` mode** a confined run may
@@ -103,7 +103,7 @@ empty directory — [`cli.md`](./cli.md) §"Settings file + flag merge" owns tha
 end-to-end: a headless run against a fresh seeded config dir returns `AUTH_OK`
 with no onboarding, real `HOME` intact.
 
-Seeding was replaced by a login kept in each profile's own home (`D193`, §6.2).
+Seeding was replaced by a login kept in the account's own home (`D194`, §6.2).
 
 ## 5. The cleanest solution, generalized across harnesses
 
@@ -147,7 +147,7 @@ struct ConfigAnchor {
 }
 ```
 
-The login itself is no part of it: it lives in a profile's own home (`D193`, §6.2).
+The login itself is no part of it: it lives in the account's own home (`D194`, §6.2).
 
 ## 6. The profile model
 
@@ -180,18 +180,35 @@ composition) → wrap for isolation (§8) → launch.** Consequences that fall o
 login in place (§6.2, `ConfigStrategy::Native`); named profiles and per-run flags
 layer on top.
 
-### 6.2 The per-profile home (`D193`)
+### 6.2 The per-account home (`D194`)
 
-A profile also owns one **persistent harness config home** per harness,
-`profiles/<name>/home/<harness>/` beside `base/` — `ProfileStore::home(id,
-harness)` names it (`FsProfileStore::home_dir` computes it; the default and a
-store with no filesystem answer `None`; `ScopedProfileStore` answers from the
-root that holds the profile). The login lands in it one of two ways: the
-profile's first terminal run shows the harness's own login screen, or an
-explicit sign-in runs `Harness::login_home` (Claude: `CLAUDE_CONFIG_DIR=<home>
-claude auth login`; the CLI's `am profile login`). Either way the harness owns
-the login and its refresh from then on: nothing is captured, seeded or read
-back.
+The **persistent harness config home** is keyed by the *account*, not by the
+profile: one directory per `(account, harness)` at
+`harness-homes/<account>/<harness>/`, beside `accounts/` and `profiles/` under
+the config dir. `HomeStore::home(account, harness)` names it — computed, never
+created there, and `None` for an account name that is not a single safe path
+segment, so a name a person typed cannot escape the root. Every run that names
+that account uses it, from any profile, any project, concurrently, and they
+share one login.
+
+The login lands in it one of two ways: the first terminal run as that account
+shows the harness's own login screen, or an explicit sign-in runs
+`Harness::login_home` (Claude: `CLAUDE_CONFIG_DIR=<home> claude auth login`; the
+CLI's `am account login`). Either way the harness owns the login and its refresh
+from then on: nothing is captured, seeded or read back.
+
+`HomeStore` also answers what follows an account's own lifecycle: `signed_in`
+(is any of `Harness::login_files` present under the home — the directory's
+existence is not a login, since `prepare_home` creates it), `harnesses` (which
+harnesses that account has a home for), `rename` (follow an account rename),
+`forget` (sign one harness out) and `delete` (take every home with the account).
+Removing what is not there is success.
+
+`home::login_validity(harness, home, now_ms)` reads the expiry a login states
+about itself, in place, from the same `Harness::login_files`. That is the one
+token read `D194` keeps knowingly, temporary, to be dropped when a
+usage/validity source exists that does not read the login. An empty reading is
+not proof of no login: on macOS a harness may keep it in the OS keychain.
 
 `provision::prepare_home(harness, home, templates)` makes a home ready for
 either: it creates it and applies the §14.1 templates **once in its life**,
@@ -408,7 +425,7 @@ Either way the two axes compose cleanly:
   linked back to `profiles/<name>/base/` when possible; composition files
   (mcp.json, skills) are freshly written and **owned** by the run.
 - **No credentials:** a login is never materialized into a run; it lives in the
-  profile's own home (`D193`, §6.2).
+  account's own home (`D194`, §6.2).
 - **Manifest:** record linked-vs-owned per file so cleanup can never delete a
   profile's real base by following a link.
 - **Cleanup / GC:** delete the overlay on exit; a periodic sweep removes
@@ -457,8 +474,8 @@ global profiles come first.
   (`auth list` read `$XDG_DATA_HOME/opencode/auth.json` and overrode the
   HOME-relative default). So opencode seeds like Claude/Codex and drops HOME
   relocation. Recorded in `_docs/harness/opencode.md`.
-- **B-2 → no copy (`D193`).** Credentials are not copied anywhere: the login
-  stays in the profile's own home. The config *overlay* (non-credential) is
+- **B-2 → no copy (`D194`).** Credentials are not copied anywhere: the login
+  stays in the account's own home. The config *overlay* (non-credential) is
   symlinked.
 - **B-3 → independent.** Accounts stay their own store; a profile *references* an
   account by id, and `--account` remains a per-run override that wins over the
@@ -469,12 +486,15 @@ global profiles come first.
 - `src/harness/mod.rs` — `Relocate`/`ConfigAnchor`, `Harness::config_anchor`; `TemplateFile`, `Harness::templates`, generic `apply_templates` (§14); `Harness::post_seed` (§14).
 - `src/harness/{claude,codex,opencode,grok,copilot}.rs` — per-harness `config_anchor()` + provision.
 - `src/harness/claude.rs` — `templates()` (theme/tui/Claude-in-Chrome defaults) + `post_seed()` (onboarding/trust-dialog fix-ups); see §14.
-- `src/profile.rs` — profile store + `extends` inheritance + `ProfileStore::home` (§6.2).
+- `src/profile.rs` — profile store + `extends` inheritance.
+- `src/home.rs` — `HomeStore` (the account-keyed home, §6.2), `login_validity`, `AM_HOMES`.
+- `src/harness/mod.rs` — `Harness::login_files`: where each harness keeps its login inside a home (§6.2).
 - `src/harness/mod.rs` — `Harness::shares_home` / `provision_home` / `login_home` / `session_transcripts` (§6.2).
 - `src/resolve.rs` — profile selection (`effective_profile`) + 4-layer `pick` + `config_bases`.
 - `src/overlay.rs` — `materialize` + `sweep_old_runs`.
 - `src/provision.rs` — overlay materialize + GC hook + `apply_templates` + `post_seed` (§14); `prepare_home` and the `Home` / `Native` path (§6.2).
 - `src/cli/{profile,agent}.rs` + `src/cli/mod.rs` — `am profile` / `am agent`.
+- `src/cli/account/` — `am account ls|use|login|logout|check` (§6.2).
 - `src/settings.rs` — `[defaults].profile`.
 
 ## 14. Preference templates and structural post-seed fix-ups
@@ -532,7 +552,7 @@ similar but are **not** preferences — they're correctness requirements of
 to a user-editable file a stray edit could break:
 
 - `hasCompletedOnboarding: true` — a login made non-interactively (`claude auth
-  login`, `am profile login`) never runs the wizard that normally sets this, so a
+  login`, `am account login`) never runs the wizard that normally sets this, so a
   fully-authenticated config would otherwise still show the onboarding UI.
 - `projects[spec.cwd].hasTrustDialogAccepted: true` — Claude Code gates a
   per-project trust dialog on this, keyed by the exact cwd string; a fresh

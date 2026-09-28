@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition, command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-27
-verified: 2026-09-27
+updated: 2026-09-28
+verified: 2026-09-28
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -1936,42 +1936,56 @@ error. A machine with none of the three tools answers `SearchError::Walk` naming
 
 The ninth family. An **account** is a set of credential references a harness runs as —
 environment-variable names, a base URL, a key helper — and this family is how the interface learns
-which exist, and how an agent definition's own config home is signed in (`D193`).
+which exist, how one is made, and how an account's own config home is signed in (`D194`).
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `ListAccounts` | UI → host | — | `Accounts` |
 | `Accounts` | host → UI | `accounts` | — |
-| `BeginHarnessLogin` | UI → host | `agent_type`, `definition`, `project?` | `HarnessLoginStarted`, or `HarnessLoginFailed` |
+| `BeginHarnessLogin` | UI → host | `agent_type`, `account` | `HarnessLoginStarted`, or `HarnessLoginFailed` |
 | `HarnessLoginStarted` | host → UI | `pane_id`, `agent_type`, `cols`, `rows` | — |
-| `HarnessHomeSignedIn` | host → UI | `agent_type`, `definition` | — |
-| `HarnessLoginFailed` | host → UI | `agent_type`, `definition`, `error` | — |
+| `HarnessHomeSignedIn` | host → UI | `agent_type`, `account` | `Accounts` |
+| `HarnessLoginFailed` | host → UI | `agent_type`, `account`, `error` | — |
 | `HarnessLoginLink` | host → UI | `pane_id`, `url` | — |
+| `CheckHarnessLogin` | UI → host | `agent_type`, `account` | `HarnessLoginStatus` |
+| `HarnessLoginStatus` | host → UI | `agent_type`, `account`, `status` | — |
+| `DeleteHarnessLogin` | UI → host | `agent_type`, `account` | `Accounts`, or `AccountError` |
 | `RenameAccount` | UI → host | `account`, `new_account` | `Accounts`, or `AccountError` |
 | `DeleteAccount` | UI → host | `account` | `Accounts`, or `AccountError` |
 | `AccountError` | host → UI | `error` | — |
 
-**References only, never material.** `AccountInfo` is an id. No credential and no path cross this
-family — that is the domain rule about accounts carrying credential references, and this family is
-where it is kept or lost. The log sink listens to the same bus, so a secret here would be a secret
-in a log the user might paste into an issue. An account is written as a file, not through this
-family; the interface renames and deletes one.
+**References only, never material.** `AccountInfo` is an id and the harness ids that have a home
+under it. No credential and no path cross this family — that is the domain rule about accounts
+carrying credential references, and this family is where it is kept or lost. The log sink listens to
+the same bus, so a secret here would be a secret in a log the user might paste into an issue.
+`LoginStatus` is the one thing a credential says about itself that may cross: a timestamp.
 
-**A harness login is a definition's, not an account's (`D193`).** `BeginHarnessLogin` runs the
-harness's own login straight into that agent definition's config home — `project` names the
-project when the definition is one of a project's own — for a harness whose
-`AgentTypeInfo::shares_home` is true. The harness keeps the login there and refreshes it; nothing
-is captured, read back or copied, and no account is made. The definition's first terminal run,
-showing the harness's own login screen, reaches the same home without this message.
+**A harness login is the account's (`D194`).** `BeginHarnessLogin` runs the harness's own login
+straight into that account's config home, for a harness whose `AgentTypeInfo::shares_home` is true.
+Every run as that account — from any definition, in any project, at once — reads the same home, and
+the harness keeps the login there and refreshes it; nothing is captured, read back or copied. The
+first terminal run of an agent as that account, showing the harness's own login screen, reaches the
+same home without this message.
+
+**A clean sign-in is also how an account is made.** The name the user typed is an identity from the
+moment the login ends cleanly: the host writes the record if there is none, and `Accounts` follows
+`HarnessHomeSignedIn` so every window's list grows it. A login that failed or was abandoned writes
+nothing, which is why a half-made account cannot exist. `DeleteHarnessLogin` is the other end — one
+harness's home under one account, removed — and the account survives it with a shorter `logged_in`.
+
+**`CheckHarnessLogin` reads an expiry, not a provider.** The host reads what the login in that home
+states about itself, in place, and answers `Valid`, `Expired`, `Unknown` or `Missing`. It is a local
+claim, not a round trip: a token the provider revoked early still reads `Valid`, and a harness that
+keeps its login in the OS keychain reads `Missing` while being perfectly signed in (`G382`).
 
 **A login runs in a pane, and that pane belongs to no project.** `HarnessLoginStarted` names a
 `PaneId` that behaves like any other — it carries `TerminalOutput`, takes `TerminalInput`, resizes
 by `TerminalResize` — but it joins no project's pane count and gets no dock panel. The window draws
 it in a modal instead. Ending it is an ordinary `CloseWorkspace`.
 
-**The outcome is the exit code.** A clean exit answers `HarnessHomeSignedIn`; any other exit, or a
-pane closed before the login ended, answers `HarnessLoginFailed` with the reason. Re-authenticating
-is the same message again.
+**The outcome is the exit code.** A clean exit answers `HarnessHomeSignedIn` and the refreshed
+`Accounts`; any other exit, or a pane closed before the login ended, answers `HarnessLoginFailed`
+with the reason and writes nothing. Re-authenticating is the same message again.
 
 **A link is an affordance, not a filter.** The host forwards a URL it saw in the login's output; it
 does not remove it from the stream. The pane still shows the harness's real output, and the
@@ -1995,13 +2009,21 @@ each identity's plan is left before the next long run.
 | `QuotaReading` | one of: `Window { used_pct }`, `Count { used, limit? }`, `Credit { remaining, currency }` |
 | `QuotaSource` | one of: `None`, `Push`, `Probe`, `Bridge` — rides `AgentTypeInfo` |
 
+**`Probe` means "askable with no conversation running", not "askable with no process".** A probe is
+allowed to be a short-lived process of its own: Claude's is a headless `claude` run that asks the
+harness `/usage` and reads the answer back, so the login the harness already holds is the only
+credential involved and Ubiq names none. What `Probe` promises a surface is that the question can
+be put at any moment, including for an account with nothing running — which is the moment it
+matters.
+
 **Quota is keyed by account, never by conversation.** A rate-limit window belongs to an identity:
 two agents signed in as the same account read the same window, each holding its own copy would be
 two copies of one fact, and an account with nothing running holds none at all — which is exactly
 the moment the question gets asked. The harness is a field on the snapshot rather than part of the
 key's meaning, because one account can serve several harnesses and each states its own limits. The
-account is the one a run's definition names, empty for none; the host reads the login from the
-home of a definition of that harness naming it, or the harness's default home (`G380`).
+account is the one a run's definition names, empty for none; the host reads the login from that
+account's own home for the harness, or the harness's default home when the account has none
+(`D194`, `G380`).
 
 **A snapshot is a list of gauges, not a struct of every provider's fields.** The providers do not
 agree on what a limit is, so a union struct would grow a field per provider and read absent on most
@@ -2014,14 +2036,14 @@ asking again, so it is a cache and a restart re-probes.
 
 **`snapshot` and `error` are both optional, and exactly one is set.** Three answers are distinct
 and none of them is a zero: a snapshot whose `gauges` is **empty** is a provider that was asked and
-named no limit; an `error` is a sentence saying why nothing could be read — "Claude is
-rate-limiting the usage endpoint" is a different thing on screen from "this harness does not report
+named no limit; an `error` is a sentence saying why nothing could be read — "Claude Code did not
+answer /usage within 60s" is a different thing on screen from "this harness does not report
 usage limits"; and a snapshot whose `as_of` is old is a real reading that is stale, which is what
 `as_of` exists to let a surface say rather than implying "now".
 
-**`fresh` asks the provider again.** The default answers from the host's cache, because the
-endpoint behind Claude's probe is unofficial and rate-limits; `fresh: true` is what a manual
-refresh sends, and it is the one probe a user explicitly asked for.
+**`fresh` asks the provider again.** The default answers from the host's cache, because a probe is
+not free — Claude's spawns a `claude` process and waits on the provider's answer; `fresh: true` is
+what a manual refresh sends, and it is the one probe a user explicitly asked for.
 
 **Probes are spaced out, never sent in a burst.** `crates/ubiq-host/src/quota.rs`'s worker holds
 each job back until five seconds have passed since the last probe left, holds the first probe of a
@@ -2030,7 +2052,7 @@ burst, and drops an ask about a login already probed within the last sixty secon
 probing it again — that ask is answered with `QuotaRead { snapshot: None, error: None }`, neither a
 reading nor an error, because the earlier probe's `QuotaChanged` already reached every window and a
 second probe would only repeat it. A window opening the settings page, which asks about every
-definition's login at once, is exactly the case this holds back.
+account's login at once, is exactly the case this holds back.
 
 **`QuotaChanged` is broadcast, on `ProjectFilesChanged`'s precedent.** Every window showing that
 account is looking at the same fact, so a reading a running agent pushed reaches all of them rather
@@ -2042,9 +2064,11 @@ and permanent answer for the harnesses whose providers publish no queryable limi
 draws that sentence in place rather than hiding the control: an absent control reads as a missing
 feature, and this is not one. It is the same fact-before-process split `AgentTypeInfo::chat` makes.
 
-**No credential crosses this family.** A snapshot is percentages, a plan name and a timestamp. The
-token that bought them is read inside `agent-manager`, spent on one request and dropped — the same
-rule the account family keeps, and for the same reason: the log sink listens to this bus.
+**No credential crosses this family.** A snapshot is percentages, a plan name where the provider
+states one, and a timestamp. Whatever bought them stays inside `agent-manager` and never reaches the
+bus — for Claude nothing is read at all, because the harness asks the provider with the login it
+already holds. It is the same rule the account family keeps, and for the same reason: the log sink
+listens to this bus.
 
 ## The feedback family
 

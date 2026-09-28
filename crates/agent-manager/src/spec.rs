@@ -123,22 +123,22 @@ pub enum ConfigStrategy {
     Ephemeral,
     /// A fixed dir the caller chose (kept after the run; for debugging).
     Fixed(PathBuf),
-    /// A profile's persistent harness home plus this run's own scratch dir (`D193`).
+    /// The account's persistent harness home plus this run's own scratch dir (`D194`).
     ///
-    /// `home` is the harness's config home, shared read-write by every concurrent run of the
-    /// profile and never removed by a run ([`crate::profile::ProfileStore::home`] names it).
+    /// `home` is the harness's config home, shared read-write by every concurrent run as that
+    /// account and never removed by a run ([`crate::home::HomeStore::home`] names it).
     /// `scratch` holds this run's own files, passed to the harness by flag, and is kept after
     /// the run. A harness that cannot run from a shared home
     /// ([`crate::harness::Harness::shares_home`]) is provisioned into `scratch` as
     /// [`ConfigStrategy::Fixed`] would.
     Home {
-        /// The profile's persistent config home.
+        /// The account's persistent config home.
         home: PathBuf,
         /// This run's own directory for per-run files.
         scratch: PathBuf,
     },
     /// The harness's own default config, used in place and untouched, plus this run's scratch
-    /// dir: a run with no profile (`D193`). Nothing is copied and nothing is written into the
+    /// dir: a run that names no account (`D194`). Nothing is copied and nothing is written into the
     /// user's config — no templates, no onboarding or trust entry, no login — and the harness
     /// is left to find its config where it would without `am`. `scratch` is as under
     /// [`ConfigStrategy::Home`]; a harness that cannot share a home is provisioned into it as

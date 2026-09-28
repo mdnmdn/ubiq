@@ -248,16 +248,18 @@ whitelists; `disabledMcpjsonServers` always wins.
 
 `/clear`, `/compact`, `/help`, `/init`, `/login`, `/logout`, `/mcp`,
 `/memory`, `/model`, `/effort`, `/permissions`, `/plan`, `/review`,
-`/status`, `/vim`, `/cost`, `/doctor`, `/terminal-setup`, `/agents`,
+`/status`, `/usage`, `/vim`, `/cost`, `/doctor`, `/terminal-setup`, `/agents`,
 `/skills`, and others. Full list in the [Commands reference].
 
 Some built-ins are **headless-safe** when delivered as the prompt on a
-`-p` / stream-json run (they do not open a TUI picker). `/model` and
-`/effort` return a short **synthetic** usage/status string with
+`-p` / stream-json run (they do not open a TUI picker). `/model`, `/effort`
+and `/usage` return a short **synthetic** usage/status answer with
 `message.model: "<synthetic>"`, `num_turns: 0`, and zero token cost —
 useful for discovery. Prefer the stream-json (JSONL) path documented
 under [Model discovery & selection](#model-discovery--selection-agent-manager);
-the interactive TUI picker for `/model` is still TTY-only.
+`/usage` rides the identical skeleton and is what
+§"Usage limits (agent-manager)" reads the rate limits from. The interactive
+TUI picker for `/model` is still TTY-only.
 
 ### Custom
 
@@ -396,37 +398,55 @@ plus `ANTHROPIC_API_KEY` is the supported pattern.
 
 ### Credential capture & reuse (agent-manager)
 
-None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
-config home, signed in there by `am profile login` or the first run, and refreshes it itself
-(`D193` in Ubiq's `_docs/tech/decisions.md`).
+None. `am` neither captures, copies nor roams this login: the harness keeps it in the account's
+own config home (`harness-homes/<account>/claude-code/`), signed in there by `am account login` or
+the first run, and refreshes it itself (`D194` in Ubiq's `_docs/tech/decisions.md`). `Claude::login_files`
+names `.credentials.json` under that home as what a login looks like there — though on macOS the
+login may be in the Keychain instead, so an absent file proves nothing.
 
 ### Usage limits (agent-manager)
 
 Claude is the one harness of the five whose remaining plan can be read with **no
-process at all**, so it declares `IoSupport::quota = QuotaSource::Probe` and
-implements `Harness::quota`.
+conversation running**, so it declares `IoSupport::quota = QuotaSource::Probe`
+and implements `Harness::quota`.
 
-- **Endpoint:** `GET https://api.anthropic.com/api/oauth/usage`, with
-  `authorization: Bearer <accessToken>` and `anthropic-beta: oauth-2025-04-20`.
-- **Token:** the `claudeAiOauth.accessToken` of the account's own captured login,
-  reached through `AccountStore::login_source` so a store that keeps credential
-  *bytes* works as well as one that keeps a home dir. Where the account has no
-  captured home, the macOS Keychain entry `Claude Code-credentials` stands in.
-- **Answer:** a `five_hour` and a `seven_day` window (and `seven_day_opus` where
-  the plan has one), each with a utilization and a reset. Both a 0.0-1.0 fraction
-  and a 0-100 percentage are accepted and rounded the same way
-  `RateLimitWindow::utilization_pct` is; a window that states no utilization
-  produces **no gauge**, never a zero.
-- **Plan:** `claudeAiOauth.subscriptionType` from the credential — no request
-  needed, which is why a snapshot names the plan even when the endpoint refuses.
+**The harness is asked, not the provider.** `quota::claude()` reaches the network
+through nothing of its own: it calls `harness::claude::usage_via_jsonl(home)`,
+which asks a headless `claude` the slash command `/usage` and reads the
+`usage_report` object Claude Code attaches to its answer. No endpoint, no token,
+no credential file — the harness already holds the login and does the asking.
+`am` reads no credential material for this at all.
 
-**This endpoint is unofficial.** It is not in the published API, community tools
-are what establish it, and it rate-limits. Every failure degrades to a sentence
-a user reads — "Claude is rate-limiting the usage endpoint", "Claude refused the
-stored login" — and never to a number. A schema change costs the gauges, not the
-caller.
+- **Route:** the same stream-json argv skeleton and single NDJSON user line that
+  [Model discovery & selection](#model-discovery--selection-agent-manager) uses
+  for `/model`, with the text `"/usage"`. Both are synthetic slash runs —
+  `message.model: "<synthetic>"`, `num_turns: 0`, zero token cost — so reading
+  the limits **bills nothing**.
+- **Environment:** `CLAUDE_CONFIG_DIR` is set to the account's shared home where
+  it has one, `ENV_HYGIENE` is stripped, the child runs in
+  `shared::probe_cwd()` with stderr nulled and stdout drained on its own thread,
+  and it is killed at `USAGE_TIMEOUT` (60s).
+- **Answer:** `usage_report.rate_limits.limits`, a list of
+  `{kind, group, percent, resets_at, scope, severity, is_active}`. `kind`
+  chooses the gauge's label — `session` → "Session", `weekly_all` → "Week",
+  `weekly_scoped` → "Week (<scope.model.display_name>)", and a `kind` nobody
+  recognises keeps its own name rather than being dropped. `resets_at` is
+  RFC-3339, parsed by `unix_seconds`. `rate_limits.extra_usage` draws an
+  "Extra usage" gauge only where `is_enabled` holds and a `utilization` is
+  stated.
+- **Plan:** `None`, always. `/usage` names no subscription tier, so a snapshot
+  states no plan and a surface draws nothing there rather than a guess.
 
-The live bridge's `AgentEvent::RateLimitUpdate` states the same two windows for
+**The report's shape is the harness's, not a published contract.** Every failure
+degrades to a sentence a user reads — "Claude Code did not answer /usage within
+60s", "Claude Code could not answer /usage (<status>); signing in again may fix
+it", "Claude Code answered /usage with no usage report", "spawning `claude` to
+read the usage limits (is the claude binary on PATH?)" — and never to a number
+or a gauge. A shape change costs the gauges, not the caller.
+`tests/fixtures/claude-usage-report.json` is a recorded answer, and the parse
+tests in `quota.rs` run against it.
+
+The live bridge's `AgentEvent::RateLimitUpdate` states the same limits for
 free during a turn (§"Output stream protocol"). It is a fresher reading of one
 fact, not a second fact: an account with a running agent has a more current
 snapshot than one without, and nothing has to choose between the two paths.
@@ -628,11 +648,11 @@ forever, if a future check finds otherwise.
 
 A coordinator materialises skills into `<workdir>/.claude/skills/<name>/SKILL.md` before launch (the project skills path). Always-on context is written into `<workdir>/CLAUDE.md`, ideally inside a managed marker block so user-authored content is preserved. (Cross-reference Skills and Policies/Rules/Memory.)
 
-### Shared-home run (agent-manager, `D193`)
+### Shared-home run (agent-manager, `D194`)
 
 `ConfigStrategy::Home { home, scratch }` runs the native `claude-code` from a
-profile's persistent `CLAUDE_CONFIG_DIR` (`home`), shared read-write by every
-concurrent run of the profile (`Claude::provision_home`). Nothing per-run is
+account's persistent `CLAUDE_CONFIG_DIR` (`home`), shared read-write by every
+concurrent run as that account (`Claude::provision_home`). Nothing per-run is
 written into `home`; each piece goes into the run's `scratch` and is passed by
 flag (verified against 2.1.283):
 
@@ -651,7 +671,7 @@ conversation reuses the prompt recorded on its first request, whatever
 
 The login is either the first terminal run's own login screen or `claude auth
 login` with `CLAUDE_CONFIG_DIR=<home>` and the real `HOME` untouched
-(`Claude::login_home`, `am profile login`); Claude Code keeps it in the home or
+(`Claude::login_home`, `am account login`); Claude Code keeps it in the home or
 in the Keychain item keyed by that home, and refreshes it itself. The home takes
 the theme/TUI templates once in its life (`provision::prepare_home`, behind a
 `.am-home` marker), and `.claude.json`'s onboarding flag and cwd trust entry

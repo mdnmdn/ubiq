@@ -65,14 +65,14 @@
 //! `--always-approve`) go *between* `agent` and `stdio`, not after it — see
 //! `provision`'s `IoModes::Structured` arm.
 //!
-//! **Shared home (`D193`).** Under `ConfigStrategy::Home` a run sets `HOME` to the profile's
+//! **Shared home (`D194`).** Under `ConfigStrategy::Home` a run sets `HOME` to the account's
 //! persistent fake home ([`Harness::provision_home`]), which holds `.grok/auth.json` and grok's
 //! own state; grok refreshes the login there and nothing is seeded or read back. Model, effort,
 //! permissions and instructions stay in argv. MCP (`.grok/user-settings.json`) and skills
 //! (`.agents/skills/`) have no per-run route, so they are profile-owned content of that home. A
 //! native run leaves `HOME` alone and grok runs from the user's own `~/.grok`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
@@ -407,7 +407,7 @@ impl Harness for Grok {
         self.launch(spec, Some(dir))
     }
 
-    /// grok runs from a profile's persistent fake `HOME` (`D193`).
+    /// grok runs from the account's persistent fake `HOME` (`D194`).
     fn shares_home(&self) -> bool {
         true
     }
@@ -421,7 +421,7 @@ impl Harness for Grok {
             .collect()
     }
 
-    /// A run against a profile's shared fake `HOME` (`D193`), whose `.grok/auth.json` holds the
+    /// A run against the account's shared fake `HOME` (`D194`), whose `.grok/auth.json` holds the
     /// login grok refreshes itself — so nothing here writes it, and no login is seeded. Model,
     /// reasoning effort, permissions, resume and instructions (folded into `--prompt`) reach the
     /// run by argv, and the account's key by env, as in [`Harness::provision`].
@@ -468,6 +468,13 @@ impl Harness for Grok {
             env_remove: Vec::new(),
             env_clear: false,
         })
+    }
+
+    /// Grok has no config lever, so its home *is* `HOME` and it keeps its login in
+    /// `.grok/auth.json` under it. On macOS a harness may keep the login in the OS keychain
+    /// instead, so an absent file is not proof of no login.
+    fn login_files(&self) -> Vec<PathBuf> {
+        vec![PathBuf::from(".grok").join("auth.json")]
     }
 
     fn structured_bridge(
@@ -568,7 +575,7 @@ fn write_skills(spec: &RunSpec, skills_dir: &Path) -> Result<()> {
 }
 
 /// Put the run's skills into a shared home's `.agents/skills/` — profile-owned, since grok has
-/// no per-run skill route (`D193`). Each skill is staged whole in `.am-stage/` and renamed into
+/// no per-run skill route (`D194`). Each skill is staged whole in `.am-stage/` and renamed into
 /// place, under a lock beside the folder, so a concurrent run never reads half a skill and two
 /// runs of one profile never interleave. A skill the home already holds under that id is
 /// replaced; one the run does not name is left alone.
@@ -608,7 +615,7 @@ fn write_home_skills(spec: &RunSpec, home: &Path) -> Result<()> {
 }
 
 /// Merge `servers` by id into a shared home's `.grok/user-settings.json` → `mcpServers` —
-/// profile-owned, since grok has no per-run MCP route (`D193`). A read-modify-write under a lock
+/// profile-owned, since grok has no per-run MCP route (`D194`). A read-modify-write under a lock
 /// beside the file: every other key (an `apiKey` among them) and every server the run does not
 /// name is kept, and the result is staged beside the file and renamed over it, `0600` as grok
 /// writes it, so a running grok never reads half a file. A no-op with no servers.
@@ -989,7 +996,7 @@ mod tests {
         })
     }
 
-    /// A home as a profile's login leaves it: `<home>/.grok/auth.json`.
+    /// A home as an account's login leaves it: `<home>/.grok/auth.json`.
     fn logged_in_home() -> (tempfile::TempDir, PathBuf, &'static str) {
         let home = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(home.path().join(".grok")).unwrap();

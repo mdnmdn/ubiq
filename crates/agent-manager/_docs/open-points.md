@@ -63,7 +63,7 @@ unbuilt, and the stepping stone is easy to mistake for the finished feature.
 
 ## 2. Credential login-capture — dropped
 
-Capture is gone: a login lives in a profile's own config home (`D193`).
+Capture is gone: a login lives in the account's own config home (`D194`).
 
 ---
 
@@ -135,7 +135,7 @@ catalog, sessions, runs), each with its own env override
 
 ## 9. OAuth token refresh — dropped
 
-Nothing is copied or written back: the harness refreshes its login in a profile's own home (`D193`).
+Nothing is copied or written back: the harness refreshes its login in the account's own home (`D194`).
 
 ---
 

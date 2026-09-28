@@ -42,7 +42,8 @@ precedence is flags, then the profile.
 | `discover_models(agent_type)` | The harness's own model list |
 | `accounts()`, `rename_account()`, `delete_account()` | The account store — credential references only |
 | `profiles()`, `save_profile(ProfileInfo)` | Read/write through `FsProfileStore` at `<root>/profiles`; a profile pinning no harness is skipped. **There is no delete, because the library offers none** |
-| `begin_home_login(agent_type, definition, project) -> PendingLogin` | A definition's sign-in (`D193`), run in a real terminal inside a modal; the outcome is the exit code |
+| `begin_home_login(agent_type, account) -> PendingLogin` | An account's sign-in (`D194`) into `<root>/harness-homes/<account>/<harness>`, run in a real terminal inside a modal, confined as a run from that home is and granted it read-write; the outcome is the exit code, and a clean one also writes the account record (`record_account`) |
+| `home_store()`, `check_login(agent_type, account, now_ms)`, `delete_harness_login(agent_type, account)` | The account-keyed homes: which harnesses an account is signed in to (`AccountInfo::logged_in`), what expiry a login states about itself (`G382`), and removing one harness's home |
 | `compose(...) -> Composed` | The terminal face: `IoModes::Passthrough`, `Composed::exec() -> Launch` |
 | `converse(...)` | The conversation face: `IoModes::Structured` and a `structured_bridge` |
 | `agent_dir(agent)`, `retire(pane)`, `retire_agent(agent)`, `sweep()` | Run directories — `ConfigStrategy::Fixed` under Ubiq's root, named by the pane id or agent id (both ULIDs, so neither reads as the other's), deleted on close, swept at startup |
@@ -91,9 +92,11 @@ approval RPC, opencode runs `--dangerously-skip-permissions` and Copilot `--allo
 
 Adjacent families: `SpawnWorkspace` / `WorkspaceSpawned` / `CloseWorkspace` (the *terminal* face of
 the same thing), `ListAgentTypes` / `AgentTypes`, `CheckAgentCommand`, `ListAccounts` / `Accounts`
-/ `RenameAccount` / `DeleteAccount` / `AccountError`, the definition sign-in family
-(`BeginHarnessLogin` → `HarnessLoginStarted` → zero or more `HarnessLoginLink` →
-`HarnessHomeSignedIn` or `HarnessLoginFailed`), and
+/ `RenameAccount` / `DeleteAccount` / `AccountError`, the account sign-in family
+(`BeginHarnessLogin { agent_type, account }` → `HarnessLoginStarted` → zero or more
+`HarnessLoginLink` → `HarnessHomeSignedIn { agent_type, account }`, followed by `Accounts`, or
+`HarnessLoginFailed { agent_type, account, error }`), `CheckHarnessLogin` → `HarnessLoginStatus`,
+`DeleteHarnessLogin`, and
 `ListProfiles` / `Profiles` / `SaveProfile`.
 
 ## Message family — host → UI
@@ -141,7 +144,7 @@ Supporting types in `crates/ubiq-proto/src/conversation.rs`: `ConvContent`, `Too
 | Record | Fields, and the rule behind them |
 |---|---|
 | `AgentTypeInfo` | `id` (library harness id, e.g. `claude-code`), `label`, `command` (what the library *would* run — a placeholder a custom command is typed over, **never** something the interface composes a launch from), `available` (binary found, or a custom command configured — a row that cannot start says so before it is picked), `modes` (this harness's advertised permission modes; empty where it has no such axis, because a mode is not a universal concept) |
-| `AccountInfo` | `id`. An account is credential references; a harness login is a definition's (`D193`). No credential and no path ever appears here |
+| `AccountInfo` | `id`, and `logged_in` — the harness ids that have a config home under this account (`D194`), derived from the login files each harness declares, not recorded. An account is credential references; no credential, no path and no login ever appears here |
 | `ProfileInfo` | `id`, `agent_type`, `account`, `model`, `mode` — every field a *reference*, `None` meaning the profile does not mention that axis and a lower layer decides |
 | `WorkspaceInfo` | `id` (also its pane's), `session_id`, `agent_type` (what the coordinator actually started), `project_id`, `rel_path`, `cols`, `rows`, `running`. No process, no writer, no pseudo-terminal |
 | `LoginStatus` | `Valid { expires_at_ms }`, `Expired { expires_at_ms }`, `Unknown` (stored but names no expiry — an API key looks like this and is usually fine), `Missing` |

@@ -16,7 +16,7 @@ use gpui::SharedString;
 use ubiq_proto::files::RelatedFile;
 use ubiq_proto::ids::{KbSourceId, PaneId, ProjectId, TaskId};
 use ubiq_proto::mcp::McpInfo;
-use ubiq_proto::messages::{AgentDefinition, AgentTypeInfo, ShellInfo};
+use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, ShellInfo};
 use ubiq_proto::projects::StorageMode;
 use ubiq_proto::tools::ListedTool;
 use ubiq_proto::work::AgentId;
@@ -387,6 +387,10 @@ pub enum MenuId {
     /// three ways in the picker offers at its foot — add, clone, remote. Where it opened is
     /// `WorkbenchState::new_project_menu`.
     NewProject,
+    /// The narrow chevron beside New agent: the agent panes a tab's `Hide` detached, still
+    /// running behind nothing (`T-266`). Where it opened is
+    /// `WorkbenchState::hidden_agents_menu`.
+    HiddenAgents,
     /// The `+` menu every surface that hosts a conversation raises: *New agent*, which opens the
     /// form, and *Attach existing agent*, which lists what is already running. Where it opened,
     /// which surface asked and which of its two stages is drawn is
@@ -480,44 +484,6 @@ pub struct AttachmentPreview {
     pub failed: Option<String>,
 }
 
-/// One row of the new-pane control's menu, in the order it is drawn.
-///
-/// The rows are here rather than in the module that paints them because the pick is matched by
-/// position: the menu and the action behind it read the same list, so a row that is not offered
-/// cannot be picked by an index that has shifted under it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum NewPaneRow {
-    /// The heading over the detached group, drawn only when it has at least one row under it.
-    /// Disabled and unclickable — the same decoration `HarnessChoice::Label` is — but still a row,
-    /// because the pick that follows it is an index into this very list.
-    DetachedHeading,
-    /// A pane no panel currently draws, by its index into the detached list the caller passed
-    /// `new_pane_rows` — that list lives on `AppState`, not here, so unlike `Shell` this index
-    /// resolves against the caller's own copy rather than a field of `WorkbenchState`.
-    Detached(usize),
-    /// A shell, by its index in [`WorkbenchState::shells`].
-    Shell(usize),
-    /// The line between what starts something and what does not.
-    Separator,
-    /// The console, which is revealed rather than started.
-    Console,
-}
-
-/// One row of the titlebar's overflow menu, in the order it is drawn.
-///
-/// Here rather than in the module that paints it, for the same reason [`NewPaneRow`] is: the pick
-/// is matched by position, so a row that is not offered must not shift the index of the one after
-/// it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OverflowRow {
-    RemoteConnect,
-    WebExport,
-    CaptureWindow,
-    Help,
-    PointAtSomething,
-    Settings,
-}
-
 /// In-place help while it is up: where the cursor is, and nothing else.
 ///
 /// **The hit target is not stored.** Which name is under the cursor is a question about the frame
@@ -536,29 +502,26 @@ pub struct HelpTargeting {
     pub cursor: Option<(f32, f32)>,
 }
 
-/// One row of the titlebar's new-project menu, in the order it is drawn — the same three ways in
-/// as the project picker's foot (`ui::project_menu`'s `add_row`, `clone_row` and `remote_row`),
-/// reused rather than restated so the titlebar and the picker never drift apart on what "add a
-/// project" offers.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum NewProjectRow {
-    AddProject,
-    CloneProject,
-    RemoteProject,
-}
-
 /// One row of the harness menu, in the order it is drawn.
 ///
-/// Here rather than in the module that paints it for the same reason [`NewPaneRow`] is: the
-/// pick is matched by position, so the menu and the action behind it must read one list.
+/// Here rather than in the module that paints it because the pick is matched by position: the
+/// menu and the action behind it must read one list.
 ///
 /// A flat list rather than a submenu, because the kit has no submenu and the pick is an index —
-/// the same reason `NewPaneRow` flattens shells and harnesses into one sequence.
+/// the same reason `ui::menus` lays one out flat.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum HarnessChoice {
-    /// A harness, by its index in [`WorkbenchState::agent_types`]. What it runs as is then the
-    /// library's answer — with no definition, the harness's own login (`D193`).
+    /// A harness with no identity to choose from, by its index in
+    /// [`WorkbenchState::agent_types`]. What it runs as is then the library's answer — a
+    /// definition, or the user's own home.
     Harness(usize),
+    /// A harness and the identity to run it as: the pair the interface calls a harness.
+    Pair {
+        /// Index into [`WorkbenchState::agent_types`].
+        harness: usize,
+        /// The account id, which is what crosses the wire.
+        account: String,
+    },
     /// A saved setup, by its index in [`crate::state::settings::SettingsState::definitions`]. It
     /// names its own harness, identity, model and mode — everything the start needs.
     AgentDefinition(usize),
@@ -883,6 +846,11 @@ pub struct WorkbenchState {
     /// Where the titlebar's new-project chevron was clicked, which is what anchors the menu over
     /// the window. `Some` exactly while `open_menu` is `MenuId::NewProject`.
     pub new_project_menu: Option<(f32, f32)>,
+    /// Where the hidden-agents chevron beside New agent was clicked, which is what anchors the
+    /// menu over the window (`T-266`). `Some` exactly while `open_menu` is
+    /// `MenuId::HiddenAgents`: nothing reads it otherwise, so a position left behind by a menu
+    /// closed some other way is inert and the next open replaces it.
+    pub hidden_agents_menu: Option<(f32, f32)>,
     /// Which mission's `⋯` is down and where it was clicked. `Some` exactly while `open_menu` is
     /// `MenuId::Mission` — the anchor task travels with the position because several mission
     /// panels may be open at once and the rows are about one of them.
@@ -1063,6 +1031,7 @@ impl Default for WorkbenchState {
             new_pane_menu: None,
             overflow_menu: None,
             new_project_menu: None,
+            hidden_agents_menu: None,
             mission_menu: None,
             mission_spawn_menu: None,
             mission_kind_menu: None,
@@ -1084,41 +1053,6 @@ impl Default for WorkbenchState {
 }
 
 impl WorkbenchState {
-    /// What the new-pane control's menu offers.
-    ///
-    /// A window with no project can start no pane — there is no folder to run one in — so it is
-    /// offered the console alone rather than anything that would do nothing. Detached panes come
-    /// first: reattaching one is picking up work already running, which reads before starting
-    /// something new. Then the shells. **A runnable tool is no longer a row here** — it lives
-    /// behind the titlebar's own play control and its chevron, which is where the whole of a
-    /// project's tools are read at once; see [`Self::run_tool_rows`].
-    /// Each separator is a row like any other, and there is none when there is nothing above it to
-    /// separate — no detached pane degrades to exactly the menu before detaching existed.
-    ///
-    /// **A harness is not a row.** Starting one is what the New agent form is for, and it asks the
-    /// identity, the model, the level and the mode in the same breath; this menu offers the ways
-    /// of opening a terminal that are not an agent.
-    ///
-    /// `detached_count` is the length of the caller's own detached-pane list — that list lives on
-    /// `AppState`, which `state/` holds no reference to, so it is threaded in the same way
-    /// `has_project` already is rather than read from a field here.
-    pub fn new_pane_rows(&self, has_project: bool, detached_count: usize) -> Vec<NewPaneRow> {
-        let mut rows = Vec::new();
-        if detached_count > 0 {
-            rows.push(NewPaneRow::DetachedHeading);
-            rows.extend((0..detached_count).map(NewPaneRow::Detached));
-            rows.push(NewPaneRow::Separator);
-        }
-        if has_project {
-            rows.extend((0..self.shells.len()).map(NewPaneRow::Shell));
-            if !self.shells.is_empty() {
-                rows.push(NewPaneRow::Separator);
-            }
-        }
-        rows.push(NewPaneRow::Console);
-        rows
-    }
-
     /// What the titlebar's run menu offers: every applicable tool, by its index in
     /// [`Self::tools`].
     ///
@@ -1134,65 +1068,56 @@ impl WorkbenchState {
             .collect()
     }
 
-    /// What the titlebar's overflow menu offers.
+    /// What a harness menu offers: one row per identity signed into a harness, and one per saved
+    /// setup — grouped so both are legible, read by every surface that offers a list of them and
+    /// by the pick behind it.
     ///
-    /// `has_project` and `capture_offered` are asked of the caller rather than read from `self`
-    /// for the reason `new_pane_rows` takes `has_project`: this is plain data, and neither the
-    /// project nor the capture backend is a fact `WorkbenchState` itself can answer.
-    pub fn overflow_rows(&self, has_project: bool, capture_offered: bool) -> Vec<OverflowRow> {
-        let mut rows = vec![OverflowRow::RemoteConnect];
-        if has_project {
-            rows.push(OverflowRow::WebExport);
-        }
-        if has_project && capture_offered {
-            rows.push(OverflowRow::CaptureWindow);
-        }
-        // Always offered, project or not: help is about the application, and a window with no
-        // folder open is one of the places a reader most wants it.
-        rows.push(OverflowRow::Help);
-        // Under Help, because it is the same question asked the other way round: Help opens the
-        // page for where you are standing, this one waits for you to point at something.
-        rows.push(OverflowRow::PointAtSomething);
-        rows.push(OverflowRow::Settings);
-        rows
-    }
-
-    /// What the titlebar's new-project menu offers — always the same three rows, in the same
-    /// order the project picker draws them in at its foot.
-    pub fn new_project_rows(&self) -> Vec<NewProjectRow> {
-        vec![
-            NewProjectRow::AddProject,
-            NewProjectRow::CloneProject,
-            NewProjectRow::RemoteProject,
-        ]
-    }
-
-    /// What a harness menu offers: one row per harness that converses, and one per saved setup —
-    /// grouped so both are legible, read by every surface that offers a list of them and by the
-    /// pick behind it.
+    /// **A bare harness is no longer a row.** Starting one with nothing else answered is what the
+    /// New agent form is for, and it asks the identity, the model, the level and the mode in the
+    /// same breath; a row that started a harness on whatever the library happened to resolve was
+    /// the same launch with every question skipped. So the `Default` group — every
+    /// [`HarnessChoice::Harness`] row, its heading and its separator — is gone, and what is left
+    /// is the two groups that name something the user set up.
     ///
-    /// A harness row starts the harness on the answers the form asks and, with no definition,
-    /// on its own login (`D193`). Unavailable harnesses are still what a row draws disabled over,
-    /// so a list says a tool is missing rather than silently omitting it.
+    /// Unavailable harnesses are still what a row draws disabled over, so a list says a tool is
+    /// missing rather than silently omitting it.
     ///
     /// **A harness that cannot converse is omitted entirely**, unavailable ones notwithstanding:
     /// the two absences say different things. "Not installed" is worth drawing disabled, because
     /// installing it is the fix; "has no structured bridge" is not something the reader can act
     /// on, and the harness is not missing — it still runs perfectly well in a pane. Indices stay
     /// indices into `agent_types`, gap and all.
-    pub fn harness_choices(&self, definitions: &[AgentDefinition]) -> Vec<HarnessChoice> {
-        let harnesses: Vec<HarnessChoice> = self
+    pub fn harness_choices(
+        &self,
+        accounts: &[AccountInfo],
+        definitions: &[AgentDefinition],
+    ) -> Vec<HarnessChoice> {
+        let conversable: Vec<usize> = self
             .agent_types
             .iter()
             .enumerate()
             .filter(|(_, harness)| harness.chat)
-            .map(|(index, _)| HarnessChoice::Harness(index))
+            .map(|(index, _)| index)
+            .collect();
+
+        let pairs: Vec<HarnessChoice> = conversable
+            .iter()
+            .map(|&index| (index, &self.agent_types[index]))
+            .flat_map(|(index, harness)| {
+                accounts
+                    .iter()
+                    .filter(move |account| account.logged_in.contains(&harness.id))
+                    .map(move |account| HarnessChoice::Pair {
+                        harness: index,
+                        account: account.id.clone(),
+                    })
+            })
             .collect();
 
         let mut rows: Vec<HarnessChoice> = Vec::new();
-        if !harnesses.is_empty() {
-            rows.push(HarnessChoice::Label("Harnesses".into()));
-            rows.extend(harnesses);
+        if !pairs.is_empty() {
+            rows.push(HarnessChoice::Label("Configured".into()));
+            rows.extend(pairs);
         }
         if !definitions.is_empty() {
             if !rows.is_empty() {
@@ -1247,6 +1172,13 @@ mod tests {
         }
     }
 
+    fn account(id: &str, logged_in: &[&str]) -> AccountInfo {
+        AccountInfo {
+            id: id.to_string(),
+            logged_in: logged_in.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
     fn definition(id: &str, agent_type: &str) -> AgentDefinition {
         AgentDefinition {
             id: id.to_string(),
@@ -1274,29 +1206,75 @@ mod tests {
         }
     }
 
-    /// With no harness and nothing saved there is no list at all.
+    /// With nothing signed in and nothing saved there is no list at all. A bare harness is not a
+    /// row any more — the New agent form is what starts one — so a machine that has configured
+    /// nothing has nothing to offer here rather than a group of unanswered launches.
     #[test]
-    fn nothing_offers_nothing() {
-        assert_eq!(with(Vec::new()).harness_choices(&[]), Vec::new());
+    fn nothing_configured_offers_nothing() {
+        let state = with(vec![harness("claude-code", true), harness("codex", true)]);
+
+        assert_eq!(state.harness_choices(&[], &[]), Vec::new());
     }
 
-    /// Every harness that converses is a row, under one heading that is a decoration at a
-    /// position the pick must skip.
+    /// Signing in is what puts rows on the list: one `Configured` group, its heading a decoration
+    /// at a position the pick must skip, and no `Default` group over it.
     #[test]
-    fn every_harness_is_a_row_under_one_heading() {
-        let state = with(vec![harness("claude-code", true), harness("codex", false)]);
+    fn accounts_are_the_configured_group() {
+        let state = with(vec![harness("claude-code", true)]);
+        let accounts = [
+            account("mdn", &["claude-code"]),
+            account("syn", &["claude-code"]),
+        ];
 
         assert_eq!(
-            state.harness_choices(&[]),
+            state.harness_choices(&accounts, &[]),
             vec![
-                HarnessChoice::Label("Harnesses".into()),
-                HarnessChoice::Harness(0),
-                HarnessChoice::Harness(1),
+                HarnessChoice::Label("Configured".into()),
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "mdn".to_string()
+                },
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "syn".to_string()
+                },
             ]
         );
     }
 
-    /// A saved setup adds a second, "Defined" group, after a hairline.
+    /// An account is only offered for the harnesses it actually has a login for. One account
+    /// serving two harnesses is normal, and an account that serves neither offers nothing.
+    #[test]
+    fn an_account_is_only_offered_where_it_is_signed_in() {
+        let state = with(vec![
+            harness("claude-code", true),
+            harness("codex", true),
+            harness("copilot", true),
+        ]);
+        let accounts = [
+            account("both", &["claude-code", "codex"]),
+            account("byenv", &[]),
+        ];
+
+        assert_eq!(
+            state.harness_choices(&accounts, &[]),
+            vec![
+                HarnessChoice::Label("Configured".into()),
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "both".to_string()
+                },
+                HarnessChoice::Pair {
+                    harness: 1,
+                    account: "both".to_string()
+                },
+            ]
+        );
+    }
+
+    /// A saved setup adds a second, "Defined" group — and it appears with no account signed in at
+    /// all, since a definition carries its own identity. `Configured` stays absent in that case:
+    /// an empty heading is worse than none, which is the rule both groups follow.
     #[test]
     fn definitions_add_a_defined_group_of_their_own() {
         let state = with(vec![harness("codex", true)]);
@@ -1306,15 +1284,29 @@ mod tests {
         ];
 
         assert_eq!(
-            state.harness_choices(&definitions),
+            state.harness_choices(&[], &definitions),
             vec![
-                HarnessChoice::Label("Harnesses".into()),
-                HarnessChoice::Harness(0),
-                HarnessChoice::Separator,
                 HarnessChoice::Label("Defined".into()),
                 HarnessChoice::AgentDefinition(0),
                 HarnessChoice::AgentDefinition(1),
             ]
+        );
+    }
+
+    /// The whole point of matching by position: once the decorations are counted in, a `Pair`'s
+    /// index in the full list still names the same `(harness, account)` the row shows.
+    #[test]
+    fn a_pairs_index_in_the_full_list_still_resolves_to_it() {
+        let state = with(vec![harness("claude-code", true), harness("codex", true)]);
+        let accounts = [account("mdn", &["codex"])];
+
+        let rows = state.harness_choices(&accounts, &[]);
+        assert_eq!(
+            rows[1],
+            HarnessChoice::Pair {
+                harness: 1,
+                account: "mdn".to_string()
+            }
         );
     }
 
@@ -1330,15 +1322,34 @@ mod tests {
             grok,
             harness("codex", true),
         ]);
+        let accounts = [account("mdn", &["claude-code", "grok", "codex"])];
 
         assert_eq!(
-            state.harness_choices(&[]),
+            state.harness_choices(&accounts, &[]),
             vec![
-                HarnessChoice::Label("Harnesses".into()),
-                HarnessChoice::Harness(0),
-                HarnessChoice::Harness(2),
+                HarnessChoice::Label("Configured".into()),
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "mdn".to_string()
+                },
+                HarnessChoice::Pair {
+                    harness: 2,
+                    account: "mdn".to_string()
+                },
             ],
             "the indices are still positions in `agent_types`, gap and all"
         );
+    }
+
+    /// A logged-in identity for a harness that cannot converse adds no row either: the pair would
+    /// name a conversation that cannot happen.
+    #[test]
+    fn an_account_on_a_non_chat_harness_adds_no_pair() {
+        let mut grok = harness("grok", true);
+        grok.chat = false;
+        let state = with(vec![grok]);
+        let accounts = [account("mdn", &["grok"])];
+
+        assert_eq!(state.harness_choices(&accounts, &[]), Vec::new());
     }
 }

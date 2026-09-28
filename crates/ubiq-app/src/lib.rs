@@ -197,6 +197,14 @@ pub struct Contributions {
     /// nothing here costs a message.
     #[cfg(feature = "ui")]
     pub rail_modes: ubiq::ext::Registry<ubiq::ext::rail::RailModeSpec>,
+    /// The top bar's menus (`T-267`). Seeded with the base's own five blocks, one per menu —
+    /// new-project, run-tool, new-pane, overflow and hidden-agents.
+    ///
+    /// A block contributes rows rather than being one, because a menu's rows are not a fixed
+    /// list: the shells are the machine's, the tools are the project's, the hidden agents are
+    /// whatever is running. See `ubiq::ext::menu`.
+    #[cfg(feature = "ui")]
+    pub bar_menus: ubiq::ext::Registry<ubiq::ext::menu::MenuBlockSpec>,
 }
 
 impl Default for Contributions {
@@ -207,6 +215,8 @@ impl Default for Contributions {
             settings_sections: ubiq::ext::settings::base_registry(),
             #[cfg(feature = "ui")]
             rail_modes: ubiq::ext::rail::base_registry(),
+            #[cfg(feature = "ui")]
+            bar_menus: ubiq::ext::menu::base_registry(),
         }
     }
 }
@@ -428,6 +438,7 @@ pub fn run(boot: Boot) {
     {
         ubiq::ext::settings::install(boot.contributions.settings_sections);
         ubiq::ext::rail::install(boot.contributions.rail_modes);
+        ubiq::ext::menu::install(boot.contributions.bar_menus);
         window(hub, paths, listener);
     }
 }

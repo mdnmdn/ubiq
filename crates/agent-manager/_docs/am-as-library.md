@@ -168,7 +168,7 @@ fn delete_account(&self, id: &str) -> Result<()>;                           // d
 
 `Account` never holds a secret value, only references (env-var names, a base
 URL, a helper command). A harness login is not an account's: it lives in a
-profile's own config home and nothing here reads or copies it (`D193`).
+account's own config home and nothing here reads or copies it (`D194`).
 
 FS impl: `account::FsAccountStore` (`accounts.toml` + per-file `<id>.toml`,
 rooted at `AM_ACCOUNTS`); `account::EmptyAccountStore` is the zero-accounts
@@ -195,7 +195,7 @@ fn rename(&self, from: &CredentialId, to_name: &str) -> Result<()>;
 Where `AccountStore` keeps credential *references* + the account index,
 `SecretStore` holds the actual login **bytes**, keyed by `(harness, name)` —
 so `(claude-code, default)` and `(codex, default)` are independent entries
-that may share a human name. No harness login is kept here (`D193`). Ships with `MemorySecretStore` (tests /
+that may share a human name. No harness login is kept here (`D194`). Ships with `MemorySecretStore` (tests /
 embedders), `FileSecretStore` (`<root>/<name>/<harness>/<rel_path>`, mode
 0600), `PrivateKeychainStore` (a single local JSON vault — plaintext, not yet
 OS-keychain-encrypted), and `OsSecretStore` (the real OS-encrypted secure
@@ -356,7 +356,7 @@ FS impl: `session::FsSessionStore`/`FsSessionRecorder`, writing
 ## 7. No credential lifecycle
 
 `am` copies no login into a run and writes none back: a harness keeps its login in
-a profile's own config home and refreshes it there (`D193`). What a run materializes
+the account's own config home and refreshes it there (`D194`). What a run materializes
 is the profile's non-credential overlay (`overlay::materialize`).
 
 ## 8. A concrete embedder example

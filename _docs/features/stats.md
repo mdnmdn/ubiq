@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not.
 read_when: you are changing what the Control screen reports, the usage meter's schema or its buckets, or the one thing the interface polls the host for
-updated: 2026-09-12
-verified: 2026-09-24
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/state/stats.rs, crates/ubiq/src/ui/stats.rs, crates/ubiq/src/app/stats.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/tests/stats.rs, crates/ubiq-host/tests/usage.rs]
 depends_on: [tech-transport, feat-workbench, tech-structure]
 review_cycle: monthly
@@ -45,7 +45,8 @@ the number behind it deserves.
 **Spend is what this screen reports; what is left is not on it.** The meter answers "what did the
 agents cost", which is a question about the past and the reason it is a database (`D78`). "How much
 of the plan is left before I start a long run" is the other direction, an **account** fact rather
-than a host one, and it is drawn where an account is — the accounts section of settings, and the
+than a host one, and it is drawn where an account is — the Identities section of Settings →
+Harnesses, under the harness whose plan it is, and the
 ring in a conversation's own footer (`D110`). The two rules below govern it just as they govern this
 screen, because they are rules about reporting figures and not about this page.
 

@@ -1016,20 +1016,16 @@ impl AppState {
         cx.notify();
     }
 
-    /// Act on one row of the open run menu, by the row's index — the tool at that place in
-    /// `WorkbenchState::run_tool_rows`, which is the same list the menu drew from.
+    /// Act on one row of the open run menu, by the row's index.
     pub fn pick_run_tool_menu(
         &mut self,
         index: usize,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.workbench.open_menu = None;
         self.workbench.run_tool_menu = None;
-        if let Some(&at) = self.workbench.run_tool_rows().get(index) {
-            self.run_tool_at(at, cx);
-        }
-        cx.notify();
+        self.pick_menu_row(ids::MENU_RUN_TOOL, index, window, cx);
     }
 
     /// Dismiss the run menu — an outside click, or a pick already taken it.
@@ -1064,12 +1060,10 @@ impl AppState {
 
     /// Act on one row of the open new-pane menu, by the row's index.
     ///
-    /// A detached row brings a still-running pane's panel back, the same list
-    /// `ui::new_pane_menu::overlay` read to draw it. A shell row starts a pane running that shell
-    /// — the same call the "+" makes, with a program on it. Past the last one is the separator,
-    /// which is a row and does nothing, and then the console, which is revealed rather than
-    /// started. A runnable tool is not a row here: it is the titlebar's run control's, through
-    /// [`Self::pick_run_tool_menu`].
+    /// A detached row brings a still-running pane's panel back; a shell row starts a pane running
+    /// that shell — the same call the "+" makes, with a program on it; the console is revealed
+    /// rather than started. All three are `ui::menus::new_pane`'s own entries: the row and the
+    /// action behind it are one thing now, so this resolves an index and runs what it finds.
     pub fn pick_new_pane_menu(
         &mut self,
         index: usize,
@@ -1078,34 +1072,7 @@ impl AppState {
     ) {
         self.workbench.open_menu = None;
         self.workbench.new_pane_menu = None;
-        let has_project = self.project(cx).is_some();
-        let detached = self.detached_panes(cx);
-        match self
-            .workbench
-            .new_pane_rows(has_project, detached.len())
-            .get(index)
-        {
-            Some(NewPaneRow::Detached(at)) => {
-                if let Some(&pane_id) = detached.get(*at) {
-                    self.reattach_pane(pane_id, cx);
-                }
-            }
-            Some(NewPaneRow::DetachedHeading) => {}
-            Some(NewPaneRow::Shell(shell)) => {
-                let Some(program) = self
-                    .workbench
-                    .shells
-                    .get(*shell)
-                    .map(|shell| shell.program.clone())
-                else {
-                    return;
-                };
-                self.spawn_pane(Some(program), Vec::new(), AgentPicks::default(), cx);
-            }
-            Some(NewPaneRow::Console) => self.reveal_console(window, cx),
-            Some(NewPaneRow::Separator) | None => {}
-        }
-        cx.notify();
+        self.pick_menu_row(ids::MENU_NEW_PANE, index, window, cx);
     }
 
     /// Dismiss the new-pane menu — an outside click, or a pick already taken it.
@@ -1138,22 +1105,7 @@ impl AppState {
     ) {
         self.workbench.open_menu = None;
         self.workbench.overflow_menu = None;
-        let has_project = self.project(cx).is_some();
-        let capture_offered = self.capture_offered(cx);
-        match self
-            .workbench
-            .overflow_rows(has_project, capture_offered)
-            .get(index)
-        {
-            Some(OverflowRow::RemoteConnect) => self.open_remote_connect(window, cx),
-            Some(OverflowRow::WebExport) => self.open_web_export(window, cx),
-            Some(OverflowRow::CaptureWindow) => self.capture_window(&CaptureWindow, window, cx),
-            Some(OverflowRow::Help) => self.reveal_help(window, cx),
-            Some(OverflowRow::PointAtSomething) => self.open_help_target(cx),
-            Some(OverflowRow::Settings) => self.toggle_settings(cx),
-            None => {}
-        }
-        cx.notify();
+        self.pick_menu_row(ids::MENU_OVERFLOW, index, window, cx);
     }
 
     /// Dismiss the overflow menu — an outside click, or a pick already taken it.
@@ -1187,22 +1139,68 @@ impl AppState {
     ) {
         self.workbench.open_menu = None;
         self.workbench.new_project_menu = None;
-        match self.workbench.new_project_rows().get(index) {
-            Some(NewProjectRow::AddProject) => self.choose_folder(None, cx),
-            Some(NewProjectRow::CloneProject) => self.open_clone(None, window, cx),
-            Some(NewProjectRow::RemoteProject) => match self.preferred_remote_host() {
-                Some((host, label)) => self.open_remote_project_picker(host, label, window, cx),
-                None => self.open_remote_connect(window, cx),
-            },
-            None => {}
-        }
-        cx.notify();
+        self.pick_menu_row(ids::MENU_NEW_PROJECT, index, window, cx);
     }
 
     /// Dismiss the new-project menu — an outside click, or a pick already taken it.
     pub fn dismiss_new_project_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.new_project_menu = None;
+        cx.notify();
+    }
+
+    /// Open the hidden-agents chevron beside New agent, anchored where it was clicked (`T-266`).
+    ///
+    /// What it lists is computed when it opens — the agent panes with no panel over them — so
+    /// nothing is asked of the host and nothing is cached.
+    pub fn open_hidden_agents_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+        if self.workbench.open_menu.is_some() {
+            self.close_menu(cx);
+        }
+        self.workbench.open_menu = Some(MenuId::HiddenAgents);
+        self.workbench.hidden_agents_menu = Some(at);
+        cx.notify();
+    }
+
+    /// Act on one row of the open hidden-agents menu: reattach that agent's pane.
+    pub fn pick_hidden_agents_menu(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.open_menu = None;
+        self.workbench.hidden_agents_menu = None;
+        self.pick_menu_row(ids::MENU_HIDDEN_AGENTS, index, window, cx);
+    }
+
+    /// Dismiss the hidden-agents menu — an outside click, or a pick already taken it.
+    pub fn dismiss_hidden_agents_menu(&mut self, cx: &mut Context<Self>) {
+        self.workbench.open_menu = None;
+        self.workbench.hidden_agents_menu = None;
+        cx.notify();
+    }
+
+    /// Run whatever sits at one index of one bar menu (`T-267`).
+    ///
+    /// The one place a bar-menu index becomes an action, for every one of them. The list is
+    /// `ui::menus::entries` — the very list the overlay drew, contributed blocks included — so a
+    /// row and the action behind it cannot drift apart, and a row with nothing behind it (a
+    /// heading, a hairline, an index past the end) does nothing.
+    fn pick_menu_row(
+        &mut self,
+        menu: crate::ext::SlotId,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let action = crate::ui::menus::entries(menu, self, cx)
+            .into_iter()
+            .nth(index)
+            .and_then(|entry| entry.enabled.then_some(entry.action).flatten());
+        if let Some(action) = action {
+            action(self, window, cx);
+        }
         cx.notify();
     }
 

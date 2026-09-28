@@ -234,20 +234,32 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 // The two shortcuts a project offers: a fresh conversation and a fresh shell. Both
                 // need a folder to run in, the same reason the new-pane control does.
                 .when(has_project, |this| {
+                    // New agent and its chevron are one split button: no gap between them, and
+                    // the chevron is half the width of a control so the pair reads as one thing
+                    // with a second, smaller way in rather than as two buttons (`T-266`).
                     this.child(
-                        icon_button(
-                            "new-agent",
-                            IconName::Bot,
-                            false,
-                            cx.listener(|this, _, window, cx| {
-                                this.open_new_agent_direct(window, cx)
-                            }),
-                        )
-                        .h_full()
-                        .ui_id(ui_id::TITLEBAR_NEW_AGENT)
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new("New agent").build(window, cx)
-                        }),
+                        div()
+                            .h_full()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .child(
+                                icon_button(
+                                    "new-agent",
+                                    IconName::Bot,
+                                    false,
+                                    cx.listener(|this, _, window, cx| {
+                                        this.open_new_agent_direct(window, cx)
+                                    }),
+                                )
+                                .h_full()
+                                .ui_id(ui_id::TITLEBAR_NEW_AGENT)
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new("New agent")
+                                        .build(window, cx)
+                                }),
+                            )
+                            .child(hidden_agents_chevron(app, cx)),
                     )
                     .child(
                         icon_button(
@@ -409,6 +421,45 @@ fn command_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) ->
     // The navigator hangs off the field it is typed into: its key context and its handlers go on
     // this div, because the keyboard is in the input inside it.
     navigator::attach(bar, app, cx)
+}
+
+/// The narrow chevron beside New agent: the agents a tab's `Hide` took off the screen (`T-266`).
+///
+/// Its own helper rather than [`icon_button`] for the reason [`nav_control`] is one: the kit's
+/// button is square by rule, and this one is deliberately not — it is the thin half of a split
+/// button, flush against the control it belongs to.
+fn hidden_agents_chevron(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
+    let open = app.workbench.open_menu == Some(MenuId::HiddenAgents);
+    let mut root = div()
+        .id("hidden-agents-menu")
+        .ui_id(ui_id::TITLEBAR_HIDDEN_AGENTS)
+        .w(px(theme::split_chevron_width()))
+        .h_full()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .cursor_pointer();
+    if open {
+        root = root.bg(theme::accent_soft());
+    }
+    root.hover(|this| this.bg(theme::hover()))
+        .child(
+            Icon::new(IconName::ChevronDown)
+                .with_size(Size::Size(theme::icon_sm()))
+                .text_color(if open {
+                    theme::accent()
+                } else {
+                    theme::text_muted()
+                }),
+        )
+        .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+            let at = (f32::from(event.position().x), f32::from(event.position().y));
+            this.open_hidden_agents_menu(at, cx);
+        }))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new("Hidden agents").build(window, cx)
+        })
 }
 
 /// What the press in one direction would land on, named the way the user reads places: a path

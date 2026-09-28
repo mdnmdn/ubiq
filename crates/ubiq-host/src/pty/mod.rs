@@ -268,7 +268,7 @@ pub fn reap(pane_id: PaneId, child: Box<dyn portable_pty::Child + Send + Sync>, 
 
 /// [`reap`], also writing the exit code into `noted` before the window hears of it — for a
 /// caller that judges the process by its code once the pane closes, which the window only asks
-/// for after `PaneExited` (a sign-in into a definition's home, `D193`).
+/// for after `PaneExited` (a sign-in into an account's home, `D194`).
 pub fn reap_noting(
     pane_id: PaneId,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,

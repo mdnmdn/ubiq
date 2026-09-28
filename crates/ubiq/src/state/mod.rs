@@ -110,8 +110,8 @@ pub use windows::{ProjectGroups, WindowRegistry, WindowSlot};
 pub use work::{WorkProjection, WorkState};
 pub use workbench::{
     AllProjectsState, AttachmentPreview, FileDialog, HarnessChoice, HelpTargeting, MenuId,
-    NewAgentMenu, NewAgentStage, NewAgentSurface, NewPaneRow, NewProjectRow, OverflowRow,
-    ProjectSettings, ProjectSettingsMode, RailMode, RowAction, SizePrompt, TeamsCreateMenu,
-    TeamsCreateStage, ThemeEditor, ThemePrompt, WorkbenchState,
+    NewAgentMenu, NewAgentStage, NewAgentSurface, ProjectSettings, ProjectSettingsMode, RailMode,
+    RowAction, SizePrompt, TeamsCreateMenu, TeamsCreateStage, ThemeEditor, ThemePrompt,
+    WorkbenchState,
 };
 pub use zoom::ImageZoom;

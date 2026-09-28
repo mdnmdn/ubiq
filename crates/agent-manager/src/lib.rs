@@ -18,6 +18,9 @@
 //! - [`registry`]  — the catalog (trait + filesystem-backed implementation).
 //! - [`harness`]   — the [`harness::Harness`] trait + per-harness impls
 //!   (how to identify, provision, and launch each supported harness).
+//! - [`home`]      — [`home::HomeStore`], the persistent harness config home keyed by
+//!   `(account, harness)` (`D194`): where a login is performed into and every run that names
+//!   that account reads from. Core (no feature gate).
 //! - [`provision`] — turn a [`RunSpec`] into an ephemeral config dir + launch
 //!   argv/env for a chosen harness.
 //! - [`config`]    — the unified, harness-agnostic config model.
@@ -54,6 +57,7 @@ pub mod cli;
 pub mod config;
 pub mod credentials;
 pub mod harness;
+pub mod home;
 pub mod io;
 pub mod isolate;
 pub mod mcp;

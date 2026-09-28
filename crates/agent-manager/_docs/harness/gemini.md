@@ -597,9 +597,9 @@ profiles without restarting the CLI.
 
 ### Credential capture & reuse (agent-manager)
 
-None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
-config home, signed in there by `am profile login` or the first run, and refreshes it itself
-(`D193` in Ubiq's `_docs/tech/decisions.md`).
+None. `am` neither captures, copies nor roams this login: the harness keeps it in the account's
+own config home, signed in there by `am account login` or the first run, and refreshes it itself
+(`D194` in Ubiq's `_docs/tech/decisions.md`).
 
 ## Permissions
 

@@ -292,28 +292,24 @@ impl AppState {
         cx.notify();
     }
 
-    /// Ask what every definition's login has left, from the host's cache — keyed by its harness
-    /// and the account it names, empty for none, which is how the host finds the home to read
-    /// (`D193`).
+    /// Ask what every logged-in harness has left, from the host's cache.
     ///
-    /// Sent when the harnesses page arrives at something to draw rather than on every render: the
+    /// Sent when the accounts page arrives at something to draw rather than on every render: the
     /// answer is a cache read, but the endpoint behind a miss is unofficial and rate-limited, so
     /// nothing here asks for a fresh one. [`Self::refresh_quota`] is the control that does.
     pub fn ask_quotas(&mut self) {
-        let mut asks: Vec<(String, String)> = self
+        let asks: Vec<(String, String)> = self
             .workbench
             .settings
-            .definitions
+            .accounts
             .iter()
-            .map(|it| {
-                (
-                    it.agent_type.clone(),
-                    it.account.clone().unwrap_or_default(),
-                )
+            .flat_map(|account| {
+                account
+                    .logged_in
+                    .iter()
+                    .map(|agent_type| (agent_type.clone(), account.id.clone()))
             })
             .collect();
-        asks.sort();
-        asks.dedup();
         for (harness, account) in asks {
             self.bus.send(Message::QueryQuota {
                 account,
@@ -1096,8 +1092,31 @@ impl AppState {
 
     // ── Harness logins ──────────────────────────────────────────────
 
-    /// Raise the harness command editor — the login modal on its `Choosing` step — on
-    /// `agent_type` when one is given.
+    /// Raise the login modal, on the step where nothing has happened yet.
+    ///
+    /// The name field is emptied here rather than left holding the last identity typed: two
+    /// logins in a row are two different accounts far more often than they are the same one,
+    /// and a prefilled name is how the second one silently overwrites the first.
+    pub fn open_harness_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.login_account_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.workbench.settings.login = Some(LoginState {
+            account: String::new(),
+            step: LoginStep::Choosing { agent_type: None },
+            links: Vec::new(),
+            command_only: false,
+            command_open: false,
+            command_check: None,
+        });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Raise the harness command editor — the same modal on its `Choosing` step, minus the
+    /// sign-in half — on `agent_type` when the row that raised it names one.
+    ///
+    /// It shares the step rather than owning a modal of its own because it asks the same first
+    /// question, and the command it writes is the one the sign-in about to run would use.
     pub fn open_harness_command(
         &mut self,
         agent_type: Option<String>,
@@ -1105,9 +1124,10 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         self.workbench.settings.login = Some(LoginState {
-            definition: String::new(),
+            account: String::new(),
             step: LoginStep::Choosing { agent_type: None },
             links: Vec::new(),
+            command_only: true,
             command_open: false,
             command_check: None,
         });
@@ -1115,6 +1135,13 @@ impl AppState {
             self.pick_login_harness(agent_type, window, cx);
         }
         self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Write the picked harness's command and close the editor.
+    pub fn save_harness_command(&mut self, cx: &mut Context<Self>) {
+        self.commit_login_command(cx);
+        self.workbench.settings.login = None;
         cx.notify();
     }
 
@@ -1220,17 +1247,49 @@ impl AppState {
         self.bus.send(Message::ListAgentTypes);
     }
 
-    /// Save the picked harness's command and close the editor.
-    pub fn save_harness_command(&mut self, cx: &mut Context<Self>) {
+    /// Start the harness's own login into this account's config home (`D194`). The host answers
+    /// with the pane it runs in.
+    ///
+    /// The account name is read here rather than tracked per keystroke: it is only needed at
+    /// the moment the flow starts, and a field the interface mirrors into its own state is a
+    /// second copy that can disagree with the one on screen.
+    pub fn start_harness_login(&mut self, cx: &mut Context<Self>) {
+        // The command field is committed here too: signing in is the other moment its content
+        // stops being a draft, and the flow about to start is what will run it.
         self.commit_login_command(cx);
-        self.workbench.settings.login = None;
+        let account = self.login_account_input.read(cx).value().trim().to_string();
+        let Some(login) = &mut self.workbench.settings.login else {
+            return;
+        };
+        let LoginStep::Choosing {
+            agent_type: Some(agent_type),
+        } = &login.step
+        else {
+            return;
+        };
+        // Both are required and the button is disabled without them, so this is the
+        // belt-and-braces case rather than a path the user can reach.
+        if account.is_empty() {
+            return;
+        }
+
+        let agent_type = agent_type.clone();
+        login.account = account.clone();
+        login.step = LoginStep::Starting {
+            agent_type: agent_type.clone(),
+        };
+        self.bus.send(Message::BeginHarnessLogin {
+            agent_type,
+            account,
+        });
         cx.notify();
     }
 
     /// Abandon a running login, or dismiss a finished one.
     ///
     /// Closing the pane is what abandons it, and that is safe by construction: the host reads
-    /// the closed pane as a sign-in that did not finish.
+    /// the closed pane as a sign-in that did not finish, so the account's home is left as it
+    /// was rather than half-made.
     pub fn close_harness_login(&mut self, cx: &mut Context<Self>) {
         if let Some(login) = self.workbench.settings.login.take()
             && let LoginStep::Running { pane } = login.step
@@ -1244,8 +1303,10 @@ impl AppState {
     ///
     /// The difference from [`close_harness_login`](Self::close_harness_login) is the whole point:
     /// a harness whose login is its ordinary interactive screen — grok's is — never exits once
-    /// the browser flow is done, so the only thing that ends it is the user saying so. The state
-    /// stays, the pane goes, and `login_ended` draws the `Done` step the host's answer describes.
+    /// the browser flow is done, so the only thing that ends it is the user saying so. Discarding
+    /// the modal at that moment threw away the `HarnessHomeSignedIn` on its way back, and a
+    /// sign-in that had in fact worked read as nothing happening at all. The state stays, the
+    /// pane goes, and `login_ended` draws the `Done` step the host's answer describes.
     pub fn finish_harness_login(&mut self, cx: &mut Context<Self>) {
         let Some(login) = &self.workbench.settings.login else {
             return;
@@ -1276,6 +1337,8 @@ impl AppState {
             self.bus.send(Message::CloseWorkspace { pane_id });
             return;
         };
+        // The step advances in place: the account this flow is signing in was typed before it
+        // started and is not repeated on the wire, so the modal's own copy is the only one.
         login.step = LoginStep::Running { pane: pane_id };
         login.links.clear();
         self.open_terminal(pane_id, cols, rows, theme::content_base(), cx);
@@ -1288,7 +1351,8 @@ impl AppState {
     /// The login ended. Show what came of it, and stop drawing its pane.
     pub(super) fn login_ended(&mut self, signed_in: bool, message: String, cx: &mut Context<Self>) {
         // The outcome arrives whether or not the modal is still up — a login the user walked
-        // away from still finished — so only the display is conditional.
+        // away from still finished — so the account's home is signed in either way and only
+        // the display is conditional.
         if let Some(pane) = self.login_pane() {
             self.close_login_pane(pane, cx);
         }
@@ -1340,31 +1404,49 @@ impl AppState {
         cx.notify();
     }
 
-    /// Sign an agent definition's own config home in (`D193`): the harness's login runs into the
-    /// home every run of that definition reads, and nothing is captured. Offered only for a
-    /// harness whose `shares_home` is true; the definition's first terminal run showing the
-    /// harness's own login reaches the same place.
-    pub fn sign_in_definition(
+    /// Ask whether the login in an account's home for a harness is still good. No modal: the
+    /// status line updates in place when `HarnessLoginStatus` answers.
+    pub fn check_harness_login(
         &mut self,
         agent_type: String,
-        definition: String,
-        project: Option<ProjectId>,
+        account: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.error = None;
+        self.bus.send(Message::CheckHarnessLogin {
+            agent_type,
+            account,
+        });
+        cx.notify();
+    }
+
+    /// Re-authenticate a harness that already has a name: an ordinary login, skipping the
+    /// picker because both the harness and the identity are already known.
+    ///
+    /// `login` is set before the send, on the same reasoning `login_started` requires it —
+    /// an answer with no modal to draw it closes the pane instead. The harness may well say
+    /// it is already logged in; that is its own output for the user to read, not something
+    /// this method pre-empts.
+    pub fn reauthenticate_harness(
+        &mut self,
+        agent_type: String,
+        account: String,
         cx: &mut Context<Self>,
     ) {
         self.workbench.settings.error = None;
         self.workbench.settings.login = Some(LoginState {
-            definition: definition.clone(),
+            account: account.clone(),
             step: LoginStep::Starting {
                 agent_type: agent_type.clone(),
             },
             links: Vec::new(),
+            command_only: false,
             command_open: false,
             command_check: None,
         });
         self.bus.send(Message::BeginHarnessLogin {
             agent_type,
-            definition,
-            project,
+            account,
         });
         cx.notify();
     }
@@ -1413,12 +1495,38 @@ impl AppState {
         cx.notify();
     }
 
-    /// Delete the account.
+    /// Delete the account and every harness login inside it.
     pub fn confirm_delete_account(&mut self, cx: &mut Context<Self>) {
         let Some(AccountDialog::Delete { account }) = self.workbench.settings.dialog.take() else {
             return;
         };
         self.bus.send(Message::DeleteAccount { account });
+        cx.notify();
+    }
+
+    /// Raise the sign-out confirmation, over one harness on one account.
+    pub fn open_sign_out(&mut self, agent_type: String, account: String, cx: &mut Context<Self>) {
+        self.workbench.settings.dialog = Some(AccountDialog::SignOut {
+            agent_type,
+            account,
+        });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Sign one harness out, leaving the account and its other harnesses alone.
+    pub fn confirm_sign_out(&mut self, cx: &mut Context<Self>) {
+        let Some(AccountDialog::SignOut {
+            agent_type,
+            account,
+        }) = self.workbench.settings.dialog.take()
+        else {
+            return;
+        };
+        self.bus.send(Message::DeleteHarnessLogin {
+            agent_type,
+            account,
+        });
         cx.notify();
     }
 

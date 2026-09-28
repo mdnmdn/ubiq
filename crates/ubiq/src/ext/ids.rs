@@ -102,6 +102,31 @@ pub const RAIL_KB: SlotId = SlotId::new("ubiq.rail.kb");
 pub const RAIL_TASKS: SlotId = SlotId::new("ubiq.rail.tasks");
 pub const RAIL_SINK: SlotId = SlotId::new("ubiq.rail.sink");
 
+// ── The bar-menu container (`T-267`) ────────────────────────────────
+
+/// The top bar's menus. One container; its groups are the menus themselves, because a menu's own
+/// rows are one flat column with nothing to order them against.
+pub const MENU: SlotId = SlotId::new("menu");
+
+/// The titlebar's new-project chevron, beside the `+` next to the project picker.
+pub const MENU_NEW_PROJECT: SlotId = SlotId::new("menu/new-project");
+/// The titlebar's run chevron, beside the play triangle.
+pub const MENU_RUN_TOOL: SlotId = SlotId::new("menu/run-tool");
+/// The new-pane chevron, in the titlebar and on the terminal region's tab bar.
+pub const MENU_NEW_PANE: SlotId = SlotId::new("menu/new-pane");
+/// The titlebar's overflow chevron.
+pub const MENU_OVERFLOW: SlotId = SlotId::new("menu/overflow");
+/// The chevron beside New agent: the agent panes a tab's `Hide` took off the screen.
+pub const MENU_HIDDEN_AGENTS: SlotId = SlotId::new("menu/hidden-agents");
+
+// ── The base's own blocks, one per menu ─────────────────────────────
+
+pub const MENU_NEW_PROJECT_BASE: SlotId = SlotId::new("ubiq.menu.new-project");
+pub const MENU_RUN_TOOL_BASE: SlotId = SlotId::new("ubiq.menu.run-tool");
+pub const MENU_NEW_PANE_BASE: SlotId = SlotId::new("ubiq.menu.new-pane");
+pub const MENU_OVERFLOW_BASE: SlotId = SlotId::new("ubiq.menu.overflow");
+pub const MENU_HIDDEN_AGENTS_BASE: SlotId = SlotId::new("ubiq.menu.hidden-agents");
+
 // ── The kitchen sink's own demo registrations (`X11`, invariant 9, M4) ──────
 //
 // Not a conversion of anything that used to be a closed enum's variant — the first item on either

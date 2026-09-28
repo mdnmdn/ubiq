@@ -5,8 +5,8 @@ kind: feature
 status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
-updated: 2026-09-18
-verified: 2026-09-26
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/lib.rs]
 depends_on: [tech-architecture, feat-panes]
 review_cycle: monthly
@@ -37,8 +37,8 @@ terms as Ubiq's own modules.
 and the map from module to subsystem lives in one function. Eight subsystems: **UI** for the window,
 its screens, the state they draw and the emulator; **Coordinator** for the coordinator, the
 conversation bridge and the bus; **PTY** for pseudo-terminals; **Harness** for the embedded library
-and, in this crate, `ubiq_host::agent` — the seam where Ubiq composes a run, seeds and reconciles a
-harness's login, and retires a run directory; **MCP** for the surface Ubiq exposes to the agents it
+and, in this crate, `ubiq_host::agent` — the seam where Ubiq composes a run, signs an account's
+config home in, and retires a run directory; **MCP** for the surface Ubiq exposes to the agents it
 hosts; **Search** for the file search worker and the project watcher; **Web** for a web panel's
 vendor bundle fetch, its loopback server, its bridge and the embedded browser; and **External** for
 everything else that logs. Nothing falls through — an unrecognised target is External, not missing.

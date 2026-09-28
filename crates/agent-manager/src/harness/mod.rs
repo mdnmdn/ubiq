@@ -15,7 +15,7 @@ use crate::Result;
 use crate::quota::QuotaSource;
 use crate::spec::{HarnessId, McpAsSkill, RunSpec};
 
-mod claude;
+pub(crate) mod claude;
 mod codex;
 mod copilot;
 mod grok;
@@ -271,7 +271,7 @@ pub(crate) fn lock_beside(file: &Path) -> Result<std::fs::File> {
 }
 
 /// Place `spec`'s skills (and MCP-as-skill pointers) into `skills_dir` inside a shared home,
-/// as profile-owned content for a harness with no per-run skill route (`D193`). The set is
+/// as profile-owned content for a harness with no per-run skill route (`D194`). The set is
 /// built in `.am-stage/` beside them and each `<id>/` renamed over its old copy, so a running
 /// harness reads one skill's old files or its new ones, never half of each; all of it under a
 /// lock beside `skills_dir`, since every run of the profile writes here. A skill the run does
@@ -489,8 +489,8 @@ pub trait Harness {
     fn aliases(&self) -> &[&str];
     /// Populate `dir` (the ephemeral config dir) from `spec`; return how to launch.
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch>;
-    /// Whether this harness can run from a profile's shared config home with every per-run file
-    /// kept outside it, passed by flag ([`crate::spec::ConfigStrategy::Home`], `D193`). Default
+    /// Whether this harness can run from the account's shared config home with every per-run file
+    /// kept outside it, passed by flag ([`crate::spec::ConfigStrategy::Home`], `D194`). Default
     /// `false`: [`crate::provision::provision`] then provisions into the run's scratch dir as it
     /// would a [`crate::spec::ConfigStrategy::Fixed`] one.
     fn shares_home(&self) -> bool {
@@ -498,7 +498,7 @@ pub trait Harness {
     }
     /// Where this harness keeps its config and login when nothing relocates it — what a
     /// [`crate::spec::ConfigStrategy::Native`] run reads and writes, and so what a confined one
-    /// has to be granted read-write (`D193`). Every path, since one directory is not always all
+    /// has to be granted read-write (`D194`). Every path, since one directory is not always all
     /// of it (Claude Code's `~/.claude.json` sits beside `~/.claude`). Computed, never created;
     /// read from this process's environment. Default: none.
     fn default_homes(&self) -> Vec<PathBuf> {
@@ -520,14 +520,24 @@ pub trait Harness {
             self.id()
         )
     }
-    /// An interactive login performed directly into `home`, a profile's shared config home
-    /// (`D193`). The harness keeps the login there and owns its refresh; nothing is captured
+    /// An interactive login performed directly into `home`, the account's shared config home
+    /// (`D194`). The harness keeps the login there and owns its refresh; nothing is captured
     /// or read back. Default: an error naming this harness.
     fn login_home(&self, _home: &Path) -> Result<Launch> {
         anyhow::bail!(
             "harness '{}' cannot log in into a shared config home",
             self.id()
         )
+    }
+    /// The files, **relative to this harness's config home**, in which it keeps its login —
+    /// the home [`Self::login_home`] signs into and [`Self::provision_home`] runs from
+    /// (`D194`). Read to answer "is this account signed in here" ([`crate::home::HomeStore::signed_in`])
+    /// and "until when" ([`crate::home::login_validity`]); never copied, never written.
+    ///
+    /// An empty reading is not proof of no login: on macOS a harness may keep the login in the
+    /// Keychain instead of a file, and nothing here can see that. Default: none.
+    fn login_files(&self) -> Vec<PathBuf> {
+        Vec::new()
     }
     /// How this harness relocates its config/credentials, for the isolation
     /// model — see `_docs/profiles.md` §5.
@@ -680,7 +690,7 @@ pub trait Harness {
     /// How much of `account`'s plan is left, asked of the provider now.
     ///
     /// `home` is the config home the harness itself keeps its login in for this account's runs —
-    /// a profile's shared home, or `None` for the harness's own default. The implementation reads
+    /// the account's shared home, or `None` for the harness's own default. The implementation reads
     /// the credential there and copies or writes nothing (`G380`).
     ///
     /// Default: an error naming this harness, exactly as [`Self::discover_models`] and

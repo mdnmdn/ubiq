@@ -163,10 +163,10 @@ impl IsolateOptions {
         self.grant_toolchains(|name| std::env::var_os(name));
     }
 
-    /// Grant a run the config home it runs from (`D193`), read-write: a profile's home under
+    /// Grant a run the config home it runs from (`D194`), read-write: the account's home under
     /// [`ConfigStrategy::Home`], the harness's own [`Harness::default_homes`] under
     /// [`ConfigStrategy::Native`]. The policy grants the run's scratch dir by itself, never the
-    /// home, which is shared by every run of the profile — or is the user's own. A per-run dir
+    /// home, which is shared by every run as the account — or is the user's own. A per-run dir
     /// needs nothing more.
     ///
     /// [`Harness::default_homes`]: crate::harness::Harness::default_homes
@@ -1691,7 +1691,7 @@ mod tests {
         }
     }
 
-    // The home a run runs from is granted read-write: a profile's under `Home`, the harness's own
+    // The home a run runs from is granted read-write: the account's under `Home`, the harness's own
     // default under `Native`, and nothing more for a per-run dir the policy grants already.
     #[test]
     fn grant_config_home_grants_the_home_the_run_runs_from() {

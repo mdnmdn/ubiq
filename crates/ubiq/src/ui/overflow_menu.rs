@@ -1,20 +1,19 @@
 //! The titlebar's overflow chevron menu: the rarely-used commands moved off the strip.
 //!
-//! Remote connect, web export, window capture and settings are all things the user reaches for
-//! occasionally rather than every session, so they read as one family behind a chevron rather than
-//! four permanent squares — painted over the window for the reason [`super::new_pane_menu`] is:
-//! the titlebar does not name `AppState` beyond what it already reads, and this is a second menu
-//! the window draws the same way.
+//! Remote connect, web export, window capture, help and settings are all things the user reaches
+//! for occasionally rather than every session, so they read as one family behind a chevron rather
+//! than five permanent squares — painted over the window for the reason [`super::new_pane_menu`]
+//! is: the titlebar does not name `AppState` beyond what it already reads, and this is a second
+//! menu the window draws the same way.
 //!
-//! The rows are `WorkbenchState::overflow_rows`, read again here exactly as
-//! `AppState::pick_overflow_menu` reads them — the rule every position-matched menu in this window
-//! follows.
+//! **The rows are data**: `ui::menus::overflow`, through the `ext::menu` container. Nothing here
+//! matches a row index against a second list — each row carries its own action.
 
-use gpui::{Context, IntoElement, Window, div, point, px};
+use gpui::{Context, IntoElement, Window, div};
 
 use crate::app::AppState;
-use crate::state::OverflowRow;
-use crate::ui::{self, kit};
+use crate::ext::ids;
+use crate::ui::menus;
 
 /// Draw the open overflow menu, or nothing when there is none. Called from the window root.
 pub fn overlay(
@@ -25,52 +24,11 @@ pub fn overlay(
     let Some(at) = app.workbench.overflow_menu else {
         return div().into_any_element();
     };
-
-    let has_project = app.project(cx).is_some();
-    let capture_offered = app.capture_offered(cx);
-    let items: Vec<_> = app
-        .workbench
-        .overflow_rows(has_project, capture_offered)
-        .into_iter()
-        .map(|row| kit::ContextItem::new(label(row)).icon(icon(row)))
-        .collect();
-
-    kit::context_menu(
+    menus::overlay(
+        &cx.entity(),
         "overflow-menu",
-        point(px(at.0), px(at.1)),
-        items,
-        ui::indexed(&cx.entity(), |this, index, window, cx| {
-            this.pick_overflow_menu(index, window, cx);
-        }),
-        ui::handler(&cx.entity(), |this, _, cx| this.dismiss_overflow_menu(cx)),
+        at,
+        menus::entries(ids::MENU_OVERFLOW, app, cx),
+        |this, _, cx| this.dismiss_overflow_menu(cx),
     )
-    .into_any_element()
-}
-
-/// What one row reads as. The words no longer sit on the strip — the icon does — but they are
-/// still what the row's tooltip says, and what the titlebar's own controls said before these
-/// moved in here.
-fn label(row: OverflowRow) -> &'static str {
-    match row {
-        OverflowRow::RemoteConnect => "Connect to a remote host",
-        OverflowRow::WebExport => "Explore the project in browser",
-        OverflowRow::CaptureWindow => "Capture this window",
-        OverflowRow::Help => "Help",
-        OverflowRow::PointAtSomething => "Point at something…",
-        OverflowRow::Settings => "Settings",
-    }
-}
-
-/// The glyph one row draws before its label, from Ubiq's own set.
-fn icon(row: OverflowRow) -> kit::UbiqIcon {
-    match row {
-        OverflowRow::RemoteConnect => kit::UbiqIcon::HostRemote,
-        OverflowRow::WebExport => kit::UbiqIcon::TitlebarBrowser,
-        OverflowRow::CaptureWindow => kit::UbiqIcon::CaptureWindow,
-        OverflowRow::Help => kit::UbiqIcon::TitlebarHelp,
-        // The same glyph as Help: it is the same offer, and the registry has no pointer icon —
-        // giving it one is `G294`'s neighbour rather than this change's business.
-        OverflowRow::PointAtSomething => kit::UbiqIcon::TitlebarHelp,
-        OverflowRow::Settings => kit::UbiqIcon::TitlebarSettings,
-    }
 }

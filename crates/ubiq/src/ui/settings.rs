@@ -1539,23 +1539,47 @@ fn grant_chips(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
+/// Two lists, in the order the reader needs them: the harnesses this machine has, then the
+/// identities registered here.
+///
+/// They are different kinds of thing and the section says so rather than running them together:
+/// a harness is a tool the host found and the command it is started with, an identity is a
+/// config home one or more harnesses sign into. `Add harness` belongs to the second list,
+/// because signing in is what makes an identity (`D194`).
 fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let mut rows = vec![heading(
         "Harnesses",
-        "Every agent runs on a harness. Register as many as you like — the same tool twice \
-         with different credentials is normal, and each entry carries its own defaults.",
+        "Every agent runs on a harness, as an identity. One identity signs in to a harness \
+         once, and every agent running as it shares that login.",
     )];
     if let Some(error) = app.workbench.settings.error.clone() {
         rows.push(error_banner(&error, cx));
     }
+    rows.push(section_label("Installed").into_any_element());
     rows.push(harness_list(app, cx));
+    rows.push(section_label("Identities").into_any_element());
+    rows.push(
+        div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(primary_button(
+                "app-settings-add-harness",
+                Some(IconName::Plus),
+                "Add harness",
+                cx.listener(|this, _, window, cx| this.open_harness_login(window, cx)),
+            ))
+            .into_any_element(),
+    );
     rows.push(accounts(app, cx));
     column(rows)
 }
 
 /// One row per harness the host lists: its name, drawn faint when it is not installed, the
-/// command Ubiq starts it with, and what an ACP harness said it can do. Signing in is a
-/// definition's own (`D193`), under Agent definitions.
+/// command Ubiq starts it with, and what an ACP harness said it can do.
+///
+/// Nothing here is signed in — that is the identity's, one list down. This says which tools
+/// exist and how each one is launched.
 fn harness_list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .flex()
@@ -1843,10 +1867,11 @@ fn error_banner(error: &str, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-/// The identities registered here — credential references a definition may name.
+/// The identities registered here, each with the harnesses it can actually start.
 ///
-/// What a block shows is a *reference*: a name. No credential and no path — neither ever
-/// crosses the bus, so neither is here to draw.
+/// What a block shows is a *reference*: a name, and which harnesses have a config home signed
+/// in under it, each with the check status last asked for. No credential and no path — neither
+/// ever crosses the bus, so neither is here to draw.
 fn accounts(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     if app.workbench.settings.accounts.is_empty() {
         return div()
@@ -1860,26 +1885,32 @@ fn accounts(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 div()
                     .text_size(theme::font(Family::Chrome, Role::Body))
                     .text_color(theme::text_muted())
-                    .child(SharedString::from("No accounts registered.")),
+                    .child(SharedString::from("No identities registered.")),
             )
             .child(
                 div()
                     .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text_faint())
                     .child(SharedString::from(
-                        "A harness signs in per agent definition, under Agent definitions.",
+                        "Add one to sign in — the harness runs its own login, into that \
+                         identity's config home.",
                     )),
             )
             .into_any_element();
     }
 
+    let now_ms = chrono::Utc::now().timestamp_millis();
     let accounts = app.workbench.settings.accounts.clone();
 
     div()
         .flex()
         .flex_col()
         .gap_4()
-        .children(accounts.iter().map(|account| account_block(account, cx)))
+        .children(
+            accounts
+                .iter()
+                .map(|account| account_block(app, account, now_ms, cx)),
+        )
         .into_any_element()
 }
 
@@ -1892,29 +1923,16 @@ fn definitions(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return note("No agent definitions yet.", theme::text_faint());
     }
     let definitions = app.workbench.settings.definitions.clone();
-    let now_ms = chrono::Utc::now().timestamp_millis();
     div()
         .flex()
         .flex_col()
         .gap_1()
         // No section label: the section's own heading says the same words a line above it.
-        .children(definitions.iter().map(|definition| {
-            // What this definition's login has left, under the row, where the provider
-            // states anything (`G380`).
-            let reports = app
-                .workbench
-                .agent_type(&definition.agent_type)
-                .is_some_and(|info| info.quota.reports());
-            let account = definition.account.clone().unwrap_or_default();
-            div()
-                .flex()
-                .flex_col()
-                .child(definition_row(app, definition, None, cx))
-                .children(
-                    reports
-                        .then(|| harness_quota(app, &account, &definition.agent_type, now_ms, cx)),
-                )
-        }))
+        .children(
+            definitions
+                .iter()
+                .map(|definition| definition_row(app, definition, None, cx)),
+        )
         .into_any_element()
 }
 
@@ -1954,25 +1972,6 @@ pub(crate) fn definition_row(
         });
     }
 
-    // A harness that runs from the definition's own home keeps its login there (`D193`), so the
-    // definition signs in by itself rather than through an account.
-    let sign_in = app
-        .workbench
-        .agent_type(&definition.agent_type)
-        .is_some_and(|info| info.shares_home && info.available)
-        .then(|| {
-            let (agent_type, id) = (definition.agent_type.clone(), definition.id.clone());
-            ghost_button(
-                ElementId::Name(
-                    format!("app-settings-definition-{}-sign-in", definition.id).into(),
-                ),
-                None,
-                "Sign in",
-                cx.listener(move |this, _, _, cx| {
-                    this.sign_in_definition(agent_type.clone(), id.clone(), scope, cx)
-                }),
-            )
-        });
     let edit = definition.clone();
     let clone_id = definition.id.clone();
     div()
@@ -2044,7 +2043,6 @@ pub(crate) fn definition_row(
                 .flex()
                 .items_center()
                 .gap_1()
-                .children(sign_in)
                 .child(ghost_button(
                     ElementId::Name(
                         format!("app-settings-definition-{}-clone", definition.id).into(),
@@ -2108,8 +2106,13 @@ fn harness_label<'a>(app: &'a AppState, agent_type: &'a str) -> &'a str {
         .unwrap_or(agent_type)
 }
 
-/// One account: its name, and renaming or deleting it.
-fn account_block(account: &AccountInfo, cx: &mut Context<AppState>) -> AnyElement {
+/// One account: its header, and one line per harness signed into its config home.
+fn account_block(
+    app: &AppState,
+    account: &AccountInfo,
+    now_ms: i64,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let id = account.id.clone();
 
     let header = {
@@ -2154,15 +2157,153 @@ fn account_block(account: &AccountInfo, cx: &mut Context<AppState>) -> AnyElemen
             )
     };
 
-    header.into_any_element()
+    let rows: Vec<AnyElement> = if account.logged_in.is_empty() {
+        vec![
+            div()
+                .py_1()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(theme::text_faint())
+                .child(SharedString::from("not signed in"))
+                .into_any_element(),
+        ]
+    } else {
+        account
+            .logged_in
+            .iter()
+            .map(|agent_type| {
+                // The row and what the plan has left are one block: the usage sits under the
+                // login it is about, indented under it, rather than in a section of its own that
+                // would have to name the harness a second time.
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(harness_row(app, &id, agent_type, now_ms, cx))
+                    .child(harness_quota(app, &id, agent_type, now_ms, cx))
+                    .into_any_element()
+            })
+            .collect()
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .child(header)
+        .child(div().flex().flex_col().gap_1().pl_1().pt_1().children(rows))
+        .into_any_element()
 }
 
-/// How much of one definition's login has left: a row per window the provider states, then the
-/// plan, the age of the reading and a refresh. Drawn only for a harness whose provider states a
-/// limit at all.
+/// One harness under one account: its display name, its last-checked status, and the three
+/// things that can be done to that home's login rather than to the account as a whole.
+///
+/// What the harness *is* — its command, what it said it can do — belongs to
+/// [`harness_list`] one section up, where it is stated once instead of once per identity.
+fn harness_row(
+    app: &AppState,
+    account: &str,
+    agent_type: &str,
+    now_ms: i64,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let label = harness_label(app, agent_type).to_string();
+    let status = app
+        .workbench
+        .settings
+        .statuses
+        .get(&(agent_type.to_string(), account.to_string()));
+
+    let status_line = status.map(|status| {
+        let colour = if matches!(status, LoginStatus::Expired { .. }) {
+            theme::danger()
+        } else if matches!(status, LoginStatus::Missing) {
+            theme::text_faint()
+        } else {
+            theme::text_muted()
+        };
+        div()
+            .text_size(theme::font(Family::Chrome, Role::Meta))
+            .text_color(colour)
+            .child(SharedString::from(describe_status(status, now_ms)))
+            .into_any_element()
+    });
+
+    let (check_id, reauth_id, signout_id) = (
+        ElementId::Name(format!("app-settings-account-{account}-{agent_type}-check").into()),
+        ElementId::Name(format!("app-settings-account-{account}-{agent_type}-reauth").into()),
+        ElementId::Name(format!("app-settings-account-{account}-{agent_type}-signout").into()),
+    );
+
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_2()
+        .py_1()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .min_w(px(0.))
+                .child(
+                    div()
+                        .text_size(theme::font(Family::Chrome, Role::Body))
+                        .text_color(theme::text())
+                        .child(SharedString::from(label)),
+                )
+                .children(status_line),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(ghost_button(
+                    check_id,
+                    None,
+                    "Check",
+                    cx.listener({
+                        let account = account.to_string();
+                        let agent_type = agent_type.to_string();
+                        move |this, _, _, cx| {
+                            this.check_harness_login(agent_type.clone(), account.clone(), cx)
+                        }
+                    }),
+                ))
+                .child(ghost_button(
+                    reauth_id,
+                    None,
+                    "Re-authenticate",
+                    cx.listener({
+                        let account = account.to_string();
+                        let agent_type = agent_type.to_string();
+                        move |this, _, _, cx| {
+                            this.reauthenticate_harness(agent_type.clone(), account.clone(), cx)
+                        }
+                    }),
+                ))
+                .child(ghost_button(
+                    signout_id,
+                    None,
+                    "Sign out",
+                    cx.listener({
+                        let account = account.to_string();
+                        let agent_type = agent_type.to_string();
+                        move |this, _, _, cx| {
+                            this.open_sign_out(agent_type.clone(), account.clone(), cx)
+                        }
+                    }),
+                )),
+        )
+        .into_any_element()
+}
+
+/// How much of one login's plan is left: a row per window the provider states, then the plan,
+/// the age of the reading and a refresh.
 ///
 /// This is the surface that works when nothing is running, which is why every negative answer is
-/// drawn in place rather than hidden.
+/// drawn in place rather than hidden. A harness that states no limit says so once — an absent
+/// readout reads as a missing feature, and for three of the five harnesses it is a permanent
+/// answer about the provider instead.
 fn harness_quota(
     app: &AppState,
     account: &str,
@@ -2185,6 +2326,16 @@ fn harness_quota(
         .find(|info| info.id == agent_type)
         .map(|info| info.quota)
         .unwrap_or_default();
+    if !source.reports() {
+        return div()
+            .pl_2()
+            .pb_1()
+            .child(note(
+                "This harness states no limit anything can read.".to_string(),
+                theme::text_faint(),
+            ))
+            .into_any_element();
+    }
 
     let snapshot = app.workbench.settings.quota(agent_type, account);
     let mut block = div().flex().flex_col().gap_1().pl_2().pb_1();
@@ -2259,12 +2410,14 @@ fn harness_quota(
     block.child(foot).into_any_element()
 }
 
-/// What an ACP harness said it can do, behind an icon beside the login's other controls (`T-207`).
+/// What an ACP harness said it can do, behind an icon beside that harness's `Command` under
+/// `Installed` (`T-207`).
 ///
-/// Drawn only for a harness that speaks ACP — for any other there is nothing to say that the
-/// absence of the button does not already say. The reading itself is its own dialog now: inline,
-/// it was a block per login that a reader had to scroll the accounts section past to reach the
-/// next one. See [`crate::ui::acp_capabilities::dialog`].
+/// A fact about the tool, not about who it runs as, so it sits on the harness row rather than on
+/// an identity's. Drawn only for a harness that speaks ACP — for any other there is nothing to say
+/// that the absence of the button does not already say. The reading itself is its own dialog now:
+/// inline, it was a block per harness that a reader had to scroll past to reach the next one. See
+/// [`crate::ui::acp_capabilities::dialog`].
 fn capabilities_button(
     app: &AppState,
     agent_type: &str,
@@ -2362,7 +2515,7 @@ fn quota_gauge_row(gauge: &ubiq_proto::quota::QuotaGauge, now_ms: i64) -> AnyEle
     }
 }
 
-/// The rename or delete question over one account, drawn from the same place the
+/// The rename, delete or sign-out question over one account, drawn from the same place the
 /// login modal is: over the settings page, so it layers correctly above it.
 pub fn account_dialog(
     app: &AppState,
@@ -2378,7 +2531,7 @@ pub fn account_dialog(
             prompt_modal(
                 "app-settings-account-rename",
                 "Rename account",
-                None,
+                Some("Every harness signed in here keeps its login and answers to the new name."),
                 "Name",
                 &app.account_rename_input,
                 "Rename",
@@ -2393,8 +2546,9 @@ pub fn account_dialog(
             "app-settings-account-delete",
             "Delete account",
             &format!(
-                "Delete {account}? A definition naming it no longer resolves one. Unlike \
-                 forgetting a project, there is nothing left behind."
+                "Delete {account}? Every harness config home under it goes with it, and the \
+                 logins the harnesses kept there. Unlike forgetting a project, there is nothing \
+                 left behind."
             ),
             "Delete",
             true,
@@ -2402,6 +2556,25 @@ pub fn account_dialog(
             crate::ui::handler(&view, |this, _, cx| this.close_account_dialog(cx)),
             window,
         ),
+        Some(AccountDialog::SignOut {
+            agent_type,
+            account,
+        }) => {
+            let label = harness_label(app, &agent_type).to_string();
+            confirm_modal(
+                "app-settings-account-signout",
+                "Sign out",
+                &format!(
+                    "Sign {account} out of {label}? {account} keeps its other harnesses — only \
+                     {label}'s config home for {account}, and the login it holds, is removed."
+                ),
+                "Sign out",
+                true,
+                crate::ui::handler(&view, |this, _, cx| this.confirm_sign_out(cx)),
+                crate::ui::handler(&view, |this, _, cx| this.close_account_dialog(cx)),
+                window,
+            )
+        }
     }
 }
 
@@ -2498,12 +2671,13 @@ pub fn definition_form(
     .into_any_element()
 }
 
-/// The login modal: a definition's sign-in (`D193`) — the harness's own login, in a real
-/// terminal — or, on its `Choosing` step, the command a harness is started with.
+/// The login modal: pick a harness, name the identity, watch the harness do its own login into
+/// that identity's config home (`D194`) — or, with nobody to sign in, the command editor on the
+/// same first step.
 ///
-/// One step at a time, and the user can leave at any of them. Leaving a running login abandons
-/// it, which is safe by construction: the host reads the closed pane as a sign-in that did not
-/// finish.
+/// Four steps, one at a time, and the user can leave at any of them. Leaving a running login
+/// abandons it, which is safe by construction: the host reads the closed pane as a sign-in that
+/// did not finish, and no account is written.
 ///
 /// This is a modal rather than a tab on purpose: an OAuth flow wants the whole of the user's
 /// attention for the half-minute it takes, and a login that scrolled away behind a pane is a
@@ -2520,9 +2694,13 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
 
     let (title, body, footer) = match &login.step {
         LoginStep::Choosing { agent_type } => (
-            "Harness command",
-            choosing(app, agent_type.as_deref(), window, cx),
-            choosing_footer(agent_type.is_some(), cx),
+            if login.command_only {
+                "Harness command"
+            } else {
+                "Add harness"
+            },
+            choosing(app, agent_type.as_deref(), login.command_only, window, cx),
+            choosing_footer(agent_type.is_some(), login.command_only, cx),
         ),
         LoginStep::Starting { agent_type } => (
             "Signing in",
@@ -2547,9 +2725,9 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
                 .items_center()
                 .gap_2()
                 // Not "Abort": a harness whose login is its ordinary screen (grok) never ends
-                // by itself, so this button is how a finished sign-in ends. It stops the harness
-                // and the modal stays up to say how it went — the X beside the title is still
-                // the way out that reports nothing.
+                // by itself, so this button is how a finished sign-in gets reported. It stops
+                // the harness and the modal stays up to say how it went — the X beside the
+                // title is still the way out that reports nothing.
                 .child(ghost_button(
                     "app-settings-login-abort",
                     None,
@@ -2608,27 +2786,45 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
     }
 }
 
-/// The command editor: which harness, and the command Ubiq starts it with.
+/// Step one: which harness, and what to call the identity — the command editor being the same
+/// step with the identity half left off.
 fn choosing(
     app: &AppState,
     chosen: Option<&str>,
+    command_only: bool,
     window: &mut Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    let focused = app
+        .login_account_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
     div()
         .flex()
         .flex_col()
         .gap_3()
         .pt_3()
-        .child(modal_note(
-            "The command Ubiq starts a harness with. Empty runs the harness's own command.",
-        ))
+        .child(modal_note(if command_only {
+            "The command Ubiq starts this harness with. Empty runs the harness's own command."
+        } else {
+            "The harness runs its own sign-in, into this identity's config home. It keeps and \
+             refreshes its login there, and every agent running as this identity shares it."
+        }))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(label_block("Harness", "Which tool this command starts."))
+                .child(label_block(
+                    "Harness",
+                    if command_only {
+                        "Which tool this command starts."
+                    } else {
+                        "Which tool this identity signs in to."
+                    },
+                ))
                 .child(
                     div()
                         .flex()
@@ -2637,24 +2833,52 @@ fn choosing(
                         // Every harness, installed or not: one that is missing is exactly the
                         // case a custom command fixes, so it reads faint — the way a definition
                         // naming an absent harness does — and stays pickable.
-                        .children(app.workbench.agent_types.iter().map(|agent_type| {
-                            let id = agent_type.id.clone();
-                            choice_pill(
-                                ElementId::Name(
-                                    format!("app-settings-login-harness-{}", agent_type.id).into(),
-                                ),
-                                &agent_type.label,
-                                chosen == Some(agent_type.id.as_str()),
-                                cx.listener(move |this, _, window, cx| {
-                                    this.pick_login_harness(id.clone(), window, cx)
+                        //
+                        // A sign-in offers fewer: only a harness that runs from the account's
+                        // own config home has anywhere for this flow to log into (`D194`).
+                        .children(
+                            app.workbench
+                                .agent_types
+                                .iter()
+                                .filter(|agent_type| command_only || agent_type.shares_home)
+                                .map(|agent_type| {
+                                    let id = agent_type.id.clone();
+                                    choice_pill(
+                                        ElementId::Name(
+                                            format!("app-settings-login-harness-{}", agent_type.id)
+                                                .into(),
+                                        ),
+                                        &agent_type.label,
+                                        chosen == Some(agent_type.id.as_str()),
+                                        cx.listener(move |this, _, window, cx| {
+                                            this.pick_login_harness(id.clone(), window, cx)
+                                        }),
+                                    )
+                                    .when(!agent_type.available, |pill| pill.opacity(0.55))
                                 }),
-                            )
-                            .when(!agent_type.available, |pill| pill.opacity(0.55))
-                        })),
+                        ),
                 ),
         )
         .when(chosen.is_some(), |body| {
             body.child(login_command(app, window, cx))
+        })
+        .when(!command_only, |body| {
+            body.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(label_block(
+                        "Name",
+                        "What to call this identity. One name can sign in to several harnesses.",
+                    ))
+                    .child(
+                        field(theme::border(), focused)
+                            .h(px(30.))
+                            .px_2()
+                            .child(Input::new(&app.login_account_input).appearance(false)),
+                    ),
+            )
         })
         .into_any_element()
 }
@@ -2725,8 +2949,25 @@ fn login_command(app: &AppState, window: &mut Window, cx: &mut Context<AppState>
         .into_any_element()
 }
 
-/// The command editor's footer. `Save` is dead until a harness is picked.
-fn choosing_footer(picked: bool, cx: &mut Context<AppState>) -> AnyElement {
+/// Step one's footer: `Sign in`, or `Save` when the modal is only editing a command. Either is
+/// dead until a harness is picked, because the other half of what `Sign in` needs — the name —
+/// is in a field this function cannot read without a window.
+fn choosing_footer(picked: bool, command_only: bool, cx: &mut Context<AppState>) -> AnyElement {
+    let action = if command_only {
+        primary_button(
+            "app-settings-login-save",
+            None,
+            "Save",
+            cx.listener(|this, _, _, cx| this.save_harness_command(cx)),
+        )
+    } else {
+        primary_button(
+            "app-settings-login-start",
+            None,
+            "Sign in",
+            cx.listener(|this, _, _, cx| this.start_harness_login(cx)),
+        )
+    };
     div()
         .flex()
         .items_center()
@@ -2737,21 +2978,13 @@ fn choosing_footer(picked: bool, cx: &mut Context<AppState>) -> AnyElement {
             "Cancel",
             cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
         ))
-        .child(
-            primary_button(
-                "app-settings-login-save",
-                None,
-                "Save",
-                cx.listener(|this, _, _, cx| this.save_harness_command(cx)),
-            )
-            .when(!picked, |button| button.opacity(0.5)),
-        )
+        .child(action.when(!picked, |button| button.opacity(0.5)))
         .into_any_element()
 }
 
-/// Before `Running`: `BeginHarnessLogin` is on its way and nothing has answered yet. Without
-/// this step nothing sat on screen after the button was pressed, reading as though the click had
-/// done nothing.
+/// Between `Choosing` and `Running`: `BeginHarnessLogin` is on its way and nothing has
+/// answered yet. Without this step the picker — or, for a re-authentication, nothing at all —
+/// sat on screen after the button was pressed, reading as though the click had done nothing.
 fn starting(app: &AppState, agent_type: &str) -> AnyElement {
     let text = format!("Starting {}\u{2026}", harness_label(app, agent_type));
     div().pt_3().child(modal_note(&text)).into_any_element()

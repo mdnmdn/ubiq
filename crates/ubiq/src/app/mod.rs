@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::ext::ids as ext_ids;
+use crate::ext::ids;
 use crate::ext::rail::Availability;
 use crate::state::agents::{
     AgentsView, BenchRow, COLUMNS_MAX, COMPOSER_ROW_HEIGHT, COMPOSER_ROWS_MAX,
@@ -71,9 +72,9 @@ use crate::state::{
     ActiveSearch, AttachmentPreview, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey,
     ExplorerPressed, ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow,
     KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentStage, NewAgentSurface,
-    NewPaneRow, NewProjectRow, OpenFile, OverflowRow, PanelKind, ProjectSettings,
-    ProjectSettingsMode, RailMode, Region, SearchState, TeamsCreateMenu, TeamsCreateStage, Toggle,
-    WindowRegistry, WorkbenchState, kb_parent_path, prefs,
+    OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState,
+    TeamsCreateMenu, TeamsCreateStage, Toggle, WindowRegistry, WorkbenchState, kb_parent_path,
+    prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;

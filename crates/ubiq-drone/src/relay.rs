@@ -925,6 +925,8 @@ fn refusal(message: &Message) -> Option<Message> {
         | ListHarnessCatalogue { .. }
         | ListAccounts
         | BeginHarnessLogin { .. }
+        | CheckHarnessLogin { .. }
+        | DeleteHarnessLogin { .. }
         | RenameAccount { .. }
         | DeleteAccount { .. }
         | ListAgentDefinitions

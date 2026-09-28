@@ -2493,7 +2493,44 @@ impl AppState {
     ) -> Option<Message> {
         match message {
             Message::Accounts { accounts } => {
+                // Prune whatever `statuses` and `dialog` named that this answer no longer
+                // carries, so a renamed or deleted account cannot leak an entry forever.
+                self.workbench
+                    .settings
+                    .statuses
+                    .retain(|(agent_type, account), _| {
+                        accounts.iter().any(|info| {
+                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
+                        })
+                    });
+                // The quota maps are keyed the same way and go stale the same way, so they are
+                // pruned against the same answer.
+                self.workbench
+                    .settings
+                    .quotas
+                    .retain(|(agent_type, account), _| {
+                        accounts.iter().any(|info| {
+                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
+                        })
+                    });
+                self.workbench
+                    .settings
+                    .quota_errors
+                    .retain(|(agent_type, account), _| {
+                        accounts.iter().any(|info| {
+                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
+                        })
+                    });
                 self.workbench.settings.accounts = accounts;
+                // The accounts page is what the answer was asked for: it arrives after the page
+                // is already open, so this is where the readouts are filled rather than in the
+                // open handler, which had no list to walk yet. Cached answers only — a fresh
+                // read is what the refresh control is for.
+                if self.workbench.settings.open
+                    && self.workbench.settings.nav == SettingsSection(ext_ids::HARNESSES)
+                {
+                    self.ask_quotas();
+                }
                 cx.notify();
             }
             // How much of one login's plan is left, in answer to one `QueryQuota`. The two
@@ -2545,12 +2582,6 @@ impl AppState {
                 self.workbench.settings.definitions = global;
                 self.workbench.settings.project_definitions = scoped;
                 self.workbench.settings.definition_form = None;
-                // The definitions page draws what each definition's login has left: it arrives
-                // after the page is already open, so this is where the readouts are filled.
-                // Cached answers only — a fresh read is what the refresh control is for.
-                if self.workbench.settings.open {
-                    self.ask_quotas();
-                }
                 cx.notify();
             }
             // What this build can inject into a harness. Replaced whole, the same way the harness
@@ -2573,24 +2604,31 @@ impl AppState {
             }
             Message::HarnessHomeSignedIn {
                 agent_type,
-                definition,
+                account,
             } => {
-                self.login_ended(
-                    true,
-                    format!("{definition} is signed in to {agent_type}."),
-                    cx,
-                );
+                self.login_ended(true, format!("{account} is signed in to {agent_type}."), cx);
             }
             Message::HarnessLoginFailed {
                 agent_type,
-                definition,
+                account,
                 error,
             } => {
-                tracing::info!("sign-in of {definition} to {agent_type} did not finish: {error}");
+                tracing::info!("sign-in of {account} to {agent_type} did not finish: {error}");
                 self.login_ended(false, error, cx);
             }
             Message::HarnessLoginLink { pane_id, url } => {
                 self.login_link(pane_id, url, cx);
+            }
+            Message::HarnessLoginStatus {
+                agent_type,
+                account,
+                status,
+            } => {
+                self.workbench
+                    .settings
+                    .statuses
+                    .insert((agent_type, account), status);
+                cx.notify();
             }
             Message::AccountError { error } => {
                 self.workbench.settings.error = Some(error);

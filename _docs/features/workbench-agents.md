@@ -125,7 +125,8 @@ harness with no structured bridge (Grok) can draw a pane's screen but has nothin
 `ConvUpdate` — offering it here would start a conversation that never speaks. **No harness is a
 new-pane row at all** — that menu offers the terminals that are not agents, and starting one is
 this form's job. What survives is grouped under a `Harnesses` heading, one row per harness; a start
-from one runs on the harness's own login, since a login is a definition's (`D193`), and the form
+from one names no account, so it runs on the login already on this machine — a login is the
+account's (`D194`) and a run with none uses the harness's own config in place — and the form
 asks the model, the level and the mode below it. A harness whose binary is not on this machine is
 still what a row draws disabled over, so a list says a tool is missing rather than omitting it.
 

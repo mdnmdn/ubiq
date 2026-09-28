@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-27
-verified: 2026-09-27
-code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
+updated: 2026-09-28
+verified: 2026-09-28
+code_anchors: [crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -98,10 +98,10 @@ the caller chose.
 `agent_manager::resolve::resolve` with a `RunFlags` naming only the harness and the folder, and
 overrides exactly four fields of what comes back: the configuration strategy (Ubiq owns where a
 run's state lives — `agent.rs`'s `run_config`: for a harness that `Harness::shares_home`,
-`ConfigStrategy::Home` on the agent definition's own home, named by `ProfileStore::home` on the
-store the definition resolved in, or with no definition — or a store naming no home —
+`ConfigStrategy::Home` on the home of the account the run resolved to, named by
+`home::HomeStore::home`, or with no account — or a name no home can be keyed by —
 `ConfigStrategy::Native` on the user's own config, confined or not; `ConfigStrategy::Fixed` on the
-run directory only for a harness that cannot share a home, which no built-in one is — `D193`),
+run directory only for a harness that cannot share a home, which no built-in one is — `D194`),
 the I/O mode (Ubiq owns which face the workspace wears), the isolation
 (Ubiq's own settings own the toggle, and it applies to a conversation exactly as to a pane), and —
 when that isolation is on — the permission mode, because a confined run is contained by the sandbox
@@ -182,22 +182,25 @@ other: `IoModes::Structured`, and a `structured_bridge` over the harness's own J
 launch, because a conversation's harness writes frames on a pipe rather than drawing a screen. What
 differs between them beyond the mode is the run directory's name and the isolation, both below.
 
-**A harness login lives in the harness's own config home, and nothing reads, copies or roams it
-(`D193`).** Every built-in harness answers `Harness::shares_home`, so `run_config` gives each run
-`ConfigStrategy::Home` — the definition's own home, from the store's `ProfileStore::home` — or, with
-no definition, `ConfigStrategy::Native`, the harness's own default config in place; the run directory
-is a scratch dir of per-run flag files beside it. The harness keeps its login in that home and
-refreshes it there, exactly as it does for a user running several copies against one default home.
-A run with no definition therefore uses the login already on the machine, unseeded. The legacy
-`provision` into a per-run directory remains for a third-party harness that cannot share a home;
-it seeds no login. An account is credential references only — environment-variable names, a base
-URL, a key helper — and `AccountInfo` carries its id and nothing about a login.
+**A harness login lives in the harness's own config home, keyed by the account, and nothing reads,
+copies or roams it (`D194`).** Every built-in harness answers `Harness::shares_home`, so
+`run_config` gives each run `ConfigStrategy::Home` — the account's own home, from
+`home::HomeStore::home` under `<root>/harness-homes/<account>/<harness>` — or, with no account,
+`ConfigStrategy::Native`, the harness's own default config in place; the run directory is a scratch
+dir of per-run flag files beside it. The harness keeps its login in that home and refreshes it
+there, exactly as it does for a user running several copies against one default home, and every run
+as that account — from any definition, in any project, at once — reads the one home. A run with no
+account therefore uses the login already on the machine, unseeded. The legacy `provision` into a
+per-run directory remains for a third-party harness that cannot share a home; it seeds no login.
+An account record is credential references only — environment-variable names, a base URL, a key
+helper — written by `Agents::record_account` the first time a sign-in as that name ends cleanly,
+and `AccountInfo` carries its id and which harnesses have a home under it, never the home itself.
 
 `archive` copies only a run's own session out of the shared home — `Harness::session_transcripts`
 for the harness session id `remember_session` wrote, recorded with the strategy on
 `SessionMeta::config`, nothing when there is none — and a teardown removes the run directory, which
 under `Home` is the scratch beside the home, never the home. A confined run is granted the home it
-runs from read-write through `IsolateOptions::grant_config_home` — the definition's under `Home`, the
+runs from read-write through `IsolateOptions::grant_config_home` — the account's under `Home`, the
 library's `Harness::default_homes` (`~/.claude` and `~/.claude.json`, `~/.codex`, …) under `Native`
 — and on macOS the Keychain layer, where Claude Code keeps a home's login in an item named by a
 hash of the home's path (`G381`). **A definition signs its home in** with `BeginHarnessLogin`:
@@ -248,7 +251,7 @@ session id is relaunched anyway and answers with no memory of the turn before it
 child over newline-delimited JSON-RPC on its stdio, handshakes with `initialize` and `session/new`,
 sends each turn as `session/prompt`, and serves the `fs/read_text_file` and `fs/write_text_file`
 requests the agent makes back, confined to the session root. A harness running from a shared home
-(`D193`) passes the run's MCP servers to `AcpBridge::with_mcp_servers` — carried on
+(`D194`) passes the run's MCP servers to `AcpBridge::with_mcp_servers` — carried on
 `Provisioned::mcp_servers` — and they go in `session/new`'s and `session/load`'s `mcpServers`, an
 http or sse server only when `initialize` advertised that transport; every other run sends `[]`
 and keeps its MCP in the harness's own files or flags. It names no harness, so adding an
@@ -519,15 +522,18 @@ the harness with no change of its own — which is the whole point of the split.
 **5. A fact stated in the library's documentation is linked, never copied.** Two copies of a harness
 launch flag is one copy that goes stale silently.
 
-**6. Ubiq names no provider endpoint.** The usage URL, the beta header and the keychain service are
-the library's, like every other harness fact, and a quota probe lives behind `Harness::quota`. Ubiq
-decides *when* to ask and what to do with the answer; it never learns where the answer comes from.
+**6. Ubiq names no provider endpoint.** How a limit is asked for is the library's, like every other
+harness fact, and a quota probe lives behind `Harness::quota`. Ubiq decides *when* to ask and what
+to do with the answer; it never learns where the answer comes from.
 
-**7. Credential material is spent inside the library and never comes back out.** A probe reads the
-token the harness keeps in the home it runs from, in place, spends it on one request and drops it
-(`G380`) — the snapshot that crosses the boundary is
-percentages, a plan name and a timestamp. This is the account invariant applied to the one operation
-that uses a credential itself rather than handing it to a child process.
+**7. No credential material is read at all, and the library makes no network call of its own.** The
+harness is the source: `quota::claude` runs Claude Code headless and sends it `/usage` —
+`harness::claude::usage_via_jsonl`, the same zero-token synthetic slash path the `/model` probe
+uses, under the account's home and killed after 60 seconds — and Claude Code asks the provider with
+the login it already holds (`D195`). Nothing here opens `.credentials.json` or the Keychain, and
+`ureq` is a dev-dependency. The snapshot that crosses the boundary is percentages, a reset
+timestamp and a window name. This is stronger than the account invariant, and it means a change to
+how a harness stores or renews a login is not a change here.
 
 ## Rationale
 

@@ -76,8 +76,9 @@ explaining why (e.g. Gemini CLI has no per-agent memory above `AGENTS.md`).
 
     This section **must end** with a mandatory H3 subsection
     `### Credential capture & reuse (agent-manager)` saying, in one line, that
-    `am` captures and copies no login: the harness keeps it in a profile's own
-    config home (`D193`).
+    `am` captures and copies no login: the harness keeps it in the account's own
+    config home (`D194`), and naming the paths that harness's
+    `Harness::login_files` declares inside it.
 11. **Permissions** — locations, rule syntax, the actions or decisions
     the harness supports (`allow` / `deny` / `ask`, or whatever the
     harness calls them), evaluation order, and any sandbox or approval

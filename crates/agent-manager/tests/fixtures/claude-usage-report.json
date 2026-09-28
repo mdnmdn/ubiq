@@ -1,0 +1,68 @@
+{
+  "session": {
+    "total_cost_usd": 1.1968915,
+    "total_api_duration_ms": 134840,
+    "total_duration_ms": 1754329,
+    "total_lines_added": 0,
+    "total_lines_removed": 0,
+    "model_usage": {
+      "claude-opus-5": {
+        "inputTokens": 46,
+        "outputTokens": 10949,
+        "thinkingTokens": 998,
+        "cacheReadInputTokens": 889993,
+        "cacheCreationInputTokens": 47794,
+        "webSearchRequests": 0,
+        "costUSD": 1.1968915,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    }
+  },
+  "rate_limits": {
+    "limits": [
+      {
+        "kind": "session",
+        "group": "session",
+        "percent": 9,
+        "resets_at": "2026-09-28T10:50:00.327851+00:00",
+        "scope": null,
+        "severity": "normal",
+        "is_active": false
+      },
+      {
+        "kind": "weekly_all",
+        "group": "weekly",
+        "percent": 88,
+        "resets_at": "2026-09-28T16:00:00.327867+00:00",
+        "scope": null,
+        "severity": "warning",
+        "is_active": true
+      },
+      {
+        "kind": "weekly_scoped",
+        "group": "weekly",
+        "percent": 0,
+        "resets_at": "2026-09-28T16:00:00+00:00",
+        "scope": {
+          "model": {
+            "display_name": "Fable"
+          },
+          "surface": null
+        },
+        "severity": "normal",
+        "is_active": false
+      }
+    ],
+    "extra_usage": {
+      "is_enabled": false,
+      "monthly_limit": null,
+      "used_credits": null,
+      "utilization": null,
+      "currency": "EUR"
+    }
+  }
+}

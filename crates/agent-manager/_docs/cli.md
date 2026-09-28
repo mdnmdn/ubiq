@@ -30,16 +30,18 @@ am codex  --skills reviewer --account work
 am opencode --config ./run.toml
 ```
 
-**Where the harness's config comes from (`D193`).** A harness that runs from a
-config home (native Claude Code) runs from the resolved profile's home when
-there is one (`ConfigStrategy::Home`), and from the user's own default config,
-untouched, when there is none (`ConfigStrategy::Native`) — in both cases with a
-fresh run dir under `AM_RUNS` as scratch for the run's own files, removed on
-exit like an ephemeral dir (never the home). A profile store that names no
-home runs `Native` too. A confined run takes the same strategy, and the sandbox
-is granted that home read-write (`IsolateOptions::grant_config_home`: the
-profile's home, or `Harness::default_homes` under `Native`) and on macOS the
-Keychain layer. Only a harness that cannot share a home keeps the per-run
+**Where the harness's config comes from (`D194`).** A harness that runs from a
+config home (native Claude Code) runs from the **account's** home when the run
+resolves to an account (`ConfigStrategy::Home`) — the same home for every run as
+that account, from any profile and any project, concurrently — and from the
+user's own default config, untouched, when it resolves to none
+(`ConfigStrategy::Native`) — in both cases with a fresh run dir under `AM_RUNS`
+as scratch for the run's own files, removed on exit like an ephemeral dir (never
+the home). Homes live under `<config dir>/harness-homes/<account>/<harness>/`
+(env override: `AM_HOMES`); with no homes root at all a run is `Native` too. A
+confined run takes the same strategy, and the sandbox is granted that home
+read-write (`IsolateOptions::grant_config_home`: the account's home, or
+`Harness::default_homes` under `Native`) and on macOS the Keychain layer. Only a harness that cannot share a home keeps the per-run
 ephemeral dir, and no built-in one is such. `am` has no flag naming a config
 dir. An API-key, auth-token or helper account applies to any run.
 
@@ -247,22 +249,34 @@ Accounts are stored under `~/.config/agent-manager/accounts/` (env override: `AM
 An account holds credential **references**, never secret material: environment variable names
 (`api_key_env`, `auth_token_env`), a `base_url`, and/or a credential helper command. When injected
 with `--account <id>`, the account's references are resolved into the harness's native auth
-slots. Full account schema in [`overview.md`](./overview.md). A harness login is not an account's:
-it lives in a profile's own config home, signed in with `am profile login` below, and `am` neither
-captures nor copies it (`D193`). An account file written before that may name a `home`; it is
-ignored.
+slots. Full account schema in [`overview.md`](./overview.md). A harness login is not one of those
+references: it lives in the account's own config home, signed in with `am account login` below,
+and `am` neither captures nor copies it (`D194`). An account file written before that may name a
+`home`; it is ignored.
 
-### Signing a profile in with `am profile login`
+### Signing an account in with `am account login`
 
-`am profile login <profile> [--harness <h>]` signs a profile's own config home in
-(`D193`) — the harness defaults to the profile's pin, else `claude-code`, and must
-be one that runs from a home. It prepares the home (`provision::prepare_home`:
-created, templates applied once) and runs the harness's own login into it
-interactively (`Harness::login_home`; Claude: `CLAUDE_CONFIG_DIR=<home> claude
-auth login`). Nothing is captured, verified or read back: the harness keeps the
-login in the home and refreshes it. The profile's first terminal run reaches the
-same place through Claude's own login screen, so this is the explicit route, not
-a required step.
+```bash
+am account login <id> --harness <h>    # sign that account's home in
+am account logout <id> --harness <h>   # remove that home — the sign-out
+am account check <id> --harness <h>    # does it hold a login, and until when
+```
+
+`am account login <id> [--harness <h>]` signs the account's config home in
+(`D194`) — the harness defaults to `claude-code` and must be one that runs from
+a home. It prepares the home (`provision::prepare_home`: created, templates
+applied once) and runs the harness's own login into it interactively
+(`Harness::login_home`; Claude: `CLAUDE_CONFIG_DIR=<home> claude auth login`).
+Nothing is captured, verified or read back: the harness keeps the login in the
+home and refreshes it. The account's first terminal run reaches the same place
+through the harness's own login screen, so this is the explicit route, not a
+required step.
+
+`am account logout` removes that one home (`HomeStore::forget`); removing one
+that is not there is success. `am account check` reads the expiry the login
+states about itself, in place (`home::login_validity`) — the one token read
+`D194` keeps, and an absent file is not proof of no login, since on macOS a
+harness may keep it in the Keychain instead.
 
 ## Session commands
 

@@ -668,9 +668,9 @@ secret stays in the runner's secret store.
 
 ### Credential capture & reuse (agent-manager)
 
-None. `am` neither captures, copies nor roams this login: the harness keeps it in a profile's own
-config home, signed in there by `am profile login` or the first run, and refreshes it itself
-(`D193` in Ubiq's `_docs/tech/decisions.md`).
+None. `am` neither captures, copies nor roams this login: the harness keeps it in the account's
+own config home, signed in there by `am account login` or the first run, and refreshes it itself
+(`D194` in Ubiq's `_docs/tech/decisions.md`).
 
 ## Permissions
 
@@ -941,7 +941,7 @@ A coordinator drives opencode headlessly by passing run-scoped MCP through the `
 
 A coordinator materialises skills into `<workdir>/.opencode/skills/<name>/SKILL.md` before launch (plural `skills/` dir). Always-on context goes into `AGENTS.md` in the working directory. (Cross-reference Skills and Policies/Rules/Memory.)
 
-### Shared-home run (agent-manager, `D193`)
+### Shared-home run (agent-manager, `D194`)
 
 `ConfigStrategy::Home { home, scratch }` runs opencode with `XDG_DATA_HOME` set
 to a profile's persistent `home`, shared read-write by every concurrent run of
@@ -964,7 +964,7 @@ dir. An `opencode acp` run gets its MCP the same way: `AcpBridge` sends
 only route.
 
 The login is `opencode auth login` with `XDG_DATA_HOME=<home>` and the real
-`HOME` untouched (`Opencode::login_home`, `am profile login`), or `/connect`
+`HOME` untouched (`Opencode::login_home`, `am account login`), or `/connect`
 inside the profile's first terminal run. opencode has no preference templates,
 so `provision::prepare_home` leaves only its `.am-home` marker.
 

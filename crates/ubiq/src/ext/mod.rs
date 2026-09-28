@@ -9,6 +9,7 @@
 
 mod id;
 pub mod ids;
+pub mod menu;
 pub mod rail;
 mod registry;
 pub mod settings;

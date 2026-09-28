@@ -15,9 +15,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use agent_manager::account::{AccountStore, FsAccountStore};
+use agent_manager::Validity;
+use agent_manager::account::{Account, AccountStore, FsAccountStore};
 use agent_manager::config::{McpServer, McpTransport};
 use agent_manager::harness::{self, Launch, ModelInfo};
+use agent_manager::home::{HomeStore, login_validity};
 use agent_manager::io::IoBridge;
 use agent_manager::isolate::{self, Confined, IsolateOptions};
 use agent_manager::profile::{
@@ -32,7 +34,7 @@ use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, McpRef, Policy};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{PaneId, ProjectId};
-use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo};
+use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, LoginStatus};
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
 
@@ -207,16 +209,17 @@ pub struct ConverseOptions {
     pub mcps: Vec<String>,
 }
 
-/// A sign-in into an agent definition's config home (`D193`) that has been prepared and not yet
-/// finished: what to run, and which definition it is for.
+/// A sign-in into an account's config home (`D194`) that has been prepared and not yet
+/// finished: what to run, and which account it is for.
 ///
 /// Held by the coordinator against the pane it opened, because the answer to "did this sign
 /// anyone in" is how that pane's process exits.
 pub struct PendingLogin {
     /// The harness being signed in, for the message that reports the outcome.
     pub agent_type: String,
-    /// The agent definition whose config home this login signs in.
-    pub definition: String,
+    /// The account whose config home this login signs in. One home per `(account, harness)`,
+    /// so this — not a definition — is what the sign-in is keyed by.
+    pub account: String,
     /// That home: where the login runs and where the harness keeps it.
     home: PathBuf,
     /// The launch to spawn under a pseudo-terminal, confined when runs are.
@@ -248,17 +251,17 @@ impl PendingLogin {
         self.exit.get().copied()
     }
 
-    /// A fixture sign-in into `definition`'s home that exited with `code` (`None`: still
+    /// A fixture sign-in into `account`'s home that exited with `code` (`None`: still
     /// running when its pane closed), for `coordinator`'s own tests of `login_gone`.
     #[cfg(test)]
     pub(crate) fn for_home_test(
         agent_type: impl Into<String>,
-        definition: impl Into<String>,
+        account: impl Into<String>,
         code: Option<i32>,
     ) -> Self {
         let pending = Self {
             agent_type: agent_type.into(),
-            definition: definition.into(),
+            account: account.into(),
             home: PathBuf::new(),
             launch: Launch::default(),
             exit: Default::default(),
@@ -473,6 +476,15 @@ impl Agents {
         FsAccountStore::new(self.root.join("accounts"))
     }
 
+    /// The harness config homes, keyed by account (`D194`), under Ubiq's own root.
+    ///
+    /// Built per call for the reason [`account_store`](Self::account_store) is: a home is a
+    /// directory another process may have signed in or signed out since this one started, and a
+    /// held store would answer from the world as it was.
+    pub(crate) fn home_store(&self) -> HomeStore {
+        HomeStore::new(self.root.join("harness-homes"))
+    }
+
     /// Whether `agent_type` states a limit at all, and by what route. `None` for an id that names
     /// no harness, which is the same refusal [`Self::is_agent_type`] tells apart.
     ///
@@ -494,16 +506,124 @@ impl Agents {
         quota_of(&self.root, account, agent_type)
     }
 
-    /// Every account Ubiq knows. An account is a set of credential references; a harness login
-    /// is not one of them — it lives in a definition's home (`D193`).
+    /// Every account Ubiq knows, each with the harnesses it is actually signed in to.
+    ///
+    /// Which harnesses an account serves is *derived*, not recorded (`D194`): an account keys a
+    /// home per harness, and a harness is signed in when the login files it names itself are
+    /// present there. So one account serves several harnesses without saying so anywhere, and a
+    /// sign-in that never finished reports the harness it did not cover.
+    ///
+    /// References only: the harness ids, never a path and never a token — the whole of what the
+    /// interface is allowed to learn about a login.
     pub fn accounts(&self) -> Result<Vec<AccountInfo>> {
+        let homes = self.home_store();
+        let harnesses = harness::all();
         Ok(self
             .account_store()
             .accounts()
             .context("reading the accounts Ubiq knows")?
             .into_iter()
-            .map(|account| AccountInfo { id: account.id })
+            .map(|account| AccountInfo {
+                logged_in: harnesses
+                    .iter()
+                    .filter(|harness| homes.signed_in(harness.as_ref(), &account.id))
+                    .map(|harness| harness.id())
+                    .collect(),
+                id: account.id,
+            })
             .collect())
+    }
+
+    /// Write down that a sign-in into `account`'s home for `agent_type` finished: the marker in
+    /// the home, then the account record.
+    ///
+    /// **The marker is what makes the account read as signed in**, because the credential itself
+    /// is wherever the harness decided to keep it — on macOS, for Claude Code, the Keychain and
+    /// not the home. Without it `accounts()` reports an account signed in to nothing, and every
+    /// picker that offers a harness-and-identity pair has nothing to offer (`HomeStore::signed_in`).
+    pub fn record_sign_in(&self, agent_type: &str, account: &str) -> Result<()> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        self.home_store()
+            .mark_signed_in(account, &harness.id())
+            .with_context(|| format!("recording the {agent_type} sign-in of '{account}'"))?;
+        self.record_account(account)
+    }
+
+    /// Write a bare record for `account` if nothing on disk answers to that name yet.
+    ///
+    /// A clean sign-in is the one thing that makes an account (`D194`): the home it signed in is
+    /// keyed by a name that until now was only typed into a dialog, and a name with no record is
+    /// a name no definition can pick from a list. The record holds nothing but the id —
+    /// credential *references* are the user's to add afterwards, and credential material never.
+    /// An account that is already there is left exactly as it is.
+    pub fn record_account(&self, account: &str) -> Result<()> {
+        let store = self.account_store();
+        if store
+            .account(account)
+            .with_context(|| format!("looking for account '{account}'"))?
+            .is_some()
+        {
+            return Ok(());
+        }
+        store
+            .save(&Account {
+                id: account.to_string(),
+                ..Default::default()
+            })
+            .with_context(|| format!("recording account '{account}'"))?;
+        Ok(())
+    }
+
+    /// Whether `account`'s home for `agent_type` holds a usable, current login, as the login
+    /// itself claims. An unknown harness, an unusable account name or a home with nothing in it
+    /// is [`LoginStatus::Missing`], not an error — a check that finds nothing is an answer.
+    ///
+    /// **A home a sign-in finished in reads `Unknown`, never `Missing`.** On macOS Claude Code
+    /// keeps its login in the Keychain rather than in the home, so a home that is signed in can
+    /// hold no readable credential at all; calling that "missing" would tell the user they are
+    /// signed out of an account that works. `HomeStore::marked_signed_in` is the fact that
+    /// outranks the empty reading, and `Unknown` is the honest word for it: signed in, with an
+    /// expiry this cannot see.
+    ///
+    /// The read is in place, in the home the harness owns: nothing is copied out and nothing is
+    /// written (`G380`'s sibling, `G382`).
+    pub fn check_login(&self, agent_type: &str, account: &str, now_ms: i64) -> LoginStatus {
+        let Some(harness) = harness::resolve(agent_type) else {
+            return LoginStatus::Missing;
+        };
+        let homes = self.home_store();
+        let Some(home) = homes.home(account, &harness.id()) else {
+            return LoginStatus::Missing;
+        };
+        match login_validity(harness.as_ref(), &home, now_ms) {
+            Validity::Empty if homes.marked_signed_in(account, &harness.id()) => {
+                LoginStatus::Unknown
+            }
+            Validity::Empty => LoginStatus::Missing,
+            Validity::Valid {
+                expires_at_ms: Some(expires_at_ms),
+            } => LoginStatus::Valid { expires_at_ms },
+            Validity::Valid {
+                expires_at_ms: None,
+            }
+            | Validity::Unknown => LoginStatus::Unknown,
+            Validity::Expired { expires_at_ms } => LoginStatus::Expired { expires_at_ms },
+        }
+    }
+
+    /// Sign one harness out of `account`: its home goes, and with it the login the harness kept
+    /// there. The account and its other harnesses' homes are untouched — that is what makes this
+    /// different from [`delete_account`](Self::delete_account).
+    ///
+    /// Ubiq names no credential file here: removing the home removes whatever the harness put in
+    /// it, which is the only way to sign out without learning a harness's layout.
+    pub fn delete_harness_login(&self, agent_type: &str, account: &str) -> Result<()> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        self.home_store()
+            .forget(account, &harness.id())
+            .with_context(|| format!("signing '{account}' out of {agent_type}"))
     }
 
     /// The global definition store, over Ubiq's own root. Built per call, for the same reason
@@ -786,15 +906,38 @@ impl Agents {
         Ok(true)
     }
 
-    /// Rename an account, and every harness's login inside it. The store validates the new
-    /// name; this only forwards what it decides.
+    /// Rename an account, and move every harness home keyed by it (`D194`), so the logins stay
+    /// with the identity they were made for. The account store validates the new name; this only
+    /// forwards what it decides.
+    ///
+    /// The homes move **first**. A record renamed over homes that did not move is an account
+    /// whose logins have all silently vanished, and there is no second name to find them under;
+    /// a home moved under a record that then failed to rename is reported here, with both names
+    /// in the sentence, and is one `rename` back.
     pub fn rename_account(&self, from: &str, to: &str) -> Result<()> {
-        self.account_store().rename_account(from, to)
+        let homes = self.home_store();
+        homes
+            .rename(from, to)
+            .with_context(|| format!("moving the harness homes of '{from}' to '{to}'"))?;
+        if let Err(error) = self.account_store().rename_account(from, to) {
+            // Put the homes back, so the account and its logins still agree under one name.
+            let _ = homes.rename(to, from);
+            return Err(error);
+        }
+        Ok(())
     }
 
-    /// Delete an account and every harness login inside it.
+    /// Delete an account, and with it every harness home keyed by it — the logins go where the
+    /// identity goes (`D194`).
+    ///
+    /// The record goes first: a record that will not delete leaves the homes where the account
+    /// that still names them can reach them, and homes that will not delete leave no record
+    /// pointing at them for the user to worry about.
     pub fn delete_account(&self, id: &str) -> Result<()> {
-        self.account_store().delete_account(id)
+        self.account_store().delete_account(id)?;
+        self.home_store()
+            .delete(id)
+            .with_context(|| format!("removing the harness homes of '{id}'"))
     }
 
     /// Rewrite `launch`'s program to what `agent_type` should actually run.
@@ -869,42 +1012,39 @@ impl Agents {
         options
     }
 
-    /// What signing an agent definition's config home in has to run (`D193`): the harness's own
-    /// login, straight into the home every run of that definition reads — the library's
-    /// `login_home`, after `prepare_home` has made the home ready. Nothing is captured or read
-    /// back; the harness keeps the login there and refreshes it, and whether it worked is how
-    /// the process exits.
+    /// What signing an account's config home in has to run (`D194`): the harness's own login,
+    /// straight into the one home every run as that account reads — the library's `login_home`,
+    /// after `prepare_home` has made the home ready. Nothing is captured or read back; the
+    /// harness keeps the login there and refreshes it, and whether it worked is how the process
+    /// exits.
     ///
-    /// Confined exactly when a run would be, and under the policy a run from this home gets, so
-    /// the login lands where a run of this machine looks for it: on macOS that is the Keychain
-    /// item the harness keys to the home, which a run from a home reaches (`D193`).
-    pub fn begin_home_login(
-        &self,
-        agent_type: &str,
-        definition: &str,
-        project: Option<ProjectId>,
-    ) -> Result<PendingLogin> {
+    /// The account need not exist yet. It is the sign-in that makes one: a clean exit is what
+    /// writes the record ([`record_account`](Self::record_account)), so the name typed into the
+    /// dialog becomes an identity a definition can pick only once there is a login behind it.
+    ///
+    /// Confined exactly when a run would be, and under the policy a run from this home gets —
+    /// granted the home **read-write**, which is the whole point: the login has to land where a
+    /// run of this machine looks for it, and on macOS that is also the Keychain item the harness
+    /// keys to the home.
+    pub fn begin_home_login(&self, agent_type: &str, account: &str) -> Result<PendingLogin> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
         if !harness.shares_home() {
             bail!(
-                "{} does not run from a definition's own home, so it signs in through an account",
+                "{} does not run from a config home of its own, so there is nothing to sign in",
                 harness.display_name()
             );
         }
-        let global = self.definition_store();
-        let scoped = project.map(|project| self.project_definition_store(project));
-        let definitions =
-            ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore));
-        if definitions.profile(definition)?.is_none() {
-            bail!("there is no agent definition called '{definition}'");
+        if account.trim().is_empty() {
+            bail!("a sign-in needs an account name: the home is keyed by it");
         }
-        let home = definitions
-            .home(definition, &harness.id())
-            .ok_or_else(|| anyhow!("the definition '{definition}' has no home to sign in"))?;
+        let home = self
+            .home_store()
+            .home(account, &harness.id())
+            .ok_or_else(|| anyhow!("'{account}' is not a name a config home can be keyed by"))?;
         let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
         provision::prepare_home(harness.as_ref(), &home, &templates)
-            .with_context(|| format!("preparing the home of '{definition}'"))?;
+            .with_context(|| format!("preparing the {agent_type} home of '{account}'"))?;
         let mut launch = harness
             .login_home(&home)
             .with_context(|| format!("asking {agent_type} how it signs in"))?;
@@ -919,10 +1059,13 @@ impl Agents {
                 home: home.clone(),
                 scratch: home.clone(),
             };
-            let confined = isolate::plan(&launch, &spec, &home, &self.isolate_options())
-                .with_context(|| {
-                    format!("resolving the policy a {agent_type} sign-in runs under")
-                })?;
+            // Read-write on the home, exactly as an ordinary run from it gets — a login that
+            // cannot write the home signs nobody in.
+            let mut options = self.isolate_options();
+            options.grant_config_home(harness.as_ref(), &spec.config);
+            let confined = isolate::plan(&launch, &spec, &home, &options).with_context(|| {
+                format!("resolving the policy a {agent_type} sign-in runs under")
+            })?;
             if let Some(confined) = confined {
                 launch = isolate::confined_launch(&confined)
                     .with_context(|| format!("preparing a confined {agent_type} sign-in"))?;
@@ -931,7 +1074,7 @@ impl Agents {
 
         Ok(PendingLogin {
             agent_type: agent_type.to_string(),
-            definition: definition.to_string(),
+            account: account.to_string(),
             home,
             launch,
             exit: Default::default(),
@@ -1152,10 +1295,11 @@ impl Agents {
             &definitions,
         )
         .with_context(|| format!("composing a {agent_type} run"))?;
-        // The definition `resolve` actually used — the one named, or the implicit `default` —
-        // asked the same way it asked, because that is whose home the run goes to.
-        let definition = resolve::effective_profile(&flags, &Settings::default(), &definitions)?
-            .filter(|id| definitions.profile(id).ok().flatten().is_some());
+        // The account `resolve` actually landed on — the one this run picked, or the definition's,
+        // or none — because under `D194` that is what the config home is keyed by. Read off the
+        // spec rather than re-derived: an account id nothing answers to has already degraded to
+        // `None` here, and a run that resolved no account runs on the user's own config.
+        let account = spec.account.as_ref().map(|it| it.id.clone());
 
         // The five answers that are Ubiq's rather than the library's: which directory this
         // run's configuration lives in, which face it wears, whether it is confined, — when
@@ -1165,8 +1309,8 @@ impl Agents {
         let structured = io == IoModes::Structured;
         spec.config = run_config(
             harness.as_ref(),
-            definition.as_deref(),
-            &definitions,
+            account.as_deref(),
+            &self.home_store(),
             self.run_dir_for(key),
         );
         let shared_home = matches!(
@@ -1241,7 +1385,7 @@ impl Agents {
         // both are settings a person set on this machine, and the library has no way to ask.
         let mut options = self.isolate_options();
         options.home = home_mode(&self.home);
-        // A definition's home — or, with none, the harness's own — is where the harness keeps
+        // The account's home — or, with none, the harness's own — is where the harness keeps
         // its login and its sessions; the policy grants the run's own scratch dir, not that.
         options.grant_config_home(harness.as_ref(), &spec.config);
 
@@ -1518,7 +1662,7 @@ impl Agents {
     }
 
     /// Remove what an agent's conversation left behind: its run directory, and only that. A
-    /// run from a definition's home (`D193`) leaves the home alone — the run directory is its
+    /// run from an account's home (`D194`) leaves the home alone — the run directory is its
     /// scratch, beside the home and never above it.
     pub fn retire_agent(&self, agent: AgentId) {
         let dir = self.agent_dir(agent);
@@ -1554,21 +1698,26 @@ fn session_transcripts(
         .unwrap_or_default()
 }
 
-/// Where a run's configuration lives (`D193`), for a harness that can run from a shared home:
-/// the definition's own home when the run has one and the store names it, and otherwise the
-/// user's own config in place, every per-run file in `scratch` either way — confined or not,
-/// since the sandbox is granted that home ([`IsolateOptions::grant_config_home`]). Only a
-/// harness that cannot share a home keeps the per-run directory.
+/// Where a run's configuration lives (`D194`), for a harness that can run from a shared home:
+/// the **account's** own home when the run resolved one and its name can key a home, and
+/// otherwise the user's own config in place, every per-run file in `scratch` either way —
+/// confined or not, since the sandbox is granted that home
+/// ([`IsolateOptions::grant_config_home`]). Only a harness that cannot share a home keeps the
+/// per-run directory.
+///
+/// Keyed by account rather than by definition because one login per identity is what a person
+/// means by "my work account": two definitions naming the same account share it, concurrently
+/// and read-write, and the harness owns the refresh.
 fn run_config(
     harness: &dyn harness::Harness,
-    definition: Option<&str>,
-    definitions: &dyn ProfileStore,
+    account: Option<&str>,
+    homes: &HomeStore,
     scratch: PathBuf,
 ) -> ConfigStrategy {
     if !harness.shares_home() {
         return ConfigStrategy::Fixed(scratch);
     }
-    match definition.and_then(|id| definitions.home(id, &harness.id())) {
+    match account.and_then(|account| homes.home(account, &harness.id())) {
         Some(home) => ConfigStrategy::Home { home, scratch },
         None => ConfigStrategy::Native { scratch },
     }
@@ -1762,11 +1911,15 @@ fn command_outcome(
 /// is one: the quota worker has no `&self` to borrow and a probe is a blocking HTTPS call that
 /// must not happen on the coordinator's thread.
 ///
-/// The login read is the one the harness keeps for a run of `account` (`D193`, `G380`): the home
-/// of the first global definition of this harness that names `account` — an empty `account`
-/// matching a definition that names none — and with none, the harness's own default home. The
-/// credential never comes back out: the library reads the token in place, spends it on one
-/// request and returns percentages.
+/// The login read is the one the harness keeps for a run of `account` (`D194`, `G380`): that
+/// account's own home for this harness, and with none — an empty account, or a name no home can
+/// be keyed by — the harness's own default home, which is where a run naming no account runs.
+/// Under `D193` this had to hunt for a definition of this harness that named `account`, because
+/// the home was the definition's; the account *is* the key now, so the lookup is one call.
+///
+/// The credential never comes back out: the library reads the token in place, spends it on one
+/// request and returns percentages. This stays the one token read `G380` is honest about — it is
+/// here because nothing else can say what a plan has left, and it goes as soon as something can.
 pub fn quota_of(
     root: &Path,
     account: &str,
@@ -1774,20 +1927,9 @@ pub fn quota_of(
 ) -> Result<ubiq_proto::quota::QuotaSnapshot> {
     let harness =
         harness::resolve(agent_type).ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
-    let definitions = FsProfileStore::new(definitions_dir(root));
-    let home = definitions
-        .profiles()
-        .context("reading the agent definitions")?
-        .into_iter()
-        .filter(|definition| {
-            definition
-                .harness
-                .as_deref()
-                .and_then(harness::resolve)
-                .is_some_and(|it| it.id() == harness.id())
-                && definition.account.as_deref().unwrap_or("") == account
-        })
-        .find_map(|definition| definitions.home(&definition.id, &harness.id()));
+    let home = HomeStore::new(root.join("harness-homes"))
+        .home(account, &harness.id())
+        .filter(|home| home.is_dir());
     let snapshot = harness
         .quota(account, home.as_deref())
         .with_context(|| format!("asking {agent_type} what '{account}' has left"))?;
@@ -2487,12 +2629,11 @@ mod tests {
         .unwrap();
     }
 
-    /// `D193`: a definition named `default` — the one a bare start resolves — runs Claude Code
-    /// from the definition's own home, with the run directory as its scratch beside it. The
-    /// account still names who the run answers as; the login is the one in the home. Retiring
-    /// the run takes the scratch and never the home.
+    /// `D194`: a definition named `default` — the one a bare start resolves — names an account,
+    /// and the run goes to **that account's** home, with the run directory as its scratch beside
+    /// it. Retiring the run takes the scratch and never the home, which outlives every run.
     #[test]
-    fn a_definition_runs_from_its_own_home() {
+    fn a_run_goes_to_the_home_of_the_account_it_resolved() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         given_an_account(root.path(), "default", "work");
@@ -2509,7 +2650,7 @@ mod tests {
             )
             .expect("composing a claude-code run against the default definition");
 
-        let home = agents.definition_store().home_dir("default", "claude-code");
+        let home = agents.home_store().home("work", "claude-code").unwrap();
         assert_eq!(composed.account(), Some("work"));
         assert_eq!(
             composed.dir,
@@ -2531,10 +2672,10 @@ mod tests {
         assert!(home.is_dir(), "retiring never reaches the home");
     }
 
-    /// A run with no definition runs from the user's own config in place, and says so in its
-    /// record.
+    /// A run that resolves no account runs from the user's own config in place, and says so in
+    /// its record — nothing of the user's is written, and no home is made for a nameless run.
     #[test]
-    fn no_definition_runs_on_the_user_s_own_config() {
+    fn no_account_runs_on_the_user_s_own_config() {
         let root = tempfile::TempDir::new().unwrap();
         let cwd = tempfile::TempDir::new().unwrap();
         let agents = Agents::new(root.path(), false);
@@ -2562,13 +2703,13 @@ mod tests {
         agents.retire_agent(agent);
     }
 
-    /// Which strategy a run gets (`D193`): the definition's home, the user's own config with no
-    /// definition or a store that names no home, and the run directory only for a harness that
+    /// Which strategy a run gets (`D194`): the account's home, the user's own config with no
+    /// account or a name no home can be keyed by, and the run directory only for a harness that
     /// cannot share a home — never for a built-in one.
     #[test]
     fn run_config_picks_the_home_native_or_the_run_directory() {
         let root = tempfile::TempDir::new().unwrap();
-        let store = FsProfileStore::new(root.path().join("definitions"));
+        let homes = HomeStore::new(root.path().join("harness-homes"));
         let scratch = root.path().join("runs").join("key");
         // Every built-in harness shares a home, so the one that does not is a stand-in.
         struct Unshared;
@@ -2598,47 +2739,41 @@ mod tests {
         }
         let claude = harness::resolve("claude-code").unwrap();
         let unshared = Unshared;
-        let pick =
-            |harness: &dyn harness::Harness, definition: Option<&str>, store: &dyn ProfileStore| {
-                run_config(harness, definition, store, scratch.clone())
-            };
+        let pick = |harness: &dyn harness::Harness, account: Option<&str>| {
+            run_config(harness, account, &homes, scratch.clone())
+        };
         let home = ConfigStrategy::Home {
-            home: store.home_dir("work", "claude-code"),
+            home: homes.home("work", "claude-code").unwrap(),
             scratch: scratch.clone(),
         };
         let native = ConfigStrategy::Native {
             scratch: scratch.clone(),
         };
 
-        assert_eq!(pick(claude.as_ref(), Some("work"), &store), home);
-        assert_eq!(pick(claude.as_ref(), None, &store), native);
-        assert_eq!(
-            pick(
-                claude.as_ref(),
-                Some("work"),
-                &agent_manager::profile::EmptyProfileStore
-            ),
-            native
-        );
+        assert_eq!(pick(claude.as_ref(), Some("work")), home);
+        assert_eq!(pick(claude.as_ref(), None), native);
+        // A name that could escape the homes root keys no home, so the run falls back to the
+        // user's own config rather than to a path built out of it.
+        assert_eq!(pick(claude.as_ref(), Some("../elsewhere")), native);
         let fixed = ConfigStrategy::Fixed(scratch.clone());
-        assert_eq!(pick(&unshared, Some("work"), &store), fixed);
-        assert_eq!(pick(&unshared, None, &store), fixed);
+        assert_eq!(pick(&unshared, Some("work")), fixed);
+        assert_eq!(pick(&unshared, None), fixed);
         for harness in harness::all() {
-            for definition in [None, Some("work")] {
+            for account in [None, Some("work")] {
                 assert!(
                     matches!(
-                        pick(harness.as_ref(), definition, &store),
+                        pick(harness.as_ref(), account),
                         ConfigStrategy::Home { .. } | ConfigStrategy::Native { .. }
                     ),
-                    "{} with definition {definition:?} took the per-run dir",
+                    "{} with account {account:?} took the per-run dir",
                     harness.id()
                 );
             }
         }
     }
 
-    /// A confined run takes the same strategy an unconfined one does (`D193`), and its policy is
-    /// granted the home it runs from read-write: the definition's with one, the harness's own
+    /// A confined run takes the same strategy an unconfined one does (`D194`), and its policy is
+    /// granted the home it runs from read-write: the account's with one, the harness's own
     /// default config with none.
     #[test]
     fn a_confined_run_is_granted_the_home_it_runs_from() {
@@ -2691,7 +2826,7 @@ mod tests {
                 ConverseOptions::default(),
             )
             .expect("composing a confined claude-code run against the default definition");
-        let home = agents.definition_store().home_dir("default", "claude-code");
+        let home = agents.home_store().home("work", "claude-code").unwrap();
         let meta = session::load(&agents.sessions_dir(), &pane.to_string()).unwrap();
         assert_eq!(
             meta.config,
@@ -2700,7 +2835,7 @@ mod tests {
                 scratch: agents.run_dir(pane),
             })
         );
-        assert!(granted(&composed, &home), "the definition's home");
+        assert!(granted(&composed, &home), "the account's home");
         agents.retire(pane);
     }
 
@@ -2744,23 +2879,23 @@ mod tests {
         assert!(home.join("projects/-tmp/theirs.jsonl").is_file());
     }
 
-    /// Signing a definition in prepares its home and runs the harness's own login into it —
-    /// nothing captured, no account — and a harness that cannot share a home, or a definition
-    /// that is not there, is refused.
+    /// Signing an account in prepares **its** home and runs the harness's own login into it —
+    /// nothing captured. The account need not exist first: it is the sign-in that makes one, so
+    /// a name with no record is prepared and no record is written until the login exits cleanly.
+    /// An unknown harness and a name no home can be keyed by are both refused.
     #[test]
-    fn a_definition_sign_in_prepares_its_home_and_logs_into_it() {
+    fn an_account_sign_in_prepares_its_home_and_logs_into_it() {
         let root = tempfile::TempDir::new().unwrap();
         let agents = with_a_harness(root.path());
-        agents.save_definition(a_definition("work")).unwrap();
 
         let pending = agents
-            .begin_home_login("claude-code", "work", None)
-            .expect("a sign-in into the definition's home");
+            .begin_home_login("claude-code", "work")
+            .expect("a sign-in into the account's home");
 
-        let home = agents.definition_store().home_dir("work", "claude-code");
+        let home = agents.home_store().home("work", "claude-code").unwrap();
         assert_eq!(pending.home(), home);
         assert!(home.is_dir(), "prepare_home made the home");
-        assert_eq!(pending.definition, "work");
+        assert_eq!(pending.account, "work");
         assert!(
             pending
                 .launch()
@@ -2769,17 +2904,128 @@ mod tests {
                 .any(|(_, value)| value == &home.display().to_string()),
             "the login is pointed at the home"
         );
+        assert!(agents.begin_home_login("no-such-harness", "work").is_err());
+        for bad in ["", "  ", "..", "a/b"] {
+            assert!(
+                agents.begin_home_login("claude-code", bad).is_err(),
+                "accepted {bad:?} as an account name"
+            );
+        }
         assert!(
-            agents
-                .begin_home_login("no-such-harness", "work", None)
-                .is_err()
+            agents.accounts().unwrap().is_empty(),
+            "a sign-in that has not finished records nothing"
         );
+    }
+
+    /// A clean sign-in is the one thing that makes an account, and the homes are what say which
+    /// harnesses it is signed in to. Signing one harness out shortens that list and leaves the
+    /// account — and its other harnesses — alone; deleting the account takes every home with it.
+    #[test]
+    fn a_recorded_account_lists_the_harnesses_its_homes_hold() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let claude = harness::resolve("claude-code").unwrap();
+
+        agents.record_account("work").unwrap();
+        let listed = agents.accounts().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "work");
         assert!(
-            agents
-                .begin_home_login("claude-code", "nobody", None)
-                .is_err()
+            listed[0].logged_in.is_empty(),
+            "a recorded account with no login yet is signed in nowhere"
         );
+
+        // What the harness itself calls its login, written where a real one would land.
+        let home = agents.home_store().home("work", "claude-code").unwrap();
+        let login = home.join(claude.login_files().first().expect("a login file"));
+        std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+        std::fs::write(&login, b"{}").unwrap();
+        assert_eq!(agents.accounts().unwrap()[0].logged_in, ["claude-code"]);
+
+        // Recording twice never overwrites what is there.
+        agents.record_account("work").unwrap();
+        assert_eq!(agents.accounts().unwrap().len(), 1);
+
+        agents.delete_harness_login("claude-code", "work").unwrap();
+        let listed = agents.accounts().unwrap();
+        assert_eq!(listed.len(), 1, "the account survives its sign-out");
+        assert!(listed[0].logged_in.is_empty());
+        assert!(!home.exists());
+    }
+
+    /// The macOS case, and the one that made a finished sign-in read as nothing: Claude Code
+    /// keeps its login in the Keychain, so the home holds no credential file for anything to
+    /// find. A recorded sign-in is what the account is listed by, and `Check` says `Unknown` —
+    /// signed in, expiry out of reach — rather than `Missing`.
+    #[test]
+    fn a_sign_in_that_left_no_file_still_lists_and_checks_as_signed_in() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+
+        assert!(matches!(
+            agents.check_login("claude-code", "work", 0),
+            LoginStatus::Missing
+        ));
+
+        agents.record_sign_in("claude-code", "work").unwrap();
+
+        let home = agents.home_store().home("work", "claude-code").unwrap();
+        assert!(!home.join(".credentials.json").exists(), "nothing captured");
+        assert_eq!(agents.accounts().unwrap()[0].logged_in, ["claude-code"]);
+        assert!(matches!(
+            agents.check_login("claude-code", "work", 0),
+            LoginStatus::Unknown
+        ));
+
+        agents.delete_harness_login("claude-code", "work").unwrap();
+        assert!(agents.accounts().unwrap()[0].logged_in.is_empty());
+        assert!(matches!(
+            agents.check_login("claude-code", "work", 0),
+            LoginStatus::Missing
+        ));
+    }
+
+    /// A rename moves the homes with the identity, so the logins are still there under the new
+    /// name; a delete takes them. `check_login` reads the home the account keys, and a home with
+    /// nothing in it is `Missing` rather than an error.
+    #[test]
+    fn renaming_an_account_moves_its_homes_and_deleting_takes_them() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let claude = harness::resolve("claude-code").unwrap();
+        let login_file = claude.login_files().first().expect("a login file").clone();
+
+        agents.record_account("work").unwrap();
+        let home = agents.home_store().home("work", "claude-code").unwrap();
+        std::fs::create_dir_all(home.join(&login_file).parent().unwrap()).unwrap();
+        std::fs::write(home.join(&login_file), b"{}").unwrap();
+
+        assert_eq!(
+            agents.check_login("claude-code", "nobody", 0),
+            LoginStatus::Missing
+        );
+        assert_eq!(
+            agents.check_login("no-such-harness", "work", 0),
+            LoginStatus::Missing
+        );
+        // A login stating no expiry is stored but cannot say whether it still works.
+        assert_eq!(
+            agents.check_login("claude-code", "work", 0),
+            LoginStatus::Unknown
+        );
+
+        agents.rename_account("work", "day-job").unwrap();
+        let moved = agents.home_store().home("day-job", "claude-code").unwrap();
+        assert!(moved.join(&login_file).is_file(), "the login moved too");
+        assert!(!home.exists());
+        let listed = agents.accounts().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "day-job");
+        assert_eq!(listed[0].logged_in, ["claude-code"]);
+
+        agents.delete_account("day-job").unwrap();
         assert!(agents.accounts().unwrap().is_empty());
+        assert!(!moved.exists(), "the homes go with the identity");
     }
 
     /// An account id nothing answers to used to fail the whole compose. It now degrades like
@@ -2859,6 +3105,10 @@ mod tests {
 
         assert_eq!(accounts.len(), 1);
         assert_eq!(accounts[0].id, "byenv");
+        assert!(
+            accounts[0].logged_in.is_empty(),
+            "no home, so no harness is signed in"
+        );
     }
 
     /// The sweep clears what a previous process left in the runs directory, and

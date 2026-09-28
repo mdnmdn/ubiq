@@ -3,14 +3,23 @@ id: wip-agent-login-note
 title: Agent login note
 kind: wip
 status: draft
-summary: Why a conversation fails silently when the run directory has no Claude Code login, and the two ways to wire account selection into the RunSpec.
-read_when: you are debugging a "Not logged in" transcript failure, or deciding whether to wire account selection now or take the environment-credential stopgap
-updated: 2026-09-12
-verified: 2026-09-24
+summary: Closed by D193 and D194. Why a conversation failed silently when the run directory had no Claude Code login, and the two ways considered for wiring account selection into the RunSpec — both answered by removing the capture and keying the config home by account.
+read_when: you are reading how account selection came to be keyed the way it is, and want the question D194 answers
+updated: 2026-09-27
+verified: 2026-09-27
 code_anchors: [crates/ubiq-host/src/agent.rs]
 depends_on: [wip-agent-setup]
 review_cycle: monthly
 ---
+
+> **Closed 2026-09-27 by `D193` and `D194`.** The question this note asks — how a captured login
+> reaches a run — has no answer in the tree any more, because nothing captures a login. A harness
+> logs in once into a fixed config home keyed by the account (`D194`), the harness owns it from
+> then on, and `am account login` signs that home in rather than copying anything out of it;
+> `am profile login`, `seed_login`, `harvest_login` and `Claude::ambient_login` are all gone.
+> Read `D193` and `D194` in [`../tech/decisions.md`](../tech/decisions.md), and
+> [`../tech/agent-manager.md`](../tech/agent-manager.md) for the boundary. Everything below is the
+> record of how it stood on 2026-09-12 and is kept only for that.
 
 One command tells you for sure:
 

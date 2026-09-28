@@ -105,6 +105,18 @@ pub struct WorkbenchPanel {
     /// which kills its harness, and a file panel's which closes its tab — from one displaced by a
     /// whole arrangement being installed over it, which must not.
     attached: bool,
+    /// Set when the **window** took this panel out of the tree and deliberately did not put it
+    /// back. `attached` alone cannot say so: it reads the same as a tab the user closed, because
+    /// the library reports both the same way and the only thing that tells them apart is a
+    /// displaced panel being re-added in the same edit.
+    ///
+    /// A chat tab and a mission panel are the two the settle drops on purpose — `D156`'s rule
+    /// that a switch places neither — keeping the entity and dropping only the placement, so
+    /// nothing re-adds them and [`BasePanel::on_removed`] was reading the sweep as the user
+    /// closing the tab: `closed_chat_tab` then took the tab out of the project and the panel out
+    /// of `AppState::panels`, and the mode's own blob could never rebuild the leaf again (`T-52`).
+    /// Consumed by the deferred close, so it can only ever swallow the removal it was set for.
+    displaced: bool,
     /// Which of its viewer's layouts a file panel's file is in — **pushed by the window** for the
     /// same reason `visible` is, and for one more: [`BasePanel::dump`] is reached from inside the
     /// window's own update, so the payload a panel writes has to be a fact it already holds.
@@ -119,6 +131,7 @@ impl WorkbenchPanel {
             focus_handle: cx.focus_handle(),
             visible: true,
             attached: false,
+            displaced: false,
             layout: ViewLayout::default(),
         })
     }
@@ -139,6 +152,14 @@ impl WorkbenchPanel {
     /// arrangement being added to it a second time.
     pub fn attached(&self) -> bool {
         self.attached
+    }
+
+    /// Say that the window is about to leave this panel out of the tree on purpose — see
+    /// [`Self::displaced`]. Called by `AppState::settle_layout` for the one panel it takes out
+    /// without putting back, and only for a panel that was on screen, so the flag is always
+    /// consumed by the removal it was set for.
+    pub fn displace(&mut self) {
+        self.displaced = true;
     }
 
     /// Tell a file panel which layout its file is in, for the payload it writes down. Answers
@@ -586,10 +607,18 @@ impl BasePanel for WorkbenchPanel {
         let app = self.app.clone();
         let panel = cx.weak_entity();
         cx.defer(move |cx| {
-            if panel
-                .read_with(cx, |panel, _| panel.attached)
-                .unwrap_or(true)
-            {
+            // Two ways this is not a close: the panel was displaced and put back in the same edit,
+            // and the window took it out on purpose and kept the entity (`WorkbenchPanel::displace`).
+            // The flag is taken rather than read, so it answers once and only for this removal —
+            // and taken unconditionally, because a `||` that short-circuited on `attached` would
+            // leave it set for the next one.
+            let closed = panel
+                .update(cx, |panel, _| {
+                    let displaced = std::mem::take(&mut panel.displaced);
+                    !panel.attached && !displaced
+                })
+                .unwrap_or(false);
+            if !closed {
                 return;
             }
             // Every arm calls `AppState` directly. This already runs inside `app.update`, so
