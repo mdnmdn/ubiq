@@ -23,6 +23,7 @@
 //! Every builder here is `pub`, so a block that wants the base's rows minus one writes
 //! `ubiq::ui::menus::overflow(app, cx)` and filters what comes back.
 
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{AnyElement, App, Context, ElementId, Entity, IntoElement, SharedString, Window};
@@ -30,6 +31,7 @@ use gpui::{point, px};
 use gpui_component::{Icon, IconName};
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::AgentPicks;
+use ubiq_proto::work::AgentId;
 
 use crate::app::AppState;
 use crate::ext::{SlotId, ids};
@@ -338,34 +340,77 @@ pub fn new_pane(app: &AppState, cx: &App) -> Vec<MenuEntry> {
 /// [`NO_TOOLS_ROW`]'s reason.
 pub const NO_HIDDEN_AGENTS_ROW: &str = "No hidden agents";
 
-/// The chevron beside New agent: every agent pane of the project on screen the user cannot
-/// currently see, with its harness still running behind it (`T-266`).
+/// The chevron beside New agent: every live agent of the project the user cannot currently see
+/// (`T-266`, `T-275`).
 ///
-/// **Hidden is `AppState::offscreen_panes` narrowed to agents** — the panes whose harness is one
-/// the host offers as an agent type. Hidden means out of sight rather than detached: a tab's
-/// `Hide` is one way there, but so is a rail mode that does not draw the pane, a region the user
-/// put away, and a sibling tab displayed in front of it. The user's question is "where did my
-/// agent go", and all four answers are the same question. A shell out of sight is the new-pane
-/// menu's Detached group, which stays on the narrower `detached_panes` because a pane with no
-/// panel at all is what that group is about. Picking a row **reveals** the live pane: the panel
-/// comes back over the emulator that never stopped, and nothing is respawned.
+/// **Hidden is read against the agent model, not the pane model**, because an agent is not
+/// necessarily a pane with a dock panel: one drawn in an agents-column tab or a chat tab is drawn
+/// by that surface, never by the dock, so `AppState::offscreen_panes` alone missed it entirely —
+/// the bug this rule replaces. The candidate set is `AppState::attach_rows`'s own — `work.agents`
+/// narrowed to [`AgentsView::live`](crate::state::agents::AgentsView::live) — and this menu is
+/// **global** rather than per-surface, so "shown" is the union of every surface that can display a
+/// conversation: every agents-column tab, and every chat tab's `attached`. Hidden is live minus
+/// that union. Picking a row **reveals** the agent — `AppState::reveal_agent` brings it to the
+/// front of its column or gives it one; nothing is respawned.
+///
+/// **A pane can carry an agent's harness with no `AgentId` behind it at all** — *Start in
+/// terminal* (`AppState::start_new_agent_in_terminal`) runs a harness as a real pseudo-terminal
+/// pane, deliberately outside the structured-conversation model, and mints no id for it; nothing
+/// in `PaneState` names an `AgentId` either, so a pane and a conversation are never the same row
+/// twice — they cannot even name each other. Such a pane is invisible to the agent-model rule
+/// above, so it keeps the old pane-based path: still listed, through `detached_entry`/
+/// `reattach_pane`, when `AppState::offscreen_panes` says the dock is not drawing it.
 pub fn hidden_agents(app: &AppState, cx: &App) -> Vec<MenuEntry> {
-    let hidden: Vec<PaneId> = app
-        .offscreen_panes(cx)
-        .into_iter()
-        .filter(|&id| {
-            app.pane(id)
-                .is_some_and(|pane| is_agent(app, &pane.harness))
-        })
-        .collect();
+    let mut rows: Vec<MenuEntry> = Vec::new();
 
-    if hidden.is_empty() {
+    if let Some(work) = app.work(cx) {
+        let live: &[AgentId] = app
+            .agents(cx)
+            .map(|view| view.live.as_slice())
+            .unwrap_or(&[]);
+        let shown_in_columns: HashSet<AgentId> = app
+            .agents(cx)
+            .map(|view| {
+                view.columns
+                    .iter()
+                    .flat_map(|column| column.tabs.iter().copied())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let shown_in_chats: HashSet<AgentId> = app
+            .open_project(cx)
+            .map(|open| open.chats.iter().filter_map(|tab| tab.attached).collect())
+            .unwrap_or_default();
+
+        for agent in work.agents.iter().filter(|agent| live.contains(&agent.id)) {
+            if shown_in_columns.contains(&agent.id) || shown_in_chats.contains(&agent.id) {
+                continue;
+            }
+            let id = agent.id;
+            rows.push(
+                MenuEntry::new(app.agent_title(agent))
+                    .icon(IconName::Bot)
+                    .on(move |this, _, cx| this.reveal_agent(id, cx)),
+            );
+        }
+    }
+
+    // A harness started in a plain terminal pane rather than as a conversation: no `AgentId`, so
+    // invisible to the loop above, and still offered the old way.
+    rows.extend(
+        app.offscreen_panes(cx)
+            .into_iter()
+            .filter(|&id| {
+                app.pane(id)
+                    .is_some_and(|pane| is_agent(app, &pane.harness))
+            })
+            .map(|id| detached_entry(app, id).icon(IconName::Bot)),
+    );
+
+    if rows.is_empty() {
         return vec![MenuEntry::heading(NO_HIDDEN_AGENTS_ROW)];
     }
-    hidden
-        .into_iter()
-        .map(|id| detached_entry(app, id).icon(IconName::Bot))
-        .collect()
+    rows
 }
 
 /// Whether a pane's harness is one the host offers as an agent, rather than a shell or a tool.

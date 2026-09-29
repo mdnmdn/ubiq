@@ -180,15 +180,22 @@ impl AppState {
         {
             return Some(Target::AgentDefinition(definition.clone()));
         }
-        let harness = self
-            .workbench
-            .agent_types
-            .iter()
-            .find(|it| it.id == last.agent_type && it.available && it.chat)?;
-        // The target list offers pairs, so a remembered start with no identity has no row to open
-        // on — and picking it would leave the identity row, which is not drawn for a pair, as the
-        // one answer the form could no longer show.
-        let account = last.account.clone()?;
+        let harness = self.workbench.agent_types.iter().find(|it| {
+            it.id == last.agent_type
+                && it.available
+                && it.chat
+                && self.workbench.harness_offered(it)
+        })?;
+        // No identity is a row of its own now — the `Default` group — so a remembered start that
+        // named none reopens on it. One that named an identity still has to find it: an account
+        // signed out since is a row the list no longer draws, and a target with no row is a form
+        // opened on an answer it cannot show.
+        let Some(account) = last.account.clone() else {
+            return Some(Target::Harness {
+                agent_type: harness.id.clone(),
+                account: None,
+            });
+        };
         self.workbench
             .settings
             .accounts_for(&harness.id)

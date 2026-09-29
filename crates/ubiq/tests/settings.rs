@@ -13,12 +13,12 @@ use chrono::Utc;
 use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
 use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub};
-use ubiq::state::WindowRegistry;
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
 use ubiq::state::layout::Algo;
 use ubiq::state::nav::{Destination, Locus, View};
 use ubiq::state::prefs;
 use ubiq::state::settings::{self, MarkdownOpen, TabClose, UiSettings};
+use ubiq::state::{HarnessChoice, WindowRegistry};
 use ubiq_proto::assist::{
     AiProvider, AiProviderInfo, AiProviderKind, AssistProvider, ModelRole, SuggestSubject,
 };
@@ -50,6 +50,7 @@ fn a_blob_survives_the_round_trip() {
         md_density: ubiq::theme::MdDensity::Compact,
         md_char_scale_default: 1.25,
         md_text_shade_default: ubiq::state::editor::TextShade::Strong,
+        acp_enabled: ["claude-code-acp".to_string()].into_iter().collect(),
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
@@ -79,6 +80,10 @@ fn missing_fields_open_on_defaults() {
     // A blob written before the width/density popover existed opens on Readable/Comfortable.
     assert_eq!(back.md_width, ubiq::theme::MdWidth::Readable);
     assert_eq!(back.md_density, ubiq::theme::MdDensity::Comfortable);
+    // A blob written before the ACP switches existed opens with every one of them off — the
+    // native wire is the better one (`D95`), so the second id for a tool is opt-in and an absent
+    // field is the same answer as an unticked box.
+    assert!(back.acp_enabled.is_empty());
 }
 
 #[test]
@@ -1314,6 +1319,139 @@ fn signing_out_shortens_logged_in(cx: &mut TestAppContext) {
         assert!(
             state.workbench.settings.accounts_for("codex").is_empty(),
             "and no picker offers it for the harness it signed out of"
+        );
+    });
+}
+
+/// A harness that is installed but that nobody has signed an account into is still offered — on
+/// its own default configuration, which is what it runs on and the only answer it has.
+///
+/// Before `T-276` it appeared in no group at all: the list was built from `logged_in` alone, so an
+/// installed tool with no account was unreachable from the New agent dialog. The row it gets is
+/// `HarnessChoice::Harness`, under its own `Default` heading, **after** `Configured` — a signed-in
+/// pairing stays the first thing offered.
+#[gpui::test]
+fn an_installed_harness_with_no_account_is_offered(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![
+                a_shared_home_harness("claude-code", "Claude Code"),
+                a_shared_home_harness("codex", "Codex"),
+            ],
+        },
+    );
+    fixture.host.send(
+        To::Everyone,
+        Message::Accounts {
+            accounts: vec![ubiq_proto::messages::AccountInfo {
+                id: "work".to_string(),
+                logged_in: vec!["claude-code".to_string()],
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.state.read_with(cx, |state, _| {
+        let accounts = state.workbench.settings.accounts.clone();
+        assert_eq!(
+            state.workbench.harness_choices(&accounts, &[]),
+            vec![
+                HarnessChoice::Label("Configured".into()),
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "work".to_string(),
+                },
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(1),
+            ],
+            "the signed-in pairing first, then the harness nobody signed into"
+        );
+    });
+}
+
+/// An ACP harness that is a second wire onto a tool with a native one is offered nowhere while its
+/// switch is off, and offered like any other harness once it is on — and the switch is persisted
+/// on the interface's own layer, the way every other UI setting is.
+///
+/// The gate is one question (`WorkbenchState::harness_offered`) asked by every surface that offers
+/// a harness to run, so the list a frame draws and the list a pick resolves against cannot
+/// disagree. The harness's **row on the Harnesses settings list** is deliberately not gated: that
+/// list is the inventory of what exists, and it is where the switch lives.
+#[gpui::test]
+fn an_acp_sibling_is_gated_out_of_every_selection_surface(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![a_shared_home_harness("claude-code", "Claude Code"), {
+                let mut it = a_shared_home_harness("claude-code-acp", "Claude Code (ACP)");
+                it.acp = true;
+                it
+            }],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.state.read_with(cx, |state, _| {
+        assert!(
+            state.workbench.settings.ui.acp_enabled.is_empty(),
+            "off is the default, with no settings file having said so"
+        );
+        assert_eq!(
+            state.workbench.harness_choices(&[], &[]),
+            vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+            ],
+            "the native wire is the only row; the ACP one is not even drawn disabled"
+        );
+        assert_eq!(
+            state
+                .workbench
+                .acp_siblings()
+                .iter()
+                .map(|it| it.id.clone())
+                .collect::<Vec<_>>(),
+            vec!["claude-code-acp".to_string()],
+            "but it still has a row on the Harnesses list, which is where its switch is"
+        );
+    });
+
+    fixture.state.update(cx, |state, cx| {
+        state.toggle_acp_harness("claude-code-acp".to_string(), cx)
+    });
+    cx.run_until_parked();
+
+    let written = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SetSettings {
+                layer: SettingsLayer::Ui,
+                value,
+            } => Some(value),
+            _ => None,
+        })
+        .expect("the switch wrote the interface layer");
+    let sent = settings::decode(&written).expect("a readable blob");
+    assert!(
+        sent.acp_enabled.contains("claude-code-acp"),
+        "the switch persisted the harness it turned on, not just the flag it holds"
+    );
+
+    fixture.state.read_with(cx, |state, _| {
+        assert_eq!(
+            state.workbench.harness_choices(&[], &[]),
+            vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Harness(1),
+            ],
+            "on, it is a harness like any other"
         );
     });
 }

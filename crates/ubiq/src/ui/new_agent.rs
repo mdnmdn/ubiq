@@ -1034,8 +1034,9 @@ fn flag_row(
         .into_any_element()
 }
 
-/// The first row's list: the harness-and-identity pairs this machine has signed in and — for a
-/// start — the setups already written down, under their own headings with a hairline between.
+/// The first row's list: the harness-and-identity pairs this machine has signed in, then the
+/// harnesses nobody has signed into on their own default configuration, and — for a start — the
+/// setups already written down, under their own headings with a hairline between.
 ///
 /// [`crate::state::WorkbenchState::harness_choices`] is what groups them, so this list and every
 /// other harness list in the window read the same rows in the same order. A pair whose harness is
@@ -1098,9 +1099,18 @@ fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Op
                 });
                 Some((format!("{} \u{00b7} {account}", harness.label), target))
             }
-            // Never offered: a bare harness with no identity is what this form is for asking about,
-            // not something to start.
-            HarnessChoice::Harness(_) | HarnessChoice::AgentDefinition(_) => None,
+            // The harness on its own default configuration, no account: what an installed harness
+            // nobody has signed into runs as, and the account-less twin of the row above — the
+            // same `Target::Harness`, with `account: None`, which the pick already understands.
+            HarnessChoice::Harness(harness) => {
+                let harness = app.workbench.agent_types.get(harness)?;
+                let target = harness.available.then(|| Target::Harness {
+                    agent_type: harness.id.clone(),
+                    account: None,
+                });
+                Some((harness.label.clone(), target))
+            }
+            HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
 }
@@ -1249,10 +1259,11 @@ fn picker_of<T: Clone + PartialEq + 'static>(
     picker
 }
 
-/// Every harness-and-identity this machine has signed in, labelled as the first row labels them.
+/// Every harness-and-identity this machine has signed in, labelled as the first row labels them —
+/// then every harness it has not, on its own default configuration.
 ///
-/// The same pairs, read the same way, so overriding a definition's harness is the same gesture as
-/// choosing one — and a harness with no identity is no more startable here than it is there.
+/// The same rows, read the same way, so overriding a definition's harness is the same gesture as
+/// choosing one: a definition written against a bare harness is exactly what starting one is.
 fn pair_rows(app: &AppState) -> Vec<(String, Option<Pair>)> {
     app.workbench
         .harness_choices(&app.workbench.settings.accounts, &[])
@@ -1267,7 +1278,12 @@ fn pair_rows(app: &AppState) -> Vec<(String, Option<Pair>)> {
                     .then(|| (harness.id.clone(), Some(account.clone())));
                 Some((format!("{} \u{00b7} {account}", harness.label), value))
             }
-            HarnessChoice::Harness(_) | HarnessChoice::AgentDefinition(_) => None,
+            HarnessChoice::Harness(harness) => {
+                let harness = app.workbench.agent_types.get(harness)?;
+                let value = harness.available.then(|| (harness.id.clone(), None));
+                Some((harness.label.clone(), value))
+            }
+            HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
 }

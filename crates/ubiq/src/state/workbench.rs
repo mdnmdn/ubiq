@@ -1071,12 +1071,13 @@ impl WorkbenchState {
     /// setup — grouped so both are legible, read by every surface that offers a list of them and
     /// by the pick behind it.
     ///
-    /// **A bare harness is no longer a row.** Starting one with nothing else answered is what the
-    /// New agent form is for, and it asks the identity, the model, the level and the mode in the
-    /// same breath; a row that started a harness on whatever the library happened to resolve was
-    /// the same launch with every question skipped. So the `Default` group — every
-    /// [`HarnessChoice::Harness`] row, its heading and its separator — is gone, and what is left
-    /// is the two groups that name something the user set up.
+    /// **A bare harness is a row again, but only where there is no pairing to offer instead.**
+    /// Starting one with nothing else answered is still what the New agent form is for, so a
+    /// harness some account has signed into is offered as that pairing and nothing else. But a
+    /// harness with *no* account signed into it ran nowhere at all: it appeared in no group, even
+    /// though it starts perfectly well on its own default configuration. Those are the `Default`
+    /// group — one [`HarnessChoice::Harness`] row each, under their own heading, **after**
+    /// `Configured`, because a signed-in pairing stays the first thing offered.
     ///
     /// Unavailable harnesses are still what a row draws disabled over, so a list says a tool is
     /// missing rather than silently omitting it.
@@ -1086,6 +1087,10 @@ impl WorkbenchState {
     /// installing it is the fix; "has no structured bridge" is not something the reader can act
     /// on, and the harness is not missing — it still runs perfectly well in a pane. Indices stay
     /// indices into `agent_types`, gap and all.
+    ///
+    /// **An ACP harness whose flag is off is omitted entirely too**, for the third reason:
+    /// [`Self::acp_sibling_gated`] — the native sibling is the row, and the second wire is not
+    /// something the reader is meant to act on here.
     pub fn harness_choices(
         &self,
         accounts: &[AccountInfo],
@@ -1095,7 +1100,7 @@ impl WorkbenchState {
             .agent_types
             .iter()
             .enumerate()
-            .filter(|(_, harness)| harness.chat)
+            .filter(|(_, harness)| harness.chat && self.harness_offered(harness))
             .map(|(index, _)| index)
             .collect();
 
@@ -1113,10 +1118,33 @@ impl WorkbenchState {
             })
             .collect();
 
+        // A harness no account signed into. Its default configuration is what it runs on, which is
+        // a real and working answer — and the only one it has, so leaving it out made an installed
+        // tool unreachable. Unavailable ones are kept for the same reason the pairs keep them: the
+        // row says the tool is missing rather than silently omitting it.
+        let bare: Vec<HarnessChoice> = conversable
+            .iter()
+            .copied()
+            .filter(|&index| {
+                let harness = &self.agent_types[index];
+                !accounts
+                    .iter()
+                    .any(|account| account.logged_in.contains(&harness.id))
+            })
+            .map(HarnessChoice::Harness)
+            .collect();
+
         let mut rows: Vec<HarnessChoice> = Vec::new();
         if !pairs.is_empty() {
             rows.push(HarnessChoice::Label("Configured".into()));
             rows.extend(pairs);
+        }
+        if !bare.is_empty() {
+            if !rows.is_empty() {
+                rows.push(HarnessChoice::Separator);
+            }
+            rows.push(HarnessChoice::Label("Default".into()));
+            rows.extend(bare);
         }
         if !definitions.is_empty() {
             if !rows.is_empty() {
@@ -1126,6 +1154,52 @@ impl WorkbenchState {
             rows.extend((0..definitions.len()).map(HarnessChoice::AgentDefinition));
         }
         rows
+    }
+
+    /// The **native** harness that is the same underlying tool as this ACP one, where there is
+    /// one. `None` for a native harness, and for an ACP harness that is the only wire its tool
+    /// has (Gemini, and anything else the library adds that speaks ACP and nothing else).
+    ///
+    /// Derived from the data as far as the data goes: the pairing is a second id for one
+    /// provisioner, and the id is the only thing on [`AgentTypeInfo`] that carries it — the
+    /// commands differ (`claude-agent-acp` against `claude`), the labels differ, and nothing else
+    /// is shared. So the `-acp` suffix names the *candidate* and the answer is only yes when a
+    /// harness by that shorter id actually exists **and** is not itself ACP. A convention alone
+    /// would be a guess; a convention that has to resolve against the list is a lookup.
+    pub fn native_sibling(&self, harness: &AgentTypeInfo) -> Option<&AgentTypeInfo> {
+        if !harness.acp {
+            return None;
+        }
+        let native = harness.id.strip_suffix("-acp")?;
+        self.agent_types
+            .iter()
+            .find(|info| info.id == native && !info.acp)
+    }
+
+    /// Whether this harness is an ACP second wire onto a tool that has a native one **and** its
+    /// switch is off — the state in which it is offered for selection nowhere.
+    ///
+    /// The switch itself lives on the Harnesses settings list, one row per such harness, and that
+    /// row stays drawn whatever the switch says: the list is the inventory of what exists, and
+    /// hiding the row would hide the switch.
+    pub fn acp_sibling_gated(&self, harness: &AgentTypeInfo) -> bool {
+        self.native_sibling(harness).is_some()
+            && !self.settings.ui.acp_enabled.contains(&harness.id)
+    }
+
+    /// Whether any surface that offers a harness to *run* may list this one. The one question
+    /// every such surface asks, so that gating cannot desynchronise two readings of the list.
+    pub fn harness_offered(&self, harness: &AgentTypeInfo) -> bool {
+        !self.acp_sibling_gated(harness)
+    }
+
+    /// Every ACP harness with a native sibling, in the order the host lists them — the rows the
+    /// Harnesses section draws a switch for.
+    pub fn acp_siblings(&self) -> Vec<&AgentTypeInfo> {
+        self.agent_types
+            .iter()
+            .filter(|info| self.native_sibling(info).is_some())
+            .collect()
     }
 
     /// One harness by the library's id, where the host still lists it. `None` for a harness that
@@ -1206,18 +1280,45 @@ mod tests {
         }
     }
 
-    /// With nothing signed in and nothing saved there is no list at all. A bare harness is not a
-    /// row any more — the New agent form is what starts one — so a machine that has configured
-    /// nothing has nothing to offer here rather than a group of unanswered launches.
+    /// With nothing signed in and nothing saved, the installed harnesses are still the list: each
+    /// runs on its own default configuration, which is a real answer and the only one it has.
     #[test]
-    fn nothing_configured_offers_nothing() {
+    fn installed_harnesses_with_no_account_are_the_default_group() {
         let state = with(vec![harness("claude-code", true), harness("codex", true)]);
 
-        assert_eq!(state.harness_choices(&[], &[]), Vec::new());
+        assert_eq!(
+            state.harness_choices(&[], &[]),
+            vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Harness(1),
+            ]
+        );
     }
 
-    /// Signing in is what puts rows on the list: one `Configured` group, its heading a decoration
-    /// at a position the pick must skip, and no `Default` group over it.
+    /// An uninstalled harness keeps its row here too, for the reason a pair does: "not installed"
+    /// is worth saying, and the row is drawn disabled rather than dropped.
+    #[test]
+    fn an_uninstalled_harness_is_still_a_default_row() {
+        let state = with(vec![harness("codex", false)]);
+
+        assert_eq!(
+            state.harness_choices(&[], &[]),
+            vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+            ]
+        );
+    }
+
+    /// With nothing installed at all there is no list. An empty heading is worse than none.
+    #[test]
+    fn no_harness_at_all_offers_nothing() {
+        assert_eq!(with(Vec::new()).harness_choices(&[], &[]), Vec::new());
+    }
+
+    /// Signing in is what puts a harness in `Configured` — and takes it out of `Default`, which is
+    /// for the harnesses that have no pairing to offer instead.
     #[test]
     fn accounts_are_the_configured_group() {
         let state = with(vec![harness("claude-code", true)]);
@@ -1243,7 +1344,8 @@ mod tests {
     }
 
     /// An account is only offered for the harnesses it actually has a login for. One account
-    /// serving two harnesses is normal, and an account that serves neither offers nothing.
+    /// serving two harnesses is normal, and an account that serves neither offers nothing — the
+    /// harness it does not serve falls to `Default`, after the pairings and its own hairline.
     #[test]
     fn an_account_is_only_offered_where_it_is_signed_in() {
         let state = with(vec![
@@ -1268,13 +1370,15 @@ mod tests {
                     harness: 1,
                     account: "both".to_string()
                 },
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(2),
             ]
         );
     }
 
-    /// A saved setup adds a second, "Defined" group — and it appears with no account signed in at
-    /// all, since a definition carries its own identity. `Configured` stays absent in that case:
-    /// an empty heading is worse than none, which is the rule both groups follow.
+    /// A saved setup adds a third, "Defined" group, after `Default` — and the harness it is
+    /// written against is still offered bare above it, since the two answer different questions.
     #[test]
     fn definitions_add_a_defined_group_of_their_own() {
         let state = with(vec![harness("codex", true)]);
@@ -1286,6 +1390,9 @@ mod tests {
         assert_eq!(
             state.harness_choices(&[], &definitions),
             vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Separator,
                 HarnessChoice::Label("Defined".into()),
                 HarnessChoice::AgentDefinition(0),
                 HarnessChoice::AgentDefinition(1),
@@ -1351,5 +1458,114 @@ mod tests {
         let accounts = [account("mdn", &["grok"])];
 
         assert_eq!(state.harness_choices(&accounts, &[]), Vec::new());
+    }
+
+    fn acp(id: &str) -> AgentTypeInfo {
+        let mut it = harness(id, true);
+        it.acp = true;
+        it
+    }
+
+    fn with_acp_on(agent_types: Vec<AgentTypeInfo>, enabled: &[&str]) -> WorkbenchState {
+        let mut state = with(agent_types);
+        state.settings.ui.acp_enabled = enabled.iter().map(|it| it.to_string()).collect();
+        state
+    }
+
+    /// The pairing is read off the list, not off a hard-coded pair of ids: `<native>-acp` only
+    /// counts when a harness by the shorter id is actually there and is not itself ACP.
+    #[test]
+    fn a_native_sibling_is_the_shorter_id_that_exists() {
+        let state = with(vec![
+            harness("claude-code", true),
+            acp("claude-code-acp"),
+            acp("gemini"),
+            acp("orphan-acp"),
+        ]);
+
+        assert_eq!(
+            state.native_sibling(&state.agent_types[1]).map(|it| &it.id),
+            Some(&"claude-code".to_string())
+        );
+        assert!(state.native_sibling(&state.agent_types[0]).is_none());
+        assert!(
+            state.native_sibling(&state.agent_types[2]).is_none(),
+            "an ACP-only tool has no second wire to gate"
+        );
+        assert!(
+            state.native_sibling(&state.agent_types[3]).is_none(),
+            "the suffix names a candidate; the list is what answers"
+        );
+        assert_eq!(
+            state
+                .acp_siblings()
+                .iter()
+                .map(|it| &it.id)
+                .collect::<Vec<_>>(),
+            vec!["claude-code-acp"]
+        );
+    }
+
+    /// Off by default, and off means no row anywhere a run is started from — not even a disabled
+    /// one, and not even with an account signed into it.
+    #[test]
+    fn an_acp_sibling_is_offered_nowhere_with_its_flag_off() {
+        let state = with(vec![harness("claude-code", true), acp("claude-code-acp")]);
+        let accounts = [account("mdn", &["claude-code", "claude-code-acp"])];
+
+        assert!(state.acp_sibling_gated(&state.agent_types[1]));
+        assert!(!state.harness_offered(&state.agent_types[1]));
+        assert_eq!(
+            state.harness_choices(&accounts, &[]),
+            vec![
+                HarnessChoice::Label("Configured".into()),
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "mdn".to_string()
+                },
+            ]
+        );
+    }
+
+    /// On, it is a harness like any other — a pairing where it has one, a `Default` row where it
+    /// does not.
+    #[test]
+    fn an_acp_sibling_is_offered_like_any_other_with_its_flag_on() {
+        let state = with_acp_on(
+            vec![harness("claude-code", true), acp("claude-code-acp")],
+            &["claude-code-acp"],
+        );
+        let accounts = [account("mdn", &["claude-code"])];
+
+        assert!(state.harness_offered(&state.agent_types[1]));
+        assert_eq!(
+            state.harness_choices(&accounts, &[]),
+            vec![
+                HarnessChoice::Label("Configured".into()),
+                HarnessChoice::Pair {
+                    harness: 0,
+                    account: "mdn".to_string()
+                },
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(1),
+            ]
+        );
+    }
+
+    /// A tool whose only wire is ACP has no switch and is never gated: gating it would remove the
+    /// tool, not a second way of reaching it.
+    #[test]
+    fn an_acp_only_harness_is_never_gated() {
+        let state = with(vec![acp("gemini")]);
+
+        assert!(!state.acp_sibling_gated(&state.agent_types[0]));
+        assert_eq!(
+            state.harness_choices(&[], &[]),
+            vec![
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+            ]
+        );
     }
 }

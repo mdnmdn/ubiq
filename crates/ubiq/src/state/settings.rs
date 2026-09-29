@@ -4,7 +4,7 @@
 //! schema and versions it**. A blob that fails to parse, or that carries a schema this build does
 //! not know, is discarded and the window opens on defaults.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use ubiq_proto::acp::AcpCapabilitiesRecord;
@@ -254,6 +254,19 @@ pub struct UiSettings {
     pub md_char_scale_default: f32,
     #[serde(default)]
     pub md_text_shade_default: crate::state::editor::TextShade,
+    /// Which ACP harnesses that have a native sibling are offered for selection, by harness id.
+    ///
+    /// Empty by default, and empty is what a settings file written before this existed reads as,
+    /// so **off** is both the default and the answer for every older blob. The native wire is the
+    /// better one (`D95`: no adapter process, no npm dependency, and three facts no ACP adapter
+    /// states), so the second id for the same tool is opt-in rather than a second row every start
+    /// menu has to explain.
+    ///
+    /// A set rather than one flag per harness because which pairs exist is the library's answer,
+    /// not this layer's — see [`crate::state::WorkbenchState::acp_sibling_gated`]. An id in here
+    /// naming a harness this build no longer lists simply matches nothing.
+    #[serde(default)]
+    pub acp_enabled: BTreeSet<String>,
 }
 
 fn default_md_char_scale() -> f32 {
@@ -286,6 +299,7 @@ impl Default for UiSettings {
             md_density: crate::theme::MdDensity::default(),
             md_char_scale_default: 1.0,
             md_text_shade_default: crate::state::editor::TextShade::default(),
+            acp_enabled: BTreeSet::new(),
         }
     }
 }

@@ -6,8 +6,8 @@ status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
 updated: 2026-09-29
-verified: 2026-09-26
-code_anchors: [crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
+verified: 2026-09-29
+code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
 ---
@@ -124,11 +124,30 @@ new-pane menu reads, keeping only the harnesses whose `AgentTypeInfo::chat` is t
 harness with no structured bridge (Grok) can draw a pane's screen but has nothing to turn into a
 `ConvUpdate` — offering it here would start a conversation that never speaks. **No harness is a
 new-pane row at all** — that menu offers the terminals that are not agents, and starting one is
-this form's job. What survives is grouped under a `Harnesses` heading, one row per harness; a start
-from one names no account, so it runs on the login already on this machine — a login is the
-account's (`D194`) and a run with none uses the harness's own config in place — and the form
-asks the model, the level and the mode below it. A harness whose binary is not on this machine is
-still what a row draws disabled over, so a list says a tool is missing rather than omitting it.
+this form's job.
+
+What survives is two groups, in this order. **`Configured`** is one row per harness-and-identity
+signed in — `HarnessChoice::Pair`, the pair the interface calls a harness — because a pairing the
+user set up is the first thing worth offering. **`Default`** is one row per remaining harness, the
+ones no account has signed into: `HarnessChoice::Harness`, which names no account, so the run uses
+the harness's own configuration in place — a login is the account's (`D194`) and a run with none
+has one anyway, its own. Without that group an installed harness nobody had signed into was
+offered nowhere at all, though it starts perfectly well (`T-276`). A harness with a pairing is in
+`Configured` and not in `Default`: the two groups partition the list rather than repeating it. A
+harness whose binary is not on this machine is still what a row draws disabled over in either
+group, so a list says a tool is missing rather than omitting it. The form asks the model, the level
+and the mode below whichever row is picked.
+
+**A harness with an ACP wire *and* a native one is in neither group unless its switch is on.**
+`claude-code-acp` and `codex-acp` are second ids onto tools that already have a native wire, and
+the native one is the better path (`D95`). So each such harness has a switch in
+Settings → Harnesses, **off by default** (`UiSettings::acp_enabled`), and while it is off the
+harness is offered by no surface a run begins: not here, not in the definition form's harness
+picker, not in the sign-in picker. `WorkbenchState::harness_offered` is the one question all of
+them ask, so the list a frame draws and the list a pick resolves against cannot disagree. The
+pairing is read off the harness list rather than written down here — an ACP harness whose id minus
+`-acp` names a harness that exists and is not itself ACP (`WorkbenchState::native_sibling`) — so a
+tool whose only wire is ACP has no switch and is never gated.
 
 **An agent definition is a saved answer to the same questions**, which is why the settings page's agent definition
 form is this same form with a different `Purpose`: no tabs and no agent definition row in the

@@ -491,6 +491,21 @@ impl AppState {
         cx.notify();
     }
 
+    /// Offer, or stop offering, one ACP harness that has a native sibling — `claude-code-acp` and
+    /// `codex-acp` today, whichever pairs the library reports.
+    ///
+    /// Off by default (`D95`: the native wire is the better one), and off means the harness is in
+    /// no list a run is started from. Its row on the Harnesses list stays, because that list is
+    /// the inventory of what exists and is where this switch lives.
+    pub fn toggle_acp_harness(&mut self, agent_type: String, cx: &mut Context<Self>) {
+        let enabled = &mut self.workbench.settings.ui.acp_enabled;
+        if !enabled.remove(&agent_type) {
+            enabled.insert(agent_type);
+        }
+        self.remember_settings();
+        cx.notify();
+    }
+
     /// Show or hide the cached-token ring in a conversation footer.
     pub fn toggle_cache_ring(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.ui.show_cache_ring = !self.workbench.settings.ui.show_cache_ring;

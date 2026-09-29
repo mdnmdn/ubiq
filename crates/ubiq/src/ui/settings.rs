@@ -1596,52 +1596,135 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .into_any_element(),
     );
     rows.push(accounts(app, cx));
+    rows.extend(acp_switches(app, cx));
     column(rows)
 }
 
-/// One row per harness the host lists: its name, drawn faint when it is not installed, the
-/// command Ubiq starts it with, and what an ACP harness said it can do.
+/// One switch per ACP harness that is a *second* wire onto a tool that already has a native one —
+/// `claude-code-acp` and `codex-acp` as the library lists them today.
+///
+/// **Off by default, and the pairing is read from the list rather than named here**
+/// ([`crate::state::WorkbenchState::native_sibling`]). The native path is the better one — no
+/// adapter process, no npm dependency between Ubiq and the model, and three readings no ACP
+/// adapter states (`D95`) — so offering both wires for one tool in every start menu is two rows
+/// where the user has one question. On, the harness is offered everywhere any other is; off, it is
+/// offered nowhere, and only its row above and this switch say it exists at all.
+///
+/// At the end of the section because it qualifies the list above rather than adding to it.
+fn acp_switches(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
+    app.workbench
+        .acp_siblings()
+        .into_iter()
+        .map(|info| {
+            // Named for the tool, not for the adapter: "Enable Claude Code ACP" is the question,
+            // and the native sibling is what holds the tool's own name.
+            let native = app
+                .workbench
+                .native_sibling(info)
+                .map(|it| it.label.clone())
+                .unwrap_or_else(|| info.label.clone());
+            let id = info.id.clone();
+            let on = app.workbench.settings.ui.acp_enabled.contains(&info.id);
+            setting_row(
+                &format!("Enable {native} ACP"),
+                "Offer this tool's Agent Client Protocol wire as a harness of its own. Off, the \
+                 native wire is the only one on offer \u{2014} it runs no adapter process and \
+                 states the context window, a delegate's spend and the full token breakdown, none \
+                 of which ACP carries. The row above stays either way.",
+                check_box(
+                    ElementId::Name(format!("app-settings-acp-enable-{}", info.id).into()),
+                    on,
+                    cx.listener(move |this, _, _, cx| this.toggle_acp_harness(id.clone(), cx)),
+                )
+                .into_any_element(),
+            )
+        })
+        .collect()
+}
+
+/// One row per harness the host lists: its name, drawn faint when it is not installed, how much
+/// of its plan is left, the command Ubiq starts it with where that is still a question, and what
+/// an ACP harness said it can do.
 ///
 /// Nothing here is signed in — that is the identity's, one list down. This says which tools
-/// exist and how each one is launched.
+/// exist, how much each one has left and how it is launched.
+///
+/// **`Command` is drawn only where the harness was not found on its own.** The button writes a
+/// custom launch command, and a harness this machine discovered has nothing for the user to
+/// answer. `available` alone does not say that, because it is true for a discovered harness *and*
+/// for one a custom command was typed for — so the override itself is the other half of the test,
+/// and it is readable here: `HostSettings::agent_commands` is on this side of the wire. A harness
+/// with an override keeps its button whatever else is true, or the path it names becomes
+/// uneditable.
+///
+/// **An ACP harness with a native sibling keeps its row even with its switch off**, because this
+/// list is the inventory of what exists and the switch is on the row.
 fn harness_list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let now_ms = chrono::Utc::now().timestamp_millis();
     div()
         .flex()
         .flex_col()
         .gap_1()
         .children(app.workbench.agent_types.iter().map(|info| {
             let id = info.id.clone();
+            let custom = app
+                .workbench
+                .settings
+                .host
+                .agent_commands
+                .contains_key(&info.id);
+            let discovered = info.available && !custom;
+            // A harness row runs as nobody, so the reading it shows is its first signed-in
+            // identity's — the same figure that identity's own block draws, not a second one. With
+            // no identity there is nothing to read and the row says what the harness itself can
+            // state, which `harness_quota` already has the words for.
+            let account = app
+                .workbench
+                .settings
+                .accounts_for(&info.id)
+                .first()
+                .map(|it| it.id.clone());
             div()
                 .flex()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .py_1()
-                .child(
-                    div()
-                        .text_size(theme::font(Family::Chrome, Role::Body))
-                        .text_color(if info.available {
-                            theme::text()
-                        } else {
-                            theme::text_faint()
-                        })
-                        .child(SharedString::from(info.label.clone())),
-                )
+                .flex_col()
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap_1()
-                        .child(ghost_button(
-                            ElementId::Name(format!("app-settings-{}-command", info.id).into()),
-                            None,
-                            "Command",
-                            cx.listener(move |this, _, window, cx| {
-                                this.open_harness_command(Some(id.clone()), window, cx)
-                            }),
-                        ))
-                        .children(capabilities_button(app, &info.id, cx)),
+                        .justify_between()
+                        .gap_2()
+                        .py_1()
+                        .child(
+                            div()
+                                .text_size(theme::font(Family::Chrome, Role::Body))
+                                .text_color(if info.available {
+                                    theme::text()
+                                } else {
+                                    theme::text_faint()
+                                })
+                                .child(SharedString::from(info.label.clone())),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .children((!discovered).then(|| {
+                                    ghost_button(
+                                        ElementId::Name(
+                                            format!("app-settings-{}-command", info.id).into(),
+                                        ),
+                                        None,
+                                        "Command",
+                                        cx.listener(move |this, _, window, cx| {
+                                            this.open_harness_command(Some(id.clone()), window, cx)
+                                        }),
+                                    )
+                                }))
+                                .children(capabilities_button(app, &info.id, cx)),
+                        ),
                 )
+                .child(harness_quota(app, account.as_deref(), &info.id, now_ms, cx))
                 .into_any_element()
         }))
         .into_any_element()
@@ -2208,7 +2291,7 @@ fn account_block(
                     .flex()
                     .flex_col()
                     .child(harness_row(app, &id, agent_type, now_ms, cx))
-                    .child(harness_quota(app, &id, agent_type, now_ms, cx))
+                    .child(harness_quota(app, Some(&id), agent_type, now_ms, cx))
                     .into_any_element()
             })
             .collect()
@@ -2334,9 +2417,15 @@ fn harness_row(
 /// drawn in place rather than hidden. A harness that states no limit says so once — an absent
 /// readout reads as a missing feature, and for three of the five harnesses it is a permanent
 /// answer about the provider instead.
+///
+/// `account` is `None` where the surface has no identity in hand — a **harness** row under
+/// `Installed`, which runs as nobody. Then what is drawn is the harness's own capability line and
+/// nothing else: no gauges, because a gauge is a reading of one login, and no `Refresh`, because
+/// there is no login to ask. The sentences are the ones the account case already uses for the same
+/// facts, which is the whole reason this is one function rather than two presentations of it.
 fn harness_quota(
     app: &AppState,
-    account: &str,
+    account: Option<&str>,
     agent_type: &str,
     now_ms: i64,
     cx: &mut Context<AppState>,
@@ -2366,6 +2455,25 @@ fn harness_quota(
             ))
             .into_any_element();
     }
+
+    // No identity: the harness reports a limit, but a limit is always somebody's. Say which of the
+    // two routes it states it by and stop — the gauges and the refresh below both need a login.
+    let Some(account) = account else {
+        return div()
+            .pl_2()
+            .pb_1()
+            .child(note(
+                if source.probeable() {
+                    "Not read yet.".to_string()
+                } else {
+                    "Read while a turn runs \u{2014} this harness states its window unasked and \
+                     offers no way to ask."
+                        .to_string()
+                },
+                theme::text_faint(),
+            ))
+            .into_any_element();
+    };
 
     let snapshot = app.workbench.settings.quota(agent_type, account);
     let mut block = div().flex().flex_col().gap_1().pl_2().pb_1();
@@ -2871,6 +2979,16 @@ fn choosing(
                             app.workbench
                                 .agent_types
                                 .iter()
+                                // A harness offered nowhere a run begins is offered nothing to
+                                // sign in to either: a login against a wire the window will not
+                                // start is a credential nothing can use. The command editor
+                                // shares this picker and is *not* narrowed — it is reached from
+                                // the row under `Installed`, which stays drawn whatever the
+                                // switch says, and a row whose button opened an empty picker
+                                // would be a command nobody could edit.
+                                .filter(|agent_type| {
+                                    command_only || app.workbench.harness_offered(agent_type)
+                                })
                                 .filter(|agent_type| command_only || agent_type.shares_home)
                                 .map(|agent_type| {
                                     let id = agent_type.id.clone();

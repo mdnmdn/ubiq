@@ -705,18 +705,22 @@ project the same reason the pane region's own `+` does: **New agent** (`IconName
 New agent form directly, picking the chat strip as its surface in IDE mode and the agents screen
 everywhere else — the same aim the `+` menu's own first row makes, with that menu's first stage
 skipped. **A narrow chevron is flush against it**, half the width of a control and with no gap, so
-the pair reads as one split button rather than two: it opens the **hidden agents** — every agent
-pane of the project on screen that the user cannot currently see, harness still running behind
-nothing. **Hidden is out of sight, not merely detached.** A tab's `Hide` is one way there, and a
-pane with no panel at all is the plainest; a pane whose panel the dock still holds is just as
-invisible when the rail mode does not draw it, when the region it sits in has been put away, or
-when a sibling tab is displayed in front of it. All four are the same question — where did my
-agent go — so the menu asks the dock rather than the panel registry: a panel is on screen when its
-region is open, its group displays it, and its own rule says the current mode draws it.
-Each row names the harness and the tab's title, and picking one *reveals* that pane: the region
-comes back if it was away, its group makes that tab the displayed one, and the panel is over the
-screen the harness never stopped writing to — nothing is respawned, and a pane already in front of
-the user does nothing. With nothing hidden the menu says so in one disabled row rather than
+the pair reads as one split button rather than two: it opens the **hidden agents** — every live
+agent of the project the user cannot currently see, drawn by no surface at all (`T-266`, `T-275`).
+**Read against the agent model, not the pane model**: an agent is not necessarily a pane with a
+dock panel — one an agents-column tab or a chat tab draws is drawn by that surface, never by the
+dock — so the candidate set is `AppState::attach_rows`'s own live agents (`work.agents` narrowed to
+`AgentsView::live`), and "shown" is the union every surface can show a conversation on: every
+agents-column tab and every chat tab's `attached`, since this chevron is global rather than
+per-surface. Picking a row *reveals* the agent — front of its column, or a column of its own —
+and nothing is respawned. A harness started as a plain terminal pane rather than as a conversation
+(*Start in terminal*) mints no `AgentId` at all, so it is invisible to that rule and keeps the
+older, narrower one instead: a pane whose harness the host offers as an agent type, out of sight
+the way `feat-panes`'s dock-visibility rule says — a tab's `Hide`, a rail mode that does not draw
+it, a put-away region, or a sibling tab in front of it — reached through
+`AppState::offscreen_panes` and revealed with `reattach_pane`. The two paths never double-list one
+agent: such a pane carries no `AgentId`, and `PaneState` names none, so it is never also in
+`work.agents`. With nothing hidden the menu says so in one disabled row rather than
 opening empty. Then **New terminal**
 (`IconName::SquareTerminal`) opens the bottom region if it is shut and
 spawns exactly one pane, never two, whether the region was already open or had to be opened onto
@@ -986,16 +990,45 @@ something that no longer exists. Nothing here imports or exports a theme file, f
 appearance, or is per project — a theme is a property of the person, like every other appearance
 value (`D151`, `D152`).
 
-**The Harnesses section is two lists: the tools this machine has, then the identities they are
-signed in as.** Under `Installed`, one row per harness the host offers — its display name, drawn
-faint when its binary is not on this machine, a **Command** button and, for a harness that speaks
-ACP, the icon that opens what it said it can do. Under `Identities`, **Add harness** and one block
-per account. The split is the section's whole claim: a harness is a tool, an account is who it runs
-as, and a login belongs to the second (`D194`).
+**The Harnesses section is two lists and a tail of switches: the tools this machine has, the
+identities they are signed in as, and one switch per ACP harness that duplicates a native one.**
+Under `Installed`, one row per harness the host offers — its display name, drawn faint when its
+binary is not on this machine, how much of its plan is left, a **Command** button where the harness
+was not found on its own, and, for a harness that speaks ACP, the icon that opens what it said it
+can do. Under `Identities`, **Add harness** and one block per account. The split is the section's
+whole claim: a harness is a tool, an account is who it runs as, and a login belongs to the second
+(`D194`).
+
+**A harness row's Command button is drawn only where the command is still a question** (`T-276`).
+A harness this machine discovered is launched by what the library names and there is nothing for
+the user to answer; a harness that was *not* found, or that already carries an override, keeps the
+button — otherwise the path the user typed would become uneditable. `AgentTypeInfo::available` does
+not answer this on its own, because it is true for a discovered harness *and* for one an override
+was typed for; the override itself is the other half of the test, and it is readable on this side
+(`HostSettings::agent_commands` rides the settings the interface already holds, so no new field
+crosses the bus).
+
+**A harness row carries the same plan readout an identity's row does**, drawn by the same function
+(`ui::settings::harness_quota`) rather than a second presentation of the same facts. A harness runs
+as nobody, so the reading shown is its **first signed-in identity's**; with no identity at all the
+row draws the harness's own capability line — the sentence for a provider that states no limit, for
+one that can be asked but has not been, or for one that only states its window during a turn — and
+no gauges and no Refresh, because both are readings of a login.
+
+**Each ACP harness that is a second wire onto a tool with a native one gets a switch at the end of
+the section, off by default.** "Enable Claude Code ACP", "Enable Codex ACP" —
+`UiSettings::acp_enabled`, persisted on the interface's own layer like every other UI setting, and
+an absent field in an older blob is the same answer as an unticked box. While a switch is off, that
+harness is offered by no surface a run begins ([`workbench-agents.md`](workbench-agents.md)), but
+**its row under `Installed` stays**: that list is the inventory of what exists, and hiding the row
+would hide the switch. Which harnesses have a switch is read off the harness list, not written down
+(`WorkbenchState::native_sibling`), so a tool whose only wire is ACP never gets one.
 
 **Command opens the login modal on its one question: the command Ubiq starts that harness with.**
 The picker lists every harness, installed or not, because an override is what makes an absent one
-startable — a row for a harness whose binary this machine lacks draws faint but stays pickable. A
+startable — a row for a harness whose binary this machine lacks draws faint but stays pickable, and
+a gated ACP harness stays pickable here too, since it is reachable from a row that is still drawn.
+A
 **Custom command** ghost toggle shows a text field pre-filled with whatever override this machine
 already holds for that harness (placeholder-only when there is none, showing what the library would
 otherwise run) and a **Check** button beside it that asks the host to try the typed command and
@@ -1037,7 +1070,9 @@ Refresh is the one control that makes the provider be asked again, because askin
 process of its own.
 
 **Add harness is the way in, and the way an account is made.** The modal asks two things — which
-harness, from the ones that run from a config home of their own (`AgentTypeInfo::shares_home`), and
+harness, from the ones that run from a config home of their own (`AgentTypeInfo::shares_home`) and
+whose switch, where they have one, is on — a login against a wire no start offers is a credential
+nothing can use — and
 what to call the identity — and then runs the harness's **own** login, unmodified, in a terminal
 pane inside the modal: the same screen the tool shows in a shell, sandboxed exactly as a run of it
 would be and able to write the home it is signing in. A URL the login prints is offered as a button
