@@ -286,6 +286,7 @@ fn a_definition(id: &str) -> AgentDefinition {
         max_subagents: None,
         prompt: None,
         mcps: Vec::new(),
+        skills: Vec::new(),
         mission_assistant: Some(true),
         mission_coordinator: false,
         mission_worker: false,

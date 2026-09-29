@@ -1626,6 +1626,7 @@ fn start_conversation(
         thinking: None,
         mode: None,
         mcps: Vec::new(),
+        skills: Vec::new(),
         spawned_by: None,
     });
     agent_id
@@ -1780,6 +1781,7 @@ fn spawned_by_sets_the_new_agents_parent() {
         thinking: None,
         mode: None,
         mcps: Vec::new(),
+        skills: Vec::new(),
         spawned_by: Some(asker),
     });
     expect_conversation_started(&ui, spawned);

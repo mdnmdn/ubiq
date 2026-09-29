@@ -639,6 +639,7 @@ impl AppState {
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
+            skills: form.skills.clone(),
             // The user started this one, so nobody asked for it. `spawned_by` is only ever set
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,
@@ -690,6 +691,7 @@ impl AppState {
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
+            skills: form.skills.clone(),
         };
         self.spawn_pane(Some(form.agent_type.clone()), Vec::new(), picks, cx);
         // **Release the aim.** A form raised from a chat header or the sink wrote down where the

@@ -2853,6 +2853,8 @@ impl Coordinator {
                 thinking,
                 mode,
                 mcps,
+                // Not acted on yet: the host does not carry a skills pick into the run.
+                skills: _,
                 spawned_by,
             } => {
                 self.start_conversation(

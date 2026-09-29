@@ -144,6 +144,9 @@ pub struct NewAgentForm {
     /// What is *on offer* is not here: that is the window's own
     /// [`crate::state::WorkbenchState::mcps`], one list for the build rather than a copy per form.
     pub mcps: Vec<String>,
+    /// The skills this start asks for, by catalog id ([`ubiq_proto::catalog::SkillInfo::id`]).
+    /// Ticked order is kept, the way [`Self::mcps`] keeps it.
+    pub skills: Vec<String>,
     /// The opening prompt. Typed into a textarea the window owns, and copied in here when the
     /// form is read — the same way the definition form reads its name field at save time.
     pub prompt: String,
@@ -244,6 +247,7 @@ impl NewAgentForm {
             disabled: false,
             max_subagents: Some(DEFAULT_SUBAGENTS),
             mcps: Vec::new(),
+            skills: Vec::new(),
             prompt: String::new(),
             open: None,
             naming: false,
@@ -275,6 +279,7 @@ impl NewAgentForm {
             mode: definition.mode.clone(),
             max_subagents: definition.max_subagents,
             mcps: definition.mcps.clone(),
+            skills: definition.skills.clone(),
             prompt: definition.prompt.clone().unwrap_or_default(),
             mission_assistant: definition.mission_assistant.unwrap_or(false),
             mission_coordinator: definition.mission_coordinator,
@@ -303,6 +308,7 @@ impl NewAgentForm {
             max_subagents: self.max_subagents,
             prompt: (!self.prompt.trim().is_empty()).then(|| self.prompt.trim().to_string()),
             mcps: self.mcps.clone(),
+            skills: self.skills.clone(),
             // Ticked is written down; unticked writes `None` rather than `Some(false)` — the two
             // read the same to every filter, and `None` is the ordinary "says nothing" shape every
             // other optional field here already uses.
@@ -564,6 +570,7 @@ mod tests {
             max_subagents: None,
             prompt: None,
             mcps: Vec::new(),
+            skills: Vec::new(),
             mission_assistant,
             mission_coordinator: false,
             mission_worker: false,

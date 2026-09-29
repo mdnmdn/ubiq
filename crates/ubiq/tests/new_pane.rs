@@ -613,6 +613,7 @@ fn the_forms_answers_ride_out_on_spawn_workspace_as_picks(cx: &mut TestAppContex
             thinking: Some("high".to_string()),
             mode: Some("plan".to_string()),
             mcps: vec!["filesystem".to_string(), "git".to_string()],
+            skills: Vec::new(),
         },
         "every answer the form held rode out on the pick"
     );

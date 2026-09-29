@@ -681,6 +681,7 @@ impl Agents {
                     // same row in a checklist, so the interface is told the empty list for both.
                     // The distinction still matters on disk — see [`save_definition`](Self::save_definition).
                     mcps: record.defaults.mcps.unwrap_or_default(),
+                    skills: record.defaults.skills.unwrap_or_default(),
                     mission_assistant: record.mission_assistant,
                     mission_coordinator: record.mission_coordinator.unwrap_or(false),
                     mission_worker: record.mission_worker.unwrap_or(false),
@@ -780,6 +781,7 @@ impl Agents {
                 thinking: definition.thinking,
                 prompt: definition.prompt,
                 mcps: (!definition.mcps.is_empty()).then_some(definition.mcps),
+                skills: (!definition.skills.is_empty()).then_some(definition.skills),
                 ..Default::default()
             },
             mode: definition.mode,
@@ -895,6 +897,7 @@ impl Agents {
                 max_subagents: None,
                 prompt: None,
                 mcps,
+                skills: Vec::new(),
                 mission_assistant: None,
                 mission_coordinator: coordinator,
                 mission_worker: worker,
@@ -2430,6 +2433,7 @@ mod tests {
             max_subagents: None,
             prompt: None,
             mcps: Vec::new(),
+            skills: Vec::new(),
             mission_assistant: None,
             mission_coordinator: false,
             mission_worker: false,
