@@ -12,7 +12,7 @@ use crate::registry::fs::{FsRegistry, ORIGIN_FILE};
 use crate::registry::remote::default_skill_sources;
 use crate::registry::{
     McpEntry, McpExpose, Registry, RemoteOrigin, SkillOrigin, SkillSource, SkillSourceKind,
-    valid_id,
+    path_lock, valid_id,
 };
 use crate::source::{LinkMode, Source};
 
@@ -108,6 +108,21 @@ fn table_of(pairs: &[(&str, &str)]) -> toml::Value {
     toml::Value::Table(t)
 }
 
+/// Keys of an MCP entry that [`mcp_json`] writes (and `type`, the alias of `transport`).
+const MCP_KEYS: &[&str] = &[
+    "id",
+    "type",
+    "transport",
+    "command",
+    "args",
+    "env",
+    "url",
+    "headers",
+    "expose",
+    "summary",
+    "description",
+];
+
 /// The JSON shape of an MCP entry: the server fields (without `id` unless asked) plus the
 /// catalog-only keys, empty collections left out.
 fn mcp_json(entry: &McpEntry, with_id: bool) -> Result<serde_json::Value> {
@@ -116,6 +131,8 @@ fn mcp_json(entry: &McpEntry, with_id: bool) -> Result<serde_json::Value> {
         .as_object_mut()
         .ok_or_else(|| anyhow!("MCP definition is not an object"))?;
     obj.remove("id");
+    // TOML has no null: an unset `command` (http/sse) is left out.
+    obj.retain(|_, v| !v.is_null());
     for key in ["args", "env", "headers"] {
         let empty = match obj.get(key) {
             Some(serde_json::Value::Array(a)) => a.is_empty(),
@@ -148,7 +165,12 @@ fn swap_dir(tmp: &Path, dest: &Path) -> Result<()> {
         dest.file_name().and_then(|n| n.to_str()).unwrap_or("skill")
     ));
     if old.exists() {
-        std::fs::remove_dir_all(&old)?;
+        if dest.exists() {
+            std::fs::remove_dir_all(&old)?;
+        } else {
+            // A crash between the two renames left only the old copy: put it back.
+            std::fs::rename(&old, dest)?;
+        }
     }
     let had_old = dest.exists();
     if had_old {
@@ -228,6 +250,8 @@ impl CatalogStore for FsRegistry {
         check_id(id)?;
         let skills = self.root().join("skills");
         std::fs::create_dir_all(&skills)?;
+        let lock = path_lock(&skills.join(id));
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = skills.join(format!(".{id}.tmp"));
         if tmp.exists() {
             std::fs::remove_dir_all(&tmp)?;
@@ -293,11 +317,22 @@ impl CatalogStore for FsRegistry {
             .iter()
             .any(|m| m.server.id == entry.id);
         if inline {
-            let value = toml::Value::try_from(mcp_json(entry, true)?)?;
+            let toml::Value::Table(fresh) = toml::Value::try_from(mcp_json(entry, true)?)? else {
+                bail!("MCP definition is not a table");
+            };
             return self.edit_array("mcp", |items| {
                 for item in items.iter_mut() {
-                    if str_field(item, "id") == Some(entry.id.as_str()) {
-                        *item = value.clone();
+                    if str_field(item, "id") != Some(entry.id.as_str()) {
+                        continue;
+                    }
+                    // Keep keys this code does not know; replace the ones it does.
+                    if let toml::Value::Table(old) = item {
+                        for key in MCP_KEYS {
+                            old.remove(*key);
+                        }
+                        old.extend(fresh.clone());
+                    } else {
+                        *item = toml::Value::Table(fresh.clone());
                     }
                 }
                 Ok(())
@@ -563,6 +598,59 @@ mod tests {
         assert!(reg.mcps().unwrap().is_empty());
         assert!(reg.remove_mcp("inline").is_err());
         assert!(reg.put_mcp(&mcp("bad id")).is_err());
+    }
+
+    #[test]
+    fn inline_http_edit_keeps_unknown_keys() {
+        let cat = TempDir::new().unwrap();
+        let reg = FsRegistry::new(cat.path());
+        std::fs::write(
+            cat.path().join("catalog.toml"),
+            "[[mcp]]\nid = \"web\"\ntransport = \"stdio\"\ncommand = \"a\"\ncustom = \"keep\"\n",
+        )
+        .unwrap();
+        let mut entry = mcp("web");
+        entry.def.transport = McpTransport::Http;
+        entry.def.command = None;
+        entry.def.args = vec![];
+        entry.def.url = Some("https://x/mcp".into());
+        reg.put_mcp(&entry).unwrap();
+        let got = reg.mcp("web").unwrap().unwrap();
+        assert_eq!(got.def.transport, McpTransport::Http);
+        assert_eq!(got.def.url.as_deref(), Some("https://x/mcp"));
+        assert_eq!(got.def.command, None);
+        let text = std::fs::read_to_string(cat.path().join("catalog.toml")).unwrap();
+        assert!(text.contains("custom = \"keep\""), "{text}");
+        assert!(!text.contains("command"), "{text}");
+    }
+
+    #[test]
+    fn swap_dir_restores_an_old_copy_left_by_a_crash() {
+        let t = TempDir::new().unwrap();
+        let old = t.path().join(".s.old");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("SKILL.md"), "x").unwrap();
+        let tmp = t.path().join(".s.tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("SKILL.md"), "new").unwrap();
+        // The swap itself proceeds after restoring; a failed install would leave the old copy.
+        swap_dir(&tmp, &t.path().join("s")).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(t.path().join("s/SKILL.md")).unwrap(),
+            "new"
+        );
+        assert!(!old.exists());
+
+        let dest = t.path().join("k");
+        let old = t.path().join(".k.old");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("SKILL.md"), "kept").unwrap();
+        let missing = t.path().join("missing-tmp");
+        assert!(swap_dir(&missing, &dest).is_err());
+        assert_eq!(
+            std::fs::read_to_string(dest.join("SKILL.md")).unwrap(),
+            "kept"
+        );
     }
 
     #[test]

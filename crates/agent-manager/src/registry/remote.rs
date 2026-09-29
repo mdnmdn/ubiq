@@ -12,7 +12,9 @@ use anyhow::{Context, anyhow, bail};
 
 use crate::Result;
 use crate::registry::fs::parse_skill_frontmatter;
-use crate::registry::{CatalogStore, RemoteOrigin, SkillSource, SkillSourceKind, valid_id};
+use crate::registry::{
+    CatalogStore, RemoteOrigin, SkillSource, SkillSourceKind, path_lock, valid_id,
+};
 use crate::source::Source;
 
 /// A cached clone younger than this is not fetched again by [`list_source`].
@@ -73,6 +75,12 @@ fn git(dir: Option<&Path>, args: &[&str]) -> Result<String> {
         cmd.arg("-C").arg(dir);
     }
     let out = cmd
+        .args([
+            "-c",
+            "http.lowSpeedLimit=1000",
+            "-c",
+            "http.lowSpeedTime=30",
+        ])
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -96,58 +104,108 @@ fn git_parts(src: &SkillSource) -> Result<(&str, Option<&str>, Option<&str>)> {
     }
 }
 
+/// A `url` or `rev` git would read as an option, or a `rev` that is not a plain ref name.
+fn check_git_args(url: &str, rev: Option<&str>) -> Result<()> {
+    if url.is_empty() || url.starts_with('-') || url.chars().any(char::is_control) {
+        bail!("invalid git url '{url}'");
+    }
+    if let Some(rev) = rev
+        && (rev.is_empty()
+            || rev.starts_with('-')
+            || rev.contains("..")
+            || rev.chars().any(|c| c.is_whitespace() || c.is_control()))
+    {
+        bail!("invalid git rev '{rev}'");
+    }
+    Ok(())
+}
+
+/// The cache folder of a source (`<cache>/<source id>`).
+fn cache_dir(src: &SkillSource, cache: &Path) -> Result<PathBuf> {
+    if !valid_id(&src.id) {
+        bail!("invalid source id '{}'", src.id);
+    }
+    Ok(cache.join(&src.id))
+}
+
+/// Beside the cache folder: the url and rev it was cloned for.
+fn marker_path(dir: &Path) -> PathBuf {
+    let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("src");
+    dir.with_file_name(format!(".{name}.am-source"))
+}
+
+fn marker_text(url: &str, rev: Option<&str>) -> String {
+    format!("{url}\n{}\n", rev.unwrap_or_default())
+}
+
+/// Whether `dir` is a clone of `url` at `rev`: its origin and its marker both say so.
+fn cache_matches(dir: &Path, url: &str, rev: Option<&str>) -> bool {
+    dir.join(".git").exists()
+        && std::fs::read_to_string(marker_path(dir)).is_ok_and(|m| m == marker_text(url, rev))
+        && git(Some(dir), &["remote", "get-url", "origin"]).is_ok_and(|u| u == url)
+}
+
 /// Clone (shallow) or update the cache folder of a git source and return it.
 ///
 /// Fetches unconditionally; [`list_source`] and [`install_remote`] only do so when the cache is
 /// missing or older than an hour.
 pub fn refresh_source(src: &SkillSource, cache: &Path) -> Result<PathBuf> {
     let (url, rev, _) = git_parts(src)?;
-    if !valid_id(&src.id) {
-        bail!("invalid source id '{}'", src.id);
-    }
-    let dir = cache.join(&src.id);
-    if dir.join(".git").exists() {
-        let same_origin = git(Some(&dir), &["remote", "get-url", "origin"]).is_ok_and(|u| u == url);
-        if same_origin {
-            git(
-                Some(&dir),
-                &["fetch", "--depth", "1", "origin", rev.unwrap_or("HEAD")],
-            )?;
-            git(Some(&dir), &["reset", "--hard", "FETCH_HEAD"])?;
-            return Ok(dir);
-        }
+    check_git_args(url, rev)?;
+    let dir = cache_dir(src, cache)?;
+    let lock = path_lock(&dir);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    if cache_matches(&dir, url, rev) {
+        git(
+            Some(&dir),
+            &[
+                "fetch",
+                "--depth",
+                "1",
+                "origin",
+                "--",
+                rev.unwrap_or("HEAD"),
+            ],
+        )?;
+        git(Some(&dir), &["reset", "--hard", "FETCH_HEAD"])?;
+        return Ok(dir);
     }
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
     }
+    let _ = std::fs::remove_file(marker_path(&dir));
     std::fs::create_dir_all(cache)?;
     let dir_str = dir.to_string_lossy();
     let mut args = vec!["clone", "--depth", "1"];
     if let Some(rev) = rev {
         args.extend(["--branch", rev]);
     }
-    args.extend([url, dir_str.as_ref()]);
+    args.extend(["--", url, dir_str.as_ref()]);
     git(None, &args)?;
+    std::fs::write(marker_path(&dir), marker_text(url, rev))?;
     Ok(dir)
 }
 
-/// The cache folder, refreshed when it is missing or stale. A failed refresh of an existing
-/// cache falls back to it.
+/// The cache folder, refreshed when it is missing, stale or cloned for another url or rev. A
+/// failed refresh of a matching cache falls back to it.
 fn ensure_cached(src: &SkillSource, cache: &Path) -> Result<PathBuf> {
-    let dir = cache.join(&src.id);
+    let (url, rev, _) = git_parts(src)?;
+    let dir = cache_dir(src, cache)?;
+    let matches = cache_matches(&dir, url, rev);
     let stamp = dir.join(".git").join("FETCH_HEAD");
-    let fresh = std::fs::metadata(&stamp)
-        .or_else(|_| std::fs::metadata(dir.join(".git")))
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| SystemTime::now().duration_since(t).ok())
-        .is_some_and(|age| age < FRESH_FOR);
+    let fresh = matches
+        && std::fs::metadata(&stamp)
+            .or_else(|_| std::fs::metadata(dir.join(".git")))
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| SystemTime::now().duration_since(t).ok())
+            .is_some_and(|age| age < FRESH_FOR);
     if fresh {
         return Ok(dir);
     }
     match refresh_source(src, cache) {
         Ok(dir) => Ok(dir),
-        Err(_) if dir.join(".git").exists() => Ok(dir),
+        Err(_) if cache_matches(&dir, url, rev) => Ok(dir),
         Err(e) => Err(e),
     }
 }
@@ -242,7 +300,11 @@ pub fn parse_index(source: &str, json: &str) -> Result<Vec<RemoteSkill>> {
     };
     Ok(entries
         .into_iter()
-        .filter(|e| e.url.is_some())
+        .filter(|e| {
+            e.url
+                .as_deref()
+                .is_some_and(|u| check_git_args(u, e.rev.as_deref()).is_ok())
+        })
         .filter_map(|e| {
             let last = e
                 .path
@@ -336,7 +398,10 @@ pub fn install_remote(
     // An index entry names its own repository; otherwise the source is one.
     let repo_src = match &skill.url {
         Some(url) => SkillSource {
-            id: format!("{}-{}", src.id, slug(url)),
+            id: match &skill.rev {
+                Some(rev) => format!("{}-{}-{}", src.id, slug(url), slug(rev)),
+                None => format!("{}-{}", src.id, slug(url)),
+            },
             label: None,
             kind: SkillSourceKind::Git {
                 url: url.clone(),
@@ -350,6 +415,11 @@ pub fn install_remote(
     let folder = repo.join(rel);
     if !folder.join("SKILL.md").is_file() {
         bail!("no SKILL.md at '{}' in source '{}'", skill.path, src.id);
+    }
+    // A symlink inside the repository must not lead the copy out of it.
+    let folder = folder.canonicalize()?;
+    if !folder.starts_with(repo.canonicalize()?) {
+        bail!("skill path '{}' leaves the repository", skill.path);
     }
     let (url, rev, _) = git_parts(&repo_src)?;
     let origin = RemoteOrigin {
@@ -552,6 +622,99 @@ mod tests {
         let wrapped = r#"{"skills":[{"name":"a","url":"u","path":""}]}"#;
         assert_eq!(parse_index("idx", wrapped).unwrap()[0].id, "a");
         assert!(parse_index("idx", "{}").is_err());
+    }
+
+    #[test]
+    fn option_looking_urls_and_revs_are_refused() {
+        let cache = TempDir::new().unwrap();
+        let mut src = source("evil", Path::new("--upload-pack=touch /tmp/x"), None);
+        assert!(refresh_source(&src, cache.path()).is_err());
+        let repo = repo();
+        for rev in ["--foo", "a b", "a..b", ""] {
+            src.kind = SkillSourceKind::Git {
+                url: repo.path().to_string_lossy().into_owned(),
+                rev: Some(rev.into()),
+                subpath: None,
+            };
+            assert!(refresh_source(&src, cache.path()).is_err(), "rev {rev:?}");
+        }
+        let bad_id = source("../x", repo.path(), None);
+        assert!(refresh_source(&bad_id, cache.path()).is_err());
+        assert!(!cache.path().join("evil").exists());
+
+        let json = r#"[{"name":"a","url":"-oProxyCommand=x","path":"a"},
+                       {"name":"b","url":"https://x/r.git","path":"b","rev":"--x"},
+                       {"name":"c","url":"https://x/r.git","path":"c","rev":"v1"}]"#;
+        let got = parse_index("idx", json).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, "c");
+    }
+
+    #[test]
+    fn cache_cloned_for_another_rev_is_recloned() {
+        let repo = repo();
+        let cache = TempDir::new().unwrap();
+        let mut src = source("local", repo.path(), None);
+        let dir = ensure_cached(&src, cache.path()).unwrap();
+        assert!(cache_matches(&dir, &repo.path().to_string_lossy(), None));
+        src.kind = SkillSourceKind::Git {
+            url: repo.path().to_string_lossy().into_owned(),
+            rev: Some("main".into()),
+            subpath: None,
+        };
+        assert!(!cache_matches(
+            &dir,
+            &repo.path().to_string_lossy(),
+            Some("main")
+        ));
+        // Fresh by age, yet re-cloned because it was cloned for no rev.
+        let dir = ensure_cached(&src, cache.path()).unwrap();
+        assert!(cache_matches(
+            &dir,
+            &repo.path().to_string_lossy(),
+            Some("main")
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn skill_folder_symlinked_out_of_the_repo_is_refused() {
+        let outside = TempDir::new().unwrap();
+        skill(outside.path(), "s", "s", "outside");
+        let repo = repo();
+        std::os::unix::fs::symlink(outside.path().join("s"), repo.path().join("skills/link"))
+            .unwrap();
+        git(
+            Some(repo.path()),
+            &["-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"],
+        )
+        .unwrap();
+        git(
+            Some(repo.path()),
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "link",
+            ],
+        )
+        .unwrap();
+        let cache = TempDir::new().unwrap();
+        let src = source("local", repo.path(), None);
+        let store = FsRegistry::new(TempDir::new().unwrap().path());
+        let sk = RemoteSkill {
+            source: "local".into(),
+            id: "link".into(),
+            name: None,
+            description: None,
+            path: "skills/link".into(),
+            url: None,
+            rev: None,
+        };
+        assert!(install_remote(&store, &src, cache.path(), &sk, None).is_err());
     }
 
     #[test]

@@ -147,10 +147,16 @@ fn from_value(id: &str, v: &Value) -> Result<McpServer> {
         .map(str::to_string);
     let transport = match kind.as_deref() {
         Some("stdio" | "local") => McpTransport::Stdio,
-        Some("http" | "streamable-http" | "streamableHttp" | "remote") => McpTransport::Http,
+        Some(
+            "http" | "streamable-http" | "streamableHttp" | "streamable_http" | "streamable"
+            | "http_stream" | "remote",
+        ) => McpTransport::Http,
         Some("sse") => McpTransport::Sse,
         Some(other) => bail!("{who}: unknown type '{other}'"),
         None if command.is_some() => McpTransport::Stdio,
+        // Gemini CLI: `httpUrl` is streamable HTTP, a bare `url` is SSE.
+        None if obj.get("httpUrl").is_some_and(Value::is_string) => McpTransport::Http,
+        None if url.as_deref().is_some_and(ends_in_sse) => McpTransport::Sse,
         None => McpTransport::Http,
     };
     match transport {
@@ -169,6 +175,14 @@ fn from_value(id: &str, v: &Value) -> Result<McpServer> {
         url,
         headers,
     })
+}
+
+/// Whether the path of `url` (query and fragment dropped) ends in `/sse`.
+fn ends_in_sse(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    path.trim_end_matches('/')
+        .to_ascii_lowercase()
+        .ends_with("/sse")
 }
 
 /// Strip `//` and `/* */` comments outside strings, then commas that precede `}` or `]`.
@@ -244,6 +258,23 @@ mod tests {
         let mut v = parse_mcp_config(text).unwrap();
         assert_eq!(v.len(), 1, "{v:?}");
         v.remove(0)
+    }
+
+    #[test]
+    fn untyped_remote_servers_follow_the_gemini_shape() {
+        let s = one(r#"{"mcpServers":{"g":{"httpUrl":"https://h/api"}}}"#);
+        assert_eq!(s.transport, McpTransport::Http);
+        assert_eq!(s.url.as_deref(), Some("https://h/api"));
+        let s = one(r#"{"mcpServers":{"g":{"url":"https://h/sse?k=1"}}}"#);
+        assert_eq!(s.transport, McpTransport::Sse);
+        let s = one(r#"{"mcpServers":{"g":{"url":"https://h/mcp"}}}"#);
+        assert_eq!(s.transport, McpTransport::Http);
+        for t in ["streamable_http", "streamable", "http_stream"] {
+            let s = one(&format!(
+                r#"{{"mcpServers":{{"g":{{"type":"{t}","url":"https://h/sse"}}}}}}"#
+            ));
+            assert_eq!(s.transport, McpTransport::Http, "{t}");
+        }
     }
 
     #[test]

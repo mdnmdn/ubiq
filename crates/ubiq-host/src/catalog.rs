@@ -156,11 +156,16 @@ impl Catalog {
     ) -> Result<()> {
         let src = self.source(source)?;
         let cache = self.cache();
-        let skill = remote::list_source(&src, &cache)
+        let mut matches = remote::list_source(&src, &cache)
             .with_context(|| format!("reading source '{source}'"))?
             .into_iter()
-            .find(|skill| skill.path == path)
+            .filter(|skill| skill.path == path);
+        let skill = matches
+            .next()
             .ok_or_else(|| anyhow!("source '{source}' offers no skill at '{path}'"))?;
+        if matches.next().is_some() {
+            bail!("source '{source}' lists more than one skill at '{path}' (ambiguous)");
+        }
         remote::install_remote(
             &self.layer(scope),
             &src,
@@ -211,6 +216,9 @@ impl Catalog {
             bail!("'{}' is the name of a built-in Ubiq server", mcp.id);
         }
         let layer = self.layer(scope);
+        if previous_id.is_some_and(|previous| previous != mcp.id) && layer.mcp(&mcp.id)?.is_some() {
+            bail!("an MCP server named '{}' already exists", mcp.id);
+        }
         // What the form does not edit — how the server is exposed, its skill summary — is kept.
         let kept = layer.mcp(previous_id.unwrap_or(&mcp.id))?;
         let entry = McpEntry {
@@ -600,6 +608,19 @@ mod tests {
         let moved = layer.mcp("new").unwrap().unwrap();
         assert_eq!(moved.expose, McpExpose::Skill);
         assert_eq!(moved.summary.as_deref(), Some("a summary"));
+
+        // A rename onto another server's id is refused and overwrites nothing.
+        catalog.save_mcp(None, &server("other"), None).unwrap();
+        assert!(
+            catalog
+                .save_mcp(None, &server("other"), Some("new"))
+                .is_err()
+        );
+        assert!(layer.mcp("new").unwrap().is_some());
+        // Saving under the same id is an edit, not a collision.
+        catalog
+            .save_mcp(None, &server("other"), Some("other"))
+            .unwrap();
     }
 
     #[test]

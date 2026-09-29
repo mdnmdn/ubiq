@@ -292,5 +292,17 @@ pub fn valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+/// A process-wide lock for one path: two writers of the same cache folder or skill id take turns.
+pub(crate) fn path_lock(path: &std::path::Path) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut map = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    map.entry(path.to_path_buf()).or_default().clone()
+}
+
 pub mod import;
 pub use import::{Action, ImportItem, ImportOptions, ImportPlan, ItemKind, import};

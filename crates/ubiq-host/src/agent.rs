@@ -742,9 +742,9 @@ impl Agents {
     /// Resolved through the run's own scope: inside a project, that project's definition of this
     /// name answers before the global one, exactly as it will when the run is composed.
     ///
-    /// The named definition's own row, not its inheritance chain: Ubiq writes no parent, and
-    /// flattening one here would be this module holding a second answer to a question
-    /// `resolve` already answers.
+    /// Read through the library's own flattening of the `extends` chain, so a hand-written parent's
+    /// list is not lost when a run's picks are added on top (`flags.skills` and `flags.mcps`
+    /// outrank the whole definition, not just its leaf).
     fn definition_mcps(&self, id: &str, project: Option<ProjectId>) -> Option<Vec<String>> {
         self.definition_defaults(id, project)
             .and_then(|defaults| defaults.mcps)
@@ -757,14 +757,14 @@ impl Agents {
             .and_then(|defaults| defaults.skills)
     }
 
-    /// The named definition's own `defaults`, through the run's scope.
+    /// The named definition's `defaults` with its `extends` chain folded in, through the run's scope.
     fn definition_defaults(&self, id: &str, project: Option<ProjectId>) -> Option<ProfileDefaults> {
         let global = self.definition_store();
         let scoped = project.map(|project| self.project_definition_store(project));
-        ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore))
-            .profile(id)
+        let store =
+            ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore));
+        agent_manager::profile::resolve_flattened(&store, id)
             .ok()
-            .flatten()
             .map(|record| record.defaults)
     }
 
@@ -2362,6 +2362,80 @@ mod tests {
             problems.len(),
             1,
             "a pick the catalog lacks is reported: {problems:?}"
+        );
+    }
+
+    /// A run's picks are added to what the whole `extends` chain contributes, not to the leaf alone.
+    #[test]
+    fn a_run_keeps_the_skills_a_parent_definition_contributes() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let elsewhere = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let catalog = Catalog::new(root.path());
+        for name in ["x", "y"] {
+            let dir = elsewhere.path().join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: d\n---\nSKILL-{name}\n"),
+            )
+            .unwrap();
+            catalog
+                .add_skill(
+                    None,
+                    &ubiq_proto::catalog::SkillAdd::Link {
+                        path: dir.to_string_lossy().into_owned(),
+                        id: None,
+                    },
+                )
+                .unwrap();
+        }
+        agents
+            .save_definition(AgentDefinition {
+                skills: vec!["x".to_string()],
+                ..a_definition("parent")
+            })
+            .unwrap();
+        agents.save_definition(a_definition("child")).unwrap();
+        // Ubiq's own form writes no parent: the chain is written by hand.
+        let file = definitions_dir(root.path()).join("child/profile.toml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, format!("extends = \"parent\"\n{text}")).unwrap();
+        assert_eq!(
+            agents.definition_skills("child", None),
+            Some(vec!["x".to_string()])
+        );
+
+        let composed = agents
+            .compose_run(
+                "agent-1",
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                IoModes::Structured,
+                ConverseOptions {
+                    definition: Some("child".to_string()),
+                    skills: vec!["y".to_string()],
+                    ..Default::default()
+                },
+            )
+            .expect("composing a claude-code run");
+        fn given(dir: &Path, out: &mut String) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    given(&path, out);
+                } else if path.file_name().is_some_and(|it| it == "SKILL.md") {
+                    out.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+                }
+            }
+        }
+        let mut text = String::new();
+        given(&composed.dir, &mut text);
+        assert!(
+            text.contains("SKILL-x") && text.contains("SKILL-y"),
+            "{text}"
         );
     }
 
