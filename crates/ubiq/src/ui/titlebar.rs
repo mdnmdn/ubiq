@@ -57,37 +57,34 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .children(project_menu::window_badge(app, cx))
                 .child(project_menu::render(app, window, cx)),
         )
+        // Add a project and its chevron, one split button: the chevron offers the same three ways
+        // in the project picker's foot does — add, clone, remote — reached without opening the
+        // picker first.
         .child(
-            icon_button(
-                "new-project",
-                IconName::Plus,
-                false,
-                cx.listener(|this, _, _, cx| this.choose_folder(None, cx)),
-            )
-            .h_full()
-            .ui_id(ui_id::TITLEBAR_NEW_PROJECT)
-            .tooltip(move |window, cx| {
-                gpui_component::tooltip::Tooltip::new("Add a project").build(window, cx)
-            }),
-        )
-        // The chevron beside it: the same three ways in the project picker's foot offers — add,
-        // clone, remote — reached without opening the picker first. The same pattern as the
-        // new-terminal `+` and its own chevron just along the strip.
-        .child(
-            icon_button(
-                "new-project-menu",
-                IconName::ChevronDown,
-                app.workbench.open_menu == Some(MenuId::NewProject),
-                cx.listener(|this, event: &ClickEvent, _, cx| {
-                    let at = (f32::from(event.position().x), f32::from(event.position().y));
-                    this.open_new_project_menu(at, cx);
-                }),
-            )
-            .h_full()
-            .ui_id(ui_id::TITLEBAR_NEW_PROJECT_MENU)
-            .tooltip(move |window, cx| {
-                gpui_component::tooltip::Tooltip::new("Open a project").build(window, cx)
-            }),
+            split_pair()
+                .child(
+                    icon_button(
+                        "new-project",
+                        IconName::Plus,
+                        false,
+                        cx.listener(|this, _, _, cx| this.choose_folder(None, cx)),
+                    )
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_NEW_PROJECT)
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Add a project").build(window, cx)
+                    }),
+                )
+                .child(split_chevron(
+                    "new-project-menu",
+                    Some(ui_id::TITLEBAR_NEW_PROJECT_MENU),
+                    app.workbench.open_menu == Some(MenuId::NewProject),
+                    "Open a project",
+                    cx.listener(|this, event: &ClickEvent, _, cx| {
+                        let at = (f32::from(event.position().x), f32::from(event.position().y));
+                        this.open_new_project_menu(at, cx);
+                    }),
+                )),
         )
         .when(has_project, |this| {
             let (icon, label) = if temporary {
@@ -123,29 +120,28 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 None => "No tools for this project".into(),
             };
             this.child(
-                icon_button(
-                    "run-tool",
-                    IconName::Play,
-                    false,
-                    cx.listener(|this, _, _, cx| this.run_first_tool(cx)),
-                )
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
-                }),
-            )
-            .child(
-                icon_button(
-                    "run-tool-menu",
-                    IconName::ChevronDown,
-                    app.workbench.open_menu == Some(MenuId::RunTool),
-                    cx.listener(|this, event: &ClickEvent, _, cx| {
-                        let at = (f32::from(event.position().x), f32::from(event.position().y));
-                        this.open_run_tool_menu(at, cx);
-                    }),
-                )
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new("Run a tool").build(window, cx)
-                }),
+                split_pair()
+                    .child(
+                        icon_button(
+                            "run-tool",
+                            IconName::Play,
+                            false,
+                            cx.listener(|this, _, _, cx| this.run_first_tool(cx)),
+                        )
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                        }),
+                    )
+                    .child(split_chevron(
+                        "run-tool-menu",
+                        None,
+                        app.workbench.open_menu == Some(MenuId::RunTool),
+                        "Run a tool",
+                        cx.listener(|this, event: &ClickEvent, _, cx| {
+                            let at = (f32::from(event.position().x), f32::from(event.position().y));
+                            this.open_run_tool_menu(at, cx);
+                        }),
+                    )),
             )
         })
         // Back and forward belong to the project they walk, so they sit beside it rather than
@@ -236,13 +232,10 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .when(has_project, |this| {
                     // New agent and its chevron are one split button: no gap between them, and
                     // the chevron is half the width of a control so the pair reads as one thing
-                    // with a second, smaller way in rather than as two buttons (`T-266`).
+                    // with a second, smaller way in rather than as two buttons (`T-266`). Every
+                    // other chevron on the strip is drawn the same way, for the same reason.
                     this.child(
-                        div()
-                            .h_full()
-                            .flex()
-                            .flex_none()
-                            .items_center()
+                        split_pair()
                             .child(
                                 icon_button(
                                     "new-agent",
@@ -259,41 +252,53 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                                         .build(window, cx)
                                 }),
                             )
-                            .child(hidden_agents_chevron(app, cx)),
+                            .child(split_chevron(
+                                "hidden-agents-menu",
+                                Some(ui_id::TITLEBAR_HIDDEN_AGENTS),
+                                app.workbench.open_menu == Some(MenuId::HiddenAgents),
+                                "Agents not on screen",
+                                cx.listener(|this, event: &ClickEvent, _, cx| {
+                                    let at = (
+                                        f32::from(event.position().x),
+                                        f32::from(event.position().y),
+                                    );
+                                    this.open_hidden_agents_menu(at, cx);
+                                }),
+                            )),
                     )
+                    // The terminal and its own chevron, the same pair: the button runs the
+                    // default shell, the chevron says what else this machine can run here.
                     .child(
-                        icon_button(
-                            "new-terminal",
-                            IconName::SquareTerminal,
-                            false,
-                            cx.listener(|this, _, window, cx| this.new_terminal(window, cx)),
-                        )
-                        .h_full()
-                        .ui_id(ui_id::TITLEBAR_NEW_TERMINAL)
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new("New terminal").build(window, cx)
-                        }),
-                    )
-                    // The chevron beside it: the same new-pane menu the terminal `+` opens,
-                    // with its shells and runnable tools. The button runs the default shell;
-                    // this says what else this machine can run here.
-                    .child(
-                        icon_button(
-                            "new-terminal-menu",
-                            IconName::ChevronDown,
-                            app.workbench.open_menu == Some(MenuId::NewPane),
-                            cx.listener(|this, event: &ClickEvent, _, cx| {
-                                let at =
-                                    (f32::from(event.position().x), f32::from(event.position().y));
-                                this.open_new_pane_menu(at, cx);
-                            }),
-                        )
-                        .h_full()
-                        .ui_id(ui_id::TITLEBAR_NEW_TERMINAL_MENU)
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Run in a new pane")
-                                .build(window, cx)
-                        }),
+                        split_pair()
+                            .child(
+                                icon_button(
+                                    "new-terminal",
+                                    IconName::SquareTerminal,
+                                    false,
+                                    cx.listener(|this, _, window, cx| {
+                                        this.new_terminal(window, cx)
+                                    }),
+                                )
+                                .h_full()
+                                .ui_id(ui_id::TITLEBAR_NEW_TERMINAL)
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new("New terminal")
+                                        .build(window, cx)
+                                }),
+                            )
+                            .child(split_chevron(
+                                "new-terminal-menu",
+                                Some(ui_id::TITLEBAR_NEW_TERMINAL_MENU),
+                                app.workbench.open_menu == Some(MenuId::NewPane),
+                                "Run in a new pane",
+                                cx.listener(|this, event: &ClickEvent, _, cx| {
+                                    let at = (
+                                        f32::from(event.position().x),
+                                        f32::from(event.position().y),
+                                    );
+                                    this.open_new_pane_menu(at, cx);
+                                }),
+                            )),
                     )
                 })
                 .child(
@@ -339,37 +344,52 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         gpui_component::tooltip::Tooltip::new("Help").build(window, cx)
                     }),
                 )
+                // Point at something: the same question Help asks the other way round — Help opens
+                // the page for where you are standing, this waits for you to point. Beside it for
+                // that reason, and always offered, like Help itself.
                 .child(
                     icon_button(
-                        "remote-hosts",
-                        IconName::Network,
-                        app.workbench.remote_manager.open,
-                        cx.listener(|this, _, _, cx| this.open_remote_manager(cx)),
+                        "point-at",
+                        UbiqIcon::TitlebarPointAt,
+                        app.workbench.help_target.is_some(),
+                        cx.listener(|this, _, _, cx| this.open_help_target(cx)),
                     )
                     .h_full()
-                    .ui_id(ui_id::TITLEBAR_REMOTE_HOSTS)
+                    .ui_id(ui_id::TITLEBAR_POINT_AT)
                     .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new("Remote hosts").build(window, cx)
+                        gpui_component::tooltip::Tooltip::new("Point at something (⇧F1)")
+                            .build(window, cx)
                     }),
                 )
-                // Remote connect, web export, window capture and settings: reached occasionally
-                // rather than every session, so they live behind a chevron instead of standing on
-                // the strip permanently. See `ui::overflow_menu`.
+                // Settings and the overflow chevron, one split button: settings is the thing in
+                // there that is reached often enough to stand on the strip, and the chevron holds
+                // the rest — remote hosts and connect, web export, window capture, help. See
+                // `ui::overflow_menu`.
                 .child(
-                    icon_button(
-                        "overflow-menu",
-                        IconName::ChevronDown,
-                        app.workbench.overflow_menu.is_some(),
-                        cx.listener(|this, event: &ClickEvent, _window, cx| {
-                            let at = event.position();
-                            this.open_overflow_menu((at.x.into(), at.y.into()), cx);
-                        }),
-                    )
-                    .h_full()
-                    .ui_id(ui_id::TITLEBAR_OVERFLOW)
-                    .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new("More").build(window, cx)
-                    }),
+                    split_pair()
+                        .child(
+                            icon_button(
+                                "settings",
+                                UbiqIcon::TitlebarSettings,
+                                app.workbench.settings.open,
+                                cx.listener(|this, _, _, cx| this.toggle_settings(cx)),
+                            )
+                            .h_full()
+                            .ui_id(ui_id::TITLEBAR_SETTINGS)
+                            .tooltip(move |window, cx| {
+                                gpui_component::tooltip::Tooltip::new("Settings").build(window, cx)
+                            }),
+                        )
+                        .child(split_chevron(
+                            "overflow-menu",
+                            Some(ui_id::TITLEBAR_OVERFLOW),
+                            app.workbench.overflow_menu.is_some(),
+                            "More",
+                            cx.listener(|this, event: &ClickEvent, _window, cx| {
+                                let at = event.position();
+                                this.open_overflow_menu((at.x.into(), at.y.into()), cx);
+                            }),
+                        )),
                 )
                 .child(
                     icon_button(
@@ -423,16 +443,26 @@ fn command_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) ->
     navigator::attach(bar, app, cx)
 }
 
-/// The narrow chevron beside New agent: the agents a tab's `Hide` took off the screen (`T-266`).
+/// The container of a split button: the control and its chevron, flush, as one thing.
+fn split_pair() -> gpui::Div {
+    div().h_full().flex().flex_none().items_center()
+}
+
+/// The narrow chevron half of a split button — the way in that is smaller than the control it
+/// hangs off, so the pair reads as one action with a second, quieter door beside it (`T-266`).
 ///
 /// Its own helper rather than [`icon_button`] for the reason [`nav_control`] is one: the kit's
-/// button is square by rule, and this one is deliberately not — it is the thin half of a split
-/// button, flush against the control it belongs to.
-fn hidden_agents_chevron(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
-    let open = app.workbench.open_menu == Some(MenuId::HiddenAgents);
+/// button is square by rule, and this one is deliberately not. Every chevron on the strip is drawn
+/// through here, so they are one shape rather than a mixture of split halves and square buttons.
+fn split_chevron(
+    id: &'static str,
+    mark: Option<UiId>,
+    open: bool,
+    tip: &'static str,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
     let mut root = div()
-        .id("hidden-agents-menu")
-        .ui_id(ui_id::TITLEBAR_HIDDEN_AGENTS)
+        .id(id)
         .w(px(theme::split_chevron_width()))
         .h_full()
         .flex()
@@ -440,6 +470,9 @@ fn hidden_agents_chevron(app: &AppState, cx: &mut Context<AppState>) -> impl Int
         .items_center()
         .justify_center()
         .cursor_pointer();
+    if let Some(mark) = mark {
+        root = root.ui_id(mark);
+    }
     if open {
         root = root.bg(theme::accent_soft());
     }
@@ -453,13 +486,8 @@ fn hidden_agents_chevron(app: &AppState, cx: &mut Context<AppState>) -> impl Int
                     theme::text_muted()
                 }),
         )
-        .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
-            let at = (f32::from(event.position().x), f32::from(event.position().y));
-            this.open_hidden_agents_menu(at, cx);
-        }))
-        .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new("Hidden agents").build(window, cx)
-        })
+        .on_click(on_click)
+        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip).build(window, cx))
 }
 
 /// What the press in one direction would land on, named the way the user reads places: a path

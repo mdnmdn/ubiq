@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-28
-verified: 2026-09-28
+updated: 2026-09-29
+verified: 2026-09-29
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -151,10 +151,14 @@ arrangement being installed over it has not been closed at all and its harness i
 Nothing is written down when one detaches, which is what stops a flag disagreeing with the screen.
 The `+` menu lists them in a group of their own, above the harnesses, because a running agent
 nothing is drawing is the one thing on that menu the user did not just ask for. **The titlebar's
-New agent split button offers the agents among them a second time**, on a narrow chevron of its
-own — the same set narrowed to panes whose harness is an agent type the host offers, one click from
-the control that starts a new one. Both reach the same `reattach_pane()`; neither respawns
-anything.
+New agent split button asks a wider question**, on a narrow chevron of its own: not which agent
+panes are detached but which the user cannot currently *see*. That is a superset — a panel the
+dock still holds is invisible all the same when the rail mode does not draw it, when its region is
+put away, or when a sibling tab is displayed in front of it — and it is computed the same way, by
+asking the arrangement rather than by writing a flag down. The `+` menu's own group stays on the
+narrower detached set, because a pane with no panel at all is what that group is about. Both reach
+the same `reattach_pane()`, which *reveals* rather than re-adds and is a no-op for a pane already
+in front of the user; neither respawns anything.
 
 **Pinning withholds the ×; it does not withhold ending the harness.** A pinned tab's × is
 suppressed, and so is Hide on its right-click menu, rather than either drawn and refused; Rename,

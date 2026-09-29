@@ -213,6 +213,10 @@ categories:
       goal: open the manual — drawn rather than adopted, because gpui-component ships no help glyph
       source: custom
       keywords: [help, question, manual, docs, guide, support]
+    titlebar-point-at:
+      goal: point at anything in the window and read what it is — the in-place help mode
+      source: custom
+      keywords: [help, point, pointer, cursor, inspect, question, target]
 
   # Collisions the inventory turned up: one variant carrying two unrelated meanings, where the
   # cheaper fix is a second icon rather than two tooltips.

@@ -2,8 +2,8 @@
 id: workbench-titlebar
 title: The title bar
 summary: The window's top row — the project cluster, the command field, and every action in the right-hand cluster.
-keywords: [titlebar, title bar, command field, new agent, new terminal, search, notifications, feedback, help, remote hosts, theme]
-targets: [ui.titlebar, ui.titlebar.project, ui.titlebar.new-project, ui.titlebar.new-project-menu, ui.titlebar.nav-back, ui.titlebar.nav-forward, ui.titlebar.command, ui.titlebar.actions, ui.titlebar.region-left, ui.titlebar.region-bottom, ui.titlebar.region-right, ui.titlebar.new-agent, ui.titlebar.new-terminal, ui.titlebar.new-terminal-menu, ui.titlebar.search, ui.titlebar.notifications, ui.titlebar.feedback, ui.titlebar.help, ui.titlebar.remote-hosts, ui.titlebar.overflow, ui.titlebar.theme]
+keywords: [titlebar, title bar, command field, new agent, new terminal, search, notifications, feedback, help, point at something, settings, remote hosts, theme]
+targets: [ui.titlebar, ui.titlebar.project, ui.titlebar.new-project, ui.titlebar.new-project-menu, ui.titlebar.nav-back, ui.titlebar.nav-forward, ui.titlebar.command, ui.titlebar.actions, ui.titlebar.region-left, ui.titlebar.region-bottom, ui.titlebar.region-right, ui.titlebar.new-agent, ui.titlebar.hidden-agents, ui.titlebar.new-terminal, ui.titlebar.new-terminal-menu, ui.titlebar.search, ui.titlebar.notifications, ui.titlebar.feedback, ui.titlebar.help, ui.titlebar.point-at, ui.titlebar.settings, ui.titlebar.overflow, ui.titlebar.theme]
 order: 15
 status: current
 related: [workbench-rail, workbench-modes, workbench-panels, getting-started]
@@ -42,7 +42,9 @@ different memories, and a hidden region remembers what was in it.
 Starting things:
 
 - **New agent** starts a conversation — harness, identity, model and permission level in one
-  question. See [Starting an agent](agents-starting).
+  question. See [Starting an agent](agents-starting). The narrow chevron beside it, **Agents not on
+  screen**, lists the agents that are still running with nothing drawing them, and picking one
+  brings it back.
 - **New terminal** opens a shell in the project's folder in a pane of its own; the chevron beside it,
   **More terminals**, offers the other shells and harnesses this machine has rather than the default
   one.
@@ -53,15 +55,16 @@ Watching things:
 
 - **Notifications** — the bell — lists everything that happened while you were elsewhere, newest
   first.
-- **Remote hosts** lists the machines this window can run panes on, and the state of each connection.
 - **Theme** switches the window's palette.
 
 Getting help, and getting heard:
 
-- **Help** (**F1**) opens the manual on the page for wherever you are standing right now — point at
-  any control with **⇧F1** instead to ask about that control specifically rather than the screen
-  around it.
+- **Help** (**F1**) opens the manual on the page for wherever you are standing right now.
+- **Point at something** (**⇧F1**) is the same question the other way round: it waits for you to
+  point at a control and tells you about that control, rather than the screen around it.
 - **Send feedback** attaches a picture of the window to whatever you type, so a report always shows
   what you were looking at.
-- **Overflow** holds whatever the right-hand cluster does not have room to draw at the window's
-  current width — nothing here is missing, only moved.
+- **Settings** opens accounts, agents, connections and everything else the application keeps. Its
+  chevron, **More**, holds the commands wanted occasionally rather than every session — **Remote
+  hosts** and **Connect to a remote host**, **Explore the project in browser**, **Capture this
+  window** and **Help**.

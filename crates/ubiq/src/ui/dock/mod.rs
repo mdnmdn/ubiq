@@ -1039,6 +1039,39 @@ pub fn holds(dock: &Entity<DockArea>, panel: &Entity<WorkbenchPanel>, cx: &mut A
     })
 }
 
+/// Whether a panel is one the user can actually see right now.
+///
+/// The mirror of [`reveal`]: the same walk of the tree, asked rather than acted on, which is why it
+/// lives beside it. Holding a panel is not the same as showing it, and three things take one off
+/// the screen without taking it out of the arrangement — the edge region put away, a sibling tab
+/// displayed in its place, and the panel's own rule saying the current mode does not draw it. A
+/// caller that wants "visible" has to rule out all three, so this rules out all three.
+pub fn on_screen(dock: &Entity<DockArea>, panel: &Entity<WorkbenchPanel>, cx: &App) -> bool {
+    if !panel.read(cx).visible {
+        return false;
+    }
+    let id = PanelId::from(panel.entity_id());
+    let dock = dock.read(cx);
+    [Region::Bottom, Region::Left, Region::Right, Region::Centre]
+        .into_iter()
+        .find_map(|region| {
+            let placement = placement_of(region);
+            let tree = dock.layout(placement)?;
+            let node = tree.find_panel_node(id)?;
+            // The centre is the one region that cannot be put away.
+            if region != Region::Centre && !dock.is_dock_open(placement) {
+                return Some(false);
+            }
+            let found = tree.find_node(node)?;
+            let PaneRef::Tabs { panels, active_ix } = found.kind() else {
+                return Some(false);
+            };
+            Some(panels.iter().position(|panel| *panel == id) == Some(active_ix))
+        })
+        // A panel the tree does not hold at all is not on screen.
+        .unwrap_or(false)
+}
+
 /// Put a panel in a region, joining the group that is already there.
 pub fn add(
     dock: &Entity<DockArea>,

@@ -128,6 +128,8 @@ pub enum UbiqIcon {
     TitlebarPanelLeft,
     /// show or hide the right region
     TitlebarPanelRight,
+    /// point at anything in the window and read what it is — the in-place help mode
+    TitlebarPointAt,
     /// search the project
     TitlebarSearch,
     /// the settings screen
@@ -212,6 +214,7 @@ impl IconNamed for UbiqIcon {
             Self::TitlebarPanelBottom => "icons/titlebar-panel-bottom.svg",
             Self::TitlebarPanelLeft => "icons/titlebar-panel-left.svg",
             Self::TitlebarPanelRight => "icons/titlebar-panel-right.svg",
+            Self::TitlebarPointAt => "icons/titlebar-point-at.svg",
             Self::TitlebarSearch => "icons/titlebar-search.svg",
             Self::TitlebarSettings => "icons/titlebar-settings.svg",
             Self::TitlebarThemeDark => "icons/titlebar-theme-dark.svg",
@@ -286,6 +289,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::TitlebarPanelBottom,
     UbiqIcon::TitlebarPanelLeft,
     UbiqIcon::TitlebarPanelRight,
+    UbiqIcon::TitlebarPointAt,
     UbiqIcon::TitlebarSearch,
     UbiqIcon::TitlebarSettings,
     UbiqIcon::TitlebarThemeDark,
@@ -370,6 +374,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/titlebar-panel-bottom.svg" => ours!("titlebar-panel-bottom"),
         "icons/titlebar-panel-left.svg" => ours!("titlebar-panel-left"),
         "icons/titlebar-panel-right.svg" => ours!("titlebar-panel-right"),
+        "icons/titlebar-point-at.svg" => ours!("titlebar-point-at"),
         "icons/titlebar-search.svg" => ours!("titlebar-search"),
         "icons/titlebar-settings.svg" => ours!("titlebar-settings"),
         "icons/titlebar-theme-dark.svg" => ours!("titlebar-theme-dark"),

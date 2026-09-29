@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-09-28
-verified: 2026-09-28
+updated: 2026-09-29
+verified: 2026-09-29
 review_cycle: monthly
 ---
 
@@ -383,7 +383,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G358 | A project cannot refuse the global agent definitions (T-206). Project settings' `Use the global agents` is seeded from whether the project has written any of its own and is the dialog's state thereafter — there is no record of the answer, because a second record of "does this project use the globals" could disagree with the definitions themselves. So a project that wants *only* its own list, with no global on offer at a start aimed there, cannot say so: `SettingsState::definitions_in` always appends the globals a project does not shadow by name, and that is what the New agent form's Agents tab reads. Closing it means a field the host keeps for the project and honours at resolve time, not a tick the dialog remembers | [`features/workbench.md`](./features/workbench.md), [`features/workbench-agents.md`](./features/workbench-agents.md) |
 | G375 | The task panel's show-empty-fields eye (T-255) is unreachable while the panel is drawn as a popup. It sits in the panel's own bar beside the close, which the side panel draws and the centred modal does not — `kit::modal_sized` builds its header from a title and a dismiss and has no slot for a caller's controls, and with `board.popup` on the side panel is an empty page pointing at the toolbar switch. The state is the window's either way, so a reader who works in the popup keeps whatever the side panel was last left on and cannot change it there. Closing it means an actions slot on `modal_sized`'s header, which every modal in the window would then have to keep passing nothing to | [`features/workbench-tasks.md`](./features/workbench-tasks.md), [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G384 | `AppState::close_menu` (`app/shell.rs`) does not clear `WorkbenchState::hidden_agents_menu` (`T-266`), unlike the four menu anchors beside it. Harmless today — the overlay only reads the point while `open_menu` is `MenuId::HiddenAgents`, and every open replaces it — but it is the one anchor in that list that does not reset, so the invariant its field doc states (`Some` exactly while the menu is up) is not literally true. One line in `close_menu`, left out because another change held that file | [`features/workbench.md`](./features/workbench.md) |
-| G385 | The hidden-agents menu and the new-pane menu's Detached group have no test (`T-266`). Both are `AppState::detached_panes` read through `ui::menus`, and no fixture in `crates/ubiq/tests/` creates a pane at all — a pane arrives on `Message::WorkspaceSpawned` and detaching one needs the dock to have settled its panels — so the rows, the empty case and the reattach are covered by reading rather than by a test. Closing it means a fixture that spawns a pane and detaches it, which several other suites would also use | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
+| G385 | The hidden-agents menu and the new-pane menu's Detached group have no test (`T-266`). The Detached group is `AppState::detached_panes` and the hidden-agents menu is `AppState::offscreen_panes`, both read through `ui::menus`, and no fixture in `crates/ubiq/tests/` creates a pane at all — a pane arrives on `Message::WorkspaceSpawned` and detaching one needs the dock to have settled its panels — so the rows, the empty case and the reattach are covered by reading rather than by a test. Closing it means a fixture that spawns a pane and detaches it, which several other suites would also use | [`features/panes-and-terminals.md`](./features/panes-and-terminals.md) |
 
 
 ## Related docs

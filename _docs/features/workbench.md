@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-09-28
-verified: 2026-09-28
+updated: 2026-09-29
+verified: 2026-09-29
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -684,17 +684,31 @@ New agent form directly, picking the chat strip as its surface in IDE mode and t
 everywhere else — the same aim the `+` menu's own first row makes, with that menu's first stage
 skipped. **A narrow chevron is flush against it**, half the width of a control and with no gap, so
 the pair reads as one split button rather than two: it opens the **hidden agents** — every agent
-pane a tab's `Hide` took off the screen, harness still running behind nothing. Each row names the
-harness and the tab's title, and picking one *reattaches* that pane: the panel comes back over the
-screen the harness never stopped writing to, and nothing is respawned. With nothing hidden the menu
-says so in one disabled row rather than opening empty. Then **New terminal**
+pane of the project on screen that the user cannot currently see, harness still running behind
+nothing. **Hidden is out of sight, not merely detached.** A tab's `Hide` is one way there, and a
+pane with no panel at all is the plainest; a pane whose panel the dock still holds is just as
+invisible when the rail mode does not draw it, when the region it sits in has been put away, or
+when a sibling tab is displayed in front of it. All four are the same question — where did my
+agent go — so the menu asks the dock rather than the panel registry: a panel is on screen when its
+region is open, its group displays it, and its own rule says the current mode draws it.
+Each row names the harness and the tab's title, and picking one *reveals* that pane: the region
+comes back if it was away, its group makes that tab the displayed one, and the panel is over the
+screen the harness never stopped writing to — nothing is respawned, and a pane already in front of
+the user does nothing. With nothing hidden the menu says so in one disabled row rather than
+opening empty. Then **New terminal**
 (`IconName::SquareTerminal`) opens the bottom region if it is shut and
 spawns exactly one pane, never two, whether the region was already open or had to be opened onto
-panes still in it. Then the notification bell, then a chevron gathering four controls reached
-occasionally rather than every session — Connect to a remote host, Explore the project in browser
-(needing a project), Capture this window (needing a project and captures offered on this platform),
-and Settings — each row left off whole rather than drawn disabled when its condition fails, in that
-order. Finally the theme switch. The overflow chevron lights while its own menu is open, the rule
+panes still in it. Then the notification bell, feedback, help, and **Point at something**
+(`UbiqIcon::TitlebarPointAt`, the ⇧F1 gesture given a control of its own) — help asks about the
+screen you are standing on, this one waits for you to point at a part of it, so they are neighbours.
+Then **Settings**, and the overflow chevron flush against it as the fifth split button in the row:
+settings is the one thing in that menu reached often enough to stand on the strip, and the chevron
+keeps the rest — Remote hosts and Connect to a remote host, Explore the project in browser (needing
+a project), Capture this window (needing a project and captures offered on this platform), and Help
+— each row left off whole rather than drawn disabled when its condition fails, in that order.
+**Remote hosts is a row rather than a button** for the reason settings is no longer one: the manager
+is consulted when a connection is in question, not every session, and the strip is the scarce thing.
+Finally the theme switch. The overflow chevron lights while its own menu is open, the rule
 every menu-raising control in this strip follows; the bell lights while its list is up, carries a
 badge of what has not been read, and flashes when something arrives —
 [`notifications.md`](./notifications.md) owns all of it.

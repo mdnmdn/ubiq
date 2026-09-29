@@ -787,7 +787,8 @@ fn the_rail_and_titlebar_mark_every_name_phase_3a_claims(cx: &mut gpui::TestAppC
         ui_id::TITLEBAR_NOTIFICATIONS,
         ui_id::TITLEBAR_FEEDBACK,
         ui_id::TITLEBAR_HELP,
-        ui_id::TITLEBAR_REMOTE_HOSTS,
+        ui_id::TITLEBAR_POINT_AT,
+        ui_id::TITLEBAR_SETTINGS,
         ui_id::TITLEBAR_OVERFLOW,
         ui_id::TITLEBAR_THEME,
     ];

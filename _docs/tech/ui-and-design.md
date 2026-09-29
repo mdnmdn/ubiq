@@ -6,7 +6,7 @@ status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
 updated: 2026-09-28
-verified: 2026-09-28
+verified: 2026-09-29
 code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -294,7 +294,7 @@ restyling the shell should be one file to visit.
 | `ICON_SM`, `ICON_MD`, `ICON_LG` | The three icon sizes, read through `theme::icon_sm/md/lg()` and fed to the component library's `Size::Size(px)`. Its own `Size` enum is discrete and does not scale, which is why these exist |
 | `DISPLAY_FONT_SIZE` | The one size off the scale, private and read through `theme::font_display()`: the device-login user code, a number to be read off a screen and typed into a phone rather than a heading |
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The chrome the user cannot drag |
-| `SPLIT_CHEVRON_WIDTH` | The thin half of a split button — the chevron beside New agent that opens the hidden agents. Half an icon button, flush against it with no gap, because the pair has to read as one control with a second way in |
+| `SPLIT_CHEVRON_WIDTH` | The thin half of a split button — every chevron in the titlebar. Half an icon button, flush against the action with no gap, because the pair has to read as one control with a second way in |
 | `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
 | `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The orchestration screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
 | `AGENT_SIDEBAR_WIDTH`, `NEW_COLUMN_STRIP` | The agents screen: the sidebar that lists every agent, and the strip past the last column that a dragged tab is split off into. How narrow a column itself may get is `state::agents::COLUMN_MIN_WIDTH` instead, because that is a fact about a conversation rather than about this window |
@@ -449,11 +449,13 @@ and answer neither pointer nor click, which is why they have their own helper in
 and a 1px rule rather than a gap between them and the `⌘K` field.
 
 **A split button is the one control allowed not to be square.** Where an action has a second, narrower
-way in — New agent and the hidden agents behind it — the chevron is `SPLIT_CHEVRON_WIDTH`, half an
-icon button, set flush against the action with no gap and no rule between them, and the pair is
-wrapped in a group so the row's own hairline spacing falls either side of both rather than between
-them. Narrower *is* the affordance: a second 30px square beside the first reads as two controls.
-It has its own helper in `ui/titlebar.rs` for the reason the back and forward controls do.
+way in, the chevron is `SPLIT_CHEVRON_WIDTH`, half an icon button, set flush against the action with
+no gap and no rule between them, and the pair is wrapped in a group so the row's own hairline spacing
+falls either side of both rather than between them. Narrower *is* the affordance: a second 30px
+square beside the first reads as two controls. It has its own helper in `ui/titlebar.rs` for the
+reason the back and forward controls do, and **every chevron in the titlebar goes through it** — add
+a project, run a tool, new agent, new terminal, and the overflow chevron beside Settings — so the row
+holds one chevron shape rather than a mixture of split halves and square buttons.
 
 Circles survive in exactly one place: state dots, which are dots.
 

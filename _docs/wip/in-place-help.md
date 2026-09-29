@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: An inspector-style help mode — point at any part of the window and read what it is — and the element identity scheme underneath it, which exists to serve personalisation and extensions as much as help. Phases 1 and 2 are built — the `UiId` grammar, a static catalogue of names with a label and a sentence each, a `.ui_id()` element extension feeding a per-frame bounds registry, the deepest-hit lookup, and the targeting mode itself — ⇧F1, a full-window layer, a highlight and a balloon, closed by Escape or its own Done. Phase 3a — marking the rail and the titlebar, every name the catalogue currently holds — is built too, proven by headless render tests against the real elements. The help pages behind the sentences (phase 3b) are still designed here and not written.
 read_when: you are marking up a screen area with a `UiId`, working on the in-place help overlay, or keying anything durable to a place on the screen
-updated: 2026-09-20
-verified: 2026-09-26
+updated: 2026-09-29
+verified: 2026-09-29
 code_anchors: [crates/ubiq/src/state/ui_id.rs, crates/ubiq/src/ui/ident.rs, crates/ubiq/src/ui/help_target.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/tests/ui_id.rs]
 depends_on: [wip-help, feat-workbench, tech-ui, inbox-ui-id]
 ---
@@ -133,7 +133,7 @@ since a `const fn` cannot validate its own argument.
 
 It covers the two areas phase 3a marks: the rail, its mark, its mode column, its project badges and
 one name per `RailMode`; and the titlebar, its project cluster, its command field and each of the
-fourteen actions in its right cluster.
+fifteen actions in its right cluster.
 
 `rail_mode()` maps a `RailMode` to its name through an **exhaustive match written out by hand**,
 not through `RailMode::slug()`. Deriving it would mean that renaming the Rust variant silently moves
@@ -208,7 +208,7 @@ design of its own.
 
 §7 is what it decided. It touches no element outside the overlay itself, as designed.
 
-**Phase 3a — the rail and the titlebar. Built.** Every one of the thirty-four catalogue names
+**Phase 3a — the rail and the titlebar. Built.** Every one of the thirty-eight catalogue names
 carries `.ui_id(...)` on a real element: `crates/ubiq/src/ui/rail.rs` (the rail itself, the mark,
 the modes column, each rail mode, the project badges group) and `crates/ubiq/src/ui/titlebar.rs`
 (the row, the project cluster, back/forward, the command field, the actions cluster and each
@@ -339,12 +339,13 @@ the mode is up rather than "close what I was doing" — which is the right meani
 `escape_takes_in_place_help_before_anything_under_it` also asserts that the stack underneath is
 exactly where it was.
 
-**Two ways in, and F1 keeps its job.** ⇧F1 — beside F1 because it is the same question asked the
+**Three ways in, and F1 keeps its job.** ⇧F1 — beside F1 because it is the same question asked the
 other way round, distinct from it because the answers are different sizes — bound in both the
-`Workbench` and the `Input` contexts the way F1 is, so it works with the caret in a field. And
-**Point at something…** in the titlebar's overflow menu, directly under **Help**. The `?` control
-and F1 are untouched: `reveal_help` opens a page about where you are standing, `open_help_target`
-waits for you to point.
+`Workbench` and the `Input` contexts the way F1 is, so it works with the caret in a field. A
+**Point at something** button now sits on the titlebar strip beside Help (`ui_id::TITLEBAR_POINT_AT`),
+and **Point at something…** stays in the overflow menu too, directly under **Help**. The `?`
+control and F1 are untouched: `reveal_help` opens a page about where you are standing,
+`open_help_target` waits for you to point.
 
 **Two ways out, and a click is neither.** Escape, and a **Done** button in a small bar at the
 bottom right of the overlay — bottom right because the titlebar and the rail are the two areas a

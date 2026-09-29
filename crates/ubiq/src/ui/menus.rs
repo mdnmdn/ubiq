@@ -338,18 +338,20 @@ pub fn new_pane(app: &AppState, cx: &App) -> Vec<MenuEntry> {
 /// [`NO_TOOLS_ROW`]'s reason.
 pub const NO_HIDDEN_AGENTS_ROW: &str = "No hidden agents";
 
-/// The chevron beside New agent: every agent pane a tab's `Hide` took off the screen, with its
-/// harness still running behind it (`T-266`).
+/// The chevron beside New agent: every agent pane of the project on screen the user cannot
+/// currently see, with its harness still running behind it (`T-266`).
 ///
-/// **Hidden is `AppState::detached_panes` narrowed to agents** — the panes whose harness is one
-/// the host offers as an agent type. A shell hidden the same way is the new-pane menu's Detached
-/// group, not this one; there is no second concept and no new message behind it, because a
-/// detach is already the difference between the panes a project holds and the panels drawing
-/// them. Picking a row **reattaches** the live pane: the panel comes back over the emulator that
-/// never stopped, and nothing is respawned.
+/// **Hidden is `AppState::offscreen_panes` narrowed to agents** — the panes whose harness is one
+/// the host offers as an agent type. Hidden means out of sight rather than detached: a tab's
+/// `Hide` is one way there, but so is a rail mode that does not draw the pane, a region the user
+/// put away, and a sibling tab displayed in front of it. The user's question is "where did my
+/// agent go", and all four answers are the same question. A shell out of sight is the new-pane
+/// menu's Detached group, which stays on the narrower `detached_panes` because a pane with no
+/// panel at all is what that group is about. Picking a row **reveals** the live pane: the panel
+/// comes back over the emulator that never stopped, and nothing is respawned.
 pub fn hidden_agents(app: &AppState, cx: &App) -> Vec<MenuEntry> {
     let hidden: Vec<PaneId> = app
-        .detached_panes(cx)
+        .offscreen_panes(cx)
         .into_iter()
         .filter(|&id| {
             app.pane(id)
@@ -402,6 +404,11 @@ pub fn overflow(app: &AppState, cx: &App) -> Vec<MenuEntry> {
     let has_project = app.project(cx).is_some();
     let capture_offered = app.capture_offered(cx);
     vec![
+        // Remote hosts came off the strip when Settings took its place there: the manager is
+        // consulted occasionally, and its own connect action is the row right under it.
+        MenuEntry::new("Remote hosts")
+            .icon(kit::UbiqIcon::HostRemote)
+            .on(|this, _, cx| this.open_remote_manager(cx)),
         MenuEntry::new("Connect to a remote host")
             .icon(kit::UbiqIcon::HostRemote)
             .on(|this, window, cx| this.open_remote_connect(window, cx)),
@@ -419,15 +426,10 @@ pub fn overflow(app: &AppState, cx: &App) -> Vec<MenuEntry> {
             .icon(kit::UbiqIcon::TitlebarHelp)
             .on(|this, window, cx| this.reveal_help(window, cx)),
         // Under Help, because it is the same question the other way round: Help opens the page
-        // for where you are standing, this one waits for you to point at something. The same
-        // glyph, because the registry has no pointer icon — `G294`'s neighbour rather than this
-        // change's business.
+        // for where you are standing, this one waits for you to point at something.
         MenuEntry::new("Point at something\u{2026}")
-            .icon(kit::UbiqIcon::TitlebarHelp)
+            .icon(kit::UbiqIcon::TitlebarPointAt)
             .on(|this, _, cx| this.open_help_target(cx)),
-        MenuEntry::new("Settings")
-            .icon(kit::UbiqIcon::TitlebarSettings)
-            .on(|this, _, cx| this.toggle_settings(cx)),
     ]
 }
 

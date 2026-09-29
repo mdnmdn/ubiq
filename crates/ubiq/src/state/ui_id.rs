@@ -278,7 +278,9 @@ pub const TITLEBAR_SEARCH: UiId = UiId::new("titlebar.search");
 pub const TITLEBAR_NOTIFICATIONS: UiId = UiId::new("titlebar.notifications");
 pub const TITLEBAR_FEEDBACK: UiId = UiId::new("titlebar.feedback");
 pub const TITLEBAR_HELP: UiId = UiId::new("titlebar.help");
-pub const TITLEBAR_REMOTE_HOSTS: UiId = UiId::new("titlebar.remote-hosts");
+pub const TITLEBAR_POINT_AT: UiId = UiId::new("titlebar.point-at");
+/// Settings, and the chevron beside it holding the rest of the occasional commands.
+pub const TITLEBAR_SETTINGS: UiId = UiId::new("titlebar.settings");
 pub const TITLEBAR_OVERFLOW: UiId = UiId::new("titlebar.overflow");
 pub const TITLEBAR_THEME: UiId = UiId::new("titlebar.theme");
 
@@ -322,7 +324,8 @@ pub const CATALOGUE: &[UiId] = &[
     TITLEBAR_NOTIFICATIONS,
     TITLEBAR_FEEDBACK,
     TITLEBAR_HELP,
-    TITLEBAR_REMOTE_HOSTS,
+    TITLEBAR_POINT_AT,
+    TITLEBAR_SETTINGS,
     TITLEBAR_OVERFLOW,
     TITLEBAR_THEME,
 ];
@@ -621,10 +624,17 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         },
     ),
     (
-        TITLEBAR_REMOTE_HOSTS,
+        TITLEBAR_POINT_AT,
         TargetInfo {
-            label: "Remote hosts",
-            blurb: "The machines this window can run panes on, and the state of each connection.",
+            label: "Point at something",
+            blurb: "Point at any part of the window and read what it is (\u{21e7}F1).",
+        },
+    ),
+    (
+        TITLEBAR_SETTINGS,
+        TargetInfo {
+            label: "Settings",
+            blurb: "Accounts, agents, connections and everything else this application keeps.",
         },
     ),
     (
@@ -632,7 +642,7 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         TargetInfo {
             label: "More",
             blurb: "The commands that are wanted occasionally rather than every session — \
-                    connect, export, capture, help and settings.",
+                    remote hosts, connect, export, capture and help.",
         },
     ),
     (

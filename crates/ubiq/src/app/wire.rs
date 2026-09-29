@@ -124,6 +124,34 @@ impl AppState {
             .collect()
     }
 
+    /// Whether the user can actually see a pane right now — not merely whether a panel exists for
+    /// it.
+    ///
+    /// [`Self::pane_has_panel`] answers a registry membership, and a panel can be held without
+    /// being shown: its region put away, a sibling tab displayed instead of it, or the current
+    /// rail mode not drawing it at all. The dock is the only thing that knows which, so it is
+    /// asked — `ui::dock::on_screen` is the one predicate, and no flag beside it can fall out of
+    /// step with the arrangement the user is looking at.
+    pub fn pane_is_visible(&self, pane_id: PaneId, cx: &App) -> bool {
+        self.panels
+            .get(&PanelKind::Terminal(pane_id))
+            .is_some_and(|panel| crate::ui::dock::on_screen(&self.dock, panel, cx))
+    }
+
+    /// Every pane of the project on screen the user cannot currently see.
+    ///
+    /// A superset of [`Self::detached_panes`]: a detached pane has no panel at all, and these are
+    /// every way a pane can be out of sight, panel or no panel. Computed rather than stored, for
+    /// `detached_panes`' reason — the arrangement *is* the answer, and a cached one would be wrong
+    /// the moment a tab or a rail mode changed.
+    pub fn offscreen_panes(&self, cx: &App) -> Vec<PaneId> {
+        self.panes(cx)
+            .iter()
+            .map(|pane| pane.id)
+            .filter(|id| !self.pane_is_visible(*id, cx))
+            .collect()
+    }
+
     /// The project's first pane a panel still draws, skipping `except`.
     ///
     /// Where the keyboard goes when the pane holding it stops being drawn. `except` is for the
@@ -176,14 +204,19 @@ impl AppState {
         cx.notify();
     }
 
-    /// Draw a detached pane again: the panel comes back over the emulator that never stopped, so
-    /// the screen is the one the harness has been writing to all along.
+    /// Draw an out-of-sight pane again: the panel comes back over the emulator that never stopped,
+    /// so the screen is the one the harness has been writing to all along.
     ///
     /// Deliberately not `open_terminal`, which inserts a fresh emulator unconditionally and would
-    /// throw that screen away. Refused for a pane this window does not hold, and for one a panel
-    /// already draws — there is nothing to bring back.
+    /// throw that screen away. Refused for a pane this window does not hold, and for one already
+    /// on screen — there is nothing to bring back.
+    ///
+    /// The guard is [`Self::pane_is_visible`] rather than [`Self::pane_has_panel`] because holding
+    /// a panel is not showing one: a pane whose panel sits in a put-away region or behind a
+    /// sibling tab still has to be revealed, and `Reveal` is already exactly that edit. Only a
+    /// pane the user is looking at is the no-op.
     pub fn reattach_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
-        if self.pane(pane_id).is_none() || self.pane_has_panel(pane_id) {
+        if self.pane(pane_id).is_none() || self.pane_is_visible(pane_id, cx) {
             return;
         }
         // `Reveal` rather than `Open`: the region terminals live in may have been put away since,
