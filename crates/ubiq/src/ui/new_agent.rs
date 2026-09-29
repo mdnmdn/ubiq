@@ -20,6 +20,7 @@ use gpui::{
 };
 use gpui_component::input::Textarea;
 use ubiq_proto::mcp::McpInfo;
+use ubiq_proto::messages::AgentTypeInfo;
 
 use crate::app::{AppState, DialogConfirm, SubmitSearch};
 use crate::state::Layer;
@@ -524,20 +525,18 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
     // form is downstream of — so it is drawn as a question of its own rather than as the first of
     // a column: its label above it, the control the full width of the body, and a gap under it
     // that says everything below is a consequence of this answer.
-    let (target_label, target_note, target_placeholder) = match on_agents {
+    let (target_label, target_note) = match on_agents {
         true => (
             "Agent",
             "A saved setup starts with every answer already given. Customize overrides what it \
              runs on, for this start only.",
-            "Choose an agent\u{2026}",
         ),
         false => (
             "Harness",
             "A harness signed into an account starts fresh, on the answers below.",
-            "Choose a harness\u{2026}",
         ),
     };
-    let offered = target_rows(app, &form, cx);
+    let (offered, target_trigger) = target_control(app, &form, cx);
     // Nothing to choose from says so under the dropdown rather than opening an empty list: on this
     // tab that is a machine with no agent definition written yet, and the settings screen is where
     // one is.
@@ -558,7 +557,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
                 &view,
                 &form,
                 "new-agent-target",
-                target_placeholder,
+                &target_trigger,
                 offered,
                 form.target.clone(),
                 OpenList::Target,
@@ -569,14 +568,22 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
             ))
             // What the chosen definition runs on, and the one control that turns it into rows.
             .children(on_agents.then(|| customize_row(app, &form, cx)))
-            .children((on_agents && empty).then(|| {
+            .children(empty.then(|| {
                 div()
                     .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                     .text_color(theme::text_faint())
-                    .child(
-                        "No agent definitions to start from. Settings \u{203a} Agent definitions \
-                         is where one is written; Harness starts one without a setup.",
-                    )
+                    .child(match on_agents {
+                        true => {
+                            "No agent definitions to start from. Settings \u{203a} Agent \
+                             definitions is where one is written; Harness starts one without a \
+                             setup."
+                        }
+                        // The other tab, and the definition form. Which of the three things is
+                        // wrong is `AppState::no_harness_reason`'s answer — the same sentence the
+                        // settings screen's disabled `Add agent` shows, because it is the same
+                        // question and only one of the three has a fix behind it.
+                        false => app.no_harness_reason(),
+                    })
             })),
     );
 
@@ -584,6 +591,7 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
     // row offers them together and a definition is overridden the same way it was chosen. Drawn only
     // for a definition — a target that is a pair has already answered this.
     if from_definition && engine_shown {
+        let (pairs, pair_trigger) = pair_control(app, &form);
         rows = rows.child(picker_row(
             app,
             &view,
@@ -591,8 +599,8 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
             "new-agent-harness",
             "Harness",
             "Which tool this runs, as whom.",
-            "Choose\u{2026}",
-            pair_rows(app),
+            &pair_trigger,
+            pairs,
             (!form.agent_type.is_empty()).then(|| (form.agent_type.clone(), form.account.clone())),
             OpenList::Harness,
             live,
@@ -1042,7 +1050,7 @@ fn flag_row(
 /// other harness list in the window read the same rows in the same order. A pair whose harness is
 /// not installed here is drawn disabled rather than dropped: "not installed" is worth saying, and
 /// installing it is the fix.
-fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Option<Target>)> {
+pub fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Option<Target>)> {
     // Which project this start is aimed at — the Teams toolbar's override, else the window's
     // active project — because that is what decides which definitions exist for it. A project's own
     // setups are offered here and in no other project, and a global one of the same name is the
@@ -1058,10 +1066,7 @@ fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Op
     // other tab's answer — so it builds its own rows rather than asking `harness_choices` for a
     // grouped list with one group in it. Each row says what the setup runs on, which is the
     // question the tab does not ask again.
-    if matches!(
-        (form.purpose, form.tab),
-        (Purpose::Start, NewAgentTab::Agents)
-    ) {
+    if on_agents_tab(form) {
         return definitions
             .iter()
             .map(|it| {
@@ -1085,8 +1090,19 @@ fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Op
     // Everything else — the Harness tab and the definition form — asks which tool, as whom. No
     // definition is on offer: on one it is the other tab's answer, on the other it is what the
     // form is being written as.
+    //
+    // The harness this form already holds is pinned on where the grouped list does not carry it —
+    // a definition written against a gated ACP wire, most of all — so the trigger shows what the
+    // form holds instead of falling back to "Choose a harness…".
+    let held = match &form.target {
+        Some(Target::Harness {
+            agent_type,
+            account,
+        }) => Some((agent_type.as_str(), account.as_deref())),
+        _ => None,
+    };
     app.workbench
-        .harness_choices(&app.workbench.settings.accounts, &[])
+        .harness_choices(&app.workbench.settings.accounts, &[], held)
         .into_iter()
         .filter_map(|choice| match choice {
             HarnessChoice::Label(label) => Some((label.to_string(), None)),
@@ -1097,7 +1113,7 @@ fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Op
                     agent_type: harness.id.clone(),
                     account: Some(account.clone()),
                 });
-                Some((format!("{} \u{00b7} {account}", harness.label), target))
+                Some((pair_label(harness, Some(&account)), target))
             }
             // The harness on its own default configuration, no account: what an installed harness
             // nobody has signed into runs as, and the account-less twin of the row above — the
@@ -1108,7 +1124,7 @@ fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String, Op
                     agent_type: harness.id.clone(),
                     account: None,
                 });
-                Some((harness.label.clone(), target))
+                Some((pair_label(harness, None), target))
             }
             HarnessChoice::AgentDefinition(_) => None,
         })
@@ -1174,6 +1190,12 @@ fn picker_row<T: Clone + PartialEq + 'static>(
 
 /// The dropdown itself, without the row around it — what the lead question draws at the body's
 /// full width and what [`picker_row`] draws in the right-hand column.
+///
+/// `placeholder` is what the trigger reads when **no drawn row carries `chosen`** — an unanswered
+/// control, for every picker here but one. The harness controls pass the held answer's own label
+/// instead ([`target_control`], [`pair_control`]): a row the list draws but will not let you pick
+/// carries no value, so the answer is real and unfindable at once, and a placeholder there says
+/// the form is empty when it is not.
 #[allow(clippy::too_many_arguments)]
 fn picker_of<T: Clone + PartialEq + 'static>(
     app: &AppState,
@@ -1190,19 +1212,11 @@ fn picker_of<T: Clone + PartialEq + 'static>(
     pick: impl Fn(&mut AppState, T, &mut Window, &mut Context<AppState>) + 'static,
 ) -> Picker {
     let open = enabled && form.open == Some(list);
-    let trigger = rows
-        .iter()
-        .find(|(_, value)| value.is_some() && *value == chosen)
-        .map(|(label, _)| label.clone())
-        .unwrap_or_else(|| placeholder.to_string());
+    let trigger = trigger_label(&rows, &chosen, placeholder);
 
-    // A filter drops the headings with the rows they head: a group line above nothing reads as a
-    // group with nothing in it.
     let needle = app.picker_search.read(cx).value().trim().to_lowercase();
     let shown: Vec<(String, Option<T>)> = if open && !needle.is_empty() {
-        rows.into_iter()
-            .filter(|(label, value)| value.is_some() && subsequence(&needle, label))
-            .collect()
+        filtered_rows(rows, &needle)
     } else {
         rows
     };
@@ -1259,14 +1273,148 @@ fn picker_of<T: Clone + PartialEq + 'static>(
     picker
 }
 
+/// What a picker's trigger reads: the label of the row carrying its answer, or `unmatched` where
+/// no drawn row carries it.
+///
+/// Its own function because the form is not the only thing that has to know — a test standing
+/// where the form stands asserts what the control says, not what the list contains, and the two
+/// are exactly what finding 3 pulled apart.
+pub fn trigger_label<T: PartialEq>(
+    rows: &[(String, Option<T>)],
+    chosen: &Option<T>,
+    unmatched: &str,
+) -> String {
+    rows.iter()
+        .find(|(_, value)| value.is_some() && value == chosen)
+        .map(|(label, _)| label.clone())
+        .unwrap_or_else(|| unmatched.to_string())
+}
+
+/// The rows left after the search box, with each surviving group's heading still on it.
+///
+/// Filtering on the values alone dropped every heading and every hairline, which on this list is
+/// not a cosmetic loss: `Already chosen` is the only thing saying the pinned row is what the form
+/// holds rather than one more offer, and a search that removed it turned it back into an offer.
+///
+/// So a group keeps its heading exactly while it still has a row, and the hairlines are dropped
+/// and put back **between** whichever groups survive — never leading, never trailing, never two in
+/// a row.
+fn filtered_rows<T>(rows: Vec<(String, Option<T>)>, needle: &str) -> Vec<(String, Option<T>)> {
+    let mut groups: Vec<Vec<(String, Option<T>)>> = vec![Vec::new()];
+    for row in rows {
+        // A heading with no words is the hairline, and it is the group boundary rather than a row
+        // of any group.
+        if row.1.is_none() && row.0.is_empty() {
+            groups.push(Vec::new());
+        } else {
+            groups
+                .last_mut()
+                .expect("a group is always open")
+                .push(row);
+        }
+    }
+
+    let mut out: Vec<(String, Option<T>)> = Vec::new();
+    for group in groups {
+        let (headings, offers): (Vec<_>, Vec<_>) =
+            group.into_iter().partition(|(_, value)| value.is_none());
+        let offers: Vec<_> = offers
+            .into_iter()
+            .filter(|(label, _)| subsequence(needle, label))
+            .collect();
+        if offers.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push((String::new(), None));
+        }
+        out.extend(headings);
+        out.extend(offers);
+    }
+    out
+}
+
+/// How a harness-and-identity reads in a row, and on the trigger above it. One function because a
+/// trigger that labelled the pair differently from the row it names would read as a second answer.
+fn pair_label(harness: &AgentTypeInfo, account: Option<&str>) -> String {
+    match account {
+        Some(account) => format!("{} \u{00b7} {account}", harness.label),
+        None => harness.label.clone(),
+    }
+}
+
+/// The label for the harness-and-identity the form holds, whether or not any row will let you pick
+/// it. `None` where the harness is not one this build was told about — an answer nothing can name.
+fn held_harness_label(app: &AppState, form: &NewAgentForm) -> Option<String> {
+    let harness = app.workbench.agent_type(&form.agent_type)?;
+    Some(pair_label(harness, form.account.as_deref()))
+}
+
+/// The first control, as the form draws it: the rows, and what its trigger reads above them.
+///
+/// The two come back together because they are one answer to one question, and splitting them is
+/// how the trigger came to say "Choose a harness…" over a list whose last row was the very thing
+/// the form held. A test that stands where the form stands calls this, not [`target_rows`].
+pub fn target_control(
+    app: &AppState,
+    form: &NewAgentForm,
+    cx: &App,
+) -> (Vec<(String, Option<Target>)>, String) {
+    let rows = target_rows(app, form, cx);
+    let trigger = match on_agents_tab(form) {
+        true => trigger_label(&rows, &form.target, "Choose an agent\u{2026}"),
+        // A harness the list draws unpickable — uninstalled, or a gated ACP wire — is still what
+        // the form holds, so the trigger names it rather than falling back.
+        false => {
+            let held = matches!(form.target, Some(Target::Harness { .. }))
+                .then(|| held_harness_label(app, form))
+                .flatten();
+            trigger_label(
+                &rows,
+                &form.target,
+                held.as_deref().unwrap_or("Choose a harness\u{2026}"),
+            )
+        }
+    };
+    (rows, trigger)
+}
+
+/// The harness override on a definition form, the same way: its rows and its trigger.
+pub fn pair_control(app: &AppState, form: &NewAgentForm) -> (Vec<(String, Option<Pair>)>, String) {
+    let rows = pair_rows(app, form);
+    let chosen =
+        (!form.agent_type.is_empty()).then(|| (form.agent_type.clone(), form.account.clone()));
+    let held = held_harness_label(app, form);
+    let trigger = trigger_label(
+        &rows,
+        &chosen,
+        held.as_deref().unwrap_or("Choose\u{2026}"),
+    );
+    (rows, trigger)
+}
+
+/// Whether the form is asking *which saved agent* rather than *which tool, as whom* — the Agents
+/// tab of a start, and nothing else: a definition form has no tabs and always asks the second.
+fn on_agents_tab(form: &NewAgentForm) -> bool {
+    matches!(
+        (form.purpose, form.tab),
+        (Purpose::Start, NewAgentTab::Agents)
+    )
+}
+
 /// Every harness-and-identity this machine has signed in, labelled as the first row labels them —
 /// then every harness it has not, on its own default configuration.
 ///
 /// The same rows, read the same way, so overriding a definition's harness is the same gesture as
 /// choosing one: a definition written against a bare harness is exactly what starting one is.
-fn pair_rows(app: &AppState) -> Vec<(String, Option<Pair>)> {
+///
+/// The pair the form holds is pinned on where the list does not otherwise offer it, so this
+/// control never reads as unanswered while the form is answered.
+pub fn pair_rows(app: &AppState, form: &NewAgentForm) -> Vec<(String, Option<Pair>)> {
+    let held =
+        (!form.agent_type.is_empty()).then(|| (form.agent_type.as_str(), form.account.as_deref()));
     app.workbench
-        .harness_choices(&app.workbench.settings.accounts, &[])
+        .harness_choices(&app.workbench.settings.accounts, &[], held)
         .into_iter()
         .filter_map(|choice| match choice {
             HarnessChoice::Label(label) => Some((label.to_string(), None)),
@@ -1276,12 +1424,12 @@ fn pair_rows(app: &AppState) -> Vec<(String, Option<Pair>)> {
                 let value = harness
                     .available
                     .then(|| (harness.id.clone(), Some(account.clone())));
-                Some((format!("{} \u{00b7} {account}", harness.label), value))
+                Some((pair_label(harness, Some(&account)), value))
             }
             HarnessChoice::Harness(harness) => {
                 let harness = app.workbench.agent_types.get(harness)?;
                 let value = harness.available.then(|| (harness.id.clone(), None));
-                Some((harness.label.clone(), value))
+                Some((pair_label(harness, None), value))
             }
             HarnessChoice::AgentDefinition(_) => None,
         })

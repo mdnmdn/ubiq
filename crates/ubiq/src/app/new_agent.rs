@@ -187,9 +187,12 @@ impl AppState {
                 && self.workbench.harness_offered(it)
         })?;
         // No identity is a row of its own now — the `Default` group — so a remembered start that
-        // named none reopens on it. One that named an identity still has to find it: an account
-        // signed out since is a row the list no longer draws, and a target with no row is a form
-        // opened on an answer it cannot show.
+        // named none reopens on it. One that named an identity still has to find it, and not
+        // because the list would fail to draw it: `harness_choices` pins whatever a form holds, so
+        // a signed-out pair *would* be drawn, under `Already chosen`. It is that the pair is no
+        // longer startable — there is no login behind it — and reopening the form on it would
+        // offer a start that cannot begin. So the form opens unanswered instead, which is the
+        // honest state.
         let Some(account) = last.account.clone() else {
             return Some(Target::Harness {
                 agent_type: harness.id.clone(),
@@ -284,6 +287,19 @@ impl AppState {
                 },
                 None,
             ) => {
+                // Picking the answer the form already holds is a no-op, exactly as it is on the
+                // harness override ([`Self::pick_new_agent_pair`]). Without this the arm below
+                // rebuilt the form from defaults, so re-picking your own harness silently threw
+                // away the model, the level, the mode, the subagent cap, the MCPs, the skills, the
+                // prompt, the description, the scope and the switched-off flag — and a definition
+                // form then saved that gutted record over the one being edited. The guard is on
+                // the whole target, not on the pair alone: a definition form whose harness
+                // override happens to name the same pair is still being re-targeted onto the bare
+                // harness, and that is a real change.
+                if form.target.as_ref() == Some(&target) {
+                    self.close_new_agent_list(window, cx);
+                    return;
+                }
                 let (agent_type, account) = (agent_type.clone(), account.clone());
                 *form = NewAgentForm {
                     target: Some(target.clone()),

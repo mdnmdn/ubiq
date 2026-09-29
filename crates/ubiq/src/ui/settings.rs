@@ -1675,9 +1675,10 @@ fn harness_list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .contains_key(&info.id);
             let discovered = info.available && !custom;
             // A harness row runs as nobody, so the reading it shows is its first signed-in
-            // identity's — the same figure that identity's own block draws, not a second one. With
-            // no identity there is nothing to read and the row says what the harness itself can
-            // state, which `harness_quota` already has the words for.
+            // identity's — the same figure that identity's own block draws, not a second one, and
+            // named as that identity's rather than left to read as the harness's own total. With
+            // no identity there is nothing to read at all, which `harness_quota` says in as many
+            // words.
             let account = app
                 .workbench
                 .settings
@@ -1724,7 +1725,14 @@ fn harness_list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                                 .children(capabilities_button(app, &info.id, cx)),
                         ),
                 )
-                .child(harness_quota(app, account.as_deref(), &info.id, now_ms, cx))
+                .child(harness_quota(
+                    app,
+                    account.as_deref(),
+                    &info.id,
+                    now_ms,
+                    QuotaScope::Harness,
+                    cx,
+                ))
                 .into_any_element()
         }))
         .into_any_element()
@@ -1778,8 +1786,9 @@ pub(crate) fn add_definition_button(
                 "Add agent",
                 |_, _, _| {},
             ))
-            .tooltip(|window, cx| {
-                gpui_component::tooltip::Tooltip::new(AppState::NO_HARNESS_REASON).build(window, cx)
+            .tooltip({
+                let reason = app.no_harness_reason();
+                move |window, cx| gpui_component::tooltip::Tooltip::new(reason).build(window, cx)
             })
             .into_any_element();
     }
@@ -2291,7 +2300,14 @@ fn account_block(
                     .flex()
                     .flex_col()
                     .child(harness_row(app, &id, agent_type, now_ms, cx))
-                    .child(harness_quota(app, Some(&id), agent_type, now_ms, cx))
+                    .child(harness_quota(
+                        app,
+                        Some(&id),
+                        agent_type,
+                        now_ms,
+                        QuotaScope::Account,
+                        cx,
+                    ))
                     .into_any_element()
             })
             .collect()
@@ -2410,6 +2426,43 @@ fn harness_row(
         .into_any_element()
 }
 
+/// Which section a quota block is drawn in. Two things turn on it, and both are why this is a
+/// parameter rather than something the block could work out for itself.
+///
+/// **Element ids.** `Installed` and `Accounts` are two sections of one page, drawn in one frame
+/// with no id-bearing element between them, and the same `(account, harness)` pair reaches both —
+/// the harness row shows its first signed-in identity's reading. Two blocks built from the same
+/// id are one `GlobalElementId`, and the two `Refresh` buttons then share hover and press state.
+///
+/// **Whose figures these are.** Under `Accounts` the block sits inside the account's own header,
+/// so naming the identity again would be saying it twice. Under `Installed` the row is the
+/// harness, which runs as nobody, and an unattributed gauge there reads as the harness's own
+/// total rather than as one login's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuotaScope {
+    /// A harness row under `Installed`, drawn on its first signed-in identity.
+    Harness,
+    /// One login under the account it belongs to.
+    Account,
+}
+
+impl QuotaScope {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Harness => "harness",
+            Self::Account => "account",
+        }
+    }
+
+    /// The identity the figures belong to, where the section around them has not already said it.
+    fn whose(self, account: &str) -> String {
+        match self {
+            Self::Harness => format!("{account} \u{b7} "),
+            Self::Account => String::new(),
+        }
+    }
+}
+
 /// How much of one login's plan is left: a row per window the provider states, then the plan,
 /// the age of the reading and a refresh.
 ///
@@ -2419,15 +2472,15 @@ fn harness_row(
 /// answer about the provider instead.
 ///
 /// `account` is `None` where the surface has no identity in hand — a **harness** row under
-/// `Installed`, which runs as nobody. Then what is drawn is the harness's own capability line and
+/// `Installed` that nobody has signed into. Then what is drawn is one sentence saying so and
 /// nothing else: no gauges, because a gauge is a reading of one login, and no `Refresh`, because
-/// there is no login to ask. The sentences are the ones the account case already uses for the same
-/// facts, which is the whole reason this is one function rather than two presentations of it.
+/// there is no login to ask.
 fn harness_quota(
     app: &AppState,
     account: Option<&str>,
     agent_type: &str,
     now_ms: i64,
+    scope: QuotaScope,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let note = |text: String, colour| {
@@ -2456,20 +2509,15 @@ fn harness_quota(
             .into_any_element();
     }
 
-    // No identity: the harness reports a limit, but a limit is always somebody's. Say which of the
-    // two routes it states it by and stop — the gauges and the refresh below both need a login.
+    // No identity: the harness reports a limit, but a limit is always somebody's. Say that, and
+    // stop. Not "Not read yet." — there is no `Refresh` on this block and nothing for one to ask,
+    // so a sentence implying a reading is pending is an invitation to do something impossible.
     let Some(account) = account else {
         return div()
             .pl_2()
             .pb_1()
             .child(note(
-                if source.probeable() {
-                    "Not read yet.".to_string()
-                } else {
-                    "Read while a turn runs \u{2014} this harness states its window unasked and \
-                     offers no way to ask."
-                        .to_string()
-                },
+                "Nobody is signed in \u{2014} a plan is always some identity's.".to_string(),
                 theme::text_faint(),
             ))
             .into_any_element();
@@ -2525,16 +2573,21 @@ fn harness_quota(
             .text_color(theme::text_faint())
             .child(SharedString::from(match snapshot {
                 Some(snapshot) => format!(
-                    "plan {} \u{b7} read {} ago",
+                    "{}plan {} \u{b7} read {} ago",
+                    scope.whose(account),
                     snapshot.plan.as_deref().unwrap_or("\u{2014}"),
                     magnitude(now_ms - snapshot.as_of * 1000)
                 ),
-                None => "plan \u{2014}".to_string(),
+                None => format!("{}plan \u{2014}", scope.whose(account)),
             })),
     );
     foot = foot.child(ghost_button(
         ElementId::Name(
-            format!("app-settings-account-{account}-{agent_type}-quota-refresh").into(),
+            format!(
+                "app-settings-{}-{account}-{agent_type}-quota-refresh",
+                scope.tag()
+            )
+            .into(),
         ),
         None,
         "Refresh",

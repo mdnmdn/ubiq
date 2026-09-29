@@ -1010,10 +1010,15 @@ crosses the bus).
 
 **A harness row carries the same plan readout an identity's row does**, drawn by the same function
 (`ui::settings::harness_quota`) rather than a second presentation of the same facts. A harness runs
-as nobody, so the reading shown is its **first signed-in identity's**; with no identity at all the
-row draws the harness's own capability line — the sentence for a provider that states no limit, for
-one that can be asked but has not been, or for one that only states its window during a turn — and
-no gauges and no Refresh, because both are readings of a login.
+as nobody, so the reading shown is its **first signed-in identity's, named as that identity's** —
+`ui::settings::QuotaScope` is what the caller says which section it is drawing in, and under
+`Installed` the foot line leads with the account, because an unattributed gauge on a harness row
+reads as the harness's own total and the Refresh beside it fires for one login. The same
+discriminant keeps the two blocks' element ids apart: the same `(account, harness)` pair reaches
+both sections in one frame, and two identical ids are one `GlobalElementId` with hover and press
+shared between the two Refresh buttons. With **no identity at all** the row says only that — nobody
+is signed in, and a plan is always some identity's — and draws no gauges and no Refresh, because
+both are readings of a login. A harness that states no limit anything can read still says so.
 
 **Each ACP harness that is a second wire onto a tool with a native one gets a switch at the end of
 the section, off by default.** "Enable Claude Code ACP", "Enable Codex ACP" —
@@ -1150,9 +1155,13 @@ is one message rather than a read and a save.
 **`Add agent` is drawn unavailable where the host would refuse it.** A definition names a harness,
 so a machine with none has nothing one could run and `Agents::save_definition` rejects a *create*
 (never an edit: a machine that lost its harness must still be able to repair what it wrote). The
-interface asks the same question of `AgentTypeInfo::available` and draws the button faint, taking
-no click, with the reason on its hover. A refusal the interface can see coming is drawn, not
-waited for.
+interface asks the same question of `AgentTypeInfo::available` — **and of
+`WorkbenchState::harness_offered`**, because a harness the pickers do not list is one the form
+could not name either: a machine whose only installed harness is a gated ACP sibling opened a form
+with an empty harness picker and nothing saying why. It draws the button faint, taking no click,
+with the reason on its hover, and the reason names both fixes — install a harness, or switch on a
+tool's ACP wire — since both are a section away on the screen the button is on. A refusal the
+interface can see coming is drawn, not waited for.
 
 **The agent definition form is the New agent form with a name field above it.** An agent definition is a saved answer
 to the questions a start asks, so it asks them with the same rows, drawn from the same

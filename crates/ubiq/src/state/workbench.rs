@@ -1091,10 +1091,21 @@ impl WorkbenchState {
     /// **An ACP harness whose flag is off is omitted entirely too**, for the third reason:
     /// [`Self::acp_sibling_gated`] — the native sibling is the row, and the second wire is not
     /// something the reader is meant to act on here.
+    ///
+    /// **`held` is the answer a form already holds, pinned on where the list does not otherwise
+    /// carry it.** Every omission above is right for an answer still being given and wrong for one
+    /// already given: a definition written against `claude-code-acp` keeps running it when the
+    /// switch goes off — that is deliberate — but a picker that cannot find its own value falls
+    /// back to its placeholder, so the form reads as empty while it is not, and a user filling the
+    /// apparently-empty row silently re-targets the definition. The pinned row goes last, under
+    /// `Already chosen`, which says it is what this form holds rather than something on offer.
+    /// Pinning here rather than at each surface is what keeps the list a frame draws and the list
+    /// a pick resolves against one list built once.
     pub fn harness_choices(
         &self,
         accounts: &[AccountInfo],
         definitions: &[AgentDefinition],
+        held: Option<(&str, Option<&str>)>,
     ) -> Vec<HarnessChoice> {
         let conversable: Vec<usize> = self
             .agent_types
@@ -1153,7 +1164,34 @@ impl WorkbenchState {
             rows.push(HarnessChoice::Label("Defined".into()));
             rows.extend((0..definitions.len()).map(HarnessChoice::AgentDefinition));
         }
+        if let Some(pinned) = held
+            .and_then(|(agent_type, account)| self.held_choice(agent_type, account))
+            .filter(|pinned| !rows.contains(pinned))
+        {
+            if !rows.is_empty() {
+                rows.push(HarnessChoice::Separator);
+            }
+            rows.push(HarnessChoice::Label("Already chosen".into()));
+            rows.push(pinned);
+        }
         rows
+    }
+
+    /// The row an answer a form already holds would be, whether or not anything offers it.
+    /// `None` only where the harness itself is gone — an id this build was never told about is an
+    /// answer no row could draw.
+    fn held_choice(&self, agent_type: &str, account: Option<&str>) -> Option<HarnessChoice> {
+        let harness = self
+            .agent_types
+            .iter()
+            .position(|info| info.id == agent_type)?;
+        Some(match account {
+            Some(account) => HarnessChoice::Pair {
+                harness,
+                account: account.to_string(),
+            },
+            None => HarnessChoice::Harness(harness),
+        })
     }
 
     /// The **native** harness that is the same underlying tool as this ACP one, where there is
@@ -1287,7 +1325,7 @@ mod tests {
         let state = with(vec![harness("claude-code", true), harness("codex", true)]);
 
         assert_eq!(
-            state.harness_choices(&[], &[]),
+            state.harness_choices(&[], &[], None),
             vec![
                 HarnessChoice::Label("Default".into()),
                 HarnessChoice::Harness(0),
@@ -1303,7 +1341,7 @@ mod tests {
         let state = with(vec![harness("codex", false)]);
 
         assert_eq!(
-            state.harness_choices(&[], &[]),
+            state.harness_choices(&[], &[], None),
             vec![
                 HarnessChoice::Label("Default".into()),
                 HarnessChoice::Harness(0),
@@ -1314,7 +1352,7 @@ mod tests {
     /// With nothing installed at all there is no list. An empty heading is worse than none.
     #[test]
     fn no_harness_at_all_offers_nothing() {
-        assert_eq!(with(Vec::new()).harness_choices(&[], &[]), Vec::new());
+        assert_eq!(with(Vec::new()).harness_choices(&[], &[], None), Vec::new());
     }
 
     /// Signing in is what puts a harness in `Configured` — and takes it out of `Default`, which is
@@ -1328,7 +1366,7 @@ mod tests {
         ];
 
         assert_eq!(
-            state.harness_choices(&accounts, &[]),
+            state.harness_choices(&accounts, &[], None),
             vec![
                 HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
@@ -1359,7 +1397,7 @@ mod tests {
         ];
 
         assert_eq!(
-            state.harness_choices(&accounts, &[]),
+            state.harness_choices(&accounts, &[], None),
             vec![
                 HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
@@ -1388,7 +1426,7 @@ mod tests {
         ];
 
         assert_eq!(
-            state.harness_choices(&[], &definitions),
+            state.harness_choices(&[], &definitions, None),
             vec![
                 HarnessChoice::Label("Default".into()),
                 HarnessChoice::Harness(0),
@@ -1407,7 +1445,7 @@ mod tests {
         let state = with(vec![harness("claude-code", true), harness("codex", true)]);
         let accounts = [account("mdn", &["codex"])];
 
-        let rows = state.harness_choices(&accounts, &[]);
+        let rows = state.harness_choices(&accounts, &[], None);
         assert_eq!(
             rows[1],
             HarnessChoice::Pair {
@@ -1432,7 +1470,7 @@ mod tests {
         let accounts = [account("mdn", &["claude-code", "grok", "codex"])];
 
         assert_eq!(
-            state.harness_choices(&accounts, &[]),
+            state.harness_choices(&accounts, &[], None),
             vec![
                 HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
@@ -1457,7 +1495,7 @@ mod tests {
         let state = with(vec![grok]);
         let accounts = [account("mdn", &["grok"])];
 
-        assert_eq!(state.harness_choices(&accounts, &[]), Vec::new());
+        assert_eq!(state.harness_choices(&accounts, &[], None), Vec::new());
     }
 
     fn acp(id: &str) -> AgentTypeInfo {
@@ -1516,7 +1554,7 @@ mod tests {
         assert!(state.acp_sibling_gated(&state.agent_types[1]));
         assert!(!state.harness_offered(&state.agent_types[1]));
         assert_eq!(
-            state.harness_choices(&accounts, &[]),
+            state.harness_choices(&accounts, &[], None),
             vec![
                 HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
@@ -1539,7 +1577,7 @@ mod tests {
 
         assert!(state.harness_offered(&state.agent_types[1]));
         assert_eq!(
-            state.harness_choices(&accounts, &[]),
+            state.harness_choices(&accounts, &[], None),
             vec![
                 HarnessChoice::Label("Configured".into()),
                 HarnessChoice::Pair {
@@ -1561,7 +1599,7 @@ mod tests {
 
         assert!(!state.acp_sibling_gated(&state.agent_types[0]));
         assert_eq!(
-            state.harness_choices(&[], &[]),
+            state.harness_choices(&[], &[], None),
             vec![
                 HarnessChoice::Label("Default".into()),
                 HarnessChoice::Harness(0),

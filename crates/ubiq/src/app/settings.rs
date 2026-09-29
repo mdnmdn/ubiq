@@ -1637,13 +1637,54 @@ impl AppState {
     /// host refuses to write one. The screens ask this before drawing `Add agent`: a control that
     /// is going to be refused is drawn unavailable with the reason on it, not left live to fail
     /// after the click.
+    ///
+    /// **Available is not enough — the harness has to be one the picker will list.** A machine
+    /// whose only installed harness is a gated ACP sibling (its native twin listed but not
+    /// installed) answered yes here and opened a form whose harness picker was empty, with nothing
+    /// saying why. So this is the harness picker's own predicate, term for term — `chat` and
+    /// [`crate::state::WorkbenchState::harness_offered`], the `conversable` filter inside
+    /// `harness_choices`, plus `available`, which that list keeps as a disabled row and a form
+    /// cannot write against. Anything less lets a button open a form with nothing to pick.
     pub fn can_write_definition(&self) -> bool {
-        self.workbench.agent_types.iter().any(|it| it.available)
+        self.workbench
+            .agent_types
+            .iter()
+            .any(|it| it.chat && it.available && self.workbench.harness_offered(it))
     }
 
-    /// Why `Add agent` is unavailable, for the tooltip on the control that is not offering it.
-    pub const NO_HARNESS_REASON: &'static str = "No harness is configured on this machine \u{2014} add one under Harnesses before writing \
-         an agent definition.";
+    /// Why nothing can be picked, where nothing can — the tooltip on the `Add agent` that is not
+    /// offering itself, and the note under a harness picker with no rows. Three states, because
+    /// three different things are wrong and only two of them have a fix:
+    ///
+    /// - nothing installed at all,
+    /// - installed, but the only one is an ACP wire whose switch is off,
+    /// - installed and switched on, but the only one has no structured bridge, so it cannot hold a
+    ///   conversation at all. It still runs in a pane; nothing can be *started* from it, and there
+    ///   is nothing the reader can do about that.
+    ///
+    /// The gated case is named ahead of the unconversable one where both are true: it is the one
+    /// with a switch behind it.
+    pub fn no_harness_reason(&self) -> &'static str {
+        let available: Vec<_> = self
+            .workbench
+            .agent_types
+            .iter()
+            .filter(|it| it.available)
+            .collect();
+        if available
+            .iter()
+            .any(|it| !self.workbench.harness_offered(it))
+        {
+            "The only harness installed here is a tool's ACP wire, and it is switched off \u{2014} \
+             Settings \u{203a} Harnesses is where it is switched on."
+        } else if !available.is_empty() {
+            "The harness installed here cannot hold a conversation \u{2014} it runs in a pane, but \
+             nothing can be started from it. Settings \u{203a} Harnesses is where another is \
+             installed."
+        } else {
+            "No harness is installed \u{2014} Settings \u{203a} Harnesses is where one is added."
+        }
+    }
 
     // ── Connectors ──────────────────────────────────────────────────
 

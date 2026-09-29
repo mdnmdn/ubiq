@@ -46,8 +46,10 @@ impl NewAgentTab {
     }
 }
 
-/// The first answer: a harness signed into an identity, or a saved setup. Two groups in one list,
-/// separated — the two [`crate::state::WorkbenchState::harness_choices`] already offers.
+/// The first answer: a harness signed into an identity, a harness on its own, or a saved setup.
+/// The groups are whichever ones [`crate::state::WorkbenchState::harness_choices`] has rows for —
+/// `Configured`, `Default`, `Defined`, and `Already chosen` for an answer the form holds that the
+/// others do not carry — separated, in that order.
 ///
 /// A harness row carries the identity with it rather than leaving it to a second question,
 /// because a harness and the account it runs as is the pair the interface calls a harness: the
@@ -56,8 +58,9 @@ impl NewAgentTab {
 pub enum Target {
     Harness {
         agent_type: String,
-        /// `None` is "whichever identity the harness would use itself". Not on offer in the target
-        /// list for now — every row there names an account — but a definition may still carry one.
+        /// `None` is "whichever identity the harness would use itself" — a row of its own in the
+        /// target list, the `Default` group, which is every installed harness no account has
+        /// signed into.
         account: Option<String>,
     },
     AgentDefinition(String),

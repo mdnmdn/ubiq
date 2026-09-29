@@ -126,7 +126,7 @@ harness with no structured bridge (Grok) can draw a pane's screen but has nothin
 new-pane row at all** — that menu offers the terminals that are not agents, and starting one is
 this form's job.
 
-What survives is two groups, in this order. **`Configured`** is one row per harness-and-identity
+What survives is these groups, in this order. **`Configured`** is one row per harness-and-identity
 signed in — `HarnessChoice::Pair`, the pair the interface calls a harness — because a pairing the
 user set up is the first thing worth offering. **`Default`** is one row per remaining harness, the
 ones no account has signed into: `HarnessChoice::Harness`, which names no account, so the run uses
@@ -148,6 +148,17 @@ them ask, so the list a frame draws and the list a pick resolves against cannot 
 pairing is read off the harness list rather than written down here — an ACP harness whose id minus
 `-acp` names a harness that exists and is not itself ACP (`WorkbenchState::native_sibling`) — so a
 tool whose only wire is ACP has no switch and is never gated.
+
+**A form keeps showing the answer it already holds, gated or not — `Already chosen`.** Gating is
+about answers still being given; a definition written against `claude-code-acp` before the switch
+went off keeps running it, deliberately. But a picker resolves its trigger label by finding its
+value among the rows it drew, so an answer no row carried fell back to `Choose a harness…`: the
+form reported itself empty while `agent_type` still held the harness, and a user filling the
+apparently-empty row silently re-targeted the definition. So `harness_choices` takes the pair the
+form holds and, where no group already carries it, pins it last under an **`Already chosen`**
+heading — a heading rather than a bare row, so it does not read as an offer to a new definition.
+The pin is in `harness_choices` and not at each surface because a row list and the pick behind it
+are matched by position: one list, built once, is what keeps them from disagreeing.
 
 **An agent definition is a saved answer to the same questions**, which is why the settings page's agent definition
 form is this same form with a different `Purpose`: no tabs and no agent definition row in the
