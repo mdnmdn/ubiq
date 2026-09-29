@@ -147,8 +147,13 @@ fn skills(&self) -> Result<Vec<SkillEntry>>;
 fn mcps(&self) -> Result<Vec<McpEntry>>;
 fn skill(&self, id: &str) -> Result<Option<SkillEntry>>;  // default: filter skills()
 fn mcp(&self, id: &str) -> Result<Option<McpEntry>>;      // default: filter mcps()
-// SkillEntry { id, source: Source, meta: SkillMeta }
+// SkillEntry { id, source: Source, meta: SkillMeta, origin: SkillOrigin }
 ```
+
+**`registry::CatalogStore`** — the writable side of a `Registry` (link/install/remove skills,
+put/remove MCPs, skill sources). `FsRegistry` implements it; a database-backed catalog implements
+it too and gets `remote::install_remote` and the `am skill` / `am mcp` logic for free. See
+[registry.md](./registry.md#managing-the-catalog-catalogstore).
 
 FS impl: `registry::FsRegistry`, rooted at a catalog dir (`AM_CATALOG` /
 `~/.config/agent-manager/catalog`; see [registry.md](./registry.md)). A

@@ -20,7 +20,7 @@ use crate::state::RailMode;
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{
-    git, handler, kit, new_agent, new_mission, rail, remote_connect, remote_hosts, ribbon,
+    catalog, git, handler, kit, new_agent, new_mission, rail, remote_connect, remote_hosts, ribbon,
     settings, status_bar, titlebar,
 };
 
@@ -230,6 +230,40 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .definition_form
                 .as_ref()
                 .map(|_| settings::definition_form(app, window, cx)),
+        )
+        // The catalog's four modals, raised from the Skills and MCP servers pages — in the rung
+        // order `Layer` declares, so the registry search sits over the form that may have raised
+        // it.
+        .children(
+            app.workbench
+                .settings
+                .catalog
+                .browse
+                .as_ref()
+                .map(|_| catalog::skill_browse(app, window, cx)),
+        )
+        .children(
+            app.workbench
+                .settings
+                .catalog
+                .add_source
+                .then(|| catalog::add_source(app, window, cx)),
+        )
+        .children(
+            app.workbench
+                .settings
+                .catalog
+                .form
+                .as_ref()
+                .map(|_| catalog::mcp_form(app, window, cx)),
+        )
+        .children(
+            app.workbench
+                .settings
+                .catalog
+                .registry
+                .as_ref()
+                .map(|_| catalog::mcp_registry(app, window, cx)),
         )
         // The accounts section's rename, delete or sign-out question — painted after the login
         // modal for the same reason that one is painted after the settings page: each can be up

@@ -12,6 +12,7 @@ pub mod a2ui;
 pub mod agents;
 pub mod ask;
 pub mod board;
+pub mod catalog;
 pub mod chat;
 pub mod clone;
 pub mod conversation;

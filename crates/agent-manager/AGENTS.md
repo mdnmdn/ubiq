@@ -98,7 +98,11 @@ agent-manager/
     ├── resolve.rs         # (flags + settings + catalog) → RunSpec, replace-by-default (core)
     ├── registry/          # the catalog (core)
     │   ├── mod.rs         #   Registry trait, entries, OverlayRegistry, root resolution
-    │   ├── fs.rs          #   FsRegistry (catalog.toml + mcp/*.json + skills/*/)
+    │   ├── fs.rs          #   FsRegistry (catalog.toml + mcp/*.json + skills/*/ + [[skill]]/[[skill_dir]])
+    │   ├── manage.rs      #   CatalogStore (the write side) implemented for FsRegistry
+    │   ├── remote.rs      #   skill sources: git clone cache, search, install_remote, index parser
+    │   ├── mcp_parse.rs   #   parse_mcp_config: any harness's pasted MCP config
+    │   ├── mcp_registry.rs#   official MCP registry client + McpDraft mapping (feature: remote)
     │   └── import.rs      #   read-only ingest of ~/.claude, ~/.agent, project dirs
     ├── account.rs         # AccountStore trait (login_source/login_home/capture_login/rename_account/delete_account/sign_out) + FsAccountStore + login_validity (core, P2)
     ├── credentials/       # harness-scoped credential storage (core)
@@ -139,6 +143,8 @@ agent-manager/
     │   ├── mod.rs         #   dispatch: reserved words vs `am <harness>`
     │   ├── run.rs         #   `am <harness> [flags] [-- passthrough]`
     │   ├── catalog.rs     #   `am catalog ls|show|path|import`
+    │   ├── skill.rs       #   `am skill ls|link|add-dir|rm-dir|rm|sources|search|install`
+    │   ├── mcp.rs         #   `am mcp ls|add|import|rm|search`
     │   ├── account/       #   `am account ...` (P2)
     │   │   ├── mod.rs     #     arg parsing, dispatch, the shared store/harness helpers
     │   │   ├── dump.rs    #     `am account dump`

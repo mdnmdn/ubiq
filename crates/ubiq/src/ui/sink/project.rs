@@ -423,6 +423,32 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         ids::SETTINGS_PROJECT_CORE,
         SettingsSectionSpec {
             gate: SectionGate::WithRecord,
+            on_show: Some(AppState::on_show_project_catalog),
+            ..section(
+                ids::PROJECT_SKILLS,
+                "Skills",
+                || Icon::new(IconName::BookOpen),
+                |ctx, _, cx| project_catalog(ctx, CatalogPage::Skills, cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CORE,
+        SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
+            on_show: Some(AppState::on_show_project_catalog),
+            ..section(
+                ids::PROJECT_MCP_SERVERS,
+                "MCP servers",
+                || Icon::new(IconName::Network),
+                |ctx, _, cx| project_catalog(ctx, CatalogPage::Mcp, cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CORE,
+        SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
             ..section(
                 ids::PROJECT_TASKS,
                 "Tasks",
@@ -1884,6 +1910,54 @@ fn agent_definitions(
             }),
         )
         .into_any_element()
+}
+
+/// Which of the two catalog pages a project section is.
+#[derive(Clone, Copy)]
+enum CatalogPage {
+    Skills,
+    Mcp,
+}
+
+/// A project's own Skills or MCP servers layer, with the application's below it.
+///
+/// A folder that is not yet a project in the catalogue has no layer to write to — the layer is
+/// filed under the project id, like a definition — so the fixture page says so instead.
+fn project_catalog(
+    ctx: &SectionCtx<'_>,
+    page: CatalogPage,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let project = form_project(ctx.app, ctx.form, cx);
+    match (project, page) {
+        (Some(project), CatalogPage::Skills) => {
+            crate::ui::catalog::skills_page(ctx.app, Some(project), "project-skills", cx)
+        }
+        (Some(project), CatalogPage::Mcp) => {
+            crate::ui::catalog::mcp_page(ctx.app, Some(project), "project-mcp", cx)
+        }
+        (None, page) => div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(heading(
+                match page {
+                    CatalogPage::Skills => "Skills",
+                    CatalogPage::Mcp => "MCP servers",
+                },
+                "Skills and servers only agents started in this project can carry.",
+            ))
+            .child(
+                div()
+                    .text_size(theme::font(Family::Chrome, Role::Meta))
+                    .text_color(theme::text_faint())
+                    .child(
+                        "A catalog layer is filed under a project id \u{2014} a folder that is \
+                         not in the catalogue yet has nowhere to put one.",
+                    ),
+            )
+            .into_any_element(),
+    }
 }
 
 /// The list this project offers, once it has said it is not on the globals alone.

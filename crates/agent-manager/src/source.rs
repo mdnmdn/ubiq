@@ -67,6 +67,10 @@ impl Source {
                         continue;
                     }
                     let rel = entry.path().strip_prefix(dir)?;
+                    // Catalog bookkeeping beside an installed skill, not part of its content.
+                    if rel == Path::new(crate::registry::ORIGIN_FILE) {
+                        continue;
+                    }
                     place(dest, rel, mode, clobber, |target| {
                         link_or_copy(entry.path(), target, mode)
                     })?;

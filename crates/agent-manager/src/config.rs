@@ -68,7 +68,7 @@ pub struct Skill {
 }
 
 /// An MCP server configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpServer {
     /// Stable identifier (e.g. `browser`, `github`).
     #[serde(default)]

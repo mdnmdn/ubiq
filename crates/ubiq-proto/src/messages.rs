@@ -17,6 +17,9 @@ use crate::assist::{
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
+use crate::catalog::{
+    CatalogMcp, RegistryMcpInfo, RemoteSkillInfo, SkillAdd, SkillInfo, SkillSourceInfo,
+};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, PathOp, RelatedFile,
@@ -519,6 +522,116 @@ pub enum Message {
     /// the descriptions to offer.
     Mcps {
         servers: Vec<McpInfo>,
+    },
+
+    // ── Skills and MCP catalog: UI → host ───────────────────────────
+    /// The skills and MCP servers one catalog layer holds. Answered with [`Message::Catalog`] for
+    /// that layer, to the asker.
+    ///
+    /// `scope` is `None` for the application's own layer and `Some` for that project's; the
+    /// project layer shadows the application's by id at launch, which is the interface's business
+    /// to draw and not a merge the host does here.
+    ListCatalog {
+        scope: Option<ProjectId>,
+    },
+    /// Add a skill to a layer: link a folder, register a folder to scan, or install one from a
+    /// source. Answered with [`Message::Catalog`] to everyone, or [`Message::CatalogError`] to the
+    /// asker. An install fetches over the network and answers when it is done.
+    AddSkill {
+        scope: Option<ProjectId>,
+        from: SkillAdd,
+    },
+    /// Take a skill out of a layer: an installed copy is deleted, a linked folder is unlinked. A
+    /// skill found by scanning a folder is refused with [`Message::CatalogError`] — see
+    /// [`Message::RemoveSkillFolder`]. Answered with [`Message::Catalog`] to everyone.
+    RemoveSkill {
+        scope: Option<ProjectId>,
+        id: String,
+    },
+    /// Stop scanning a folder for skills. `path` is one of [`Message::Catalog::skill_folders`].
+    /// Answered with [`Message::Catalog`] to everyone.
+    RemoveSkillFolder {
+        scope: Option<ProjectId>,
+        path: String,
+    },
+    /// Replace the list of places skills are searched for. Application-wide only — a project
+    /// layer has no sources of its own. Answered with [`Message::Catalog`] for the application's
+    /// layer, to everyone.
+    SaveSkillSources {
+        sources: Vec<SkillSourceInfo>,
+    },
+    /// Look for skills in the configured sources. `source` narrows it to one
+    /// [`SkillSourceInfo::id`]; an empty `query` lists everything. Answered with
+    /// [`Message::SkillSearchResults`] — a source that fails is a line in `problems`, not an
+    /// error.
+    SearchSkills {
+        query: String,
+        source: Option<String>,
+    },
+    /// Write one MCP server into a layer, creating it when its id names none. `previous_id` is
+    /// the id it was listed under when this is a rename, so the old entry goes with it. Answered
+    /// with [`Message::Catalog`] to everyone, or [`Message::CatalogError`] when the id is empty,
+    /// not a name a file can carry, or one of the built-in servers' slugs.
+    SaveCatalogMcp {
+        scope: Option<ProjectId>,
+        // Boxed: a `CatalogMcp` is wider than the terminal chunks the enum is sized for.
+        mcp: Box<CatalogMcp>,
+        previous_id: Option<String>,
+    },
+    /// Delete one MCP server from a layer. Answered with [`Message::Catalog`] to everyone.
+    RemoveCatalogMcp {
+        scope: Option<ProjectId>,
+        id: String,
+    },
+    /// Read the MCP configuration a user pasted, in any of the shapes harnesses write theirs in.
+    /// Nothing is stored. Answered with [`Message::McpConfigParsed`].
+    ParseMcpConfig {
+        text: String,
+    },
+    /// Search the public MCP registry. `cursor` continues a previous
+    /// [`Message::McpRegistryResults::next_cursor`]. Answered with [`Message::McpRegistryResults`].
+    SearchMcpRegistry {
+        query: String,
+        cursor: Option<String>,
+    },
+
+    // ── Skills and MCP catalog: host → UI ───────────────────────────
+    /// One layer of the catalog, whole. Sent to the asker on [`Message::ListCatalog`] and to
+    /// everyone after any change to that layer, so every window agrees.
+    ///
+    /// Only the layer `scope` names — never the two merged. `sources` is empty for a project
+    /// layer.
+    Catalog {
+        scope: Option<ProjectId>,
+        skills: Vec<SkillInfo>,
+        mcps: Vec<CatalogMcp>,
+        /// The folders the layer scans, as the host spells them.
+        skill_folders: Vec<String>,
+        sources: Vec<SkillSourceInfo>,
+    },
+    /// What a [`Message::SearchSkills`] found.
+    SkillSearchResults {
+        query: String,
+        results: Vec<RemoteSkillInfo>,
+        /// One line per source that could not be read.
+        problems: Vec<String>,
+    },
+    /// What a [`Message::ParseMcpConfig`] read: the servers, with ids taken from the pasted keys
+    /// (empty when the paste was a single bare server), or why it could not.
+    McpConfigParsed {
+        servers: Vec<CatalogMcp>,
+        error: Option<String>,
+    },
+    /// What a [`Message::SearchMcpRegistry`] found.
+    McpRegistryResults {
+        query: String,
+        servers: Vec<RegistryMcpInfo>,
+        next_cursor: Option<String>,
+        error: Option<String>,
+    },
+    /// A catalog request the host refused or could not carry out, to the asker.
+    CatalogError {
+        error: String,
     },
 
     // ── Connector family: the identities an external *service* runs as ──
@@ -2277,6 +2390,11 @@ pub enum Message {
         /// its own rather than a diff against [`AgentDefinition::mcps`].
         #[serde(default)]
         mcps: Vec<String>,
+        /// The skills to make available to this run, by [`SkillInfo::id`], read the way `mcps` is:
+        /// a pick that stands on its own rather than a diff against
+        /// [`AgentDefinition::skills`].
+        #[serde(default)]
+        skills: Vec<String>,
         /// The agent that asked for this one, for a launch answering a
         /// [`Message::MissionSpawnRequest`]. It becomes [`crate::work::WorkAgent::parent`], which
         /// is the **only** thing that ever sets it in a real run — the Teams spawn connector draws
@@ -3048,6 +3166,14 @@ impl Message {
                     | SuggestSubject::TaskTitle { project_id, .. },
                 ..
             } => Some(*project_id),
+            // The catalog family names a layer, not a project: `None` is the application's own.
+            Message::ListCatalog { scope }
+            | Message::AddSkill { scope, .. }
+            | Message::RemoveSkill { scope, .. }
+            | Message::RemoveSkillFolder { scope, .. }
+            | Message::SaveCatalogMcp { scope, .. }
+            | Message::RemoveCatalogMcp { scope, .. }
+            | Message::Catalog { scope, .. } => *scope,
             Message::ProjectError { project_id, .. } => *project_id,
             Message::ToolError { project_id, .. } => *project_id,
             Message::ListTools { project_id, .. } => *project_id,
@@ -3135,6 +3261,10 @@ pub struct AgentPicks {
     /// own rather than a diff against [`AgentDefinition::mcps`].
     #[serde(default)]
     pub mcps: Vec<String>,
+    /// The skills to make available to this run, by [`SkillInfo::id`]. Read the way `mcps` is: a
+    /// pick that stands on its own rather than a diff against [`AgentDefinition::skills`].
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 /// One shell the host found on this machine, as the new-pane menu offers it.
@@ -3316,6 +3446,11 @@ pub struct AgentDefinition {
     /// already lives by.
     #[serde(default)]
     pub mcps: Vec<String>,
+    /// The skills this definition enables, by catalog id ([`SkillInfo::id`]). Same rules as
+    /// [`Self::mcps`]: empty is the normal case, and an id the catalog no longer holds costs the
+    /// row and nothing else.
+    #[serde(default)]
+    pub skills: Vec<String>,
     /// Whether this definition is fit to run as a planning assistant. The new-mission dialog's
     /// assistant picker filters to definitions carrying `true`; every other screen ignores it.
     /// `None`/`Some(false)` read the same to a filter — the distinction between them exists only

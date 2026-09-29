@@ -364,6 +364,8 @@ impl AppState {
         // values when one is being edited.
         let definition_id_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("reviewer, planner\u{2026}"));
+        // The catalog's modals' fields, seeded whenever a modal opens.
+        let catalog_inputs = super::CatalogInputs::new(window, cx);
         // The new-mission dialog's title and description. Seeded empty on every open — a mission
         // draft holds nothing worth restoring if the dialog is dismissed.
         let new_mission_title_input =
@@ -1578,6 +1580,30 @@ impl AppState {
             subscriptions.push(cx.on_focus_out(&handle, window, |_, _, _, cx| cx.notify()));
         }
 
+        for handle in catalog_inputs.handles(cx) {
+            subscriptions.push(cx.on_focus(&handle, window, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.on_focus_out(&handle, window, |_, _, _, cx| cx.notify()));
+        }
+        // Enter in either search box runs the search, the way it does in every other one.
+        subscriptions.push(cx.subscribe_in(
+            &catalog_inputs.skill_search,
+            window,
+            |this, _, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.search_skills(cx);
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &catalog_inputs.registry_search,
+            window,
+            |this, _, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.search_mcp_registry(cx);
+                }
+            },
+        ));
+
         // Modal editing, when it is switched on. Registered whatever the setting says: the
         // interceptor's first act is to read it, and a subscription that came and went with a
         // checkbox would be one more thing to keep in step.
@@ -1815,6 +1841,7 @@ impl AppState {
             login_account_input,
             login_command_input,
             definition_id_input,
+            catalog_inputs,
             new_agent_prompt,
             new_agent_description,
             new_mission_title_input,

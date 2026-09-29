@@ -144,6 +144,7 @@ fn a_definition(id: &str, mission_assistant: Option<bool>) -> AgentDefinition {
         max_subagents: None,
         prompt: None,
         mcps: Vec::new(),
+        skills: Vec::new(),
         mission_assistant,
         mission_coordinator: false,
         mission_worker: false,

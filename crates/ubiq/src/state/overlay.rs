@@ -40,6 +40,14 @@ pub enum Layer {
     NewMission,
     /// The agent-definition form, beside the login modal.
     AgentDefinitionForm,
+    /// The skills page's repository browser, over the settings page or a project's.
+    SkillBrowse,
+    /// Its "Add source" question, over the browser or the page.
+    SkillSource,
+    /// The MCP servers page's add-or-edit form.
+    McpForm,
+    /// The MCP registry search, over the form or the page that raised it.
+    McpRegistry,
     /// The accounts section's rename, delete or sign-out question.
     AccountDialog,
     /// The connect flow.

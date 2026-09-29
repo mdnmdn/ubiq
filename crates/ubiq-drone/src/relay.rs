@@ -938,6 +938,20 @@ fn refusal(message: &Message) -> Option<Message> {
             error: NOT_HERE.to_string(),
         },
 
+        // ── the skills and MCP catalog ──
+        ListCatalog { .. }
+        | AddSkill { .. }
+        | RemoveSkill { .. }
+        | RemoveSkillFolder { .. }
+        | SaveSkillSources { .. }
+        | SearchSkills { .. }
+        | SaveCatalogMcp { .. }
+        | RemoveCatalogMcp { .. }
+        | ParseMcpConfig { .. }
+        | SearchMcpRegistry { .. } => CatalogError {
+            error: NOT_HERE.to_string(),
+        },
+
         // ── how much of a plan is left ──
         QueryQuota {
             account, harness, ..

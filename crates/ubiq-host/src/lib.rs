@@ -63,6 +63,8 @@
 //! - `drone`: re-exports `ubiq_proto::drone` — resolving and caching a cross-built `ubiq-drone`
 //!   binary for deployment, hash-pinned against a generated manifest rather than signed (`G108`);
 //!   moved there so `crates/ubiq`'s deployer can reach it too (behind `listener`)
+//! - `catalog`: the skill and MCP catalog — one library `FsRegistry` layer per scope, overlaid at
+//!   launch, and the conversions to the wire (behind `harness`)
 //! - `cli_shortcut`: behind `harness`
 //!
 //! `git`, `index`, `harness`, `listener` and `desktop` are the features a lean embedder (a
@@ -77,6 +79,8 @@ pub mod ask;
 pub mod assist;
 pub mod atomic;
 pub mod carrier;
+#[cfg(feature = "harness")]
+pub mod catalog;
 #[cfg(feature = "harness")]
 pub mod cli_shortcut;
 pub mod config;

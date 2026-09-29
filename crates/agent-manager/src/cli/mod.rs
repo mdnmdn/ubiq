@@ -1,7 +1,7 @@
 //! Command-line interface: argument parsing and command dispatch.
 //!
 //! `am <harness> [flags] [-- passthrough…]` wraps and runs a harness;
-//! `am catalog|account|session|help` are reserved subcommands for managing
+//! `am catalog|skill|mcp|account|session|help` are reserved subcommands for managing
 //! the tool itself (see `_docs/cli.md`). This module implements the
 //! full `resolve → provision → run` spine, including `--print-config` for
 //! inspecting a provisioned run without launching it; `session ls|show` list
@@ -11,9 +11,11 @@
 mod account;
 mod agent;
 mod catalog;
+mod mcp;
 mod profile;
 mod run;
 mod session;
+mod skill;
 
 use std::path::PathBuf;
 
@@ -22,7 +24,9 @@ use anyhow::{Result, bail};
 use crate::harness;
 
 /// Reserved first-positional words that are never harness ids.
-const RESERVED: &[&str] = &["catalog", "account", "profile", "agent", "session"];
+const RESERVED: &[&str] = &[
+    "catalog", "account", "profile", "agent", "session", "skill", "mcp",
+];
 
 /// Entry point called by `main.rs`. Parses `std::env::args`, dispatches, and
 /// returns the process-level result (errors become a non-zero exit via
@@ -49,6 +53,8 @@ fn dispatch(args: &[String]) -> Result<()> {
         Some("profile") => profile::run(&args[1..]),
         Some("agent") => agent::run(&args[1..]),
         Some("session") => session::run(&args[1..]),
+        Some("skill") => skill::run(&args[1..]),
+        Some("mcp") => mcp::run(&args[1..]),
         Some(word) if RESERVED.contains(&word) => {
             println!("{word}: not yet implemented");
             Ok(())
@@ -78,6 +84,10 @@ fn print_usage() {
     println!("    am profile   <ls|show|use|create|login> …     manage profiles");
     println!("    am agent     <name> [-- <harness-args>…]       run a profile as a frozen agent");
     println!("    am session   <ls|show|resume> …               manage session history");
+    println!(
+        "    am skill     <ls|link|add-dir|rm-dir|rm|sources|search|install> …  manage skills"
+    );
+    println!("    am mcp       <ls|add|import|rm|search> …                manage MCP servers");
     println!("    am help | am --version");
     println!();
     println!("KNOWN HARNESSES:");
@@ -269,6 +279,13 @@ mod tests {
         assert!(dispatch(&["account".to_string()]).is_ok());
         assert!(dispatch(&["profile".to_string()]).is_ok());
         assert!(dispatch(&["session".to_string()]).is_ok());
+    }
+
+    #[test]
+    fn dispatch_skill_and_mcp_are_reserved_and_bad_flags_error() {
+        assert!(RESERVED.contains(&"skill") && RESERVED.contains(&"mcp"));
+        assert!(dispatch(&["skill".to_string(), "--bogus".to_string()]).is_err());
+        assert!(dispatch(&["mcp".to_string(), "--bogus".to_string()]).is_err());
     }
 
     #[test]

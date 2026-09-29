@@ -919,6 +919,10 @@ impl AppState {
             ),
             (Layer::NewMission, w.new_mission.is_some()),
             (Layer::AgentDefinitionForm, s.definition_form.is_some()),
+            (Layer::SkillBrowse, s.catalog.browse.is_some()),
+            (Layer::SkillSource, s.catalog.add_source),
+            (Layer::McpForm, s.catalog.form.is_some()),
+            (Layer::McpRegistry, s.catalog.registry.is_some()),
             (Layer::AccountDialog, s.dialog.is_some()),
             (Layer::Connect, s.connect.is_some()),
             (Layer::AppForm, s.app_form.is_some()),
@@ -1156,6 +1160,17 @@ impl AppState {
             self.cancel_connect(window, cx);
         } else if settings.dialog.is_some() {
             self.close_account_dialog(cx);
+        } else if settings.catalog.registry.is_some() {
+            // The catalog's four modals, in reverse paint order: the registry search and the
+            // source question are raised over the form and the browser, so Escape takes them
+            // first and leaves what raised them.
+            self.close_mcp_registry(cx);
+        } else if settings.catalog.add_source {
+            self.close_add_source(cx);
+        } else if settings.catalog.form.is_some() {
+            self.close_mcp_form(cx);
+        } else if settings.catalog.browse.is_some() {
+            self.close_skill_browse(cx);
         } else if self.workbench.new_agent.is_some() {
             // Painted over the settings page and everything it raises, so it is peeled first of
             // the forms.
@@ -1627,6 +1642,7 @@ impl Render for AppState {
         self.sync_file_filter_field(window, cx);
         self.sync_git_fields(window, cx);
         self.sync_settings_fields(window, cx);
+        self.sync_catalog_fields(window, cx);
         // Made anonymous straight away so the frame stops borrowing the window: the queue below
         // is drained on the same `&mut self` the tree was built from.
         let tree = ui::shell::render(self, window, cx).into_any_element();

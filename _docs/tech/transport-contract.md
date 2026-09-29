@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition, command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-09-28
 verified: 2026-09-28
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -96,7 +96,7 @@ to the project's own root, and `agent_type` to the agent type the session starts
 nothing. `args` is the argument list the harness is launched with, empty for a plain start.
 
 **`SpawnWorkspace` carries the same picks `StartConversation` does**, gathered into one `AgentPicks`
-record — `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps` — because a harness in a
+record — `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps`, `skills` — because a harness in a
 terminal pane is the same run wearing a different face, and a pane that could not name an account or
 an MCP server would be a second, poorer way to start the same agent. The empty record is a pane that
 names nothing and lets the library resolve everything, which is what the new-pane menu sends. A
@@ -1234,7 +1234,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps`, `spawned_by?` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps`, `skills`, `spawned_by?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -1684,7 +1684,19 @@ Forty-seven records travel inside payloads.
 | `Notifications` | `items[]` newest first, `mutes[]` |
 | `McpInfo` | `name`, `title`, `description`, `tools[]` |
 | `McpToolInfo` | `name`, `description` |
-| `AgentDefinition` | `id`, `description?`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps`, `mission_assistant?`, `mission_coordinator`, `mission_worker`, `disabled`, `project?` |
+| `SkillInfo` | `id`, `name?`, `description?`, `origin` |
+| `SkillOriginInfo` | one of: `Installed{url?}`, `Linked{path}`, `Folder{path}` |
+| `McpKind` | one of: `Stdio`, `Http`, `Sse` |
+| `CatalogMcp` | `id`, `kind`, `command?`, `args`, `env`, `url?`, `headers`, `description?` — all but `id` and `kind` default |
+| `SkillSourceInfo` | `id`, `label?`, `kind` |
+| `SkillSourceKindInfo` | one of: `Git{url, rev?, subpath?}`, `Index{url}` |
+| `RemoteSkillInfo` | `source`, `id`, `name?`, `description?`, `path` |
+| `McpParamKind` | one of: `Env`, `Header`, `Arg` |
+| `McpParamHint` | `name`, `kind`, `description?`, `required`, `secret`, `default?` |
+| `McpDraftInfo` | `label`, `server` (a `CatalogMcp`), `params[]` |
+| `RegistryMcpInfo` | `name`, `title?`, `description?`, `version?`, `repository?`, `options[]` (`McpDraftInfo`) |
+| `SkillAdd` | one of: `Link{path, id?}`, `Folder{path}`, `Remote{source, path, id?}` |
+| `AgentDefinition` | `id`, `description?`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps`, `skills`, `mission_assistant?`, `mission_coordinator`, `mission_worker`, `disabled`, `project?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
@@ -2205,6 +2217,40 @@ the wire says how a server is reached: the host binds one loopback port and hand
 carrying its own agent id, and neither the URL nor the port is a fact the interface is told. A slug
 a build no longer offers is dropped at composition with a warning, which is the same "a stale
 reference costs a row in a list" rule the agent definition family already lives by.
+
+### The skills and MCP catalog
+
+The other half of what a definition can name. A **catalog** is a layer of skills and MCP servers the user
+keeps; `AgentDefinition.skills` and `StartConversation.skills` name skills by catalog id, and
+`AgentDefinition.mcps` / `StartConversation.mcps` keep one list in which a built-in slug and a catalog MCP
+id sit together. `scope` is `None` for the application's own layer and `Some(project)` for that project's;
+`Message::project_id()` returns it, and the host merges the two only when it composes a run (the project
+shadows the application by id). Every path is a string on the host's filesystem.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ListCatalog` | UI → host | `scope?` | `Catalog` |
+| `AddSkill` | UI → host | `scope?`, `from` | `Catalog` (everyone), or `CatalogError` |
+| `RemoveSkill` | UI → host | `scope?`, `id` | `Catalog` (everyone), or `CatalogError` |
+| `RemoveSkillFolder` | UI → host | `scope?`, `path` | `Catalog` (everyone), or `CatalogError` |
+| `SaveSkillSources` | UI → host | `sources` | `Catalog` for the application layer (everyone), or `CatalogError` |
+| `SearchSkills` | UI → host | `query`, `source?` | `SkillSearchResults` |
+| `SaveCatalogMcp` | UI → host | `scope?`, `mcp`, `previous_id?` | `Catalog` (everyone), or `CatalogError` |
+| `RemoveCatalogMcp` | UI → host | `scope?`, `id` | `Catalog` (everyone), or `CatalogError` |
+| `ParseMcpConfig` | UI → host | `text` | `McpConfigParsed` |
+| `SearchMcpRegistry` | UI → host | `query`, `cursor?` | `McpRegistryResults` |
+| `Catalog` | host → UI | `scope?`, `skills`, `mcps`, `skill_folders`, `sources` | — |
+| `SkillSearchResults` | host → UI | `query`, `results`, `problems` | — |
+| `McpConfigParsed` | host → UI | `servers`, `error?` | — |
+| `McpRegistryResults` | host → UI | `query`, `servers`, `next_cursor?`, `error?` | — |
+| `CatalogError` | host → UI | `error` | — |
+
+**`Catalog` is one layer, whole, never the two merged.** It goes to the asker on `ListCatalog` and to
+`To::Everyone` after any change to that layer, so every window agrees; `sources` is empty for a project
+layer, because sources are application-wide. `SaveCatalogMcp` boxes its `CatalogMcp` (wider than the
+terminal chunks the enum is sized for) and refuses an id that is a built-in slug. `previous_id` makes a
+save a rename. Searches (`SearchSkills`, `SearchMcpRegistry`) and a remote `AddSkill` touch the network
+and are answered when done; a source that fails is a line in `problems`, not a `CatalogError`.
 
 ## The command-line family
 

@@ -677,6 +677,9 @@ pub struct SettingsState {
     /// definition is a saved answer to the same questions — with the name read out of its field at
     /// save time, the way the login modal reads its own.
     pub definition_form: Option<crate::state::new_agent::NewAgentForm>,
+    /// The skills and MCP servers catalog: the application's layer, each project's, and the
+    /// modals its pages raise. Each layer is only ever what the host last said it held.
+    pub catalog: crate::state::catalog::CatalogState,
     /// The login modal, while one is up.
     pub login: Option<LoginState>,
     /// The rename, delete or sign-out question over one account, while one is up.
@@ -983,6 +986,7 @@ impl Default for SettingsState {
             definitions: Vec::new(),
             project_definitions: Vec::new(),
             definition_form: None,
+            catalog: Default::default(),
             bundled: Vec::new(),
             app_form: None,
             pending_secret: None,
