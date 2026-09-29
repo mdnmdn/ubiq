@@ -348,6 +348,8 @@ fn merge_nested(
                 head: GitHead::Unborn(String::new()),
                 submodule,
                 counts: None,
+                ahead: None,
+                behind: None,
                 managed: false,
             });
             continue;
@@ -362,14 +364,14 @@ fn merge_nested(
                 head: GitHead::Unborn(String::new()),
                 submodule,
                 counts: None,
+                ahead: None,
+                behind: None,
                 managed: true,
             });
             continue;
         };
-        let head = match head_and_tracking(&repo) {
-            Ok((head, _)) => head,
-            Err(_) => GitHead::Unborn(String::new()),
-        };
+        let (head, (_, ahead, behind)) = head_and_tracking(&repo)
+            .unwrap_or_else(|_| (GitHead::Unborn(String::new()), (None, None, None)));
         let walked = if repo.is_bare() {
             None
         } else {
@@ -381,6 +383,8 @@ fn merge_nested(
                 head,
                 submodule,
                 counts: None,
+                ahead,
+                behind,
                 managed: true,
             });
             continue;
@@ -390,6 +394,8 @@ fn merge_nested(
             head,
             submodule,
             counts: Some(counts_of(&inner)),
+            ahead,
+            behind,
             managed: true,
         });
         entries.extend(inner.into_iter().map(|mut entry| {

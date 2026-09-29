@@ -30,8 +30,8 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::explorer::git_colour;
 use crate::ui::kit::{
-    ContextItem, badge, check_box, context_menu, elided_with, field, filter_bar, mono, panel,
-    panel_header, primary_button, section_label,
+    ContextItem, badge, check_box, context_menu, field, filter_bar, mono, panel, panel_header,
+    primary_button, section_label,
 };
 use crate::ui::{handler, indexed};
 
@@ -194,7 +194,7 @@ fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
     // clean and not yet read, and only one of the two is worth being pleased about.
     if entries.is_empty() {
         body = body.child(div().px_3().py_2().child(mono(
-            match app.open_project(cx).and_then(|open| open.git.as_ref()) {
+            match app.git_overview(cx) {
                 Some(_) => "Nothing to commit",
                 None => "Not a repository",
             },
@@ -225,6 +225,7 @@ fn change_search_row(app: &AppState, window: &Window, cx: &Context<AppState>) ->
         .is_focused(window);
     div()
         .pt_2()
+        .w_full()
         .flex()
         .flex_none()
         .child(div().flex_1().min_w(px(0.)).child(filter_bar(
@@ -408,6 +409,7 @@ fn change_row(
 
     let mut row = div()
         .id(crate::ui::eid2("git-change", tag, &path))
+        .w_full()
         .h(px(ROW))
         .pr_3()
         .flex()
@@ -418,13 +420,7 @@ fn change_row(
         .hover(|this| this.bg(theme::hover()))
         .child(div().w(px(8.)).flex_none())
         .child(badge(letter, colour))
-        .child(elided_with(
-            crate::ui::eid2("git-change-name", tag, &path),
-            name,
-            path.clone(),
-            theme::text_muted(),
-            theme::font(theme::Family::Chrome, theme::Role::Label),
-        ))
+        .child(name_cell(name))
         .children(
             // A rename is the one change whose old name is worth the width: the row's own name is
             // where the file went, and the pair says where it came from.
@@ -467,23 +463,25 @@ fn change_row(
     }
 
     let menu_path = path.clone();
-    row.on_click(window.listener_for(view, move |this, _, _, cx| {
-        this.select_git_path(side, &path, cx)
-    }))
-    .on_mouse_down(
-        MouseButton::Right,
-        window.listener_for(view, move |this, event: &MouseDownEvent, _, cx| {
-            this.open_git_menu(
-                GitMenuKind::Change {
-                    path: menu_path.clone(),
-                    side,
-                },
-                (f32::from(event.position.x), f32::from(event.position.y)),
-                cx,
-            );
-        }),
-    )
-    .into_any_element()
+    let tip = path_tooltip(&path);
+    row.tooltip(tip)
+        .on_click(window.listener_for(view, move |this, _, _, cx| {
+            this.select_git_path(side, &path, cx)
+        }))
+        .on_mouse_down(
+            MouseButton::Right,
+            window.listener_for(view, move |this, event: &MouseDownEvent, _, cx| {
+                this.open_git_menu(
+                    GitMenuKind::Change {
+                        path: menu_path.clone(),
+                        side,
+                    },
+                    (f32::from(event.position.x), f32::from(event.position.y)),
+                    cx,
+                );
+            }),
+        )
+        .into_any_element()
 }
 
 /// An 18px `+` or `-`. Enabled glyphs stage or unstage; disabled ones take no click.
@@ -579,6 +577,7 @@ fn range_row(
 
     let mut row = div()
         .id(crate::ui::eid("git-range", &path))
+        .w_full()
         .h(px(ROW))
         .pr_3()
         .flex()
@@ -589,13 +588,7 @@ fn range_row(
         .hover(|this| this.bg(theme::hover()))
         .child(div().w(px(8.)).flex_none())
         .child(badge(letter, colour))
-        .child(elided_with(
-            crate::ui::eid("git-range-name", &path),
-            name,
-            path.clone(),
-            theme::text_muted(),
-            theme::font(theme::Family::Chrome, theme::Role::Label),
-        ))
+        .child(name_cell(name))
         .children(match &file.change {
             GitPathChange::Renamed { from } => Some(
                 mono(format!("\u{2190} {from}"), theme::text_faint())
@@ -611,10 +604,30 @@ fn range_row(
             .border_color(theme::accent());
     }
 
-    row.on_click(window.listener_for(view, move |this, _, _, cx| {
-        this.select_git_path(Side::Unstaged, &path, cx)
-    }))
-    .into_any_element()
+    let tip = path_tooltip(&path);
+    row.tooltip(tip)
+        .on_click(window.listener_for(view, move |this, _, _, cx| {
+            this.select_git_path(Side::Unstaged, &path, cx)
+        }))
+        .into_any_element()
+}
+
+/// A row's file name: the flexible cell, elided on one line. The row carries the tooltip (the whole
+/// project-relative path), so the name has none of its own.
+fn name_cell(name: String) -> gpui::Div {
+    div()
+        .flex_1()
+        .min_w(px(0.))
+        .text_size(theme::font(Family::Chrome, Role::Label))
+        .text_color(theme::text_muted())
+        .truncate()
+        .child(name)
+}
+
+/// The tooltip a file row shows: its project-relative path.
+fn path_tooltip(path: &str) -> impl Fn(&mut Window, &mut gpui::App) -> gpui::AnyView + 'static {
+    let path: gpui::SharedString = path.to_string().into();
+    move |window, cx| gpui_component::tooltip::Tooltip::new(path.clone()).build(window, cx)
 }
 
 /// The colour a changed path takes, which is the explorer's for the same path: both are the same

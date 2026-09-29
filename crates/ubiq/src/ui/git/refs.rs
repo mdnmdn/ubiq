@@ -16,14 +16,15 @@ use gpui::{
 use gpui_component::input::Input;
 
 use crate::app::AppState;
-use crate::state::git::{GitMenuKind, RefRow, RefSection, RefTreeKind};
+use crate::state::git::{GitMenuKind, RefRow, RefSection, RefTreeKind, RepoEntry, repo_entries};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::kit::{
     ContextItem, context_menu, disclosure, elided, elided_with, file_row, filter_bar, mono, panel,
-    row_font, status_dot, twisty,
+    row_font, row_height, status_dot, twisty,
 };
+use crate::ui::status_bar::capped;
 use crate::ui::{handler, indexed};
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
@@ -103,7 +104,10 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                 focused,
             )));
 
-    let mut root = panel().child(search).child(body);
+    let mut root = panel()
+        .children(repositories(app, cx))
+        .child(search)
+        .child(body);
 
     if let Some(menu) = menu
         && let GitMenuKind::Ref { .. } = menu.kind
@@ -134,6 +138,105 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     }
 
     root.into_any_element()
+}
+
+/// The most rows the Repositories section shows before it scrolls, so a project holding dozens of
+/// clones does not push the refs off the panel.
+const REPO_LIST_ROWS: f32 = 6.0;
+
+/// The Repositories section: one row per repository the project holds, the selected one marked,
+/// each carrying what wants attention in it. Absent for a project with a single repository.
+fn repositories(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let open = app.open_project(cx)?;
+    let name = app
+        .project_snapshot(cx)
+        .map(|project| project.record.name.clone())
+        .unwrap_or_default();
+    let entries = repo_entries(open.git.as_ref(), &open.git_repos, &open.git_repo, &name);
+    if entries.is_empty() {
+        return None;
+    }
+    let shown = app.git_view(cx).is_some_and(|git| git.repos_open());
+
+    let mut rows = div()
+        .id("git-repos")
+        .flex()
+        .flex_col()
+        .max_h(px(REPO_LIST_ROWS * row_height(row_font())))
+        .overflow_y_scroll();
+    if shown {
+        for (index, entry) in entries.iter().enumerate() {
+            rows = rows.child(repo_row(index, entry, cx));
+        }
+    }
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .child(disclosure(
+                "git-repos-section",
+                "Repositories",
+                mono(format!("{}", entries.len()), theme::text_faint())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+                shown,
+                cx.listener(|this, _, _, cx| this.toggle_git_repos(cx)),
+            ))
+            .child(rows)
+            .into_any_element(),
+    )
+}
+
+/// One repository. The marks at the end are the ones a ref row's are: a dot for pending changes,
+/// `!` for conflicts, and the current branch's counts against its upstream.
+fn repo_row(index: usize, entry: &RepoEntry, cx: &mut Context<AppState>) -> AnyElement {
+    let repo = entry.repo.clone();
+    file_row(
+        eid("git-repo", index),
+        0,
+        entry.selected,
+        false,
+        false,
+        row_font(),
+    )
+    .child(status_dot(
+        if entry.selected {
+            theme::accent()
+        } else {
+            theme::text_faint()
+        },
+        theme::pane_bg(),
+    ))
+    .child(elided_with(
+        eid("git-repo-name", index),
+        entry.label.clone(),
+        entry.label.clone(),
+        if entry.selected {
+            theme::text()
+        } else {
+            theme::text_muted()
+        },
+        theme::font(theme::Family::Chrome, theme::Role::Body),
+    ))
+    .children((entry.changes > 0).then(|| status_dot(theme::warning(), theme::pane_bg())))
+    .children(
+        (entry.conflicted > 0)
+            .then(|| mono("!", theme::danger()).text_size(theme::font(Family::Chrome, Role::Meta))),
+    )
+    .children((entry.ahead > 0).then(|| {
+        mono(format!("\u{2191}{}", capped(entry.ahead)), theme::success())
+            .text_size(theme::font(Family::Chrome, Role::Meta))
+    }))
+    .children((entry.behind > 0).then(|| {
+        mono(
+            format!("\u{2193}{}", capped(entry.behind)),
+            theme::warning(),
+        )
+        .text_size(theme::font(Family::Chrome, Role::Meta))
+    }))
+    .on_click(cx.listener(move |this, _, _, cx| this.select_git_repo(repo.clone(), cx)))
+    .into_any_element()
 }
 
 fn tree_row(

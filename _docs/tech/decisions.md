@@ -748,8 +748,8 @@ fact is read.
 third base — `G85`.
 
 **Half reversed by `D122`.** What reversed is "nothing on it writes": stage, unstage, commit, fetch,
-pull and push go through `WriteProjectGit`. What stands is the screen itself, and branch, stash
-and undo, which stay drawn and inert (`G84`).
+pull, push, branch, stash and undo-commit go through `WriteProjectGit`. What stands is the screen
+itself (`G84`).
 
 ### D49 — A shell pane is a login shell, and which shells exist is the host's answer
 
@@ -2582,7 +2582,8 @@ a second thread ever touched those handles; this thread is the only one that doe
 **Cost.** The worker serialises Ubiq's own writes, not an agent's `git commit` in the same second.
 Pull refuses anything that is not a fast-forward, so a diverged branch is a terminal and not a
 merge. Fetch, pull and push over https use the credential helper, not a connector (`G145`); over
-ssh they use libssh2 (`D123`). Branch, stash and undo stay inert (`G84`).
+ssh they use libssh2 (`D123`). Branch, stash and undo-commit joined the family later; a stash has
+no apply or pop (`G84`).
 
 ### D123 — Fetch, pull and push speak ssh, through libgit2's libssh2 transport
 

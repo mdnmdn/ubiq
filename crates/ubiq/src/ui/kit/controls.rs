@@ -229,6 +229,37 @@ pub fn icon_button(
         .on_click(on_click)
 }
 
+/// An [`icon_button`] that names itself in a tooltip. With `enabled` false it is drawn faint, takes
+/// no hover and no click, and keeps the tooltip so the reader still learns what it is.
+pub fn icon_button_tip(
+    id: impl Into<ElementId>,
+    icon: impl Into<Icon>,
+    tip: impl Into<SharedString>,
+    enabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let tip: SharedString = tip.into();
+    let root = if enabled {
+        icon_button(id, icon, false, on_click)
+    } else {
+        div()
+            .id(id)
+            .size(px(30.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .child(
+                Icon::new(icon)
+                    .with_size(Size::Small)
+                    .text_color(theme::text_faint()),
+            )
+    };
+    root.tooltip(move |window, cx| {
+        gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+    })
+}
+
 /// A text button with no fill, used for `+ New chat` and the panel header actions.
 pub fn ghost_button(
     id: impl Into<ElementId>,

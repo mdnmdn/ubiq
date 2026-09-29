@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: How the host reads a project's repositories and how the Git screen writes them — cloning, upward discovery and scope, the bounded downward walk that finds the repositories inside a project and merges them into one map, the git worker's two queues and its per-project caches, the three shapes it answers with, the commit-graph lane engine, the refresh discipline that narrows the staleness window, and the ceilings and assumptions the model rests on.
 read_when: you are extending version control, adding a write, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
-updated: 2026-09-22
-verified: 2026-09-22
+updated: 2026-09-29
+verified: 2026-09-29
 code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/write.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
@@ -23,7 +23,7 @@ both.
 ## 1. Ubiq creates a repository, reads one, and writes when the Git screen asks
 
 **The agents in the panes mutate the working tree as they work. The Git screen is the other
-writer, and it is explicit.** Stage, unstage, commit, fetch, pull and push go through
+writer, and it is explicit.** Stage, unstage, commit, fetch, pull, push, create-branch, stash and undo-commit go through
 `WriteProjectGit` and run on the git worker — the same thread that reads, so the per-project
 handle stays un-mutexed (`D122`). A write and an agent's `git commit` in the same second can still
 collide; the worker serialises Ubiq's own writes, not the agent's.
@@ -34,6 +34,13 @@ the exception that mutates the repository the user asked it to. `D43` keeps `git
 library: no `git` subprocess, and gitoxide is not a second reader. Both are in
 [`decisions.md`](./decisions.md); `D9` is why the harness library, and not Ubiq, decides how an
 agent is launched into that same folder.
+
+**Branch, stash and undo are three small writes in `write.rs`, each refused while a merge, rebase
+or the like is in progress.** `create_branch()` validates the name the way `git branch` does,
+refuses an existing one and checks the new branch out at `HEAD`, so the tree on disk is unchanged. `stash()` includes untracked files and opens its own `Repository` on the same git directory,
+because libgit2's `stash_save2` wants `&mut` and the cached handle is not lent out that way.
+`undo_commit()` is a soft reset to the first parent: the commit goes and its changes stay in the
+index; a root commit is refused.
 
 **A stage-all or unstage-all's pathspec must be a glob, never a literal directory name, or
 libgit2 silently answers nothing.** `git_pathspec_prefix` treats a spec with no wildcard character
@@ -72,7 +79,14 @@ project. Three shapes follow:
   not the project's business.
 
 `Repository::discover` finds the nearest `.git` and stops, so the upward walk answers exactly one
-repository — the project's own, and the only one the overview, the refs and the log are about.
+repository — the project's own. A request names which repository it is about with `repo`
+(`transport-contract.md`): empty is that one, otherwise it is the `rel_path` of a managed nested
+repository, opened exactly and never discovered, so a folder that stopped being a repository does not
+silently answer with the one above it. Anything else is `NotFound`. The overview, the refs, the log,
+a range's changed paths and a write are each about one such repository; only the working-tree map
+is the project's whole. For a nested one the worker strips the `repo/` prefix from every path a
+request carries and puts it back on every path a reply does, so the interface only ever holds
+project-relative paths.
 
 **The repositories inside the project are found by walking down.** `git/nested.rs`'s `discover()`
 starts at the project's root and names every folder holding a `.git` — a directory, or the gitlink
@@ -142,11 +156,11 @@ folder back over a channel the coordinator drains in `register_clones()` beside
 `repos/` touches this worker's repository cache — a clone opens no cached handle, which is why
 the git worker's un-mutexed cache is untouched by it (`D122`).
 
-Three pieces of per-project state live on the worker:
+Three pieces of state live on the worker:
 
 | State | What it holds | Dropped by |
 |---|---|---|
-| The repository cache | One open `Repository` per project, from `ensure_repo()` | `Request::Forget` — the folder moved, or the record is gone |
+| The repository cache | One open `Repository` per project and repository, keyed `(ProjectId, repo)`, from `ensure_repo()` | `Request::Forget` — the folder moved, or the record is gone |
 | The generation counter | A `u64` bumped when a full refresh starts | `Request::Forget` |
 | The lane cache | The commit-graph columns a page ended on, keyed by the cursor and filters the next page must arrive with (§5) | `Request::Forget`, a fresh walk, or a filter change |
 
@@ -171,7 +185,9 @@ the upstream and the ahead/behind pair when there is one; an operation in progre
 repository is bare; the remotes; the submodules in scope. Working-tree counts ride with a full
 refresh, and are absent rather than zero until a walk has run. They are the project's **own**
 repository's counts — the folders a nested repository owns are dropped and nothing nested is summed
-in, so the status bar reads the branch it names. This is what the status bar reads.
+in, so the status bar reads the branch it names. This is what the status bar reads. A nested repository has an overview of its own, asked for with its
+`repo`, which is what the Git screen shows while that repository is selected; a nested `GitNested`
+row carries its ahead/behind pair for the screen's repository list.
 
 **The working-tree map** is the status walk, and its rule is that it carries only paths that have
 something to say: **a path not in the map is clean**, once a map has arrived. An entry is the pair —
@@ -289,13 +305,13 @@ none is measured against a repository of the size Ubiq is opened on (`G133`).
   libgit2's submodule status errors — a silent wrong answer rather than an absent one, and the only
   place in the family that does that (`G132`).
 - **The repository is opened twice.** The git worker caches one handle per project; the one-file
-  diff in `crates/ubiq-host/src/files/diff.rs` runs its own discovery per request, uncached
+  diff in `crates/ubiq-host/src/files/diff.rs` runs its own discovery per request, from the file's folder and uncached
   (`G130`). `D43` accepted a second comparison engine, not a second discovery walk on every file
   opened.
-- **A managed nested repository is opened on every full refresh.** Nothing caches those handles:
-  the worker's cache is keyed by `ProjectId` alone, and `Repository::open` on an exact root takes no
-  upward walk, so the cost is one open plus one status walk per *managed* nested repository per
-  refresh and has not been measured against a project managing many (`G226`). An ignored one is not
+- **A managed nested repository is opened on every full refresh.** The status walk does not use the
+  worker's `(ProjectId, repo)` cache, which holds a nested repository only once the Git screen has
+  asked about it, and `Repository::open` on an exact root takes no upward walk, so the cost is one
+  open plus one status walk per *managed* nested repository per refresh and has not been measured against a project managing many (`G226`). An ignored one is not
   opened at all (`D112`), which is what bounds the cost on a project full of vendored clones.
 - **The ignore rules are read three times** — by libgit2 for the status walk, by the watch's own
   matcher, and by search's walker — and the three do not agree (`G110`).
@@ -323,17 +339,17 @@ they change a shape rather than fill a hole.
    wrong answer and should become an absent one. The second is a wire variant with no producer:
    either a cancellable walk gives it one, or it leaves the contract. Both are small; neither
    blocks anything.
-5. **What is left of the write family (`G84`).** Stage, unstage, commit, fetch, pull and push
-   write. Branch, stash and undo stay inert. Pull is a fast-forward or a refusal — a diverged
-   branch is a terminal, not a merge. There is no confirmation surface and no undo of a write.
+5. **What is left of the write family (`G84`).** Stage, unstage, commit, fetch, pull, push,
+   branch, stash and undo-commit write. Pull is a fast-forward or a refusal — a diverged
+   branch is a terminal, not a merge. There is no confirmation surface, no stash apply or pop, and
+   no undo of a write.
    Fetch, pull and push over https use git's credential helper, not a connector (`G145`); over ssh
    they use the ssh agent and the default identity files (`D123`).
 6. **What is left of `G125`.** The working-tree map is done: repositories below the project are
    found, walked and merged (`D99`). What is open is a linked worktree read as if it were the only
-   repository, the repository *above* the project whose `.git` sits outside the watched root, and
-   the Git screen's refs, history and commit box, which are single-repository with no way to choose
-   which one. The last is the one that changes a shape, and it is worth doing after the write
-   family rather than before: a write into the wrong repository is worse than a read from it.
+   repository, and the repository *above* the project whose `.git` sits outside the watched root.
+   The Git screen's refs, history, changes and commit box are one selected repository's, chosen
+   from its Repositories section, and a write goes to that repository.
 7. **Joining an agent's turn to the commit it produced (`G134`).** The most interesting thing Ubiq
    could know: it is the one application in the category watching both the agent and the repository.
    It needs the log family it has and a link the work family does not carry.

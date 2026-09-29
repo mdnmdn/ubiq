@@ -992,7 +992,7 @@ fn refusal(message: &Message) -> Option<Message> {
         // ── version control ──
         // A lean build links no git library at all, which is why the diff is out of the file
         // family too.
-        ProjectGit { project_id }
+        ProjectGit { project_id, .. }
         | RefreshProjectGit { project_id, .. }
         | ProjectGitLog { project_id, .. }
         | ProjectGitRefs { project_id, .. }
@@ -1000,6 +1000,7 @@ fn refusal(message: &Message) -> Option<Message> {
         | ProjectGitChanged { project_id, .. }
         | DiffProjectFile { project_id, .. } => GitError {
             project_id: *project_id,
+            repo: String::new(),
             error: ubiq_proto::git::GitError::Failed(NOT_HERE.to_string()),
         },
 

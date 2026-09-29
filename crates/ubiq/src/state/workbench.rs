@@ -427,9 +427,8 @@ pub enum MenuId {
     /// trigger, and the two can never be open together anyway, but conflating a live pick with a
     /// stored default is the kind of thing worth a name of its own.
     TeamsDefaultAlgo,
-    /// The git repository selector: which repository's git view to show when a project has multiple
-    /// repositories (submodules or nested repositories).
-    GitRepo,
+    /// The Git strip's `Branch` popover: the name field a new branch is created from.
+    GitNewBranch,
     /// The history's branch picker: which ref the commit list is walking.
     GitBranch,
     /// A right-click on a Git screen row — a changed path, a commit or a ref. Which row, and where,

@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-28
-verified: 2026-09-28
+updated: 2026-09-29
+verified: 2026-09-29
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -544,7 +544,8 @@ none is refused on a file that exists.
 **A diff is the file family's because it names a path.** `DiffProjectFile` compares the working
 tree with a base — `Head` for the commit that is checked out, `Index` for what has not been staged
 — and the host computes the hunks, so no diff library reaches the interface, on the discipline that
-keeps a VT parser out of the host. A `FileDiff` carries rows with the line numbers already worked
+keeps a VT parser out of the host. The repository is the one found upward from the file's own
+folder, so a file inside a nested repository is compared against that one. A `FileDiff` carries rows with the line numbers already worked
 out, because a gutter that counts them itself gets it wrong the first time a hunk is cut short. A
 file with no change against its base answers with no hunks; one the host would not diff comes back
 `binary`, and one it stopped at a ceiling comes back `truncated`, the way a listing and a read do.
@@ -593,16 +594,24 @@ is a relative string.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `ProjectGit` | UI → host | `project_id` | `GitOverview` or `GitError` |
+| `ProjectGit` | UI → host | `project_id`, `repo` | `GitOverview` or `GitError` |
 | `RefreshProjectGit` | UI → host | `project_id`, `full` | `GitOverview`, and `GitWorkingTree` when `full`; or `GitError` |
-| `ProjectGitLog` | UI → host | `project_id`, `cursor?`, `count`, `rel_path?`, `first_parent`, `rev?` | `GitLogPage` or `GitError` |
-| `ProjectGitRefs` | UI → host | `project_id`, `with_tracking` | `GitRefs` or `GitError` |
-| `WriteProjectGit` | UI → host | `project_id`, `op` | `GitOverview` and `GitWorkingTree`, or `GitError` |
-| `GitOverview` | host → UI | `project_id`, `overview?` | — |
+| `ProjectGitLog` | UI → host | `project_id`, `repo`, `cursor?`, `count`, `rel_path?`, `first_parent`, `rev?` | `GitLogPage` or `GitError` |
+| `ProjectGitRefs` | UI → host | `project_id`, `repo`, `with_tracking` | `GitRefs` or `GitError` |
+| `WriteProjectGit` | UI → host | `project_id`, `repo`, `op` | `GitOverview` and `GitWorkingTree`, or `GitError` |
+| `GitOverview` | host → UI | `project_id`, `repo`, `overview?` | — |
 | `GitWorkingTree` | host → UI | `project_id`, `generation`, `entries[]`, `rollups[]`, `repos[]`, `truncated` | — |
-| `GitError` | host → UI | `project_id`, `error` | — |
-| `GitLogPage` | host → UI | `project_id`, `cursor?`, `commits[]`, `next_cursor?` | — |
-| `GitRefs` | host → UI | `project_id`, `refs[]` | — |
+| `GitError` | host → UI | `project_id`, `repo`, `error` | — |
+| `GitLogPage` | host → UI | `project_id`, `repo`, `cursor?`, `commits[]`, `next_cursor?` | — |
+| `GitRefs` | host → UI | `project_id`, `repo`, `refs[]` | — |
+
+**`repo` names which repository of the project a request is about.** Empty is the project's own;
+otherwise it is the `rel_path` of a `GitNested` the project manages, and a reply echoes the request's
+so a window showing one repository discards an answer about another. A `repo` that is not a managed
+nested repository is `GitError::NotFound`. The field is `#[serde(default)]` and omitted when empty.
+`RefreshProjectGit` and `GitWorkingTree` carry none, because the working-tree map is one map for the
+whole project; `DiffProjectFile` carries none either, the host finding the repository from the file's
+folder.
 
 **`overview` absent is an ordinary answer**, not a failure: the project is not in a repository, and
 the interface draws no branch and no badges. `GitError` is for a repository that exists and could
@@ -610,10 +619,14 @@ not be read — `NotFound`, `Corrupt`, `Denied`, `Interrupted` or `Failed` — a
 was refused, which is always `Failed` with a reason.
 
 **`WriteProjectGit` mutates the project's repository.** `op` is a `GitWriteOp`: `Stage` and
-`Unstage` name one project-relative path; `Commit` carries the message and whether it amends;
-`FetchAll`, `Pull` and `Push` name nothing else. A successful write is answered as a full refresh
-— the same `GitOverview` plus `GitWorkingTree` pair `RefreshProjectGit { full: true }` would send
-— so the interface does not ask again for the working tree. Pull is a fast-forward or a `Failed`;
+`Unstage` name one path, relative to the project; `Commit` carries the message and whether it amends;
+`CreateBranch` carries a name and checks the new branch out at `HEAD`; `Stash` shelves the
+uncommitted changes, untracked files with them; `UndoCommit` soft-resets to the first parent and
+refuses a root commit; `FetchAll`, `Pull` and `Push` name nothing else. A write against an
+in-progress operation (merge, rebase) is refused. A successful write is answered as a full refresh
+— the same `GitOverview` plus `GitWorkingTree` pair `RefreshProjectGit { full: true }` would send,
+preceded by the nested repository's own `GitOverview` when `repo` names one — so the interface does
+not ask again for the working tree. Pull is a fast-forward or a `Failed`;
 a diverged branch is not merged. Credentials for fetch, pull and push are git's helper, the
 ssh agent and the default identity files, not a connector (`G145`). An `ssh` remote
 (`git@host:path`) uses libssh2 (`D123`). The git worker serialises these against its own reads; an
@@ -633,7 +646,8 @@ the project's scope is omitted the way a file outside it never appears in a list
 **A nested repository is walked and merged, not listed — once the project manages it.** `GitNested`
 names a repository whose working tree sits inside the project — a submodule the outer repository
 pins, or an independent clone the host knows only as one untracked folder — carrying its own `head`,
-whether the project `managed` it, and, when the walk could read it, its own `counts`; `counts`
+whether the project `managed` it, and, when the walk could read it, its own `counts` and,
+against its upstream, `ahead` and `behind`; `counts`
 absent means the repository could not be read, or was not read at all because it is not managed, and
 it contributes no entries rather than failing the project's whole answer. Every repository the walk
 found is on the list either way, because the project settings offer the choice and cannot offer what

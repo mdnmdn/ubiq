@@ -624,10 +624,7 @@ impl AppState {
                     return None;
                 }
                 if let Some(project_id) = project {
-                    self.bus.send(Message::RefreshProjectGit {
-                        project_id,
-                        full: true,
-                    });
+                    self.request_git_refresh(project_id);
                 }
                 // A tool run with "wait on exit" stays readable: the command is over but its
                 // output is what the pane was opened for, so the tab keeps it until it is
@@ -868,10 +865,7 @@ impl AppState {
                     // that arrival is not a change to react to.
                     open.just_saved.insert(rel_path);
                 }
-                self.bus.send(Message::RefreshProjectGit {
-                    project_id,
-                    full: true,
-                });
+                self.request_git_refresh(project_id);
                 cx.notify();
             }
 
@@ -987,10 +981,7 @@ impl AppState {
                 repository,
             } => {
                 if repository {
-                    self.bus.send(Message::RefreshProjectGit {
-                        project_id,
-                        full: true,
-                    });
+                    self.request_git_refresh(project_id);
                 }
                 let open = self.projects.get(&project_id)?;
                 // Only folders the tree already holds are re-asked: a listing for one it does not
@@ -1122,48 +1113,63 @@ impl AppState {
         match message {
             Message::GitOverview {
                 project_id,
+                repo,
                 overview,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
-                match overview {
-                    None => {
-                        open.git = None;
-                        open.git_truncated = false;
-                        open.explorer.clear_git();
-                        open.git_entries.clear();
-                        open.git_view.settle(&open.git_entries);
-                    }
-                    Some(next) => {
-                        if let Some(held) = &open.git
-                            && next.generation < held.generation
-                        {
-                            return None;
+                // The project's own overview always lands — the status bar and the explorer read
+                // it. A nested repository's lands only while it is the one on screen: an answer for
+                // the one the user has since left is not the screen's any more.
+                let selected = repo == open.git_repo;
+                if !repo.is_empty() && !selected {
+                    return None;
+                }
+                if repo.is_empty() {
+                    match overview {
+                        None => {
+                            open.git = None;
+                            open.git_truncated = false;
+                            open.explorer.clear_git();
+                            open.git_entries.clear();
+                            open.refilter_git();
+                            open.git_view.settle(&open.git_screen_entries);
                         }
-                        let counts = next
-                            .counts
-                            .or_else(|| open.git.as_ref().and_then(|g| g.counts));
-                        let mut next = next;
-                        if next.counts.is_none() {
-                            next.counts = counts;
-                        }
-                        let submodules = next.submodules.clone();
-                        open.git = Some(next);
-                        // The Submodules section is built from the overview, not the refs reply,
-                        // so a refresh that changes it would otherwise lag one refs answer behind.
-                        // Submodule rows always sort last (`RefSection::all()`'s own order), so
-                        // dropping and re-appending them leaves every other row's index alone.
-                        if !open.git_view.refs.is_empty() {
-                            open.git_view
-                                .refs
-                                .retain(|row| row.section != RefSection::Submodules);
-                            open.git_view.refs.extend(submodule_rows(&submodules));
-                            if open
-                                .git_view
-                                .selected_ref
-                                .is_some_and(|i| i >= open.git_view.refs.len())
+                        Some(next) => {
+                            if let Some(held) = &open.git
+                                && next.generation < held.generation
                             {
-                                open.git_view.selected_ref = None;
+                                return None;
                             }
+                            let mut next = next;
+                            if next.counts.is_none() {
+                                next.counts = open.git.as_ref().and_then(|g| g.counts);
+                            }
+                            open.git = Some(next);
+                        }
+                    }
+                } else {
+                    open.git_nested = overview;
+                }
+                if selected {
+                    // The Submodules section is built from the overview, not the refs reply,
+                    // so a refresh that changes it would otherwise lag one refs answer behind.
+                    // Submodule rows always sort last (`RefSection::all()`'s own order), so
+                    // dropping and re-appending them leaves every other row's index alone.
+                    let submodules = open
+                        .git_overview()
+                        .map(|overview| overview.submodules.clone())
+                        .unwrap_or_default();
+                    if !open.git_view.refs.is_empty() {
+                        open.git_view
+                            .refs
+                            .retain(|row| row.section != RefSection::Submodules);
+                        open.git_view.refs.extend(submodule_rows(&submodules));
+                        if open
+                            .git_view
+                            .selected_ref
+                            .is_some_and(|i| i >= open.git_view.refs.len())
+                        {
+                            open.git_view.selected_ref = None;
                         }
                     }
                 }
@@ -1189,7 +1195,11 @@ impl AppState {
                 // The Git screen's lists are the pairs themselves, so the map is kept whole beside
                 // the projection the tree got. A selection whose path has gone clean goes with it.
                 open.git_entries = entries;
-                open.git_view.settle(&open.git_entries);
+                // Kept whole, managed or not, so the settings dialog can draw what the walk found
+                // even for a repository the explorer never shows a mark for.
+                open.git_repos = repos;
+                open.refilter_git();
+                open.git_view.settle(&open.git_screen_entries);
                 open.git_view.last_error = None;
                 // A working tree landing while a commit was in flight is that commit's
                 // success: the draft it was written from has been recorded, so the box is
@@ -1199,38 +1209,64 @@ impl AppState {
                     open.git_view.amend = false;
                 }
                 open.git_view.pending = None;
-                // Kept whole, managed or not, so the settings dialog can draw what the walk found
-                // even for a repository the explorer never shows a mark for.
-                open.git_repos = repos;
-                cx.notify();
-            }
-
-            Message::GitError { project_id, error } => {
-                tracing::error!("git {project_id}: {error}");
-                let open = self.projects.get_mut(&project_id)?;
-                match error {
-                    GitFailure::Corrupt | GitFailure::NotFound => {
-                        open.git = None;
-                        open.git_truncated = false;
-                        open.explorer.clear_git();
-                        open.git_entries.clear();
-                        open.git_view.settle(&open.git_entries);
-                    }
-                    GitFailure::Interrupted => {}
-                    GitFailure::Denied => {}
-                    GitFailure::Failed(reason) => {
-                        open.git_view.last_error = Some(reason);
-                        open.git_view.pending = None;
-                    }
+                // The repository on screen may not exist any more — the project stopped managing
+                // it, or the folder went — and a project with no repository of its own opens on
+                // the first nested one it manages. Either way the screen moves to what is there.
+                let wanted = (!open.git_repo_exists()).then(|| open.default_git_repo());
+                if let Some(wanted) = wanted {
+                    self.apply_git_repo(project_id, wanted);
                 }
                 cx.notify();
             }
 
-            Message::GitRefs { project_id, refs } => {
+            Message::GitError {
+                project_id,
+                repo,
+                error,
+            } => {
+                tracing::error!("git {project_id} {repo}: {error}");
                 let open = self.projects.get_mut(&project_id)?;
+                let selected = repo == open.git_repo;
+                if !repo.is_empty() && !selected {
+                    return None;
+                }
+                match error {
+                    GitFailure::Corrupt | GitFailure::NotFound => {
+                        if repo.is_empty() {
+                            open.git = None;
+                            open.git_truncated = false;
+                            open.explorer.clear_git();
+                            open.git_entries.clear();
+                        } else {
+                            open.git_nested = None;
+                        }
+                        open.refilter_git();
+                        open.git_view.settle(&open.git_screen_entries);
+                    }
+                    GitFailure::Interrupted => {}
+                    GitFailure::Denied => {}
+                    // A failure of the project's own repository is not the screen's while a
+                    // nested one is showing: its write and its error are the nested one's.
+                    GitFailure::Failed(reason) if selected => {
+                        open.git_view.last_error = Some(reason);
+                        open.git_view.pending = None;
+                    }
+                    GitFailure::Failed(_) => {}
+                }
+                cx.notify();
+            }
+
+            Message::GitRefs {
+                project_id,
+                repo,
+                refs,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                if repo != open.git_repo {
+                    return None;
+                }
                 let submodules = open
-                    .git
-                    .as_ref()
+                    .git_overview()
                     .map(|overview| overview.submodules.as_slice())
                     .unwrap_or(&[]);
                 open.git_view.refs = ref_rows(&refs, submodules);
@@ -1240,11 +1276,15 @@ impl AppState {
 
             Message::GitLogPage {
                 project_id,
+                repo,
                 cursor,
                 commits,
                 next_cursor,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
+                if repo != open.git_repo {
+                    return None;
+                }
                 // Staleness rule: this reply is answered only if its echoed `cursor` matches the
                 // request the view is currently waiting on (`log_inflight`). Two requests can
                 // share the same cursor value — most commonly two first-page requests, both
@@ -1269,19 +1309,21 @@ impl AppState {
 
             Message::GitChanged {
                 project_id,
+                repo,
                 from,
                 to,
                 files,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
-                if open.git_view.range_from != from
+                if repo != open.git_repo
+                    || open.git_view.range_from != from
                     || open.git_view.range_to.as_deref() != Some(to.as_str())
                 {
                     return None;
                 }
                 open.git_view.range_files = files;
                 open.git_view.range_inflight = false;
-                open.git_view.settle(&open.git_entries);
+                open.git_view.settle(&open.git_screen_entries);
                 cx.notify();
             }
 
@@ -3166,10 +3208,7 @@ impl AppState {
         }
 
         // An edit changes the working tree, the same as a save does.
-        self.bus.send(Message::RefreshProjectGit {
-            project_id,
-            full: true,
-        });
+        self.request_git_refresh(project_id);
         cx.notify();
     }
 

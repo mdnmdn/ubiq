@@ -1209,6 +1209,8 @@ fn nested(path: &str, head: &str, submodule: bool, managed: bool) -> GitNested {
         head: GitHead::Branch(head.to_string()),
         submodule,
         counts: None,
+        ahead: None,
+        behind: None,
         managed,
     }
 }
