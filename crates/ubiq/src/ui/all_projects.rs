@@ -109,6 +109,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         MODAL_WIDTH,
         Some(MODAL_HEIGHT),
         "All projects",
+        None,
         body,
         div().into_any_element(),
         crate::ui::handler(&view, |this, _, cx| this.close_all_projects(cx)),

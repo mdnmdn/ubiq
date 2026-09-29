@@ -1044,6 +1044,490 @@ fn undo_commit_refuses_a_root_commit() {
 }
 
 #[test]
+fn checkout_switches_the_branch() {
+    let dir = repository();
+    git(dir.path(), &["branch", "feature/x"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Checkout {
+            rev: "feature/x".into(),
+            force: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        git_stdout(dir.path(), &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "feature/x"
+    );
+}
+
+#[test]
+fn checkout_without_force_refuses_a_conflicting_dirty_tree() {
+    let dir = repository();
+    git(dir.path(), &["checkout", "-q", "-b", "feature/x"]);
+    fs::write(dir.path().join("file.txt"), b"on feature\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "on feature"]);
+    git(dir.path(), &["checkout", "-q", "main"]);
+    fs::write(dir.path().join("file.txt"), b"dirty\n").unwrap();
+    let error = write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Checkout {
+            rev: "feature/x".into(),
+            force: false,
+        },
+    )
+    .unwrap_err();
+    // The UI's `checkout_conflict` (crates/ubiq/src/state/git.rs) matches this failure's reason
+    // on the word "conflict", case-insensitively, to decide whether to offer a forced retry.
+    // libgit2 words it "N conflict(s) prevent(s) checkout" — pin that word here so a libgit2
+    // wording change fails this test loudly instead of silently dropping the UI's force-checkout
+    // confirm.
+    let GitError::Failed(reason) = &error else {
+        panic!("expected GitError::Failed, got {error:?}");
+    };
+    assert!(
+        reason.to_ascii_lowercase().contains("conflict"),
+        "expected the refusal to mention a conflict, got {reason:?}"
+    );
+    assert_eq!(fs::read(dir.path().join("file.txt")).unwrap(), b"dirty\n");
+}
+
+#[test]
+fn checkout_with_force_discards_local_changes() {
+    let dir = repository();
+    git(dir.path(), &["checkout", "-q", "-b", "feature/x"]);
+    fs::write(dir.path().join("file.txt"), b"on feature\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "on feature"]);
+    git(dir.path(), &["checkout", "-q", "main"]);
+    fs::write(dir.path().join("file.txt"), b"dirty\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Checkout {
+            rev: "feature/x".into(),
+            force: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        git_stdout(dir.path(), &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "feature/x"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("file.txt")).unwrap(),
+        b"on feature\n"
+    );
+}
+
+#[test]
+fn checkout_a_commit_detaches_head() {
+    let dir = repository();
+    let sha = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Checkout {
+            rev: sha,
+            force: false,
+        },
+    )
+    .unwrap();
+    let symbolic = Command::new("git")
+        .current_dir(dir.path())
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .output()
+        .expect("git");
+    assert!(!symbolic.status.success(), "HEAD should be detached");
+}
+
+#[test]
+fn merge_fast_forwards_when_possible() {
+    let dir = repository();
+    git(dir.path(), &["checkout", "-q", "-b", "feature/x"]);
+    fs::write(dir.path().join("file.txt"), b"on feature\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "on feature"]);
+    git(dir.path(), &["checkout", "-q", "main"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Merge {
+            rev: "feature/x".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(dir.path().join("file.txt")).unwrap(),
+        b"on feature\n"
+    );
+}
+
+#[test]
+fn merge_with_conflicts_fails_and_leaves_them_for_resolution() {
+    let dir = repository();
+    git(dir.path(), &["checkout", "-q", "-b", "feature/x"]);
+    fs::write(dir.path().join("file.txt"), b"from feature\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "on feature"]);
+    git(dir.path(), &["checkout", "-q", "main"]);
+    fs::write(dir.path().join("file.txt"), b"from main\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "on main"]);
+    let error = write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Merge {
+            rev: "feature/x".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, GitError::Failed(_)));
+    let repo = observe::open(dir.path()).unwrap().expect("a repository");
+    assert_eq!(repo.state(), git2::RepositoryState::Merge);
+}
+
+#[test]
+fn merge_already_up_to_date_is_refused() {
+    let dir = repository();
+    git(dir.path(), &["branch", "feature/x"]);
+    let error = write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Merge {
+            rev: "feature/x".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, GitError::Failed(reason) if reason.contains("up to date")));
+}
+
+#[test]
+fn delete_ref_removes_a_merged_branch() {
+    let dir = repository();
+    git(dir.path(), &["branch", "feature/x"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::DeleteRef {
+            name: "feature/x".into(),
+            force: false,
+        },
+    )
+    .unwrap();
+    assert!(!git_stdout(dir.path(), &["branch", "--list", "feature/x"]).contains("feature/x"));
+}
+
+#[test]
+fn delete_ref_refuses_an_unmerged_branch_without_force() {
+    let dir = repository();
+    git(dir.path(), &["checkout", "-q", "-b", "feature/x"]);
+    fs::write(dir.path().join("file.txt"), b"on feature\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "on feature"]);
+    git(dir.path(), &["checkout", "-q", "main"]);
+    let error = write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::DeleteRef {
+            name: "feature/x".into(),
+            force: false,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, GitError::Failed(reason) if reason.contains("merged")));
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::DeleteRef {
+            name: "feature/x".into(),
+            force: true,
+        },
+    )
+    .unwrap();
+    assert!(!git_stdout(dir.path(), &["branch", "--list", "feature/x"]).contains("feature/x"));
+}
+
+#[test]
+fn delete_ref_refuses_the_current_branch() {
+    let dir = repository();
+    let error = write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::DeleteRef {
+            name: "main".into(),
+            force: true,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, GitError::Failed(reason) if reason.contains("current branch")));
+}
+
+#[test]
+fn delete_ref_removes_a_tag() {
+    let dir = repository();
+    git(dir.path(), &["tag", "v1.0.0"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::DeleteRef {
+            name: "v1.0.0".into(),
+            force: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(git_stdout(dir.path(), &["tag", "-l"]), "");
+}
+
+#[test]
+fn delete_ref_names_an_unknown_ref() {
+    let dir = repository();
+    let error = write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::DeleteRef {
+            name: "nope".into(),
+            force: false,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, GitError::Failed(reason) if reason.contains("nope")));
+}
+
+#[test]
+fn discard_restores_a_tracked_file_and_its_index() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+    git(dir.path(), &["add", "file.txt"]);
+    fs::write(dir.path().join("file.txt"), b"changed again\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Discard {
+            rel_path: "file.txt".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(fs::read(dir.path().join("file.txt")).unwrap(), b"hello\n");
+    assert_eq!(git_stdout(dir.path(), &["diff", "--name-only"]), "");
+    assert_eq!(
+        git_stdout(dir.path(), &["diff", "--cached", "--name-only"]),
+        ""
+    );
+}
+
+#[test]
+fn discard_removes_an_untracked_file() {
+    let dir = repository();
+    fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Discard {
+            rel_path: "new.txt".into(),
+        },
+    )
+    .unwrap();
+    assert!(!dir.path().join("new.txt").exists());
+}
+
+#[test]
+fn discard_removes_an_untracked_directory() {
+    // `observe.rs` sets `recurse_untracked_dirs(false)`, so an untracked directory reaches the
+    // changes list as one row with its trailing slash stripped — `discard` must be able to clear
+    // the whole tree, not just a lone file.
+    let dir = repository();
+    fs::create_dir_all(dir.path().join("new_dir/nested")).unwrap();
+    fs::write(dir.path().join("new_dir/a.txt"), b"a\n").unwrap();
+    fs::write(dir.path().join("new_dir/nested/b.txt"), b"b\n").unwrap();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Discard {
+            rel_path: "new_dir".into(),
+        },
+    )
+    .unwrap();
+    assert!(!dir.path().join("new_dir").exists());
+}
+
+#[test]
+fn restore_file_writes_the_revs_content_as_an_uncommitted_change() {
+    let dir = repository();
+    let first = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    fs::write(dir.path().join("file.txt"), b"second\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "second"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::RestoreFile {
+            rel_path: "file.txt".into(),
+            rev: first,
+        },
+    )
+    .unwrap();
+    assert_eq!(fs::read(dir.path().join("file.txt")).unwrap(), b"hello\n");
+    assert_eq!(git_stdout(dir.path(), &["diff", "--name-only"]), "file.txt");
+    assert_eq!(
+        git_stdout(dir.path(), &["diff", "--cached", "--name-only"]),
+        ""
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_file_keeps_a_symlink_a_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = repository();
+    symlink("file.txt", dir.path().join("link.txt")).unwrap();
+    git(dir.path(), &["add", "link.txt"]);
+    git(dir.path(), &["commit", "-q", "-m", "add the symlink"]);
+    let first = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+
+    fs::remove_file(dir.path().join("link.txt")).unwrap();
+    fs::write(dir.path().join("link.txt"), b"not a link anymore\n").unwrap();
+    git(dir.path(), &["add", "link.txt"]);
+    git(
+        dir.path(),
+        &["commit", "-q", "-m", "replace it with a file"],
+    );
+
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::RestoreFile {
+            rel_path: "link.txt".into(),
+            rev: first,
+        },
+    )
+    .unwrap();
+
+    let meta = fs::symlink_metadata(dir.path().join("link.txt")).unwrap();
+    assert!(
+        meta.file_type().is_symlink(),
+        "link.txt should be a symlink again"
+    );
+    assert_eq!(
+        fs::read_link(dir.path().join("link.txt")).unwrap(),
+        Path::new("file.txt")
+    );
+    assert_eq!(
+        git_stdout(dir.path(), &["diff", "--cached", "--name-only"]),
+        ""
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_file_keeps_the_executable_bit() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = repository();
+    fs::write(dir.path().join("run.sh"), b"#!/bin/sh\necho hi\n").unwrap();
+    fs::set_permissions(dir.path().join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+    git(dir.path(), &["add", "run.sh"]);
+    git(dir.path(), &["commit", "-q", "-m", "add the executable"]);
+    let first = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+
+    // Delete it, then bring it back with a later commit that never re-marked it executable —
+    // matching how a worktree file can go missing before `restore_file` is asked to bring it
+    // back from an earlier rev.
+    fs::remove_file(dir.path().join("run.sh")).unwrap();
+
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::RestoreFile {
+            rel_path: "run.sh".into(),
+            rev: first,
+        },
+    )
+    .unwrap();
+
+    let mode = fs::metadata(dir.path().join("run.sh"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o111, 0o111, "run.sh should keep its executable bit");
+    assert_eq!(
+        git_stdout(dir.path(), &["diff", "--cached", "--name-only"]),
+        ""
+    );
+}
+
+#[test]
+fn cherry_pick_applies_a_commits_changes() {
+    let dir = repository();
+    git(dir.path(), &["checkout", "-q", "-b", "feature/x"]);
+    fs::write(dir.path().join("file.txt"), b"from feature\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "on feature"]);
+    let sha = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    git(dir.path(), &["checkout", "-q", "main"]);
+    write::apply_at(dir.path(), &[], &GitWriteOp::CherryPick { sha }).unwrap();
+    assert_eq!(
+        fs::read(dir.path().join("file.txt")).unwrap(),
+        b"from feature\n"
+    );
+    assert_eq!(
+        git_stdout(dir.path(), &["log", "-1", "--format=%s"]),
+        "on feature"
+    );
+}
+
+#[test]
+fn revert_commit_undoes_a_commits_changes_as_a_new_commit() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"second\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "second"]);
+    let sha = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    write::apply_at(dir.path(), &[], &GitWriteOp::RevertCommit { sha }).unwrap();
+    assert_eq!(fs::read(dir.path().join("file.txt")).unwrap(), b"hello\n");
+    assert_eq!(
+        git_stdout(dir.path(), &["log", "--format=%s"]),
+        "Revert \"second\"\nsecond\nfirst"
+    );
+}
+
+#[test]
+fn reset_hard_moves_head_and_the_worktree() {
+    let dir = repository();
+    let first = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    fs::write(dir.path().join("file.txt"), b"second\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "second"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Reset {
+            sha: first,
+            mode: ubiq_proto::git::GitResetMode::Hard,
+        },
+    )
+    .unwrap();
+    assert_eq!(git_stdout(dir.path(), &["log", "--format=%s"]), "first");
+    assert_eq!(fs::read(dir.path().join("file.txt")).unwrap(), b"hello\n");
+}
+
+#[test]
+fn reset_soft_moves_head_and_keeps_the_index() {
+    let dir = repository();
+    let first = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+    fs::write(dir.path().join("file.txt"), b"second\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "second"]);
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::Reset {
+            sha: first,
+            mode: ubiq_proto::git::GitResetMode::Soft,
+        },
+    )
+    .unwrap();
+    assert_eq!(git_stdout(dir.path(), &["log", "--format=%s"]), "first");
+    assert_eq!(
+        git_stdout(dir.path(), &["diff", "--cached", "--name-only"]),
+        "file.txt"
+    );
+}
+
+#[test]
 fn fetch_all_speaks_ssh() {
     let dir = repository();
     git(

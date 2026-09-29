@@ -730,6 +730,190 @@ fn escape_peels_the_mission_full_view(cx: &mut gpui::TestAppContext) {
     state.read_with(cx, |state, _| assert!(state.workbench.mission.is_none()));
 }
 
+/// The image/diagram zoom modal (T-185) takes a rung of its own, under the file question a
+/// diagram's Export can raise over it — `Layer::ImageZoom` was wired into `app/shell.rs`'s dismiss
+/// list without ever being asserted here, so a reorder could break it silently (`T-203`). Paired
+/// with the file question the same way `escape_peels_the_mission_full_view` pairs with it.
+#[gpui::test]
+fn escape_peels_the_image_zoom_modal(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    use ubiq::state::ImageZoom;
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    let picture = image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 255, 255, 255]));
+    let mut png = Vec::new();
+    picture
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("an in-memory encode succeeds");
+
+    state.update(cx, |state, _| {
+        state.workbench.image_zoom = Some(ImageZoom {
+            key: "zoom-test".to_string(),
+            title: "figure".to_string(),
+            image: std::sync::Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png)),
+            width: 4.0,
+            height: 4.0,
+        });
+        state.workbench.file_dialog = Some(FileDialog::New {
+            parent: String::new(),
+            dir: false,
+            ext: None,
+        });
+    });
+    cx.run_until_parked();
+
+    let escape = |state: &gpui::Entity<AppState>, cx: &mut gpui::TestAppContext| {
+        handle
+            .update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    state.cancel_dialog(&DialogCancel, window, cx);
+                });
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+    };
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.file_dialog.is_none());
+        assert!(
+            state.workbench.image_zoom.is_some(),
+            "the file question took the zoom modal under it"
+        );
+    });
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| assert!(state.workbench.image_zoom.is_none()));
+}
+
+/// The Git screen's destructive-write confirm — a forced checkout, a discard, a reset or deleting
+/// a ref — takes a rung of its own (`Layer::GitConfirm`, `T-270`). It used to be painted from the
+/// Git toolbar rather than the shared overlay stack, so Escape never dismissed it and it took no
+/// place in layer ordering. Paired with the file question under it, on the same rung as the pane's
+/// and the conversation's close confirms — Escape is meant to be the easiest answer any of the
+/// three can be given.
+#[gpui::test]
+fn escape_peels_the_git_confirm(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+    use ubiq::state::git::GitConfirm;
+    use ubiq_proto::ids::ProjectId;
+    use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
+
+    let project = ProjectId::generate();
+    let snapshot = ProjectSnapshot {
+        record: ProjectRecord {
+            id: project,
+            name: "ubiq".to_string(),
+            path: "/tmp/ubiq".to_string(),
+            colour: 0,
+            custom_colour: None,
+            storage: Default::default(),
+            temporary: false,
+            created_at: chrono::Utc::now(),
+            last_opened_at: None,
+            search_excludes: Vec::new(),
+            index: None,
+            mission_term: None,
+            tools: Vec::new(),
+            managed_repos: Vec::new(),
+            lanes: Vec::new(),
+            runs_on: None,
+            initials: String::new(),
+        },
+        health: ProjectHealth::Ok,
+        open_panes: 0,
+        ephemeral: false,
+        workarea: "/tmp/ubiq-workarea".to_string(),
+    };
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        cx.global_mut::<WindowRegistry>().apply(snapshot);
+        ubiq::app::install_key_bindings(cx);
+    });
+
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(Some(project), 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    // The project has to have arrived — `sync_projects` runs on a later frame — before
+    // `git_view_mut` has anything to answer for.
+    state.update(cx, |state, cx| {
+        if let Some(git) = state.git_view_mut(cx) {
+            git.confirm = Some(GitConfirm::DeleteRef {
+                name: "feature".to_string(),
+            });
+        }
+        state.workbench.file_dialog = Some(FileDialog::New {
+            parent: String::new(),
+            dir: false,
+            ext: None,
+        });
+    });
+    cx.run_until_parked();
+
+    let escape = |state: &gpui::Entity<AppState>, cx: &mut gpui::TestAppContext| {
+        handle
+            .update(cx, |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    state.cancel_dialog(&DialogCancel, window, cx);
+                });
+            })
+            .expect("the window is open");
+        cx.run_until_parked();
+    };
+
+    // `Layer::GitConfirm` sits above `Layer::FileDialog`, on the same terms the pane's and the
+    // conversation's confirms do, so the first Escape takes it and leaves the file question.
+    escape(&state, cx);
+    state.read_with(cx, |state, cx| {
+        assert!(!state.git_view(cx).is_some_and(|git| git.confirm.is_some()));
+        assert!(
+            state.workbench.file_dialog.is_some(),
+            "the git confirm took the file question under it"
+        );
+    });
+
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.file_dialog.is_none())
+    });
+}
+
 /// *Open as tab* is a move, not a copy: the modal goes and a centre-region document takes its
 /// place, so the mission is never on screen twice.
 #[gpui::test]

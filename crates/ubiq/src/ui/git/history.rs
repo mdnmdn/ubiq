@@ -156,7 +156,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     {
         let epoch = menu.epoch;
         let items: Vec<ContextItem> = menu
-            .entries(false, false)
+            .entries(false, false, &git.refs, false)
             .into_iter()
             .map(|entry| {
                 if entry.is_separator() {

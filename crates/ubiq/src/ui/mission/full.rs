@@ -79,6 +79,7 @@ pub fn modal(
         MODAL_WIDTH,
         Some(MODAL_HEIGHT),
         &title,
+        None,
         content,
         footer(app, task_id, cx),
         crate::ui::dismiss(&view, Layer::Mission, |this, _, cx| {

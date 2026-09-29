@@ -71,6 +71,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         width,
         Some(height),
         &zoom.title,
+        None,
         body,
         footer(cx),
         crate::ui::dismiss(&cx.entity(), Layer::ImageZoom, |this, _, cx| {

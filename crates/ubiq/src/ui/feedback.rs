@@ -75,6 +75,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         FEEDBACK_WIDTH,
         None,
         "Send feedback",
+        None,
         body,
         footer(app, feedback, cx),
         crate::ui::dismiss(&view, Layer::Feedback, |this, window, cx| {

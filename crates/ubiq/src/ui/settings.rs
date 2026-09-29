@@ -2794,6 +2794,7 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
             theme::login_modal_width(),
             Some(theme::login_modal_height()),
             title,
+            None,
             body,
             footer,
             crate::ui::dismiss(&view, Layer::Login, |this, _, cx| {

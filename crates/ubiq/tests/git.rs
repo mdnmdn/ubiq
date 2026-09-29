@@ -21,14 +21,15 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::git::{
-    CommitRow, GitView, GraphCell, RefRow, RefSection, RefTreeKind, Side, commit_rows, conflicted,
-    graph_cells, group_changes, ref_rows, staged, unstaged,
+    CommitRow, GitAction, GitConfirm, GitMenu, GitMenuKind, GitView, GraphCell, RefRow, RefSection,
+    RefTreeKind, Side, commit_rows, conflicted, graph_cells, group_changes, ref_rows, staged,
+    unstaged,
 };
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::DiffBase;
 use ubiq_proto::git::{
-    GitCommit, GitEntry, GitPathChange, GitRef, GitRefKind, GitSubmodule, GitSubmoduleState,
-    GitWho, GitWriteOp,
+    GitCommit, GitCounts, GitEntry, GitError, GitPathChange, GitRef, GitRefKind, GitResetMode,
+    GitSubmodule, GitSubmoduleState, GitWho, GitWriteOp,
 };
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
@@ -1275,5 +1276,488 @@ fn the_screen_follows_the_repository_it_was_pointed_at(cx: &mut TestAppContext) 
     assert!(fixture.said().iter().any(|message| matches!(
         message,
         Message::WriteProjectGit { repo, .. } if repo == "vendor/lib"
+    )));
+}
+
+// ── T-269: checkout affordances, the dead menu rows, and revert-to-commit ──
+
+fn ref_row_kind(name: &str, kind: GitRefKind, current: bool) -> GitRef {
+    GitRef {
+        name: name.to_string(),
+        kind,
+        target: "abc123d".to_string(),
+        current,
+        ahead: None,
+        behind: None,
+    }
+}
+
+/// What every one of the `Ref` menu's three write rows offers, by section and by whether the row
+/// is the one HEAD is on — the table T-269 asks for: only a local branch or a tag can be merged
+/// or deleted, a checkout is offered more broadly, and merging into the branch already checked
+/// out is never offered.
+#[test]
+fn ref_menu_gates_checkout_merge_delete_by_section_and_current() {
+    let refs = vec![
+        RefRow::new(RefSection::Local, "main").current(),
+        RefRow::new(RefSection::Local, "feature"),
+        RefRow::new(RefSection::Remotes, "origin/main"),
+        RefRow::new(RefSection::Tags, "v1.0"),
+        RefRow::new(RefSection::Stashes, "WIP on main"),
+        RefRow::new(RefSection::Submodules, "vendor/lib"),
+    ];
+    let enabled = |index: usize, action: GitAction| -> bool {
+        GitMenu {
+            epoch: 0,
+            kind: GitMenuKind::Ref { index },
+            x: 0.,
+            y: 0.,
+        }
+        .entries(false, false, &refs, false)
+        .into_iter()
+        .find(|entry| entry.action == action)
+        .expect("the row is drawn")
+        .enabled
+    };
+
+    // The checked-out local branch: checkout is offered, merging it into itself is not, delete
+    // stays live.
+    assert!(enabled(0, GitAction::Checkout));
+    assert!(!enabled(0, GitAction::Merge));
+    assert!(enabled(0, GitAction::Delete));
+
+    // Another local branch: all three.
+    assert!(enabled(1, GitAction::Checkout));
+    assert!(enabled(1, GitAction::Merge));
+    assert!(enabled(1, GitAction::Delete));
+
+    // A remote-tracking branch: checkout only.
+    assert!(enabled(2, GitAction::Checkout));
+    assert!(!enabled(2, GitAction::Merge));
+    assert!(!enabled(2, GitAction::Delete));
+
+    // A tag: all three, the same as a local branch.
+    assert!(enabled(3, GitAction::Checkout));
+    assert!(enabled(3, GitAction::Merge));
+    assert!(enabled(3, GitAction::Delete));
+
+    // A stash and a submodule row: none of the three.
+    for dead in [4, 5] {
+        assert!(!enabled(dead, GitAction::Checkout), "row {dead}");
+        assert!(!enabled(dead, GitAction::Merge), "row {dead}");
+        assert!(!enabled(dead, GitAction::Delete), "row {dead}");
+    }
+}
+
+/// The Change menu's `Discard` and `Open` are always offered on the row that raised them, and
+/// `Revert to commit` only when the history panel has a real commit selected. The Commit menu's
+/// three actions and three reset modes are always offered — the host is what refuses a `Reset`
+/// or a `CherryPick` that does not make sense, on the same rule stage/unstage already follow.
+#[test]
+fn change_and_commit_menu_entries() {
+    let change = GitMenu {
+        epoch: 0,
+        kind: GitMenuKind::Change {
+            path: "a.txt".to_string(),
+            side: Side::Unstaged,
+        },
+        x: 0.,
+        y: 0.,
+    };
+    let get = |entries: &[ubiq::state::git::GitMenuEntry], action: GitAction| {
+        entries
+            .iter()
+            .find(|entry| entry.action == action)
+            .expect("the row is drawn")
+            .enabled
+    };
+    let no_commit = change.entries(true, false, &[], false);
+    assert!(get(&no_commit, GitAction::Discard));
+    assert!(get(&no_commit, GitAction::Open));
+    assert!(!get(&no_commit, GitAction::RevertToCommit));
+
+    let with_commit = change.entries(true, false, &[], true);
+    assert!(get(&with_commit, GitAction::RevertToCommit));
+
+    let commit = GitMenu {
+        epoch: 0,
+        kind: GitMenuKind::Commit { index: 0 },
+        x: 0.,
+        y: 0.,
+    };
+    let entries = commit.entries(false, false, &[], false);
+    for action in [
+        GitAction::CherryPick,
+        GitAction::Revert,
+        GitAction::ResetSoft,
+        GitAction::ResetMixed,
+        GitAction::ResetHard,
+    ] {
+        assert!(get(&entries, action), "{action:?} should be live");
+    }
+}
+
+/// The one path every checkout affordance takes: **always unforced first**, whatever the working
+/// tree holds. A dirty tree whose changes do not collide comes across the switch, so asking on
+/// dirtiness alone would turn every switch into a discard; the confirm is raised from the host's
+/// refusal instead, and only its accept sends `force: true`. A refusal that is not about
+/// overwriting work reads as the screen's error and offers nothing.
+#[gpui::test]
+fn a_dirty_checkout_is_unforced_until_the_host_refuses(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.deliver(
+        Message::GitRefs {
+            project_id: fixture.project,
+            repo: String::new(),
+            refs: vec![
+                ref_row_kind("main", GitRefKind::Local, true),
+                ref_row_kind("feature", GitRefKind::Local, false),
+            ],
+        },
+        cx,
+    );
+    // Everything is dirty: staged, modified, untracked and conflicted all count.
+    fixture.deliver(
+        Message::GitOverview {
+            project_id: fixture.project,
+            repo: String::new(),
+            overview: Some(overview(
+                "main",
+                Some(GitCounts {
+                    staged: 1,
+                    modified: 2,
+                    untracked: 3,
+                    conflicted: 0,
+                }),
+            )),
+        },
+        cx,
+    );
+
+    let checkout = |index: usize, cx: &mut TestAppContext| {
+        fixture
+            .window
+            .update(cx, |_, _window, cx| {
+                fixture
+                    .state
+                    .update(cx, |state, cx| state.checkout_git_ref(index, cx));
+            })
+            .expect("the window is open");
+    };
+    let confirm_state = |cx: &mut TestAppContext| {
+        fixture.state.read_with(cx, |state, cx| {
+            state.git_view(cx).and_then(|git| git.confirm.clone())
+        })
+    };
+    let last_error = |cx: &mut TestAppContext| {
+        fixture.state.read_with(cx, |state, cx| {
+            state.git_view(cx).and_then(|git| git.last_error.clone())
+        })
+    };
+    let fail = |reason: &str, cx: &mut TestAppContext| {
+        fixture.deliver(
+            Message::GitError {
+                project_id: fixture.project,
+                repo: String::new(),
+                error: GitError::Failed(reason.to_string()),
+            },
+            cx,
+        );
+    };
+
+    // The dirty tree writes unforced and asks nothing — this is the bug the card is about.
+    checkout(1, cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::Checkout { rev, force: false },
+                ..
+            } if rev == "feature"
+        )),
+        "a dirty tree still checks out unforced; got {said:?}"
+    );
+    assert!(
+        !said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::Checkout { force: true, .. },
+                ..
+            }
+        )),
+        "nothing forced is sent before the host has refused; got {said:?}"
+    );
+    assert_eq!(confirm_state(cx), None);
+
+    // The host refuses it because the switch would overwrite work: *that* is the question.
+    fail("1 conflict prevents checkout", cx);
+    assert_eq!(
+        confirm_state(cx),
+        Some(GitConfirm::Checkout {
+            rev: "feature".to_string()
+        })
+    );
+    assert_eq!(
+        last_error(cx),
+        None,
+        "the refusal is a question, not an error"
+    );
+
+    // Accepting is the only thing that forces it.
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture
+                .state
+                .update(cx, |state, cx| state.confirm_git_action(cx));
+        })
+        .expect("the window is open");
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::WriteProjectGit {
+                op: GitWriteOp::Checkout { rev, force: true },
+                ..
+            } if rev == "feature"
+        )),
+        "confirming sends the forced checkout; got {said:?}"
+    );
+    assert_eq!(confirm_state(cx), None);
+
+    // A checkout that fails for any other reason is an error, not an offer to force one.
+    checkout(1, cx);
+    let _ = fixture.said();
+    fail("'feature' is not a valid rev", cx);
+    assert_eq!(confirm_state(cx), None);
+    assert_eq!(last_error(cx), Some("'feature' is not a valid rev".into()));
+
+    // And a conflict landing when no checkout is outstanding is nobody's question either.
+    fail("1 conflict prevents checkout", cx);
+    assert_eq!(confirm_state(cx), None);
+}
+
+/// The Ref menu's `Merge` is dead on every row while `HEAD` is detached — no row is `current`,
+/// and there is no branch to merge onto, which the host refuses outright. Checkout and delete are
+/// unaffected.
+#[test]
+fn ref_menu_kills_merge_on_a_detached_head() {
+    let refs = vec![
+        RefRow::new(RefSection::Local, "main"),
+        RefRow::new(RefSection::Tags, "v1.0"),
+    ];
+    let enabled = |index: usize, action: GitAction| -> bool {
+        GitMenu {
+            epoch: 0,
+            kind: GitMenuKind::Ref { index },
+            x: 0.,
+            y: 0.,
+        }
+        .entries(false, false, &refs, false)
+        .into_iter()
+        .find(|entry| entry.action == action)
+        .expect("the row is drawn")
+        .enabled
+    };
+    for row in [0, 1] {
+        assert!(!enabled(row, GitAction::Merge), "row {row}");
+        assert!(enabled(row, GitAction::Checkout), "row {row}");
+        assert!(enabled(row, GitAction::Delete), "row {row}");
+    }
+}
+
+/// Every menu row T-269 asked to be enabled sends the write it names — the confirm-gated ones
+/// (`Discard`, `Revert to commit`, `Delete`) only once answered, the rest straight away. `Open` is
+/// a UI action, not a
+/// write: it asks the host to read the file, the same request a plain click in the explorer
+/// sends.
+#[gpui::test]
+fn menu_actions_write_what_they_name(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.deliver(
+        Message::GitRefs {
+            project_id: fixture.project,
+            repo: String::new(),
+            refs: vec![
+                ref_row_kind("main", GitRefKind::Local, true),
+                ref_row_kind("feature", GitRefKind::Local, false),
+            ],
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::GitLogPage {
+            project_id: fixture.project,
+            repo: String::new(),
+            cursor: None,
+            commits: vec![commit("4f2a9c1")],
+            next_cursor: None,
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::GitWorkingTree {
+            project_id: fixture.project,
+            generation: 1,
+            entries: vec![entry("a.txt", None, Some(GitPathChange::Modified))],
+            rollups: Vec::new(),
+            repos: Vec::new(),
+            truncated: false,
+        },
+        cx,
+    );
+
+    let open_menu = |kind: GitMenuKind, cx: &mut TestAppContext| {
+        fixture
+            .window
+            .update(cx, |_, _window, cx| {
+                fixture
+                    .state
+                    .update(cx, |state, cx| state.open_git_menu(kind, (0., 0.), cx));
+            })
+            .expect("the window is open");
+    };
+    let pick = |index: usize, cx: &mut TestAppContext| {
+        fixture
+            .window
+            .update(cx, |_, _window, cx| {
+                fixture
+                    .state
+                    .update(cx, |state, cx| state.pick_git_menu_action(index, cx));
+            })
+            .expect("the window is open");
+    };
+    let confirm = |cx: &mut TestAppContext| {
+        fixture
+            .window
+            .update(cx, |_, _window, cx| {
+                fixture
+                    .state
+                    .update(cx, |state, cx| state.confirm_git_action(cx));
+            })
+            .expect("the window is open");
+    };
+    let change = || GitMenuKind::Change {
+        path: "a.txt".to_string(),
+        side: Side::Unstaged,
+    };
+
+    // `Discard`: index 3 of the Change menu, behind a confirm — it destroys work.
+    open_menu(change(), cx);
+    pick(3, cx);
+    assert!(fixture.said().is_empty(), "Discard waits on the confirm");
+    confirm(cx);
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit { op: GitWriteOp::Discard { rel_path }, .. } if rel_path == "a.txt"
+    )));
+
+    // `Open`: index 4, a UI read, not a write — the same request a click in the explorer sends.
+    open_menu(change(), cx);
+    pick(4, cx);
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::ReadProjectFile { rel_path, .. } if rel_path == "a.txt"
+    )));
+
+    // `Revert to commit`: index 5, disabled with nothing selected in the history — selecting the
+    // seeded commit turns it live. It overwrites the working tree with content that is in no
+    // commit, so like `Discard` it waits on the confirm, then restores from that commit's full id.
+    open_menu(change(), cx);
+    pick(5, cx);
+    assert!(
+        fixture.said().is_empty(),
+        "Revert to commit is dead with no commit selected"
+    );
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture
+                .state
+                .update(cx, |state, cx| state.select_git_commit(Some(0), cx));
+        })
+        .expect("the window is open");
+    open_menu(change(), cx);
+    pick(5, cx);
+    assert!(
+        fixture.said().is_empty(),
+        "Revert to commit waits on the confirm"
+    );
+    confirm(cx);
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit {
+            op: GitWriteOp::RestoreFile { rel_path, rev },
+            ..
+        } if rel_path == "a.txt" && rev == "4f2a9c1full"
+    )));
+
+    // The Commit menu: cherry-pick, revert, and the two unconfirmed reset modes.
+    let commit_menu = || GitMenuKind::Commit { index: 0 };
+    open_menu(commit_menu(), cx);
+    pick(2, cx); // CherryPick
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit { op: GitWriteOp::CherryPick { sha }, .. } if sha == "4f2a9c1full"
+    )));
+
+    open_menu(commit_menu(), cx);
+    pick(3, cx); // Revert
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit { op: GitWriteOp::RevertCommit { sha }, .. } if sha == "4f2a9c1full"
+    )));
+
+    open_menu(commit_menu(), cx);
+    pick(5, cx); // Reset (soft) — no confirm
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit {
+            op: GitWriteOp::Reset { sha, mode: GitResetMode::Soft },
+            ..
+        } if sha == "4f2a9c1full"
+    )));
+
+    open_menu(commit_menu(), cx);
+    pick(7, cx); // Reset (hard) — behind a confirm
+    assert!(
+        fixture.said().is_empty(),
+        "a hard reset waits on the confirm"
+    );
+    confirm(cx);
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit {
+            op: GitWriteOp::Reset { sha, mode: GitResetMode::Hard },
+            ..
+        } if sha == "4f2a9c1full"
+    )));
+
+    // The Ref menu: merge the other branch, then delete it behind a confirm.
+    open_menu(GitMenuKind::Ref { index: 1 }, cx);
+    pick(1, cx); // Merge
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit { op: GitWriteOp::Merge { rev }, .. } if rev == "feature"
+    )));
+
+    // `Delete`: behind the confirm, and *forced* once it is answered — the dialog said the branch
+    // and its unmerged commits go, so an unforced write the host would refuse would leave the
+    // question answered and nothing done.
+    open_menu(GitMenuKind::Ref { index: 1 }, cx);
+    pick(2, cx); // Delete
+    assert!(fixture.said().is_empty(), "Delete waits on the confirm");
+    confirm(cx);
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit {
+            op: GitWriteOp::DeleteRef { name, force: true },
+            ..
+        } if name == "feature"
     )));
 }

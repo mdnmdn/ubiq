@@ -362,6 +362,33 @@ pub enum GitWriteOp {
     /// Soft-reset `HEAD` to its first parent: the last commit's changes return to the index.
     /// Refused on a root commit or an unborn branch.
     UndoCommit,
+    /// Check out a ref or commit. `force` discards local changes that would be overwritten.
+    Checkout { rev: String, force: bool },
+    /// Merge a ref into the current branch.
+    Merge { rev: String },
+    /// Delete a local branch or a tag, named as the refs panel spells it. `force` deletes an
+    /// unmerged branch.
+    DeleteRef { name: String, force: bool },
+    /// Restore one project-relative path to its HEAD content, dropping both worktree and index
+    /// changes. An untracked file is removed.
+    Discard { rel_path: String },
+    /// Restore one project-relative path to its content at `rev`, leaving it as an uncommitted
+    /// worktree change.
+    RestoreFile { rel_path: String, rev: String },
+    /// Apply a commit's changes on top of HEAD as a new commit.
+    CherryPick { sha: String },
+    /// Create a commit that undoes `sha`.
+    RevertCommit { sha: String },
+    /// Move HEAD to `sha`.
+    Reset { sha: String, mode: GitResetMode },
+}
+
+/// How far `Reset` moves `HEAD`: whether the index and the worktree follow it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GitResetMode {
+    Soft,
+    Mixed,
+    Hard,
 }
 
 /// One path that differs between two revs. The Git screen's range comparison lists these.

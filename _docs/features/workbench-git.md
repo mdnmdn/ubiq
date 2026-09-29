@@ -37,7 +37,9 @@ the size they can be read at: the tree answers "is this file changed" and this s
 corner for as long as the rail is on Git.
 
 **The strip over the panels is icon buttons and the HEAD pill.** Every button is an icon with a
-tooltip. Fetch all, pull and push write, including an `ssh` remote (`git@host:path`). Branch raises a
+tooltip. `Checkout` checks out whatever the refs panel has selected — faint with nothing selected,
+same as with no repository. Fetch all, pull and push write, including an `ssh` remote
+(`git@host:path`). Branch raises a
 popover with a name field, and Enter or `Create` makes that branch at HEAD and checks it out. Stash
 shelves the uncommitted changes, untracked files with them. Undo takes the last commit back into the
 index and is refused on a first commit. All three refuse while a merge or rebase is in progress, and
@@ -46,6 +48,23 @@ take no click, and keep their tooltips. The pill beside them is the selected rep
 tracking counts and any in-progress operation. A refresh asks the host again. What is typed into the commit box is kept with the project, until the commit it
 was written for succeeds: the working-tree reply that follows empties the box and drops the amend
 flag, rather than leaving a message on screen that is now history.
+
+**A write that could lose something asks first.** Discarding a change, a hard reset, deleting a ref
+and reverting a file to a commit each raise a confirm dialog (`GitConfirm`, `state/git.rs`) before
+they send anything; accepting is what sends the write, forced where the question was about forcing
+one — a delete that is answered deletes an unmerged branch rather than being refused a second time.
+Reverting a file is in that list because what it overwrites was never committed: it is in no
+history to be read back out of. A merge, cherry-picking, reverting a commit and a soft or mixed
+reset all write straight away — those are commits on top of what was already there.
+
+**A checkout is attempted unforced and only then asks.** Checking out a branch or a tag sends
+`force: false` whatever the working tree holds, because a modification that does not collide comes
+across the switch, the same way `git checkout` carries it. The confirm is raised from the host's
+*refusal* instead: the UI holds the rev of the checkout it is waiting on (`checkout_in_flight`) and
+a `GitError` naming a checkout conflict turns into the dialog, whose accept is the only thing that
+sends `force: true`. Any other failure of that checkout — an unresolvable rev, say — reads as the
+screen's error, so a forced checkout is never offered over a failure that was not about
+overwriting work.
 
 **A project holding more than one repository shows one at a time.** The refs panel opens with a
 Repositories section listing the project's own repository and each nested one it manages; a project
@@ -92,10 +111,19 @@ than against the working tree. A plain click on any row, including the uncommitt
 pair and returns to that row's own view.
 
 **A right-click on a changed path, a commit or a branch raises that row's own menu**, the same
-`kit::context_menu` every other right-click on the window draws with. A changed path offers stage
-and unstage today; a commit offers copying its SHA; a branch offers copying its name. The rest of
-each menu is drawn and disabled — checkout, cherry-pick, discard and the like have no operation
-behind them yet — so the vocabulary is visible before the write is.
+`kit::context_menu` every other right-click on the window draws with, and every row in it does
+something. A changed path offers stage, unstage, discard (behind the confirm), opening the file,
+copying its path, and — once the history panel has a real commit selected — restoring the path from
+that commit, labelled with its short id (`Revert to 4f2a9c1`), behind the confirm; dead with
+nothing selected there. A
+commit offers copying its SHA, cherry-picking it, reverting it, and resetting `HEAD` to it soft,
+mixed or hard, the last behind the confirm. A local branch or a tag offers checkout, merge (dead
+for the branch already checked out, and dead on every row while `HEAD` is detached — there is no
+branch to merge onto) and delete (behind the confirm), plus copying its name; a
+remote-tracking branch offers checkout and the copy only — merge and delete stay dead, because
+neither means anything against a ref this screen does not own the way it owns a local branch or a
+tag. A stash or a submodule row offers only the copy — checkout too stays dead, because neither
+names a rev this screen checks out.
 
 **Whatever the screen is waiting on is named, not just spun.** `GitView::in_progress()` reads
 whichever of a write, a history page or a two-commit comparison is still in flight and the toolbar
@@ -117,8 +145,9 @@ what the sidebar is opened for and the other four are long enough to push it off
 level of the local and the remote tree, the current branch sorts first, then `main`, `master`,
 `develop` and `dev` in that order, then everything else alphabetically — only a branch with no
 folder of its own is pinned this way, so `main` inside a folder stays where its folder puts it. A
-click on a branch reveals the commit list if it was put away; a double-click scrolls the list to the
-commit that branch points at. A search field above the sidebar's sections narrows every one of
+click on a branch reveals the commit list if it was put away; a double-click on a local or a
+remote-tracking branch row checks it out (the toolbar's own confirm rule applies), and on any other
+row scrolls the list to the commit it points at instead. A search field above the sidebar's sections narrows every one of
 them — local branches, remotes, tags, stashes and submodules — to names that match, as it is typed;
 a section a search leaves empty is not drawn, and searching opens every folder the tree would
 otherwise keep shut, so a match is never left behind a twisty. The commit log pages
@@ -147,9 +176,12 @@ branch does not visually collapse and reopen at a page boundary.
 
 **The git family is what the Git screen speaks:** `ProjectGit` and `RefreshProjectGit` for the
 overview and the working tree, `ProjectGitRefs` for the sidebar, `ProjectGitLog` for the history,
-page by page, and `WriteProjectGit` for stage, unstage, commit, fetch, pull, push, branch, stash and
-undo. Each carries a `repo`, empty for the project's own, and the screen discards a reply whose
-`repo` is not the one it shows. The full family is [`../tech/transport-contract.md`](../tech/transport-contract.md).
+page by page, and `WriteProjectGit` for stage, unstage, commit, fetch, pull, push, branch, stash,
+undo, checkout, merge, delete-ref, discard, restore-file, cherry-pick, revert-commit and reset.
+Each carries a `repo`, empty for the project's own, and the screen discards a reply whose
+`repo` is not the one it shows. `GitError` answers a refused write the way it already answers a
+refused read — `last_error` holds it under the commit box regardless of which op sent it. The full
+family is [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
 ## Implementation
 
@@ -182,14 +214,30 @@ absent when that returns nothing, and capped in height so a project of many clon
 `git::toolbar()` is the strip itself,
 painted by `ui/shell.rs` above the dock while the rail is on Git; it carries the HEAD pill, the
 icon buttons — each a `kit::icon_button_tip`, an icon button that names itself in a tooltip and
-draws faint and inert when disabled — fetch all / pull / push / branch / stash / undo, the
+draws faint and inert when disabled — checkout / fetch all / pull / push / branch / stash / undo, the
 working-tree count and a refresh. `branch_button()` owns the `Branch` popover (`MenuId::GitNewBranch`):
 a text field and a `Create` button, submitted by `submit_git_branch()`. `ribbon::experimental()` is
 the red `experimental` band in that column's top-left corner — `kit::ribbon` at `TopLeft`, drawn
 by `ui/shell.rs` while the rail is on Git. `AppState::write_git()` sends `WriteProjectGit`
-against `git_repo_of()`'s repository, and `create_git_branch()`, `stash_git()` and
-`undo_git_commit()` are its callers for the three newer ops; commit, fetch, pull, push, branch,
-stash and undo also ask for refs and a fresh log page.
+against `git_repo_of()`'s repository; commit, fetch, pull, push, branch, stash, undo, checkout,
+merge, delete-ref, cherry-pick, revert-commit and reset also ask for refs and a fresh log page,
+while discard and restore-file — path-scoped, not history-moving — do not.
+`AppState::checkout_git_ref()` is the one path every checkout affordance calls — the toolbar
+button (`checkout_selected_git_ref()`, whatever the refs panel has selected), a double-click on a
+branch row, and the ref menu's `Checkout` — so the rule lives once: it always writes `force:
+false` and parks the rev on `GitView::checkout_in_flight`. `Message::GitError` is where the
+question is asked — a `Failed` reason that `checkout_conflict()` recognises, with a rev parked,
+raises `GitView::ask_confirm(GitConfirm::Checkout { .. })` and is not drawn as the screen's error;
+anything else clears the slot and is. The confirm's accept is the only sender of `force: true`.
+`AppState::pick_git_menu_action()` is every other menu row's own writer, one match arm per
+`GitAction` — `Discard`, `RevertToCommit`, `Reset`'s hard mode and `DeleteRef` route through
+`ask_confirm` the same way, and `DeleteRef`'s accept writes `force: true`; `Open` calls
+`select_file()`, the same path the explorer's own `Open` takes, and is not a write. `GitView::confirm` and `AppState::confirm_git_action()`/`cancel_git_confirm()` are the
+dialog's state and its two answers; `ui/shell.rs::git_confirm()` paints it with `kit::confirm_modal`
+from the window root — a rung of the shared overlay stack, `Layer::GitConfirm` (`T-270`), rather
+than painted from the toolbar the way `branch_button()`'s own popover is. Escape dismisses it on
+the same footing as the pane's and the conversation's close confirms; `crates/ubiq/tests/dismiss.rs`
+asserts its place in the peel order.
 `OpenProject::git_repo` is the selected repository, set by `select_git_repo()`, which calls
 `GitView::reset_repo()` and asks for that repository's overview, refs and first log page;
 `git_overview()` is the selected repository's overview, where `open.git` stays the project's own for

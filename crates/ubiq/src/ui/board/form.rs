@@ -1702,6 +1702,7 @@ pub fn draft_popup(app: &AppState, window: &Window, cx: &mut Context<AppState>) 
         theme::task_panel_width(),
         None,
         "New task",
+        None,
         draft_body(app, window, cx),
         draft_footer(app, cx),
         handler(&entity, |this, window, cx| this.cancel_new_task(window, cx)),

@@ -142,6 +142,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         ASK_WIDTH,
         None,
         "Ask for feedback",
+        None,
         body,
         footer(record, cx),
         crate::ui::dismiss(&view, Layer::Ask, |this, window, cx| {

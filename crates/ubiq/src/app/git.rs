@@ -187,6 +187,80 @@ impl AppState {
         self.write_git(GitWriteOp::UndoCommit, true, cx);
     }
 
+    /// The one path every checkout affordance takes — the toolbar button, a double-click on a
+    /// branch row, and the ref menu's `Checkout` entry — so the rule lives in one place.
+    ///
+    /// **Always unforced.** `git checkout` carries a modification that does not collide across a
+    /// branch switch, and so does the host's `force: false`; asking before it, on nothing better
+    /// than "the tree is dirty", would turn every switch into a discard. The question is asked
+    /// from the *refusal* instead: `checkout_in_flight` remembers the rev, and a `GitError`
+    /// naming a checkout conflict is what raises [`GitConfirm::Checkout`] — see
+    /// `AppState::receive` and [`crate::state::git::checkout_conflict`].
+    pub fn checkout_git_ref(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(rev) = self
+            .git_view(cx)
+            .and_then(|git| git.refs.get(index))
+            .map(|row| row.name.clone())
+        else {
+            return;
+        };
+        self.write_git(
+            GitWriteOp::Checkout {
+                rev: rev.clone(),
+                force: false,
+            },
+            true,
+            cx,
+        );
+        if let Some(git) = self.git_view_mut(cx) {
+            git.checkout_in_flight = Some(rev);
+        }
+    }
+
+    /// The toolbar's `Checkout` button: whatever is selected in the refs panel. A no-op with
+    /// nothing selected, which is what leaves the button faint.
+    pub fn checkout_selected_git_ref(&mut self, cx: &mut Context<Self>) {
+        let Some(index) = self.git_view(cx).and_then(|git| git.selected_ref) else {
+            return;
+        };
+        self.checkout_git_ref(index, cx);
+    }
+
+    /// Dismiss the confirm dialog without acting.
+    pub fn cancel_git_confirm(&mut self, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.cancel_confirm();
+        }
+        cx.notify();
+    }
+
+    /// The confirm dialog's accept: send the write it was raised for, forced where that is what
+    /// the question was.
+    pub fn confirm_git_action(&mut self, cx: &mut Context<Self>) {
+        let Some(confirm) = self.git_view_mut(cx).and_then(|git| git.confirm.take()) else {
+            return;
+        };
+        match confirm {
+            GitConfirm::Checkout { rev } => {
+                self.write_git(GitWriteOp::Checkout { rev, force: true }, true, cx);
+            }
+            GitConfirm::Discard { rel_path } => {
+                self.write_git(GitWriteOp::Discard { rel_path }, false, cx);
+            }
+            GitConfirm::Reset { sha, mode } => {
+                self.write_git(GitWriteOp::Reset { sha, mode }, true, cx);
+            }
+            // Forced: the dialog already said the branch and its unmerged commits go, and an
+            // unforced delete would be refused behind a question that has been answered.
+            GitConfirm::DeleteRef { name } => {
+                self.write_git(GitWriteOp::DeleteRef { name, force: true }, true, cx);
+            }
+            GitConfirm::RestoreFile { rel_path, rev } => {
+                self.write_git(GitWriteOp::RestoreFile { rel_path, rev }, false, cx);
+            }
+        }
+    }
+
     /// Create a branch at HEAD and check it out. A blank name is a no-op.
     pub fn create_git_branch(&mut self, name: String, cx: &mut Context<Self>) {
         let name = name.trim().to_string();
@@ -218,6 +292,10 @@ impl AppState {
             return;
         };
         if let Some(git) = self.git_view_mut(cx) {
+            // Any write answers whatever checkout was outstanding: the next failure is this
+            // write's, and reading it as the checkout's would offer to force one nobody asked
+            // for. `checkout_git_ref` re-arms the slot after this.
+            git.checkout_in_flight = None;
             git.pending = Some(match &op {
                 GitWriteOp::Stage { .. } => GitPending::Stage,
                 GitWriteOp::Unstage { .. } => GitPending::Unstage,
@@ -230,6 +308,14 @@ impl AppState {
                 GitWriteOp::CreateBranch { .. } => GitPending::CreateBranch,
                 GitWriteOp::Stash => GitPending::Stash,
                 GitWriteOp::UndoCommit => GitPending::Undo,
+                GitWriteOp::Checkout { .. } => GitPending::Checkout,
+                GitWriteOp::Merge { .. } => GitPending::Merge,
+                GitWriteOp::DeleteRef { .. } => GitPending::DeleteRef,
+                GitWriteOp::Discard { .. } => GitPending::Discard,
+                GitWriteOp::RestoreFile { .. } => GitPending::RestoreFile,
+                GitWriteOp::CherryPick { .. } => GitPending::CherryPick,
+                GitWriteOp::RevertCommit { .. } => GitPending::RevertCommit,
+                GitWriteOp::Reset { .. } => GitPending::Reset,
             });
         }
         let repo = self.git_repo_of(project_id);
@@ -442,9 +528,8 @@ impl AppState {
         cx.notify();
     }
 
-    /// Answer a pick from the Git screen's context menu. What each row does today: stage,
-    /// unstage, and the copies — the rest are drawn disabled until the host has an operation
-    /// behind them.
+    /// Answer a pick from the Git screen's context menu. Every row does something now; a
+    /// disabled one still routes here on a click and is turned away by `entry.enabled`.
     pub fn pick_git_menu_action(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(menu) = self.git_view(cx).and_then(|git| git.menu.clone()) else {
             return;
@@ -459,7 +544,18 @@ impl AppState {
                 .unwrap_or((false, false)),
             _ => (false, false),
         };
-        let Some(entry) = menu.entries(stageable, unstageable).get(index).copied() else {
+        let refs = self
+            .git_view(cx)
+            .map(|git| git.refs.clone())
+            .unwrap_or_default();
+        let commit_selected = self
+            .git_view(cx)
+            .is_some_and(|git| git.selected_commit.is_some());
+        let Some(entry) = menu
+            .entries(stageable, unstageable, &refs, commit_selected)
+            .get(index)
+            .copied()
+        else {
             return;
         };
         let epoch = menu.epoch;
@@ -475,6 +571,31 @@ impl AppState {
             (GitMenuKind::Change { path, .. }, GitAction::Unstage) => {
                 self.unstage_git_path(path, cx);
             }
+            (GitMenuKind::Change { path, .. }, GitAction::Discard) => {
+                if let Some(git) = self.git_view_mut(cx) {
+                    git.ask_confirm(GitConfirm::Discard {
+                        rel_path: path.clone(),
+                    });
+                }
+            }
+            (GitMenuKind::Change { path, .. }, GitAction::Open) => {
+                self.select_file(path.clone(), cx);
+            }
+            // Behind a confirm: what it overwrites in the working tree was never committed, so
+            // unlike every other write on this menu it cannot be read back out of the history.
+            (GitMenuKind::Change { path, .. }, GitAction::RevertToCommit) => {
+                if let Some(rev) = self
+                    .git_view(cx)
+                    .and_then(|git| git.selected_commit())
+                    .map(|commit| commit.id.clone())
+                    && let Some(git) = self.git_view_mut(cx)
+                {
+                    git.ask_confirm(GitConfirm::RestoreFile {
+                        rel_path: path.clone(),
+                        rev,
+                    });
+                }
+            }
             (GitMenuKind::Change { path, .. }, GitAction::CopyPath) => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
             }
@@ -485,6 +606,65 @@ impl AppState {
                     .map(|commit| commit.id.clone())
                 {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(id));
+                }
+            }
+            (GitMenuKind::Commit { index }, GitAction::CherryPick) => {
+                if let Some(sha) = self
+                    .git_view(cx)
+                    .and_then(|git| git.commits.get(*index))
+                    .map(|commit| commit.id.clone())
+                {
+                    self.write_git(GitWriteOp::CherryPick { sha }, true, cx);
+                }
+            }
+            (GitMenuKind::Commit { index }, GitAction::Revert) => {
+                if let Some(sha) = self
+                    .git_view(cx)
+                    .and_then(|git| git.commits.get(*index))
+                    .map(|commit| commit.id.clone())
+                {
+                    self.write_git(GitWriteOp::RevertCommit { sha }, true, cx);
+                }
+            }
+            (GitMenuKind::Commit { index }, GitAction::ResetSoft) => {
+                self.reset_git_commit(*index, GitResetMode::Soft, cx);
+            }
+            (GitMenuKind::Commit { index }, GitAction::ResetMixed) => {
+                self.reset_git_commit(*index, GitResetMode::Mixed, cx);
+            }
+            (GitMenuKind::Commit { index }, GitAction::ResetHard) => {
+                if let Some(sha) = self
+                    .git_view(cx)
+                    .and_then(|git| git.commits.get(*index))
+                    .map(|commit| commit.id.clone())
+                    && let Some(git) = self.git_view_mut(cx)
+                {
+                    git.ask_confirm(GitConfirm::Reset {
+                        sha,
+                        mode: GitResetMode::Hard,
+                    });
+                }
+            }
+            (GitMenuKind::Ref { index }, GitAction::Checkout) => {
+                self.checkout_git_ref(*index, cx);
+            }
+            (GitMenuKind::Ref { index }, GitAction::Merge) => {
+                if let Some(rev) = self
+                    .git_view(cx)
+                    .and_then(|git| git.refs.get(*index))
+                    .map(|row| row.name.clone())
+                {
+                    self.write_git(GitWriteOp::Merge { rev }, true, cx);
+                }
+            }
+            (GitMenuKind::Ref { index }, GitAction::Delete) => {
+                if let Some(name) = self
+                    .git_view(cx)
+                    .and_then(|git| git.refs.get(*index))
+                    .map(|row| row.name.clone())
+                    && let Some(git) = self.git_view_mut(cx)
+                {
+                    git.ask_confirm(GitConfirm::DeleteRef { name });
                 }
             }
             (GitMenuKind::Ref { index }, GitAction::CopyName) => {
@@ -501,22 +681,21 @@ impl AppState {
         self.dismiss_git_menu(epoch, cx);
     }
 
+    /// `Reset (soft)`/`Reset (mixed)` from the commit menu: no confirm, on the same reasoning
+    /// `undo_git_commit` (itself a soft reset) already applies — the working tree is untouched.
+    fn reset_git_commit(&mut self, index: usize, mode: GitResetMode, cx: &mut Context<Self>) {
+        if let Some(sha) = self
+            .git_view(cx)
+            .and_then(|git| git.commits.get(index))
+            .map(|commit| commit.id.clone())
+        {
+            self.write_git(GitWriteOp::Reset { sha, mode }, true, cx);
+        }
+    }
+
     pub fn toggle_git_mine(&mut self, cx: &mut Context<Self>) {
         if let Some(git) = self.git_view_mut(cx) {
             git.mine_only = !git.mine_only;
-        }
-        cx.notify();
-    }
-
-    pub fn clear_git_filters(&mut self, cx: &mut Context<Self>) {
-        let had_branch = self
-            .git_view(cx)
-            .is_some_and(|git| git.branch_filter.is_some());
-        if let Some(git) = self.git_view_mut(cx) {
-            git.clear_filters();
-        }
-        if had_branch {
-            self.send_git_log(None, cx);
         }
         cx.notify();
     }

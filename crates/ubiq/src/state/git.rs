@@ -22,9 +22,11 @@
 //! operation, the working-tree totals, the conflicted / staged / unstaged lists, and the
 //! diff under them.
 //!
-//! **This screen writes.** Stage and unstage run through `+` / `-` on each path; commit, fetch
-//! all, pull and push are live. Branch, stash and undo stay inert. What is typed into the commit
-//! box is kept here so a switch away and back does not lose it.
+//! **This screen writes.** Stage, unstage, commit, fetch all, pull, push, branch, stash and undo
+//! are live, and so is every context-menu row: checkout, merge, delete a ref, discard a change,
+//! revert a file to a commit, cherry-pick, revert and reset. What is typed into the commit box is
+//! kept here so a switch away and back does not lose it. [`GitConfirm`] is what a destructive one
+//! of those asks before it runs.
 //!
 //! Nothing here draws and nothing here names a colour.
 
@@ -34,7 +36,7 @@ use chrono::{DateTime, Utc};
 use ubiq_proto::files::{DiffBase, FileDiff};
 use ubiq_proto::git::{
     GitChangedPath, GitCommit, GitCounts, GitEntry, GitHead, GitNested, GitPathChange, GitRef,
-    GitRefKind, GitSubmodule, RepoOverview,
+    GitRefKind, GitResetMode, GitSubmodule, RepoOverview,
 };
 
 use crate::state::when;
@@ -624,6 +626,14 @@ pub enum GitPending {
     Refresh,
     Log,
     Compare,
+    Checkout,
+    Merge,
+    DeleteRef,
+    Discard,
+    RestoreFile,
+    CherryPick,
+    RevertCommit,
+    Reset,
 }
 
 impl GitPending {
@@ -641,8 +651,62 @@ impl GitPending {
             GitPending::Refresh => "Refreshing\u{2026}",
             GitPending::Log => "Loading history\u{2026}",
             GitPending::Compare => "Comparing\u{2026}",
+            GitPending::Checkout => "Checking out\u{2026}",
+            GitPending::Merge => "Merging\u{2026}",
+            GitPending::DeleteRef => "Deleting\u{2026}",
+            GitPending::Discard => "Discarding\u{2026}",
+            GitPending::RestoreFile => "Restoring\u{2026}",
+            GitPending::CherryPick => "Cherry-picking\u{2026}",
+            GitPending::RevertCommit => "Reverting\u{2026}",
+            GitPending::Reset => "Resetting\u{2026}",
         }
     }
+}
+
+/// A destructive Git action waiting on the user's yes — a rung of the window's shared overlay
+/// stack (`Layer::GitConfirm`, `T-270`), so Escape dismisses it the same way it dismisses every
+/// other confirm. `ui::shell::git_confirm` draws it; `AppState::confirm_git_action` and
+/// `AppState::cancel_git_confirm` answer it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GitConfirm {
+    /// A checkout the host has already refused unforced, because the working tree holds changes
+    /// it would overwrite — accepting sends `force: true`. Raised from the refusal, never before
+    /// it: a dirty tree whose changes carry across the switch is checked out unforced and asks
+    /// nothing. See [`checkout_conflict`].
+    Checkout {
+        rev: String,
+    },
+    Discard {
+        rel_path: String,
+    },
+    Reset {
+        sha: String,
+        mode: GitResetMode,
+    },
+    /// Deleting a local branch or a tag — accepting sends `force: true`, so a branch that is not
+    /// fully merged goes with its commits rather than being refused behind a dialog that already
+    /// said it could not be undone.
+    DeleteRef {
+        name: String,
+    },
+    /// Overwriting a path in the working tree with its content at `rev` (`Revert to commit`).
+    /// What is overwritten was never committed, so it exists nowhere in the repository.
+    RestoreFile {
+        rel_path: String,
+        rev: String,
+    },
+}
+
+/// Whether a failed write's reason is the host's *safe* checkout refusing to overwrite the
+/// working tree, rather than any other way a checkout can fail.
+///
+/// libgit2 words that one refusal "N conflict(s) prevent(s) checkout"; the other failures a
+/// checkout can carry — an unresolvable rev, a rev that is not a commit, a name that is not
+/// utf-8 — never say "conflict". The word is therefore what tells them apart, and anything
+/// unrecognised is read as a plain error: the other reading would offer to force a checkout over
+/// a failure nobody asked about.
+pub fn checkout_conflict(reason: &str) -> bool {
+    reason.to_ascii_lowercase().contains("conflict")
 }
 
 /// The menu a right-click on the Git screen raised, until it is dismissed or another menu takes
@@ -697,10 +761,16 @@ pub enum GitAction {
     Discard,
     Open,
     CopyPath,
+    /// Restore the changed path from the commit selected in the history panel. The row's label
+    /// carries that commit's short id, drawn by the caller — [`GitAction::label`]'s answer is only
+    /// the fallback for when nothing is selected to name.
+    RevertToCommit,
     CopySha,
     CherryPick,
     Revert,
-    Reset,
+    ResetSoft,
+    ResetMixed,
+    ResetHard,
     Checkout,
     Merge,
     Delete,
@@ -716,10 +786,13 @@ impl GitAction {
             GitAction::Discard => "Discard",
             GitAction::Open => "Open",
             GitAction::CopyPath => "Copy path",
+            GitAction::RevertToCommit => "Revert to commit",
             GitAction::CopySha => "Copy SHA",
             GitAction::CherryPick => "Cherry-pick",
             GitAction::Revert => "Revert",
-            GitAction::Reset => "Reset",
+            GitAction::ResetSoft => "Reset (soft)",
+            GitAction::ResetMixed => "Reset (mixed)",
+            GitAction::ResetHard => "Reset (hard)",
             GitAction::Checkout => "Checkout",
             GitAction::Merge => "Merge",
             GitAction::Delete => "Delete",
@@ -732,33 +805,63 @@ impl GitAction {
 impl GitMenu {
     /// What this click offers, in the order the menu draws it. `stageable`/`unstageable` are
     /// frozen from the working tree as of open, so a pick's index still names the row that was
-    /// drawn even if the path has since moved.
-    pub fn entries(&self, stageable: bool, unstageable: bool) -> Vec<GitMenuEntry> {
+    /// drawn even if the path has since moved. `refs` is the sidebar's own rows, read for a
+    /// `Ref` menu's `Checkout`/`Merge`/`Delete` gating; `commit_selected` is whether the history
+    /// panel has a real commit selected (not the uncommitted row), for `RevertToCommit`.
+    pub fn entries(
+        &self,
+        stageable: bool,
+        unstageable: bool,
+        refs: &[RefRow],
+        commit_selected: bool,
+    ) -> Vec<GitMenuEntry> {
         let row = |action, enabled| GitMenuEntry { action, enabled };
-        let dead = |action| row(action, false);
         match &self.kind {
             GitMenuKind::Change { .. } => vec![
                 row(GitAction::Stage, stageable),
                 row(GitAction::Unstage, unstageable),
                 row(GitAction::Separator, false),
-                dead(GitAction::Discard),
-                dead(GitAction::Open),
+                row(GitAction::Discard, true),
+                row(GitAction::Open, true),
+                row(GitAction::RevertToCommit, commit_selected),
                 row(GitAction::CopyPath, true),
             ],
             GitMenuKind::Commit { .. } => vec![
                 row(GitAction::CopySha, true),
                 row(GitAction::Separator, false),
-                dead(GitAction::CherryPick),
-                dead(GitAction::Revert),
-                dead(GitAction::Reset),
-            ],
-            GitMenuKind::Ref { .. } => vec![
-                dead(GitAction::Checkout),
-                dead(GitAction::Merge),
-                dead(GitAction::Delete),
+                row(GitAction::CherryPick, true),
+                row(GitAction::Revert, true),
                 row(GitAction::Separator, false),
-                row(GitAction::CopyName, true),
+                row(GitAction::ResetSoft, true),
+                row(GitAction::ResetMixed, true),
+                row(GitAction::ResetHard, true),
             ],
+            GitMenuKind::Ref { index } => {
+                let target = refs.get(*index);
+                // Only a local branch or a tag can be merged or deleted from here — a remote's
+                // own tip, a stash and a submodule row all stay dead on both. A checkout is
+                // broader: a remote-tracking branch is a real rev to check out (detached) too.
+                let checkoutable = target.is_some_and(|row| {
+                    matches!(
+                        row.section,
+                        RefSection::Local | RefSection::Remotes | RefSection::Tags
+                    )
+                });
+                let manageable = target
+                    .is_some_and(|row| matches!(row.section, RefSection::Local | RefSection::Tags));
+                let current = target.is_some_and(|row| row.current);
+                // A merge needs a branch to merge *onto*, and the host refuses one onto a
+                // detached HEAD outright. At most one row is `current`, and none is exactly when
+                // HEAD is detached or unborn — so an attached HEAD is what the list itself says.
+                let attached = refs.iter().any(|row| row.current);
+                vec![
+                    row(GitAction::Checkout, checkoutable),
+                    row(GitAction::Merge, manageable && !current && attached),
+                    row(GitAction::Delete, manageable),
+                    row(GitAction::Separator, false),
+                    row(GitAction::CopyName, true),
+                ]
+            }
         }
     }
 }
@@ -959,6 +1062,16 @@ pub struct GitView {
     pub menu: Option<GitMenu>,
     /// Stamped onto every menu that opens, so a dismiss can say which menu it was aimed at.
     menu_epoch: u64,
+
+    /// A destructive write waiting on the confirm dialog's answer. See [`GitConfirm`].
+    pub confirm: Option<GitConfirm>,
+
+    /// The rev of an unforced checkout the host has not answered yet. A failed write naming a
+    /// checkout conflict while this is set is what raises [`GitConfirm::Checkout`] — it is the
+    /// only way the UI can tell "this switch would overwrite your work" apart from any other
+    /// refusal, since a write's reply carries no request id. One slot is enough: a second
+    /// checkout replaces the first, and every other write clears it.
+    pub checkout_in_flight: Option<String>,
 }
 
 impl GitView {
@@ -1007,6 +1120,8 @@ impl GitView {
             range_inflight: false,
             menu: None,
             menu_epoch: 0,
+            confirm: None,
+            checkout_in_flight: None,
         };
         view.set_commits(commits);
         view
@@ -1105,6 +1220,25 @@ impl GitView {
         if self.menu.as_ref().is_some_and(|menu| menu.epoch == epoch) {
             self.menu = None;
         }
+    }
+
+    /// Raise the confirm dialog over a destructive write, replacing whatever it was already
+    /// asking about.
+    pub fn ask_confirm(&mut self, confirm: GitConfirm) {
+        self.confirm = Some(confirm);
+    }
+
+    /// Take the confirm dialog's question away without answering it.
+    pub fn cancel_confirm(&mut self) {
+        self.confirm = None;
+    }
+
+    /// The row `selected_commit` names, if it still names one. `None` is the uncommitted row —
+    /// an absent index *is* that selection (`ui::git::history` draws the working tree for it),
+    /// not "nothing selected" — or an index the loaded history no longer reaches.
+    pub fn selected_commit(&self) -> Option<&CommitRow> {
+        self.selected_commit
+            .and_then(|index| self.commits.get(index))
     }
 
     pub fn toggle_folder(&mut self, section: RefSection, path: &str) {
@@ -1286,6 +1420,8 @@ impl GitView {
         self.last_error = None;
         self.pending = None;
         self.menu = None;
+        self.confirm = None;
+        self.checkout_in_flight = None;
     }
 
     pub fn clear_filters(&mut self) {

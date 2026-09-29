@@ -477,6 +477,13 @@ fn inner_op(repo: &str, op: &GitWriteOp) -> Result<GitWriteOp, GitError> {
         GitWriteOp::Unstage { rel_path } if !repo.is_empty() => GitWriteOp::Unstage {
             rel_path: inner_rel(repo, rel_path)?,
         },
+        GitWriteOp::Discard { rel_path } if !repo.is_empty() => GitWriteOp::Discard {
+            rel_path: inner_rel(repo, rel_path)?,
+        },
+        GitWriteOp::RestoreFile { rel_path, rev } if !repo.is_empty() => GitWriteOp::RestoreFile {
+            rel_path: inner_rel(repo, rel_path)?,
+            rev: rev.clone(),
+        },
         other => other.clone(),
     })
 }

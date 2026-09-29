@@ -20,14 +20,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Put every filter on the orchestration screen back. The one control for "show me all of it".
-    pub fn clear_graph_filters(&mut self, cx: &mut Context<Self>) {
-        if let Some(graph) = self.graph_mut(cx) {
-            graph.clear_filters();
-        }
-        cx.notify();
-    }
-
     pub fn toggle_agent_bucket(&mut self, bucket: Bucket, cx: &mut Context<Self>) {
         if let Some(graph) = self.graph_mut(cx) {
             graph.toggle_bucket(bucket);

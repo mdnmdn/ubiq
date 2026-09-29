@@ -24,7 +24,8 @@ use ubiq_proto::git::{GitChangedPath, GitEntry, GitPathChange};
 use crate::app::AppState;
 use crate::state::GitStatus;
 use crate::state::git::{
-    ChangeSection, GitMenuKind, Side, can_stage, can_unstage, change_letter, group_changes, staged,
+    ChangeSection, GitAction, GitMenuKind, Side, can_stage, can_unstage, change_letter,
+    group_changes, staged,
 };
 use crate::theme;
 use crate::theme::{Family, Role};
@@ -78,14 +79,27 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
             .unwrap_or((false, false)),
         _ => (false, false),
     };
+    // The one row whose label the menu itself cannot fill in: `Revert to commit` names the
+    // commit it would restore from, which is the history panel's own selection, not anything
+    // this click carries.
+    let revert_label = git
+        .selected_commit()
+        .map(|commit| format!("Revert to {}", commit.short_id));
     let items: Vec<ContextItem> = menu
-        .entries(stageable, unstageable)
+        .entries(stageable, unstageable, &[], git.selected_commit.is_some())
         .into_iter()
         .map(|entry| {
             if entry.is_separator() {
                 return ContextItem::separator();
             }
-            let item = ContextItem::new(entry.label());
+            let label = if entry.action == GitAction::RevertToCommit {
+                revert_label
+                    .clone()
+                    .unwrap_or_else(|| entry.label().to_string())
+            } else {
+                entry.label().to_string()
+            };
+            let item = ContextItem::new(label);
             if entry.enabled { item } else { item.disabled() }
         })
         .collect();

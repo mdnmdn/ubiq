@@ -116,6 +116,10 @@ pub enum Layer {
     ClosePane,
     /// The chat tab's Close confirm.
     EndConversation,
+    /// The Git screen's destructive-write confirm — a forced checkout, a discard, a reset or
+    /// deleting a ref (`T-270`). On the same footing as the pane's and the conversation's above
+    /// it: Escape should be the easiest answer a destructive confirm can be given.
+    GitConfirm,
     /// The file picker dialog.
     FilePicker,
     /// A context or chevron menu at the window root.

@@ -119,6 +119,7 @@ pub fn editor(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         theme::theme_editor_width(),
         Some(theme::theme_editor_height()),
         &title,
+        None,
         body,
         footer,
         handler(&view, |this, _, cx| this.close_theme_editor(cx)),

@@ -85,6 +85,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         CLONE_WIDTH,
         Some(CLONE_HEIGHT),
         "Clone a project",
+        None,
         body,
         footer(clone, cx),
         crate::ui::dismiss(&view, Layer::Clone, |this, _, cx| this.close_clone(cx)),

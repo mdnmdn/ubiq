@@ -17,12 +17,14 @@ use crate::app::{
     ZoomOut,
 };
 use crate::state::RailMode;
+use crate::state::git::GitConfirm;
 use crate::theme;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{
     catalog, git, handler, kit, new_agent, new_mission, rail, remote_connect, remote_hosts, ribbon,
     settings, status_bar, titlebar,
 };
+use ubiq_proto::git::GitResetMode;
 
 pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> impl IntoElement {
     // Nothing about size is pushed in here any more. Appearance is one setting for all of Ubiq
@@ -161,7 +163,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                         .min_h(px(0.))
                         .children(
                             (app.workbench.rail_mode == RailMode::GIT && app.project(cx).is_some())
-                                .then(|| git::toolbar(app, window, cx)),
+                                .then(|| git::toolbar(app, cx)),
                         )
                         .child(app.dock().clone())
                         .children(
@@ -494,6 +496,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .confirm_end_conversation
                 .map(|_| end_conversation_confirm(app, window, cx)),
         )
+        // The Git screen's destructive-write confirm, on `Layer::GitConfirm`'s rung just above the
+        // two confirms just painted — see `git_confirm`.
+        .children(git_confirm(app, window, cx))
         // The file picker, raised by a composer's `+`, by an explorer gesture or by a remote
         // project's Open — painted here for the reason every dialog above it is: one may be up at
         // a time, and where it is asked for is not where it is drawn. A picker raised from inside
@@ -650,6 +655,82 @@ fn end_conversation_confirm(
         }),
         window,
     )
+}
+
+/// The Git screen's destructive-write confirm — a forced checkout, a discard, a reset, deleting a
+/// ref or reverting a file to a commit — over the window on `Layer::GitConfirm`'s rung, the same
+/// footing the pane's and the
+/// conversation's confirms sit on just above it.
+///
+/// Painted here rather than from the Git toolbar (`ui::git::toolbar`) that used to raise it, so
+/// Escape and the shared overlay stack both know about it (`T-270`).
+fn git_confirm(
+    app: &AppState,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> Option<gpui::AnyElement> {
+    let confirm = app.git_view(cx)?.confirm.clone()?;
+    let entity = cx.entity();
+    let (title, message, label) = match &confirm {
+        GitConfirm::Checkout { rev } => (
+            "Checkout",
+            format!(
+                "Checking out {rev} was refused: uncommitted changes would be overwritten. Check \
+                 it out anyway? Those changes are discarded. This cannot be undone."
+            ),
+            "Checkout",
+        ),
+        GitConfirm::Discard { rel_path } => (
+            "Discard changes",
+            format!(
+                "Discard changes to {rel_path}? Its worktree and index changes are dropped; an \
+                 untracked file is removed. This cannot be undone."
+            ),
+            "Discard",
+        ),
+        GitConfirm::Reset { sha, mode } => {
+            let short = sha.chars().take(9).collect::<String>();
+            let extent = match mode {
+                GitResetMode::Soft => "soft",
+                GitResetMode::Mixed => "mixed",
+                GitResetMode::Hard => "hard, discarding the working tree",
+            };
+            (
+                "Reset",
+                format!("Reset HEAD to {short} ({extent})? This cannot be undone."),
+                "Reset",
+            )
+        }
+        GitConfirm::DeleteRef { name } => (
+            "Delete",
+            format!(
+                "Delete {name}? A branch that is not fully merged goes with the commits only it \
+                 holds. This cannot be undone."
+            ),
+            "Delete",
+        ),
+        GitConfirm::RestoreFile { rel_path, rev } => {
+            let short = rev.chars().take(9).collect::<String>();
+            (
+                "Revert to commit",
+                format!(
+                    "Overwrite {rel_path} with its content at {short}? Uncommitted changes to it \
+                     are discarded, and they are in no commit. This cannot be undone."
+                ),
+                "Revert",
+            )
+        }
+    };
+    Some(kit::confirm_modal(
+        "git-confirm",
+        title,
+        &message,
+        label,
+        true,
+        handler(&entity, |this, _, cx| this.confirm_git_action(cx)),
+        handler(&entity, |this, _, cx| this.cancel_git_confirm(cx)),
+        window,
+    ))
 }
 
 /// Whether anything is painted over the dock this frame.

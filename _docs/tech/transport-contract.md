@@ -622,8 +622,18 @@ was refused, which is always `Failed` with a reason.
 `Unstage` name one path, relative to the project; `Commit` carries the message and whether it amends;
 `CreateBranch` carries a name and checks the new branch out at `HEAD`; `Stash` shelves the
 uncommitted changes, untracked files with them; `UndoCommit` soft-resets to the first parent and
-refuses a root commit; `FetchAll`, `Pull` and `Push` name nothing else. A write against an
-in-progress operation (merge, rebase) is refused. A successful write is answered as a full refresh
+refuses a root commit; `FetchAll`, `Pull` and `Push` name nothing else. `Checkout` names a rev and
+whether to `force` past local changes; `Merge` names a rev and fast-forwards or commits a real
+merge, leaving unmerged index entries and `GitOperation::Merge` on the overview when there are
+conflicts; `DeleteRef` names a branch or a tag as the refs panel spells it, and whether to `force`
+past an unmerged branch; `Discard` names one project-relative path and restores it, index and
+worktree, to `HEAD`, removing it when `HEAD` does not carry it; `RestoreFile` names a path and a
+rev and writes that rev's content to the worktree only, leaving it an uncommitted change rather
+than staging it; `CherryPick` and `RevertCommit` name a commit and apply or undo its diff as a new
+commit, the same conflict handling as `Merge`; `Reset` names a commit and a `GitResetMode` (`Soft`,
+`Mixed`, `Hard`). A write that starts or extends a repository operation (`Checkout`, `Merge`,
+`CherryPick`, `RevertCommit`, `Reset`) is refused while another is already in progress (merge,
+rebase); `DeleteRef`, `Discard` and `RestoreFile` are not. A successful write is answered as a full refresh
 — the same `GitOverview` plus `GitWorkingTree` pair `RefreshProjectGit { full: true }` would send,
 preceded by the nested repository's own `GitOverview` when `repo` names one — so the interface does
 not ask again for the working tree. Pull is a fast-forward or a `Failed`;

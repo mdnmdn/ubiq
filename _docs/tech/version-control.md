@@ -23,10 +23,11 @@ both.
 ## 1. Ubiq creates a repository, reads one, and writes when the Git screen asks
 
 **The agents in the panes mutate the working tree as they work. The Git screen is the other
-writer, and it is explicit.** Stage, unstage, commit, fetch, pull, push, create-branch, stash and undo-commit go through
-`WriteProjectGit` and run on the git worker — the same thread that reads, so the per-project
-handle stays un-mutexed (`D122`). A write and an agent's `git commit` in the same second can still
-collide; the worker serialises Ubiq's own writes, not the agent's.
+writer, and it is explicit.** Stage, unstage, commit, fetch, pull, push, create-branch, stash,
+undo-commit, checkout, merge, delete-ref, discard, restore-file, cherry-pick, revert-commit and
+reset go through `WriteProjectGit` and run on the git worker — the same thread that reads, so the
+per-project handle stays un-mutexed (`D122`). A write and an agent's `git commit` in the same
+second can still collide; the worker serialises Ubiq's own writes, not the agent's.
 
 `D30` covers everything Ubiq owns: no ubiq file lands in the project's folder, and a status walk
 leaves the index-stat cache alone so a *read* cannot touch the index. The Git screen's writes are
@@ -41,6 +42,28 @@ refuses an existing one and checks the new branch out at `HEAD`, so the tree on 
 because libgit2's `stash_save2` wants `&mut` and the cached handle is not lent out that way.
 `undo_commit()` is a soft reset to the first parent: the commit goes and its changes stay in the
 index; a root commit is refused.
+
+**Checkout, merge, cherry-pick, revert and reset are `git2`, run straight, with the same refusal
+discipline as branch, stash and undo.** `checkout()` resolves `rev` through `revparse_single`,
+checks out its tree with `safe()` (or `force()` when the caller asked to discard local changes),
+and attaches `HEAD` to a same-named local branch or detaches it otherwise — the same test a plain
+`git checkout` makes. `merge()` fast-forwards when `merge_analysis` allows it and otherwise runs a
+real merge and commits the result with both parents; a real merge left with unmerged index entries
+returns `GitError::Failed` without cleaning up, so `GitOperation::Merge` keeps showing on the
+overview and a later `Commit` finishes it, the same `RepositoryState` reasoning `refuse_if_busy`
+rests on for a fresh write. `cherry_pick()` and `revert_commit()` are the same shape against `repo.cherrypick`
+/ `repo.revert`: conflicts are left unmerged and refused rather than cleaned up, success writes the
+index's tree as a new commit and calls `cleanup_state()`. `reset()` is `repo.reset` with the mode
+the wire carries (`GitResetMode`) passed straight through. `delete_ref()` resolves a local branch
+first, then a tag; a branch that is not `HEAD`'s ancestor is refused unless `force`, and the
+current branch is refused outright.
+
+**Discard and restore-file are the two path-scoped writes past stage and unstage, and go through
+the same `resolve_target`.** `discard()` restores one path's index and worktree to `HEAD` in one
+`checkout_tree` plus a `reset_default`; a path `HEAD` does not carry — untracked, or no commit yet
+— is simply removed from the index and the disk. `restore_file()` writes a blob from `rev`'s tree
+straight to the worktree file and touches nothing else, so the result reads as an ordinary
+uncommitted edit rather than a stage.
 
 **A stage-all or unstage-all's pathspec must be a glob, never a literal directory name, or
 libgit2 silently answers nothing.** `git_pathspec_prefix` treats a spec with no wildcard character

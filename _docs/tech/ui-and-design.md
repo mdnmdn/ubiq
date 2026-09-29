@@ -525,6 +525,14 @@ pattern `ui/terminal.rs::pane` uses — resolves against a real height rather th
 Every other step keeps `kit::modal`'s ordinary `MODAL_WIDTH` and scrolling body; a modal that
 hosts a pane still follows every rule above, only what fills the body changes.
 
+**The header has a second slot, beside the title's close.** `modal_sized`'s `actions:
+Option<AnyElement>` draws before the dismiss button — nearly every caller passes `None`, since
+`kit::modal` itself always does. It exists for a panel that draws its own controls in a bar the
+popup shape has no room to keep: `ui/board/detail.rs`'s task panel carries the show-empty-fields eye
+beside its close when docked, and had no way to reach it once `board.popup` centred the same body in
+`modal_sized` instead — closed by giving the header a slot rather than a second, task-specific bar
+(`T-263`, `G375`).
+
 Two primitives are built on top of `kit::modal` rather than beside it, in `ui/kit/overlay.rs`, so a
 screen never hand-rolls a confirm or a "type a name" dialog again. **`confirm_modal`** is a question
 with two answers — `danger: true` draws the `danger` edge for something irreversible, `false` draws

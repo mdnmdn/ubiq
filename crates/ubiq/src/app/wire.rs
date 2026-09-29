@@ -1209,6 +1209,9 @@ impl AppState {
                     open.git_view.amend = false;
                 }
                 open.git_view.pending = None;
+                // A working tree is a checkout's success as much as a commit's: nothing is left
+                // for a later failure to be read as that checkout's refusal.
+                open.git_view.checkout_in_flight = None;
                 // The repository on screen may not exist any more — the project stopped managing
                 // it, or the folder went — and a project with no repository of its own opens on
                 // the first nested one it manages. Either way the screen moves to what is there.
@@ -1242,14 +1245,28 @@ impl AppState {
                         }
                         open.refilter_git();
                         open.git_view.settle(&open.git_screen_entries);
+                        open.git_view.checkout_in_flight = None;
                     }
                     GitFailure::Interrupted => {}
                     GitFailure::Denied => {}
                     // A failure of the project's own repository is not the screen's while a
                     // nested one is showing: its write and its error are the nested one's.
                     GitFailure::Failed(reason) if selected => {
-                        open.git_view.last_error = Some(reason);
+                        // The one failure that is a question rather than an error: an unforced
+                        // checkout the host refused because the working tree holds changes it
+                        // would overwrite. The confirm asks it, and its accept is what sends
+                        // `force: true` — see `AppState::checkout_git_ref`. Every other way that
+                        // same checkout can fail reads as the plain error it is.
+                        let overwrites = open
+                            .git_view
+                            .checkout_in_flight
+                            .take()
+                            .filter(|_| checkout_conflict(&reason));
                         open.git_view.pending = None;
+                        match overwrites {
+                            Some(rev) => open.git_view.ask_confirm(GitConfirm::Checkout { rev }),
+                            None => open.git_view.last_error = Some(reason),
+                        }
                     }
                     GitFailure::Failed(_) => {}
                 }

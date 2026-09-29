@@ -951,6 +951,16 @@ impl AppState {
             (Layer::ThemeNaming, w.theme_prompt.is_some()),
             (Layer::ClosePane, w.confirm_close_pane.is_some()),
             (Layer::EndConversation, w.confirm_end_conversation.is_some()),
+            (
+                Layer::GitConfirm,
+                // No `cx` at this signature (`top_layer` reads only `self`), so the on-screen
+                // project is `active_seen` rather than `Self::project`, which needs one to ask
+                // the window registry. The two agree — `sync_projects` is what keeps them in
+                // step — and this is the same project `Self::git_view` would answer for.
+                self.active_seen
+                    .and_then(|id| self.projects.get(&id))
+                    .is_some_and(|open| open.git_view.confirm.is_some()),
+            ),
             (Layer::FilePicker, self.file_picker.is_some()),
             (
                 Layer::Menu,
@@ -1082,6 +1092,10 @@ impl AppState {
             self.cancel_rename_remote_host(cx);
         } else if self.workbench.remote_manager.open {
             self.close_remote_manager(cx);
+        } else if self.git_view(cx).is_some_and(|git| git.confirm.is_some()) {
+            // The Git screen's destructive-write confirm, on the same rung as the pane's and the
+            // conversation's confirms just below it — see `Layer::GitConfirm`.
+            self.cancel_git_confirm(cx);
         } else if self.workbench.confirm_end_conversation.is_some() {
             // The two destructive closes, in reverse paint order: `ui::shell` draws the pane's
             // question and then the conversation's, so Escape peels the conversation's first.

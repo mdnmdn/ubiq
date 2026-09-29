@@ -114,7 +114,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     {
         let epoch = menu.epoch;
         let items: Vec<ContextItem> = menu
-            .entries(false, false)
+            .entries(false, false, &git.refs, false)
             .into_iter()
             .map(|entry| {
                 if entry.is_separator() {
@@ -363,7 +363,14 @@ fn ref_row(
         }))
         .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
             if event.click_count() >= 2 {
-                this.jump_to_git_ref(index, cx);
+                // A double-click on a branch row checks it out; every other row keeps jumping
+                // the history to what it points at, the way a tag, a stash or a submodule
+                // always has.
+                if matches!(section, RefSection::Local | RefSection::Remotes) {
+                    this.checkout_git_ref(index, cx);
+                } else {
+                    this.jump_to_git_ref(index, cx);
+                }
             } else {
                 this.select_git_ref(index, cx);
             }

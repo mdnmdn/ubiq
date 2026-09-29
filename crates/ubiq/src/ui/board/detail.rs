@@ -93,6 +93,7 @@ pub fn popup(
         theme::task_panel_width(),
         None,
         &title,
+        Some(empty_fields_toggle(app, cx).into_any_element()),
         body(app, task, window, cx),
         footer(app, task, cx).into_any_element(),
         handler(&entity, |this, _, cx| this.close_task_detail(cx)),

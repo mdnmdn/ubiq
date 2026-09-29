@@ -8,10 +8,16 @@
 //! under them. The comparison under the history is [`diff`]. A project with more than one
 //! repository picks which one the screen shows in the Repositories section atop [`refs`].
 //!
-//! **Every action is live** — fetch all, pull, push, branch, stash, undo, commit and stage /
-//! unstage — and drawn as an icon with its name in a tooltip; all but refresh go faint with no
-//! repository. `Branch` opens a small popover for the new branch's name. The branch, the tracking counts, the in-progress operation, the working-tree totals,
-//! the changed paths and the diff are the host's.
+//! **Every action is live** — fetch all, pull, push, branch, stash, undo, commit, checkout and
+//! stage / unstage — and drawn as an icon with its name in a tooltip; all but refresh go faint
+//! with no repository, and `Checkout` also faint with nothing selected in the refs panel.
+//! `Branch` opens a small popover for the new branch's name. The branch, the tracking counts, the
+//! in-progress operation, the working-tree totals, the changed paths and the diff are the host's.
+//!
+//! A write that could lose something asks first: a forced checkout, a discard, a reset or
+//! deleting a ref raises [`crate::state::git::GitConfirm`] on `GitView`, and the window's shared
+//! overlay stack (`Layer::GitConfirm`) is what dismisses it — `ui::shell::git_confirm` paints it,
+//! not this module, so Escape peels it the same way it peels every other confirm.
 //!
 //! This is the screen about *what version control knows*. The badges on the explorer's rows are
 //! the same facts at a glance, and the two never disagree, because both are projections of the one
@@ -24,7 +30,7 @@ pub mod refs;
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
-    Window, anchored, deferred, div, point, prelude::FluentBuilder, px,
+    anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::IconName;
 use gpui_component::input::Input;
@@ -32,6 +38,7 @@ use ubiq_proto::git::{GitCounts, GitHead, RepoOverview};
 
 use crate::app::AppState;
 use crate::state::MenuId;
+use crate::state::git::RefSection;
 use crate::theme;
 use crate::ui::kit::menu::MENU_LAYER;
 use crate::ui::kit::{UbiqIcon, icon_button_tip, mono, pill, primary_button};
@@ -39,9 +46,20 @@ use crate::ui::status_bar::{capped, operation_label};
 
 /// The strip over the Git panels: which repository this is, what HEAD is doing, the write
 /// actions, and how much the working tree has to say.
-pub fn toolbar(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
+pub fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let overview = app.git_overview(cx);
     let live = overview.is_some();
+    let checkoutable = live
+        && app.git_view(cx).is_some_and(|git| {
+            git.selected_ref.is_some_and(|index| {
+                git.refs.get(index).is_some_and(|row| {
+                    matches!(
+                        row.section,
+                        RefSection::Local | RefSection::Remotes | RefSection::Tags
+                    )
+                })
+            })
+        });
 
     div()
         .h(px(theme::titlebar_height()))
@@ -55,6 +73,13 @@ pub fn toolbar(app: &AppState, _window: &Window, cx: &mut Context<AppState>) -> 
         .border_color(theme::border())
         .children(overview.map(head_pill))
         .child(div().w(px(12.)).flex_none())
+        .child(icon_button_tip(
+            "git-checkout",
+            UbiqIcon::GitBranch,
+            "Checkout the selected ref",
+            checkoutable,
+            cx.listener(|this, _, _, cx| this.checkout_selected_git_ref(cx)),
+        ))
         .child(icon_button_tip(
             "git-fetch-all",
             UbiqIcon::GitFetch,

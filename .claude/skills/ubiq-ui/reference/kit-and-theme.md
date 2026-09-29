@@ -209,7 +209,10 @@ and the terminal dock both use.
 `modal(...)`, `modal_sized(...)`, `modal_note(text)`, `confirm_modal(...)` (`danger: true` draws
 the `danger` edge), `prompt_modal(...)` (the caller owns the field's `InputState`, so what was
 typed survives a redraw; `confirm_enabled: false` dims at `.opacity(0.5)` — there is no second
-disabled style).
+disabled style). `modal_sized`'s header takes an `actions: Option<AnyElement>` beside the title,
+drawn before the dismiss — nearly every caller passes `None` (`modal(...)` does, for all of them);
+`ui/board/detail.rs::popup()` is the one that passes something, the empty-fields eye a task panel
+loses when drawn centred instead of docked (`T-263`, `G375`).
 
 ### `menu.rs` — one dropdown mechanism for every menu in the window
 

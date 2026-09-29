@@ -10,7 +10,7 @@ use git2::{
     BranchType, ErrorCode, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, Repository,
     RepositoryState, build::CheckoutBuilder,
 };
-use ubiq_proto::git::{GitError, GitWriteOp};
+use ubiq_proto::git::{GitError, GitResetMode, GitWriteOp};
 
 use super::observe::map_error;
 
@@ -82,7 +82,339 @@ pub fn apply(
             refuse_if_busy(repo)?;
             undo_commit(repo)
         }
+        GitWriteOp::Checkout { rev, force } => {
+            refuse_if_busy(repo)?;
+            checkout(repo, rev, *force)
+        }
+        GitWriteOp::Merge { rev } => {
+            refuse_if_busy(repo)?;
+            merge(repo, rev)
+        }
+        GitWriteOp::DeleteRef { name, force } => delete_ref(repo, name, *force),
+        GitWriteOp::Discard { rel_path } => {
+            let target = resolve_target(repo, root, managed, rel_path)?;
+            discard(target.repo(), target.rel())
+        }
+        GitWriteOp::RestoreFile { rel_path, rev } => {
+            let target = resolve_target(repo, root, managed, rel_path)?;
+            restore_file(target.repo(), target.rel(), rev)
+        }
+        GitWriteOp::CherryPick { sha } => {
+            refuse_if_busy(repo)?;
+            cherry_pick(repo, sha)
+        }
+        GitWriteOp::RevertCommit { sha } => {
+            refuse_if_busy(repo)?;
+            revert_commit(repo, sha)
+        }
+        GitWriteOp::Reset { sha, mode } => {
+            refuse_if_busy(repo)?;
+            reset(repo, sha, mode)
+        }
     }
+}
+
+/// Resolve `rev` to a commit, however it is spelled — a branch, a tag, a short or full sha.
+fn resolve_commit<'a>(repo: &'a Repository, rev: &str) -> Result<git2::Commit<'a>, GitError> {
+    let rev = rev.trim();
+    if rev.is_empty() {
+        return Err(GitError::Failed("no rev was given".into()));
+    }
+    let object = repo
+        .revparse_single(rev)
+        .map_err(|_| GitError::Failed(format!("'{rev}' is not a valid rev")))?;
+    object
+        .peel_to_commit()
+        .map_err(|_| GitError::Failed(format!("'{rev}' does not name a commit")))
+}
+
+/// Check out `rev`'s tree. A local branch of that name is checked out attached; anything else
+/// leaves `HEAD` detached at the commit.
+fn checkout(repo: &Repository, rev: &str, force: bool) -> Result<(), GitError> {
+    let commit = resolve_commit(repo, rev)?;
+    let mut opts = CheckoutBuilder::new();
+    if force {
+        opts.force();
+    } else {
+        opts.safe();
+    }
+    repo.checkout_tree(commit.as_object(), Some(&mut opts))
+        .map_err(map_error)?;
+    match repo.find_branch(rev.trim(), BranchType::Local) {
+        Ok(branch) => {
+            let refname = branch
+                .get()
+                .name()
+                .map_err(|_| GitError::Failed("the branch name is not utf-8".into()))?
+                .to_string();
+            repo.set_head(&refname).map_err(map_error)?;
+        }
+        Err(_) => {
+            repo.set_head_detached(commit.id()).map_err(map_error)?;
+        }
+    }
+    Ok(())
+}
+
+/// Merge `rev` into the current branch: fast-forward when possible, else a real merge with the
+/// working tree updated. Left with unmerged index entries and `GitOperation::Merge` showing on the
+/// overview when there are conflicts to resolve — `Commit` finishes it.
+fn merge(repo: &Repository, rev: &str) -> Result<(), GitError> {
+    let commit = resolve_commit(repo, rev)?;
+    let annotated = repo.find_annotated_commit(commit.id()).map_err(map_error)?;
+    let (analysis, _) = repo.merge_analysis(&[&annotated]).map_err(map_error)?;
+    if analysis.is_up_to_date() {
+        return Err(GitError::Failed("already up to date".into()));
+    }
+
+    let head = repo.head().map_err(map_error)?;
+    if !head.is_branch() {
+        return Err(GitError::Failed(
+            "detached HEAD cannot be merged onto".into(),
+        ));
+    }
+    let refname = head
+        .name()
+        .map_err(|_| GitError::Failed("the branch name is not utf-8".into()))?
+        .to_string();
+    let head_commit = head.peel_to_commit().map_err(map_error)?;
+
+    if analysis.is_fast_forward() {
+        let mut opts = CheckoutBuilder::new();
+        opts.safe();
+        repo.checkout_tree(commit.as_object(), Some(&mut opts))
+            .map_err(map_error)?;
+        let mut reference = repo.find_reference(&refname).map_err(map_error)?;
+        reference
+            .set_target(commit.id(), "fast-forward merge")
+            .map_err(map_error)?;
+        repo.set_head(&refname).map_err(map_error)?;
+        return Ok(());
+    }
+
+    repo.merge(&[&annotated], None, None).map_err(map_error)?;
+    let mut index = repo.index().map_err(map_error)?;
+    if index.has_conflicts() {
+        return Err(GitError::Failed(
+            "the merge has conflicts to resolve".into(),
+        ));
+    }
+    let tree_id = index.write_tree().map_err(map_error)?;
+    let tree = repo.find_tree(tree_id).map_err(map_error)?;
+    let sig = repo
+        .signature()
+        .map_err(|_| GitError::Failed("user.name and user.email are not set".into()))?;
+    let message = format!(
+        "Merge {} into {}",
+        rev.trim(),
+        head.shorthand().unwrap_or("HEAD")
+    );
+    repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        &message,
+        &tree,
+        &[&head_commit, &commit],
+    )
+    .map_err(map_error)?;
+    repo.cleanup_state().map_err(map_error)?;
+    Ok(())
+}
+
+/// Delete a local branch or a tag, `name` spelled as the refs panel does. A branch that is not
+/// merged into `HEAD` is refused unless `force`; the current branch is refused outright.
+fn delete_ref(repo: &Repository, name: &str, force: bool) -> Result<(), GitError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(GitError::Failed("a ref needs a name".into()));
+    }
+    if let Ok(mut branch) = repo.find_branch(name, BranchType::Local) {
+        if branch.is_head() {
+            return Err(GitError::Failed(format!("'{name}' is the current branch")));
+        }
+        if !force {
+            let tip = branch.get().peel_to_commit().map_err(map_error)?.id();
+            let head = repo
+                .head()
+                .and_then(|head| head.peel_to_commit())
+                .map_err(map_error)?
+                .id();
+            let merged = tip == head || repo.graph_descendant_of(head, tip).map_err(map_error)?;
+            if !merged {
+                return Err(GitError::Failed(format!(
+                    "branch '{name}' is not fully merged"
+                )));
+            }
+        }
+        branch.delete().map_err(map_error)?;
+        return Ok(());
+    }
+    match repo.tag_delete(name) {
+        Ok(()) => Ok(()),
+        Err(error) if error.code() == ErrorCode::NotFound => Err(GitError::Failed(format!(
+            "'{name}' is not a local branch or a tag"
+        ))),
+        Err(error) => Err(map_error(error)),
+    }
+}
+
+/// Restore `rel` to its `HEAD` content, index and worktree together. A path `HEAD` does not carry
+/// — untracked, or the repository has no commit yet — is simply removed.
+fn discard(repo: &Repository, rel: &str) -> Result<(), GitError> {
+    let path = Path::new(rel);
+    let head_commit = match repo.head() {
+        Ok(head) => Some(head.peel_to_commit().map_err(map_error)?),
+        Err(error)
+            if error.code() == ErrorCode::UnbornBranch || error.code() == ErrorCode::NotFound =>
+        {
+            None
+        }
+        Err(error) => return Err(map_error(error)),
+    };
+    let in_head = match &head_commit {
+        Some(commit) => commit.tree().map_err(map_error)?.get_path(path).is_ok(),
+        None => false,
+    };
+    if let Some(commit) = &head_commit
+        && in_head
+    {
+        let mut opts = CheckoutBuilder::new();
+        opts.force();
+        opts.path(path);
+        repo.checkout_tree(commit.as_object(), Some(&mut opts))
+            .map_err(map_error)?;
+        repo.reset_default(Some(commit.as_object()), [path])
+            .map_err(map_error)?;
+        return Ok(());
+    }
+    let mut index = repo.index().map_err(map_error)?;
+    let _ = index.remove_path(path);
+    index.write().map_err(map_error)?;
+    if let Some(workdir) = repo.workdir() {
+        let full = workdir.join(path);
+        // `symlink_metadata` does not follow a final symlink component, so a path that is itself
+        // a symlink is unlinked as one — never recursed into, whatever it points at.
+        match std::fs::symlink_metadata(&full) {
+            Ok(meta) if meta.is_dir() => {
+                std::fs::remove_dir_all(&full)
+                    .map_err(|error| GitError::Failed(error.to_string()))?;
+            }
+            Ok(_) => {
+                std::fs::remove_file(&full).map_err(|error| GitError::Failed(error.to_string()))?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(GitError::Failed(error.to_string())),
+        }
+    }
+    Ok(())
+}
+
+/// Restore `rel` to its content at `rev`, writing the worktree only — the index is left as it is,
+/// so the change reads as an ordinary uncommitted edit. Goes through `checkout_tree`, forced and
+/// scoped to this one path, so the entry's filemode (a symlink, the executable bit) is honoured
+/// the same way `discard` honours it, rather than hand-writing bytes with the wrong mode.
+fn restore_file(repo: &Repository, rel: &str, rev: &str) -> Result<(), GitError> {
+    let path = Path::new(rel);
+    let commit = resolve_commit(repo, rev)?;
+    let tree = commit.tree().map_err(map_error)?;
+    let entry = tree
+        .get_path(path)
+        .map_err(|_| GitError::Failed(format!("'{rel}' does not exist at {}", rev.trim())))?;
+    if entry.kind() != Some(git2::ObjectType::Blob) {
+        return Err(GitError::Failed(format!(
+            "'{rel}' at {} is not a file",
+            rev.trim()
+        )));
+    }
+    let mut opts = CheckoutBuilder::new();
+    opts.force();
+    opts.path(path);
+    // `checkout_tree` updates the index to match the checked-out paths by default; turn that off
+    // so this reads as an ordinary uncommitted worktree edit, same as `restore_file`'s contract.
+    opts.update_index(false);
+    repo.checkout_tree(commit.as_object(), Some(&mut opts))
+        .map_err(map_error)?;
+    Ok(())
+}
+
+/// Apply a commit's diff on top of `HEAD` as a new commit, keeping the original's author and
+/// message. Left with unmerged index entries when there are conflicts to resolve.
+fn cherry_pick(repo: &Repository, sha: &str) -> Result<(), GitError> {
+    let commit = resolve_commit(repo, sha)?;
+    repo.cherrypick(&commit, None).map_err(map_error)?;
+    let mut index = repo.index().map_err(map_error)?;
+    if index.has_conflicts() {
+        return Err(GitError::Failed(
+            "the cherry-pick has conflicts to resolve".into(),
+        ));
+    }
+    let tree_id = index.write_tree().map_err(map_error)?;
+    let tree = repo.find_tree(tree_id).map_err(map_error)?;
+    let head_commit = repo
+        .head()
+        .and_then(|head| head.peel_to_commit())
+        .map_err(map_error)?;
+    let author = commit.author();
+    let committer = repo
+        .signature()
+        .map_err(|_| GitError::Failed("user.name and user.email are not set".into()))?;
+    let message = commit.message().unwrap_or_default();
+    repo.commit(
+        Some("HEAD"),
+        &author,
+        &committer,
+        message,
+        &tree,
+        &[&head_commit],
+    )
+    .map_err(map_error)?;
+    repo.cleanup_state().map_err(map_error)?;
+    Ok(())
+}
+
+/// Create a commit that undoes `sha`'s changes. Left with unmerged index entries when there are
+/// conflicts to resolve.
+fn revert_commit(repo: &Repository, sha: &str) -> Result<(), GitError> {
+    let commit = resolve_commit(repo, sha)?;
+    repo.revert(&commit, None).map_err(map_error)?;
+    let mut index = repo.index().map_err(map_error)?;
+    if index.has_conflicts() {
+        return Err(GitError::Failed(
+            "the revert has conflicts to resolve".into(),
+        ));
+    }
+    let tree_id = index.write_tree().map_err(map_error)?;
+    let tree = repo.find_tree(tree_id).map_err(map_error)?;
+    let head_commit = repo
+        .head()
+        .and_then(|head| head.peel_to_commit())
+        .map_err(map_error)?;
+    let sig = repo
+        .signature()
+        .map_err(|_| GitError::Failed("user.name and user.email are not set".into()))?;
+    let summary = commit.summary().ok().flatten().unwrap_or_default();
+    let message = format!(
+        "Revert \"{summary}\"\n\nThis reverts commit {}.\n",
+        commit.id()
+    );
+    repo.commit(Some("HEAD"), &sig, &sig, &message, &tree, &[&head_commit])
+        .map_err(map_error)?;
+    repo.cleanup_state().map_err(map_error)?;
+    Ok(())
+}
+
+/// Move `HEAD` to `sha`. `mode` decides how far the index and the worktree follow it.
+fn reset(repo: &Repository, sha: &str, mode: &GitResetMode) -> Result<(), GitError> {
+    let commit = resolve_commit(repo, sha)?;
+    let reset_type = match mode {
+        GitResetMode::Soft => git2::ResetType::Soft,
+        GitResetMode::Mixed => git2::ResetType::Mixed,
+        GitResetMode::Hard => git2::ResetType::Hard,
+    };
+    repo.reset(commit.as_object(), reset_type, None)
+        .map_err(map_error)?;
+    Ok(())
 }
 
 /// A branch at `HEAD`, checked out. The name is validated the way `git branch` does, and an

@@ -70,6 +70,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         DOC_WIDTH + RAIL_WIDTH + MINIMAP_WIDTH,
         Some(DOC_HEIGHT),
         &title,
+        None,
         body,
         footer(doc, cx),
         crate::ui::dismiss(&view, Layer::Plan, |this, _, cx| this.close_plan(cx)),

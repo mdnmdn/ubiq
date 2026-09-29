@@ -71,6 +71,7 @@ pub fn modal(
         theme::modal_width(),
         None,
         title,
+        None,
         body,
         footer,
         on_dismiss,
@@ -88,6 +89,12 @@ pub fn modal(
 /// height to measure. That panel is given `height` outright (clamped to `MODAL_MAX_HEIGHT` of the
 /// window, the same ceiling the scrolling shape uses) so the body's own `flex_1` children have a
 /// real height to fill, the way `ui/settings.rs`'s fixed-size dialog already gives its body one.
+///
+/// `actions` is the header's own slot for a caller's controls, drawn beside the dismiss — `None`
+/// for every modal but one: a panel that draws its own top bar beside the columns (`ui/board/
+/// detail.rs::render`) loses that bar when the same body is centred as a popup instead, and had no
+/// way to reach it (`T-263`, `G375`). Most callers pass `None`; there is no second constructor,
+/// because a positional `None` is what the rest of this argument list already reads like.
 #[allow(clippy::too_many_arguments)]
 pub fn modal_sized(
     id: &'static str,
@@ -95,6 +102,7 @@ pub fn modal_sized(
     width: f32,
     fill_height: Option<f32>,
     title: &str,
+    actions: Option<AnyElement>,
     body: AnyElement,
     footer: AnyElement,
     on_dismiss: impl Fn(&mut Window, &mut gpui::App) + 'static,
@@ -143,9 +151,10 @@ pub fn modal_sized(
                 .flex()
                 .flex_none()
                 .items_center()
-                .justify_between()
                 .gap_2()
                 .child(section_label(title))
+                .child(div().flex_1().min_w(px(0.)))
+                .children(actions)
                 .child(icon_button(
                     ElementId::Name(format!("{id}-close").into()),
                     IconName::Close,

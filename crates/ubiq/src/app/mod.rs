@@ -39,8 +39,9 @@ use crate::state::file_picker::{
     Commit, FilePickerState, PickKind, PickerCount, PickerKey, PickerOwner, PickerView, Pressed,
 };
 use crate::state::git::{
-    ChangeSection, GitAction, GitMenuKind, GitPending, GitView, RefSection, Side as GitSide,
-    can_stage, can_unstage, commit_rows, ref_rows, submodule_rows,
+    ChangeSection, GitAction, GitConfirm, GitMenuKind, GitPending, GitView, RefSection,
+    Side as GitSide, can_stage, can_unstage, checkout_conflict, commit_rows, ref_rows,
+    submodule_rows,
 };
 use crate::state::mission::MissionView;
 use crate::state::nav::{
@@ -98,7 +99,9 @@ use ubiq_proto::assist::{
 use ubiq_proto::bus;
 use ubiq_proto::connectors::{AuthKind, ConnectStage, ProviderId, origin};
 use ubiq_proto::files::{DiffBase, FileContents, FileError, FileVersion, PathOp};
-use ubiq_proto::git::{GitEntry, GitError as GitFailure, GitNested, GitWriteOp, RepoOverview};
+use ubiq_proto::git::{
+    GitEntry, GitError as GitFailure, GitNested, GitResetMode, GitWriteOp, RepoOverview,
+};
 use ubiq_proto::ids::{
     AiProviderId, AskId, ConnectId, ConnectionId, KbSourceId, OauthAppId, PaneId, ProjectId,
     SearchId, SessionId, SshProfileId, StepId, SuggestId, TaskId, ToolId,
