@@ -20,7 +20,7 @@
 
 use std::collections::HashSet;
 
-use ubiq_proto::ids::TaskId;
+use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::work::AgentId;
 
 use crate::state::explorer::{FileNode, NodeKind};
@@ -117,6 +117,13 @@ pub enum PickerOwner {
     /// reason `KbFolder` does not: `crate::app::host_browse` holds the session, and the answer is
     /// folded into `crate::state::settings::ToolEditor` rather than sent anywhere until Save.
     ToolFolder,
+    /// A skill folder for a catalog layer, chosen on the host's machine: one skill to point at
+    /// (`scan: false`) or a folder to scan for skills (`scan: true`). Unlike the two above the
+    /// answer **crosses the bus** — an `AddSkill` — so it carries the layer it lands in.
+    SkillFolder {
+        scope: Option<ProjectId>,
+        scan: bool,
+    },
     /// A task's stored attachment list, which is the one picker whose answer **crosses the bus**:
     /// a conversation's attachments are folded into the prompt text and die with the draft, and a
     /// task's live on the record (`ubiq_proto::work::Attachment`). Carries the task because the

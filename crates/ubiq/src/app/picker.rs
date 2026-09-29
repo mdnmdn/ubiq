@@ -179,6 +179,13 @@ impl AppState {
                     self.accept_tool_starting_folder(path, cx);
                 }
             }
+            // The one folder pick besides a project's whose answer crosses the bus: it becomes an
+            // `AddSkill` for the layer that asked.
+            PickerOwner::SkillFolder { scope, scan } => {
+                if let Some(path) = picked.into_iter().next() {
+                    self.accept_skill_folder(scope, scan, path, cx);
+                }
+            }
             PickerOwner::HostProject => {
                 if let (Some(path), Some(browse)) =
                     (picked.into_iter().next(), self.host_browse.take())
@@ -815,6 +822,7 @@ impl AppState {
             PickerOwner::HostProject
             | PickerOwner::KbFolder
             | PickerOwner::ToolFolder
+            | PickerOwner::SkillFolder { .. }
             | PickerOwner::TaskAttachment { .. }
             | PickerOwner::NewMissionAttachment => {}
         }

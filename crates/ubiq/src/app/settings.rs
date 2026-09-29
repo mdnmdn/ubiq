@@ -1581,6 +1581,7 @@ impl AppState {
         self.set_new_agent_description(&description, window, cx);
         self.workbench.settings.definition_form = Some(form);
         self.workbench.settings.error = None;
+        self.ask_catalog_for_form(cx);
         // What the harness offers is what the model and level rows are drawn from, so an edit
         // opens asking for it rather than showing an empty list until something is repicked.
         self.probe_new_agent_catalogue(cx);

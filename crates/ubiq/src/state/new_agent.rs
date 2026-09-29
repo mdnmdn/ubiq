@@ -79,6 +79,8 @@ pub enum OpenList {
     /// checklist rather than a choice. It uses the same discriminant anyway, because "exactly one
     /// list is down" is the form's rule regardless of what the list is made of.
     Mcps,
+    /// The skills checklist, on the MCP one's terms.
+    Skills,
 }
 
 impl OpenList {
@@ -89,7 +91,7 @@ impl OpenList {
     /// field would be — so opening it must leave the keyboard where it was: focusing a field
     /// nothing draws is a keyboard nobody owns, and the window's own Escape never arrives at it.
     pub fn has_filter(self) -> bool {
-        !matches!(self, Self::Mcps)
+        !matches!(self, Self::Mcps | Self::Skills)
     }
 }
 
@@ -342,6 +344,16 @@ impl NewAgentForm {
         }
     }
 
+    /// Tick or untick one skill, by its catalog id. Ticked order is kept, like [`Self::mcps`].
+    pub fn toggle_skill(&mut self, id: &str) {
+        match self.skills.iter().position(|it| it == id) {
+            Some(at) => {
+                self.skills.remove(at);
+            }
+            None => self.skills.push(id.to_string()),
+        }
+    }
+
     /// Whether one of the two role flags already asks for this server. Such a server is drawn
     /// ticked and inert: what it is ticked by is the flag, not the checklist.
     pub fn implies_mcp(&self, name: &str) -> bool {
@@ -556,6 +568,20 @@ mod tests {
             vec!["test"],
             "what is ticked is what is written down"
         );
+    }
+
+    #[test]
+    fn ticked_skills_are_written_down_and_read_back() {
+        let mut form = NewAgentForm::new(Purpose::AgentDefinition);
+        form.toggle_skill("pdf");
+        form.toggle_skill("docx");
+        form.toggle_skill("pdf");
+        assert_eq!(form.skills, vec!["docx"], "unticking takes it back out");
+
+        let definition = form.as_definition("writer".to_string());
+        assert_eq!(definition.skills, vec!["docx"]);
+        let again = NewAgentForm::from_definition(&definition, Purpose::AgentDefinition);
+        assert_eq!(again.skills, vec!["docx"], "an edit opens with them ticked");
     }
 
     fn a_definition(mission_assistant: Option<bool>) -> AgentDefinition {

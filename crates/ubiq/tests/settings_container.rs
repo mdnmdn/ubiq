@@ -10,10 +10,11 @@ use ubiq::ext::settings::{SectionGate, SettingsContainer, app_sections, project_
 use ubiq::ui::sink::project::Form;
 
 #[test]
-fn the_overlay_draws_the_same_fifteen_rows_in_the_same_order() {
+fn the_overlay_draws_the_same_rows_in_the_same_order() {
     // M4 appends the kitchen sink's own demo section (`X11`) after the base's original fifteen —
     // the container's first genuine contribution, not a conversion, registered through
-    // `ext::settings::register` with nothing here touched to add it.
+    // `ext::settings::register` with nothing here touched to add it. Skills and MCP servers
+    // follow Agent definitions: the catalog an agent definition ticks from.
     let rows: Vec<&str> = app_sections().iter().map(|spec| spec.label).collect();
     assert_eq!(
         rows,
@@ -25,6 +26,8 @@ fn the_overlay_draws_the_same_fifteen_rows_in_the_same_order() {
             "Search",
             "Harnesses",
             "Agent definitions",
+            "Skills",
+            "MCP servers",
             "Isolation",
             "Assistance",
             "Connectors",
@@ -39,7 +42,7 @@ fn the_overlay_draws_the_same_fifteen_rows_in_the_same_order() {
 }
 
 #[test]
-fn the_project_dialog_draws_the_same_eight_rows_in_the_same_order() {
+fn the_project_dialog_draws_the_same_rows_in_the_same_order() {
     // M7 appends Task sync to the core group, the container's second genuine contribution — in
     // through `ext::settings::register` from `ui::tasksrc`, with nothing in either container
     // module touched to add it. The base's original eight are untouched and still in order, which
@@ -51,6 +54,8 @@ fn the_project_dialog_draws_the_same_eight_rows_in_the_same_order() {
             "General",
             "Tools",
             "Agent definitions",
+            "Skills",
+            "MCP servers",
             "Tasks",
             "Remote",
             "Task sync",
@@ -85,10 +90,10 @@ fn every_section_is_in_a_group_its_container_declares() {
 }
 
 /// The enablement rule the two call sites used to write out separately: the sink's fixture answers
-/// to everything, and the live dialog answers to General always, to the five record-backed
+/// to everything, and the live dialog answers to General always, to the record-backed
 /// sections once there is a record, and never to the two fixture-only pages.
 #[test]
-fn the_live_dialog_offers_general_always_and_the_five_only_with_a_record() {
+fn the_live_dialog_offers_general_always_and_the_record_backed_only_with_a_record() {
     let gate = |id| {
         project_sections()
             .iter()
@@ -100,6 +105,8 @@ fn the_live_dialog_offers_general_always_and_the_five_only_with_a_record() {
     let with_record = [
         ids::PROJECT_TOOLS,
         ids::PROJECT_AGENT_DEFINITIONS,
+        ids::PROJECT_SKILLS,
+        ids::PROJECT_MCP_SERVERS,
         ids::PROJECT_TASKS,
         ids::PROJECT_REMOTE,
         ids::PROJECT_KB,
@@ -138,10 +145,10 @@ fn the_live_dialog_offers_general_always_and_the_five_only_with_a_record() {
     }
 }
 
-/// The five sections that ask the host something on arrival, and only those five. The chain of
+/// The sections that ask the host something on arrival, and only those. The chain of
 /// `if nav == …` this replaced is what a contributed section could not have joined.
 #[test]
-fn five_overlay_sections_ask_something_on_arrival() {
+fn seven_overlay_sections_ask_something_on_arrival() {
     let asking: Vec<&str> = app_sections()
         .iter()
         .filter(|spec| spec.on_show.is_some())
@@ -151,6 +158,8 @@ fn five_overlay_sections_ask_something_on_arrival() {
         asking,
         [
             ids::HARNESSES.0,
+            ids::SKILLS.0,
+            ids::MCP_SERVERS.0,
             ids::ASSIST.0,
             ids::CONNECTORS.0,
             ids::TOOLS.0,

@@ -1093,6 +1093,9 @@ pub struct AppState {
     /// The model is free text rather than a picker — the conversation's own model list is the
     /// harness's answer, and it is offered where a conversation starts.
     pub definition_id_input: Entity<InputState>,
+    /// The skills and MCP servers catalog's typed fields — the repository browser's query, the
+    /// "Add source" boxes, the MCP form and the registry search. See [`CatalogInputs`].
+    pub catalog_inputs: CatalogInputs,
     /// The new-mission dialog's two typed fields — title and description, on the same contract as
     /// `task_title_input`/`task_description_input`: they belong to the window, and what is typed
     /// into them mirrors into `workbench.new_mission`'s own form.
@@ -1314,6 +1317,7 @@ mod agents;
 mod ask;
 mod board;
 mod boot;
+mod catalog;
 mod capture;
 mod chat;
 mod clipboard;
@@ -1321,6 +1325,7 @@ mod clone;
 mod editor;
 mod explorer;
 mod feedback;
+pub use catalog::CatalogInputs;
 pub use explorer::MIN_QUERY;
 pub use projects::Holds;
 pub use size::size_name_valid;

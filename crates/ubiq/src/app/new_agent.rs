@@ -52,6 +52,8 @@ impl AppState {
         // answer is the same for every start, so it is asked once per opening of the form and kept
         // on the window.
         self.bus.send(Message::ListMcps);
+        // The skills and catalog servers the two checklists offer, from both layers.
+        self.ask_catalog_for_form(cx);
         if let Some(target) = self.last_start_target() {
             // The form opens on the tab that asks the question the last start answered: seeding a
             // harness onto the Agents tab would leave its dropdown reading "choose an agent" with

@@ -160,11 +160,11 @@ fn the_form_says_set_local_or_nothing_at_all() {
 fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
     use gpui::AppContext as _;
 
-    // Nine since `D187` added Task sync as a contribution: the base's own eight, plus one. The
-    // count is here because the arm's *position* is not what this test is about — which is exactly
+    // Eleven: the base's own eight, Task sync (`D187`) as a contribution, and the catalog's Skills
+    // and MCP servers twins. The count is here because the arm's *position* is not what this test is about — which is exactly
     // why it has to move every time something is contributed, and `settings_container.rs` is where
     // the ordered list is pinned.
-    assert_eq!(ubiq::ext::settings::project_sections().len(), 9);
+    assert_eq!(ubiq::ext::settings::project_sections().len(), 11);
     assert_eq!(ProjectNav(ids::PROJECT_REMOTE).label(), "Remote");
     assert_eq!(ProjectNav(ids::PROJECT_KB).label(), "Knowledge base");
 

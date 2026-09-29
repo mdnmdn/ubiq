@@ -30,7 +30,7 @@ use crate::theme;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MODAL_MENU_LAYER};
 use crate::ui::kit::{
     Picker, PickerStyle, check_box, choice_pill, elided, field, ghost_button, hint_row, label_hint,
-    modal, primary_button, prompt_modal, slab,
+    modal, primary_button, prompt_modal, section_label, slab,
 };
 use crate::ui::{eid, handler, indexed};
 
@@ -182,7 +182,8 @@ pub fn footer_row(app: &AppState, actions: AnyElement, cx: &mut Context<AppState
                         |_, _, _| {},
                     )),
                 )
-                .child(mcps_button(app, cx)),
+                .child(mcps_button(app, cx))
+                .child(skills_button(app, cx)),
         )
         .child(actions)
         .into_any_element()
@@ -201,7 +202,7 @@ fn mcps_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     // out would be counting something other than what the run gets.
     let chosen = form.map(NewAgentForm::mcp_count).unwrap_or_default();
     let open = form.is_some_and(|form| form.open == Some(OpenList::Mcps));
-    let offered = !app.workbench.mcps.is_empty();
+    let offered = !app.workbench.mcps.is_empty() || !app.form_catalog_mcps(cx).is_empty();
     let label = match chosen {
         0 => "MCPs".to_string(),
         n => format!("MCPs \u{00b7} {n}"),
@@ -223,10 +224,69 @@ fn mcps_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .when(!offered, |this| this.opacity(0.5))
         .child(match offered && open {
-            true => button.child(mcp_panel(app, &view)),
+            true => button.child(mcp_panel(app, &view, cx)),
             false => button,
         })
         .into_any_element()
+}
+
+/// The Skills trigger, beside the MCP one and on its terms: the count rides in the label, and
+/// nothing on offer means no click.
+fn skills_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let view = cx.entity();
+    let form = app.new_agent_form();
+    let chosen = form.map(|form| form.skills.len()).unwrap_or_default();
+    let open = form.is_some_and(|form| form.open == Some(OpenList::Skills));
+    let skills = app.form_skills(cx);
+    let offered = !skills.is_empty();
+    let label = match chosen {
+        0 => "Skills".to_string(),
+        n => format!("Skills \u{00b7} {n}"),
+    };
+    let toggle = cx.listener(move |this, _, window, cx| {
+        if offered {
+            this.toggle_new_agent_list(OpenList::Skills, window, cx);
+        }
+    });
+    let button = ghost_button("new-agent-skills", None, label, toggle).relative();
+
+    div()
+        .when(!offered, |this| this.opacity(0.5))
+        .child(match offered && open {
+            true => button.child(skill_panel(app, skills, &view)),
+            false => button,
+        })
+        .into_any_element()
+}
+
+/// The skills checklist: the application's and the target project's, one row each.
+fn skill_panel(
+    app: &AppState,
+    skills: Vec<ubiq_proto::catalog::SkillInfo>,
+    view: &Entity<AppState>,
+) -> AnyElement {
+    let form = app.new_agent_form();
+    let rows: Vec<AnyElement> = skills
+        .iter()
+        .map(|skill| {
+            let named = McpInfo {
+                name: skill.id.clone(),
+                title: skill.name.clone().unwrap_or_else(|| skill.id.clone()),
+                description: skill.description.clone().unwrap_or_default(),
+                tools: Vec::new(),
+            };
+            let checked = form.is_some_and(|form| form.skills.contains(&skill.id));
+            check_row(
+                "new-agent-skill",
+                &named,
+                checked,
+                false,
+                view,
+                |this, id, cx| this.toggle_new_agent_skill(id, cx),
+            )
+        })
+        .collect();
+    checklist_panel("new-agent-skills-panel", rows, view)
 }
 
 /// The checklist itself: one row per server Ubiq can inject, ticked where this form asks for it.
@@ -239,9 +299,9 @@ fn mcps_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// Painted at [`MODAL_MENU_LAYER`]: both surfaces that draw this footer are modals, so the layer
 /// that clears a modal is the layer either of them needs — the settings page's definition form is a
 /// modal over the page, not a page of its own.
-fn mcp_panel(app: &AppState, view: &Entity<AppState>) -> AnyElement {
+fn mcp_panel(app: &AppState, view: &Entity<AppState>, cx: &App) -> AnyElement {
     let form = app.new_agent_form();
-    let rows: Vec<AnyElement> = app
+    let mut rows: Vec<AnyElement> = app
         .workbench
         .mcps
         .iter()
@@ -255,13 +315,45 @@ fn mcp_panel(app: &AppState, view: &Entity<AppState>) -> AnyElement {
         })
         .collect();
 
+    // The servers the user filed in the catalog — the application's and the target project's —
+    // under a sub-heading of their own: they are the user's, and the built-ins above are Ubiq's.
+    let catalog = app.form_catalog_mcps(cx);
+    if !catalog.is_empty() {
+        rows.push(
+            div()
+                .px_2()
+                .pt_2()
+                .pb_1()
+                .child(section_label("From the catalog"))
+                .into_any_element(),
+        );
+        rows.extend(catalog.iter().map(|mcp| {
+            let named = McpInfo {
+                name: mcp.id.clone(),
+                title: mcp.id.clone(),
+                description: mcp
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| crate::state::catalog::mcp_summary(mcp)),
+                tools: Vec::new(),
+            };
+            let checked = form.is_some_and(|form| form.wants_mcp(&mcp.id));
+            mcp_row(&named, checked, false, view)
+        }));
+    }
+    checklist_panel("new-agent-mcps-panel", rows, view)
+}
+
+/// The anchored panel both checklists hang off their button: opens upward, scrolls, and dismisses
+/// on an outside click.
+fn checklist_panel(id: &'static str, rows: Vec<AnyElement>, view: &Entity<AppState>) -> AnyElement {
     deferred(
         anchored()
             .anchor(MENU_ANCHOR_UP)
             .snap_to_window_with_margin(px(8.))
             .child(
                 div()
-                    .id("new-agent-mcps-panel")
+                    .id(id)
                     .w(px(MCP_PANEL_WIDTH))
                     .max_h(px(MCP_PANEL_MAX_HEIGHT))
                     .p_1()
@@ -295,6 +387,26 @@ fn mcp_panel(app: &AppState, view: &Entity<AppState>) -> AnyElement {
 /// server is picked on what its tools are, and a name alone — `test`, `project-info` — says
 /// nothing about that. Each line is still one line, elided with the whole of itself on hover.
 fn mcp_row(server: &McpInfo, checked: bool, implied: bool, view: &Entity<AppState>) -> AnyElement {
+    check_row(
+        "new-agent-mcp",
+        server,
+        checked,
+        implied,
+        view,
+        |this, name, cx| this.toggle_new_agent_mcp(name, cx),
+    )
+}
+
+/// One checklist row, for either list: `prefix` keeps the two lists' element ids apart and `toggle`
+/// is what a click means.
+fn check_row(
+    prefix: &'static str,
+    server: &McpInfo,
+    checked: bool,
+    implied: bool,
+    view: &Entity<AppState>,
+    toggle: fn(&mut AppState, String, &mut Context<AppState>),
+) -> AnyElement {
     let name = server.name.clone();
     let tools = server
         .tools
@@ -310,13 +422,13 @@ fn mcp_row(server: &McpInfo, checked: bool, implied: bool, view: &Entity<AppStat
         .min_w(px(0.))
         .gap_0p5()
         .child(elided(
-            eid("new-agent-mcp-title", &server.name),
+            eid(&format!("{prefix}-title"), &server.name),
             server.title.clone(),
             theme::text(),
             theme::font(theme::Family::Chrome, theme::Role::Body),
         ))
         .child(elided(
-            eid("new-agent-mcp-note", &server.name),
+            eid(&format!("{prefix}-note"), &server.name),
             server.description.clone(),
             theme::text_muted(),
             theme::font(theme::Family::Chrome, theme::Role::Micro),
@@ -324,7 +436,7 @@ fn mcp_row(server: &McpInfo, checked: bool, implied: bool, view: &Entity<AppStat
     // A server with no tools says nothing rather than drawing an empty line under its own name.
     if !tools.is_empty() {
         lines = lines.child(elided(
-            eid("new-agent-mcp-tools", &server.name),
+            eid(&format!("{prefix}-tools"), &server.name),
             tools,
             theme::text_faint(),
             theme::font(theme::Family::Chrome, theme::Role::Micro),
@@ -334,7 +446,7 @@ fn mcp_row(server: &McpInfo, checked: bool, implied: bool, view: &Entity<AppStat
     // What the role asked for, said on the row it ticked: a tick nobody can undo has to say why.
     if implied {
         lines = lines.child(elided(
-            eid("new-agent-mcp-role", &server.name),
+            eid(&format!("{prefix}-role"), &server.name),
             "Required by this agent's role",
             theme::accent(),
             theme::font(theme::Family::Chrome, theme::Role::Micro),
@@ -342,7 +454,7 @@ fn mcp_row(server: &McpInfo, checked: bool, implied: bool, view: &Entity<AppStat
     }
 
     div()
-        .id(eid("new-agent-mcp", &server.name))
+        .id(eid(prefix, &server.name))
         .px_2()
         .py_1p5()
         .flex()
@@ -355,11 +467,11 @@ fn mcp_row(server: &McpInfo, checked: bool, implied: bool, view: &Entity<AppStat
         .on_click({
             let view = view.clone();
             move |_, _, cx| {
-                view.update(cx, |this, cx| this.toggle_new_agent_mcp(name.clone(), cx));
+                view.update(cx, |this, cx| toggle(this, name.clone(), cx));
             }
         })
         .child(div().pt_0p5().child(check_box(
-            eid("new-agent-mcp-box", &server.name),
+            eid(&format!("{prefix}-box"), &server.name),
             checked,
             |_, _, _| {},
         )))

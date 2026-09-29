@@ -149,7 +149,16 @@ with check-box rows in it, opening upward from the footer and staying down acros
 host resolves a ticked name that is not a built-in against the skill and MCP catalog
 ([`../tech/agent-manager.md`](../tech/agent-manager.md), `D196`), where a project's layer shadows the
 application's, and `skills` rides beside `mcps` on `StartConversation`, `AgentPicks` and
-`AgentDefinition` the same way. The
+`AgentDefinition` the same way.
+
+**`Skills` sits beside `MCPs` and is the same checklist over the catalog's skills.** The ticked ids
+are `NewAgentForm::skills` (`toggle_skill`, carried through `from_definition` / `as_definition`),
+and a definition row's summary counts them like the MCPs. Both checklists draw from the application's
+catalog layer **and** the form's target project's — the form's own project, else the window's on a
+start — the project's entry shadowing the application's by id (`CatalogState::skills_in` / `mcps_in`).
+The MCP panel lists the built-ins first and then the catalog's servers under a `From the catalog`
+sub-heading; a catalog server's id is ticked into the same `mcps` list a built-in slug is. Opening
+either form asks `ListCatalog` for both layers. The
 catalogue lives on `WorkbenchState::mcps`, one list for the window: what this build can inject is a
 property of the build, not of the harness, the identity or the setup being filled in. Until the
 host answers, the button is drawn faint and takes no click, the way the rest of the form draws a
