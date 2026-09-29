@@ -26,7 +26,6 @@ use agent_manager::profile::{
     FsProfileStore, Profile as DefinitionRecord, ProfileDefaults, ProfileStore, ScopedProfileStore,
 };
 use agent_manager::provision;
-use agent_manager::registry::FsRegistry;
 use agent_manager::resolve;
 use agent_manager::session;
 use agent_manager::settings::Settings;
@@ -38,6 +37,7 @@ use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, LoginSta
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
 
+use crate::catalog::Catalog;
 use crate::environment::Environment;
 use crate::mcp::catalogue;
 
@@ -98,6 +98,17 @@ fn apply_role_mcps(definition: &mut AgentDefinition) {
             definition.mcps.push(name);
         }
     }
+}
+
+/// `saved` followed by whatever of `picked` it does not already hold, so a pick made twice, or
+/// one the definition also named, reaches the library once.
+fn union(mut saved: Vec<String>, picked: Vec<String>) -> Vec<String> {
+    for name in picked {
+        if !saved.contains(&name) {
+            saved.push(name);
+        }
+    }
+    saved
 }
 
 /// The agent types this machine can run, and the composer behind them.
@@ -206,7 +217,13 @@ pub struct ConverseOptions {
     ///
     /// The picks only. What the definition saved is read from the definition inside `compose_run`,
     /// because that is where the definition is known — see the note there.
+    ///
+    /// A name that is not a built-in is an id in the catalog (`crate::catalog`) and reaches the
+    /// library's `resolve` as a pick, which drops one it cannot find to the run's `problems`.
     pub mcps: Vec<String>,
+    /// The skills to make available, by catalog id. Unioned with the definition's own, the way
+    /// the catalog MCPs above are; empty leaves the definition's list to the library untouched.
+    pub skills: Vec<String>,
 }
 
 /// A sign-in into an account's config home (`D194`) that has been prepared and not yet
@@ -681,6 +698,7 @@ impl Agents {
                     // same row in a checklist, so the interface is told the empty list for both.
                     // The distinction still matters on disk — see [`save_definition`](Self::save_definition).
                     mcps: record.defaults.mcps.unwrap_or_default(),
+                    skills: record.defaults.skills.unwrap_or_default(),
                     mission_assistant: record.mission_assistant,
                     mission_coordinator: record.mission_coordinator.unwrap_or(false),
                     mission_worker: record.mission_worker.unwrap_or(false),
@@ -724,17 +742,30 @@ impl Agents {
     /// Resolved through the run's own scope: inside a project, that project's definition of this
     /// name answers before the global one, exactly as it will when the run is composed.
     ///
-    /// The named definition's own row, not its inheritance chain: Ubiq writes no parent, and
-    /// flattening one here would be this module holding a second answer to a question
-    /// `resolve` already answers.
+    /// Read through the library's own flattening of the `extends` chain, so a hand-written parent's
+    /// list is not lost when a run's picks are added on top (`flags.skills` and `flags.mcps`
+    /// outrank the whole definition, not just its leaf).
     fn definition_mcps(&self, id: &str, project: Option<ProjectId>) -> Option<Vec<String>> {
+        self.definition_defaults(id, project)
+            .and_then(|defaults| defaults.mcps)
+    }
+
+    /// What a definition saved under `defaults.skills`, read exactly as [`Self::definition_mcps`]
+    /// reads its list.
+    fn definition_skills(&self, id: &str, project: Option<ProjectId>) -> Option<Vec<String>> {
+        self.definition_defaults(id, project)
+            .and_then(|defaults| defaults.skills)
+    }
+
+    /// The named definition's `defaults` with its `extends` chain folded in, through the run's scope.
+    fn definition_defaults(&self, id: &str, project: Option<ProjectId>) -> Option<ProfileDefaults> {
         let global = self.definition_store();
         let scoped = project.map(|project| self.project_definition_store(project));
-        ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore))
-            .profile(id)
+        let store =
+            ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore));
+        agent_manager::profile::resolve_flattened(&store, id)
             .ok()
-            .flatten()
-            .and_then(|record| record.defaults.mcps)
+            .map(|record| record.defaults)
     }
 
     /// Write a definition, creating it when its id names none. Overwrites in place: a saved
@@ -780,6 +811,7 @@ impl Agents {
                 thinking: definition.thinking,
                 prompt: definition.prompt,
                 mcps: (!definition.mcps.is_empty()).then_some(definition.mcps),
+                skills: (!definition.skills.is_empty()).then_some(definition.skills),
                 ..Default::default()
             },
             mode: definition.mode,
@@ -895,6 +927,7 @@ impl Agents {
                 max_subagents: None,
                 prompt: None,
                 mcps,
+                skills: Vec::new(),
                 mission_assistant: None,
                 mission_coordinator: coordinator,
                 mission_worker: worker,
@@ -1203,16 +1236,18 @@ impl Agents {
         // the definition in the library's own merge. A `--mcp-as-skill` flag naming an id outside
         // the run's injected set and `--safe` naming a missing preset still hard-fail: both are
         // flag misuse, not a stale saved reference.
+        //
+        // The picks are split the same way. A name this build answers is injected; any other is
+        // an id in the catalog (`crate::catalog`), and is handed down with the definition's own.
         let mut injected: Vec<String> = Vec::new();
+        let mut picked_catalog: Vec<String> = Vec::new();
         for name in &options.mcps {
-            if !crate::mcp::knows(name) {
-                tracing::warn!(
-                    mcp = %name,
-                    harness = %agent_type,
-                    "this build offers no MCP server by that name, so nothing was injected for it"
-                );
-            } else if !injected.contains(name) {
-                injected.push(name.clone());
+            if crate::mcp::knows(name) {
+                if !injected.contains(name) {
+                    injected.push(name.clone());
+                }
+            } else if !picked_catalog.contains(name) {
+                picked_catalog.push(name.clone());
             }
         }
         let catalog_mcps = options
@@ -1234,6 +1269,24 @@ impl Agents {
                     })
                     .collect::<Vec<String>>()
             });
+        let catalog_mcps = if picked_catalog.is_empty() {
+            catalog_mcps
+        } else {
+            Some(union(catalog_mcps.unwrap_or_default(), picked_catalog))
+        };
+        // Skills have no built-ins to split off. A run that picked none leaves the definition's
+        // list to `resolve` (which also follows its `extends` chain); one that picked some hands
+        // down the definition's own row with them added, since `flags.skills` outranks it.
+        let skills = if options.skills.is_empty() {
+            None
+        } else {
+            let saved = options
+                .definition
+                .as_deref()
+                .and_then(|definition| self.definition_skills(definition, options.project))
+                .unwrap_or_default();
+            Some(union(saved, options.skills.clone()))
+        };
 
         // What a run is composed *of* — its account, its model, the definition that names
         // them — is the library's question, and `resolve` is the one place that answers it.
@@ -1261,6 +1314,7 @@ impl Agents {
             // so the built-ins never reach the catalog lookup. `None` when the definition mentioned
             // no servers at all, which leaves the library's own precedence untouched.
             mcps: catalog_mcps,
+            skills,
             // The two fields a one-shot harness converses through: its prompt is argv, and the
             // only thing joining one turn to the next is the harness's own session id. `resolve`
             // lands them on `spec.initial.prompt` and `spec.resume`, and each harness's
@@ -1290,7 +1344,7 @@ impl Agents {
         let mut spec = resolve::resolve(
             &flags,
             &Settings::default(),
-            &FsRegistry::new(self.root.join("catalog")),
+            &Catalog::new(&self.root).registry_for(options.project),
             &FsAccountStore::new(self.root.join("accounts")),
             &definitions,
         )
@@ -2172,6 +2226,219 @@ mod tests {
         );
     }
 
+    /// A definition's skills survive a save and a read, in either scope, and an empty list is
+    /// written as "mentioned none" (`None`) rather than as an override, the way `mcps` is.
+    #[test]
+    fn a_definitions_skills_round_trip_and_an_empty_pick_is_none() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let project = ProjectId::generate();
+
+        agents
+            .save_definition(AgentDefinition {
+                skills: vec!["pdf".to_string(), "review".to_string()],
+                ..a_definition("wrote")
+            })
+            .unwrap();
+        agents
+            .save_definition(AgentDefinition {
+                skills: vec!["local".to_string()],
+                project: Some(project),
+                ..a_definition("wrote")
+            })
+            .unwrap();
+        agents.save_definition(a_definition("bare")).unwrap();
+
+        let listed = agents.definitions().unwrap();
+        let skills_of = |id: &str| listed.iter().find(|it| it.id == id).unwrap().skills.clone();
+        assert_eq!(skills_of("wrote"), vec!["pdf", "review"]);
+        assert!(skills_of("bare").is_empty());
+        assert_eq!(agents.definition_skills("bare", None), None);
+        assert_eq!(
+            agents.definition_skills("wrote", Some(project)),
+            Some(vec!["local".to_string()]),
+            "inside the project, its own definition answers"
+        );
+        assert_eq!(
+            agents.project_definitions(project).unwrap()[0].skills,
+            vec!["local"]
+        );
+    }
+
+    /// The registry a run resolves ids against is the project's layer over the application's: a
+    /// skill both name is the project's inside that project, and only the application's elsewhere.
+    /// Asserted on what the harness was actually given, not on the registry alone.
+    #[test]
+    fn a_run_gets_the_projects_skill_over_the_applications_and_its_picks() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let elsewhere = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let project = ProjectId::generate();
+        let catalog = Catalog::new(root.path());
+
+        let folder = |parent: &str, name: &str, marker: &str| {
+            let dir = elsewhere.path().join(parent).join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: {marker}\n---\n{marker}\n"),
+            )
+            .unwrap();
+            dir.to_string_lossy().into_owned()
+        };
+        let link = |scope: Option<ProjectId>, path: String| {
+            catalog
+                .add_skill(
+                    scope,
+                    &ubiq_proto::catalog::SkillAdd::Link { path, id: None },
+                )
+                .unwrap()
+        };
+        link(None, folder("global", "review", "GLOBAL-REVIEW"));
+        link(None, folder("global", "extra", "GLOBAL-EXTRA"));
+        link(Some(project), folder("project", "review", "PROJECT-REVIEW"));
+        agents
+            .save_definition(AgentDefinition {
+                skills: vec!["review".to_string()],
+                ..a_definition("setup")
+            })
+            .unwrap();
+
+        // Everything under the run's directory that a harness could read as a skill.
+        fn given(dir: &Path, out: &mut String) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    given(&path, out);
+                } else if path.file_name().is_some_and(|it| it == "SKILL.md") {
+                    out.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+                }
+            }
+        }
+        let run = |project: Option<ProjectId>, skills: &[&str]| {
+            let composed = agents
+                .compose_run(
+                    "agent-1",
+                    "claude-code",
+                    cwd.path(),
+                    Vec::new(),
+                    IoModes::Structured,
+                    ConverseOptions {
+                        definition: Some("setup".to_string()),
+                        project,
+                        skills: skills.iter().map(|it| it.to_string()).collect(),
+                        ..Default::default()
+                    },
+                )
+                .expect("composing a claude-code run");
+            let mut text = String::new();
+            given(&composed.dir, &mut text);
+            (text, composed.problems.clone())
+        };
+
+        let (text, problems) = run(Some(project), &[]);
+        assert!(
+            text.contains("PROJECT-REVIEW") && !text.contains("GLOBAL-REVIEW"),
+            "{text}"
+        );
+        assert!(problems.is_empty(), "{problems:?}");
+
+        let (text, _) = run(None, &[]);
+        assert!(text.contains("GLOBAL-REVIEW") && !text.contains("PROJECT-REVIEW"));
+        assert!(
+            !text.contains("GLOBAL-EXTRA"),
+            "a skill nobody picked is not given"
+        );
+
+        let (text, _) = run(Some(project), &["extra", "extra", "review"]);
+        assert!(
+            text.contains("PROJECT-REVIEW") && text.contains("GLOBAL-EXTRA"),
+            "the definition's skills and the run's picks are both given: {text}"
+        );
+
+        let (_, problems) = run(Some(project), &["gone"]);
+        assert_eq!(
+            problems.len(),
+            1,
+            "a pick the catalog lacks is reported: {problems:?}"
+        );
+    }
+
+    /// A run's picks are added to what the whole `extends` chain contributes, not to the leaf alone.
+    #[test]
+    fn a_run_keeps_the_skills_a_parent_definition_contributes() {
+        let root = tempfile::TempDir::new().unwrap();
+        let cwd = tempfile::TempDir::new().unwrap();
+        let elsewhere = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let catalog = Catalog::new(root.path());
+        for name in ["x", "y"] {
+            let dir = elsewhere.path().join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: d\n---\nSKILL-{name}\n"),
+            )
+            .unwrap();
+            catalog
+                .add_skill(
+                    None,
+                    &ubiq_proto::catalog::SkillAdd::Link {
+                        path: dir.to_string_lossy().into_owned(),
+                        id: None,
+                    },
+                )
+                .unwrap();
+        }
+        agents
+            .save_definition(AgentDefinition {
+                skills: vec!["x".to_string()],
+                ..a_definition("parent")
+            })
+            .unwrap();
+        agents.save_definition(a_definition("child")).unwrap();
+        // Ubiq's own form writes no parent: the chain is written by hand.
+        let file = definitions_dir(root.path()).join("child/profile.toml");
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, format!("extends = \"parent\"\n{text}")).unwrap();
+        assert_eq!(
+            agents.definition_skills("child", None),
+            Some(vec!["x".to_string()])
+        );
+
+        let composed = agents
+            .compose_run(
+                "agent-1",
+                "claude-code",
+                cwd.path(),
+                Vec::new(),
+                IoModes::Structured,
+                ConverseOptions {
+                    definition: Some("child".to_string()),
+                    skills: vec!["y".to_string()],
+                    ..Default::default()
+                },
+            )
+            .expect("composing a claude-code run");
+        fn given(dir: &Path, out: &mut String) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    given(&path, out);
+                } else if path.file_name().is_some_and(|it| it == "SKILL.md") {
+                    out.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+                }
+            }
+        }
+        let mut text = String::new();
+        given(&composed.dir, &mut text);
+        assert!(
+            text.contains("SKILL-x") && text.contains("SKILL-y"),
+            "{text}"
+        );
+    }
+
     /// A definition written under the old `profiles/` directory is still the user's definition
     /// after the rename: the directory is moved onto the new name the first time it is asked
     /// for, records and all (`D174`).
@@ -2430,6 +2697,7 @@ mod tests {
             max_subagents: None,
             prompt: None,
             mcps: Vec::new(),
+            skills: Vec::new(),
             mission_assistant: None,
             mission_coordinator: false,
             mission_worker: false,

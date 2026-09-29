@@ -1191,6 +1191,7 @@ mod tests {
             max_subagents: None,
             prompt: None,
             mcps: Vec::new(),
+            skills: Vec::new(),
             mission_assistant: None,
             mission_coordinator: false,
             mission_worker: false,

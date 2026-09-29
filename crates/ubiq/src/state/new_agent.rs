@@ -79,6 +79,8 @@ pub enum OpenList {
     /// checklist rather than a choice. It uses the same discriminant anyway, because "exactly one
     /// list is down" is the form's rule regardless of what the list is made of.
     Mcps,
+    /// The skills checklist, on the MCP one's terms.
+    Skills,
 }
 
 impl OpenList {
@@ -89,7 +91,7 @@ impl OpenList {
     /// field would be — so opening it must leave the keyboard where it was: focusing a field
     /// nothing draws is a keyboard nobody owns, and the window's own Escape never arrives at it.
     pub fn has_filter(self) -> bool {
-        !matches!(self, Self::Mcps)
+        !matches!(self, Self::Mcps | Self::Skills)
     }
 }
 
@@ -144,6 +146,9 @@ pub struct NewAgentForm {
     /// What is *on offer* is not here: that is the window's own
     /// [`crate::state::WorkbenchState::mcps`], one list for the build rather than a copy per form.
     pub mcps: Vec<String>,
+    /// The skills this start asks for, by catalog id ([`ubiq_proto::catalog::SkillInfo::id`]).
+    /// Ticked order is kept, the way [`Self::mcps`] keeps it.
+    pub skills: Vec<String>,
     /// The opening prompt. Typed into a textarea the window owns, and copied in here when the
     /// form is read — the same way the definition form reads its name field at save time.
     pub prompt: String,
@@ -244,6 +249,7 @@ impl NewAgentForm {
             disabled: false,
             max_subagents: Some(DEFAULT_SUBAGENTS),
             mcps: Vec::new(),
+            skills: Vec::new(),
             prompt: String::new(),
             open: None,
             naming: false,
@@ -275,6 +281,7 @@ impl NewAgentForm {
             mode: definition.mode.clone(),
             max_subagents: definition.max_subagents,
             mcps: definition.mcps.clone(),
+            skills: definition.skills.clone(),
             prompt: definition.prompt.clone().unwrap_or_default(),
             mission_assistant: definition.mission_assistant.unwrap_or(false),
             mission_coordinator: definition.mission_coordinator,
@@ -303,6 +310,7 @@ impl NewAgentForm {
             max_subagents: self.max_subagents,
             prompt: (!self.prompt.trim().is_empty()).then(|| self.prompt.trim().to_string()),
             mcps: self.mcps.clone(),
+            skills: self.skills.clone(),
             // Ticked is written down; unticked writes `None` rather than `Some(false)` — the two
             // read the same to every filter, and `None` is the ordinary "says nothing" shape every
             // other optional field here already uses.
@@ -333,6 +341,16 @@ impl NewAgentForm {
                 self.mcps.remove(at);
             }
             None => self.mcps.push(name.to_string()),
+        }
+    }
+
+    /// Tick or untick one skill, by its catalog id. Ticked order is kept, like [`Self::mcps`].
+    pub fn toggle_skill(&mut self, id: &str) {
+        match self.skills.iter().position(|it| it == id) {
+            Some(at) => {
+                self.skills.remove(at);
+            }
+            None => self.skills.push(id.to_string()),
         }
     }
 
@@ -552,6 +570,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ticked_skills_are_written_down_and_read_back() {
+        let mut form = NewAgentForm::new(Purpose::AgentDefinition);
+        form.toggle_skill("pdf");
+        form.toggle_skill("docx");
+        form.toggle_skill("pdf");
+        assert_eq!(form.skills, vec!["docx"], "unticking takes it back out");
+
+        let definition = form.as_definition("writer".to_string());
+        assert_eq!(definition.skills, vec!["docx"]);
+        let again = NewAgentForm::from_definition(&definition, Purpose::AgentDefinition);
+        assert_eq!(again.skills, vec!["docx"], "an edit opens with them ticked");
+    }
+
     fn a_definition(mission_assistant: Option<bool>) -> AgentDefinition {
         AgentDefinition {
             id: "reviewer".to_string(),
@@ -564,6 +596,7 @@ mod tests {
             max_subagents: None,
             prompt: None,
             mcps: Vec::new(),
+            skills: Vec::new(),
             mission_assistant,
             mission_coordinator: false,
             mission_worker: false,

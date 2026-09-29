@@ -625,6 +625,7 @@ mod tests {
             },
             expose: McpExpose::Tools,
             summary: None,
+            description: None,
         }
     }
 
@@ -642,6 +643,7 @@ mod tests {
             id: id.to_string(),
             source: crate::source::Source::Dir(PathBuf::from(format!("/catalog/skills/{id}"))),
             meta: SkillMeta::default(),
+            origin: crate::registry::SkillOrigin::Installed { remote: None },
         }
     }
 

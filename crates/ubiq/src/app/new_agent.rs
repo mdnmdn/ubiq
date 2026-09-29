@@ -52,6 +52,8 @@ impl AppState {
         // answer is the same for every start, so it is asked once per opening of the form and kept
         // on the window.
         self.bus.send(Message::ListMcps);
+        // The skills and catalog servers the two checklists offer, from both layers.
+        self.ask_catalog_for_form(cx);
         if let Some(target) = self.last_start_target() {
             // The form opens on the tab that asks the question the last start answered: seeding a
             // harness onto the Agents tab would leave its dropdown reading "choose an agent" with
@@ -639,6 +641,7 @@ impl AppState {
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
+            skills: form.skills.clone(),
             // The user started this one, so nobody asked for it. `spawned_by` is only ever set
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,
@@ -690,6 +693,7 @@ impl AppState {
             thinking: Some(form.thinking.clone().unwrap_or_default()),
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
+            skills: form.skills.clone(),
         };
         self.spawn_pane(Some(form.agent_type.clone()), Vec::new(), picks, cx);
         // **Release the aim.** A form raised from a chat header or the sink wrote down where the

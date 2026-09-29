@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-28
-verified: 2026-09-28
+updated: 2026-09-29
+verified: 2026-09-29
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -4872,6 +4872,31 @@ kills the child after `USAGE_TIMEOUT`, 60 seconds; an unbounded wait would stall
 account's reading. And the shape of `usage_report` is Claude Code's, not a published contract, so it can
 change under us — `tests/fixtures/claude-usage-report.json` is a recorded answer with parse tests
 over it, which is what turns that into a failing test rather than a blank panel.
+
+### D196 — The skill and MCP catalog lives in the library's FsRegistry at the config root, one layer per project, overlaid
+
+The skills and MCP servers a person can pick for an agent are kept in the library's own catalog
+format (`catalog.toml`, `mcp/<id>.json`, `skills/<id>/`), read and written through `FsRegistry` and
+its `CatalogStore` trait. There is one layer at `<root>/catalog` for the application and one at
+`<root>/projects/<id>/catalog` for each project, and a run resolves ids against the two overlaid, the
+project's winning by id (`crates/ubiq-host/src/catalog.rs`, `Catalog::registry_for`). The interface
+sees a layer whole (`Message::Catalog`) and never the merge; an agent definition and a start carry
+ids only (`skills`, and catalog ids beside the built-in slugs in `mcps`). What replaces it is either
+a catalog table in Ubiq's own stores, which would have made the `am` CLI and the application two
+catalogs that disagree about the same skill, or a fixed list of skills shipped with the build.
+
+**Two rules follow.** A catalog MCP id may not be one of Ubiq's built-in slugs, because both share one
+`mcps` list and the built-in answers first at launch; the host refuses the save rather than let an
+entry sit unreachable. A remote skill source is a shallow git clone under `<root>/cache/skill-sources`
+(derived data, refetched when stale), and an install copies the folder into the layer with a record of
+where it came from, so a skill keeps working with the source gone.
+
+**Cost.** The catalog file format is the library's, so a change to it is a change the host inherits,
+and a hand-edited `catalog.toml` can hold what the form does not show. A project layer sits under the
+config root even for a project that keeps its data in `.ubiq/` (`G355`), so it does not travel with a
+clone. An install and a search shell out to `git` and, for the MCP registry, make an HTTP request, so
+they need `git` and a network on the host, and are answered late on a thread of their own. A linked
+skill is a path on the host's disk, which a clone of the project on another machine may not have.
 
 ## Related docs
 

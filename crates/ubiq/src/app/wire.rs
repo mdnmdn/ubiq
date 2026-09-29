@@ -2591,6 +2591,37 @@ impl AppState {
                 self.workbench.mcps = servers;
                 cx.notify();
             }
+            // One catalog layer, replaced whole for the reason the definitions are.
+            Message::Catalog {
+                scope,
+                skills,
+                mcps,
+                skill_folders,
+                sources,
+            } => {
+                let layer = crate::state::catalog::CatalogLayer {
+                    skills,
+                    mcps,
+                    skill_folders,
+                    sources,
+                };
+                self.apply_catalog(scope, layer, cx);
+            }
+            Message::SkillSearchResults {
+                query,
+                results,
+                problems,
+            } => self.apply_skill_results(query, results, problems, cx),
+            Message::McpConfigParsed { servers, error } => {
+                self.apply_mcp_parsed(servers, error, cx)
+            }
+            Message::McpRegistryResults {
+                query,
+                servers,
+                next_cursor,
+                error,
+            } => self.apply_registry_results(query, servers, next_cursor, error, cx),
+            Message::CatalogError { error } => self.apply_catalog_error(error, cx),
             Message::HarnessLoginStarted {
                 pane_id,
                 agent_type,

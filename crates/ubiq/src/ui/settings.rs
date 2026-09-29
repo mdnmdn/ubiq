@@ -251,6 +251,30 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
     );
     add(
         ids::SETTINGS_APP_AGENTS,
+        SettingsSectionSpec {
+            on_show: Some(AppState::on_show_catalog),
+            ..section(
+                ids::SKILLS,
+                "Skills",
+                || IconName::BookOpen.into(),
+                |ctx, _, cx| crate::ui::catalog::skills_page(ctx.app, None, "app-skills", cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_APP_AGENTS,
+        SettingsSectionSpec {
+            on_show: Some(AppState::on_show_catalog),
+            ..section(
+                ids::MCP_SERVERS,
+                "MCP servers",
+                || IconName::Network.into(),
+                |ctx, _, cx| crate::ui::catalog::mcp_page(ctx.app, None, "app-mcp", cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_APP_AGENTS,
         section(
             ids::ISOLATION,
             "Isolation",
@@ -1969,6 +1993,12 @@ pub(crate) fn definition_row(
         parts.push(match definition.mcps.len() {
             1 => "1 MCP".to_string(),
             n => format!("{n} MCPs"),
+        });
+    }
+    if !definition.skills.is_empty() {
+        parts.push(match definition.skills.len() {
+            1 => "1 skill".to_string(),
+            n => format!("{n} skills"),
         });
     }
 

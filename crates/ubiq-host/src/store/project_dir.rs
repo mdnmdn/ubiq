@@ -69,7 +69,7 @@ pub const GITIGNORE: &str = "\
 # Ubiq keeps this project's own data here.
 #
 # Committed, and meant to be: everything not listed below — project.toml,
-# tasks/, kb.toml, plans/, missions/, wiki/, agent-definitions/, studio.toml and
+# tasks/, kb.toml, plans/, missions/, wiki/, agent-definitions/, catalog/, studio.toml and
 # tasksrc.toml. The project's settings, tasks and configuration, shared with
 # whoever clones it. An edition's own sidecar file (studio.toml) and a sync
 # provider's binding (tasksrc.toml) pass the same test as everything else here —
@@ -403,6 +403,13 @@ impl ProjectData {
     #[cfg(feature = "harness")]
     pub fn definitions(&self) -> PathBuf {
         self.dir.join(crate::agent::DEFINITIONS_DIR)
+    }
+
+    /// This project's own layer of the skill and MCP catalog (`catalog.toml`, `mcp/`, `skills/`),
+    /// laid out the way the library's `FsRegistry` reads it.
+    #[cfg(feature = "harness")]
+    pub fn catalog(&self) -> PathBuf {
+        self.dir.join(crate::catalog::CATALOG_DIR)
     }
 
     /// The sync provider's binding, if this project has one.

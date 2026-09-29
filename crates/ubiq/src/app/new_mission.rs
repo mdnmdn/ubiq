@@ -388,6 +388,7 @@ impl AppState {
                         .iter()
                         .map(|it| it.to_string())
                         .collect(),
+                    skills: Vec::new(),
                     // The dialog's own coordinator: the user asked for it, not an agent.
                     spawned_by: None,
                 });

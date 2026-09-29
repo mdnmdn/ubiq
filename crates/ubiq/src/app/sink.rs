@@ -565,6 +565,10 @@ impl AppState {
                 .is_some_and(|spec| spec.gate.enabled(Form::Live, editing));
             if offered {
                 settings.nav = nav;
+                // The section's on-arrival asks, on the overlay's terms (`D180`).
+                if let Some(on_show) = nav.spec().and_then(|spec| spec.on_show) {
+                    on_show(self, cx);
+                }
                 cx.notify();
             }
             return;

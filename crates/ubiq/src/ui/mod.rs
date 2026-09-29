@@ -12,6 +12,7 @@ pub mod agents;
 pub mod all_projects;
 pub mod ask;
 pub mod board;
+pub mod catalog;
 pub mod chat;
 pub mod clone;
 pub mod conversation;

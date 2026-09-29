@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-28
-verified: 2026-09-28
-code_anchors: [crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
+updated: 2026-09-29
+verified: 2026-09-29
+code_anchors: [crates/ubiq-host/src/catalog.rs, crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -115,7 +115,7 @@ learning what an account is, and a harness that grows a new composition knob nee
 
 The stores `resolve` reads are the filesystem defaults, each rooted under Ubiq's own config root so
 a development run never touches what the `am` CLI manages: `<root>/accounts`, `<root>/agent-definitions`,
-`<root>/catalog`. A missing directory is an empty store, not an error, so this resolves on a machine
+`<root>/catalog` (overlaid by a project's own layer, below). A missing directory is an empty store, not an error, so this resolves on a machine
 that has configured nothing. The library's own settings file is deliberately **not** read — Ubiq's
 settings are the settings surface, and a second file answering the same question is a second
 answer — which leaves `resolve`'s precedence as flags, then the agent definition.
@@ -154,11 +154,40 @@ pins no harness, and `save_definition()` folds one back into a `Profile` and cal
 `FsProfileStore::save`. The store owns the on-disk shape, the id and the resolution; the host owns
 only where the root is. There is no delete, because the library offers none: adding a `remove_dir_all`
 here rather than a `delete` there is exactly the shape rule 1 forbids — [`../backlog.md`](../backlog.md).
-The seven fields the interface can set are the harness, the account, the model, the reasoning
-level, the mode, the subagent ceiling and the opening prompt — the same seven questions the start
-form asks, since an agent definition is a saved answer to them. The skills, MCP servers, hooks, instructions,
-isolation and `extends` chain a `Profile` can carry are still written by hand, because nothing
-lists the catalog on the wire.
+The fields the interface can set are the harness, the account, the model, the reasoning
+level, the mode, the subagent ceiling, the opening prompt, and the skills and MCP servers — the same
+questions the start form asks, since an agent definition is a saved answer to them. `skills` is
+`ProfileDefaults.skills` and `mcps` is `ProfileDefaults.mcps` (empty is written as absent, not as an
+override), and `Agents::infos` / `save_definition` are the one translation. The hooks, instructions,
+isolation and `extends` chain a `Profile` can carry are still written by hand.
+
+**The catalog those ids name is the library's `FsRegistry`, one layer per scope** (`D196`).
+`crates/ubiq-host/src/catalog.rs` (`Catalog`) picks the directory a wire `scope` names — `<root>/catalog`
+for the application, `<root>/projects/<id>/catalog` (`ProjectData::catalog`) for a project, which
+`Projects::forget` removes with the rest of the project — and converts between the library's
+`SkillEntry`/`McpEntry`/`SkillSource` and the wire's `SkillInfo`/`CatalogMcp`/`SkillSourceInfo`. Writing
+goes through the library's `CatalogStore` (link a skill folder, scan a folder, install from a source,
+save an MCP), so the host holds no catalog file format. Two rules are the host's own: a catalog MCP id
+may not be one of Ubiq's built-in slugs (`crate::mcp::knows`), because both share one `mcps` list and
+the built-in answers first in `compose_run`; and a remote skill source is cloned into
+`<root>/cache/skill-sources`, which is derived data.
+
+**A run resolves against the two layers overlaid.** `compose_run` hands `resolve` an
+`OverlayRegistry` of the application's layer with the run's project layer over it, so a project skill or
+MCP shadows the application's of the same id inside that project. `ConverseOptions::skills` (from
+`StartConversation::skills` and `AgentPicks::skills`) is unioned with the definition's own row and
+handed down as `RunFlags.skills`, which outranks the definition; with no picks the definition's list is
+left to `resolve`. `ConverseOptions::mcps` splits the same way: a built-in slug is injected, any other
+name is a catalog id unioned with the definition's and handed down as `RunFlags.mcps`. A name the catalog
+lacks lands in `Composed::problems`, like any stale reference.
+
+**The catalog family is answered by the coordinator without blocking it.** A listing and a file edit
+(`ListCatalog`, `RemoveSkill`, `SaveCatalogMcp`, …) are answered inline and a mutation broadcasts the
+layer to every window; `AddSkill::Remote`, `SearchSkills` and `SearchMcpRegistry` clone, fetch or call
+out, so each runs on a thread of its own holding mailboxes (`catalog_change`, `catalog_answer`). A layer
+for a project the catalogue does not hold is a `CatalogError`. The library's `remote` feature (the MCP
+registry client) is switched on by `ubiq-host`'s `harness` feature, so the lean relay build carries
+none of it.
 
 **An agent definition can belong to a project, and belonging is a location** (`D158`). Beside the global
 root there is one store per project, rooted at `<root>/projects/<id>/agent-definitions`, and nothing about
@@ -497,9 +526,9 @@ is the check that the host only ever reaches for the library's ungated core — 
 absent from this build, so the CLI's own helpers are not available to it and the host builds its
 stores itself. Letting the *user* choose a composition is on the wire: `StartConversation` carries a
 agent definition id beside the account, and an agent definition's own fields are read by `resolve` under any flag the
-launch passes. `StartConversation.mcps` and `AgentDefinition.mcps` do the same for Ubiq's own built-in
-MCP servers. What a composition can still not name from the interface — the catalog's skills, and a
-catalog MCP server reference beyond Ubiq's built-ins — is tracked in
+launch passes. `StartConversation.mcps` / `.skills` and `AgentDefinition.mcps` / `.skills` do the same for Ubiq's
+own built-in MCP servers and the catalog's skills and MCP servers. What a composition can still not name
+from the interface — hooks, instructions, isolation and the `extends` chain — is tracked in
 [`../backlog.md`](../backlog.md).
 
 ## The rules
