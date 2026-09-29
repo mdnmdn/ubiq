@@ -105,7 +105,7 @@ impl McpRegistryClient {
             .timeout(Duration::from_secs(20))
             .build();
         let mut req = agent
-            .get(&format!("{}/v0/servers", self.base))
+            .get(&format!("{}/v0.1/servers", self.base))
             .query("search", query)
             .query("limit", &limit.to_string())
             .query("version", "latest");
@@ -221,7 +221,7 @@ impl Field {
     }
 }
 
-/// Map one page of `GET /v0/servers` to servers and the next cursor.
+/// Map one page of `GET /v0.1/servers` to servers and the next cursor.
 pub fn parse_registry_page(json: &str) -> Result<(Vec<RegistryServer>, Option<String>)> {
     let page: Page =
         serde_json::from_str(json).map_err(|e| anyhow!("unexpected registry response: {e}"))?;

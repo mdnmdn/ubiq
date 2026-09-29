@@ -197,7 +197,7 @@ Codex TOML `[mcp_servers.<id>]` (`http_headers` is `headers`). `type`: `stdio`/`
 ## The MCP registry (`registry/mcp_registry.rs`, feature `remote`)
 
 `McpRegistryClient` (default base `https://registry.modelcontextprotocol.io`) calls
-`GET /v0/servers?search=&limit=&version=latest[&cursor=]` (honouring the proxy environment) and
+`GET /v0.1/servers?search=&limit=&version=latest[&cursor=]` (honouring the proxy environment) and
 `parse_registry_page` maps each server to `RegistryServer { name, title, description, version,
 repository, options: Vec<McpDraft> }`. A `McpDraft { label, server, params }` is one package or
 remote: npm -> `npx -y id@ver`, pypi -> `uvx id==ver`, oci -> `docker run -i --rm … id:ver`,
