@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use ubiq_proto::ask::AskClosed;
 use ubiq_proto::assist::{AssistProvider, SuggestSubject};
 use ubiq_proto::bus::{ClientId, FromClient, HostEnd, MovingAddress, To};
+use ubiq_proto::catalog::SkillAdd;
 use ubiq_proto::conversation::{
     ConfigCategory, ConfigChoice, ConfigOption, ConfigValue, ConvUpdate, StopReason,
 };
@@ -32,6 +33,7 @@ use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, ConverseOptions, PendingLogin};
 use crate::assist::{self, Assist, providers::Providers};
+use crate::catalog::Catalog;
 use crate::cli_shortcut;
 use crate::config::ConfigRoot;
 use crate::connectors::{Answer, Connectors};
@@ -394,10 +396,11 @@ struct PendingConversation {
     /// that named none.
     resume: Option<String>,
     /// The MCP servers this conversation asked for, from [`Message::StartConversation::mcps`],
-    /// carried through to [`ConverseOptions::mcps`] on every launch and relaunch. `compose_run`
-    /// does not act on it yet — injecting the server is later work — so this is only where the
-    /// pick is remembered between here and there.
+    /// carried through to [`ConverseOptions::mcps`] on every launch and relaunch.
     mcps: Vec<String>,
+    /// The skills this conversation asked for, from [`Message::StartConversation::skills`],
+    /// carried through to [`ConverseOptions::skills`] the same way.
+    skills: Vec<String>,
 }
 
 /// `base`, then `base 2`, `base 3` … — the first that nothing in `taken` is wearing. A counter
@@ -981,9 +984,10 @@ impl Coordinator {
                         // a conversation is named once however many processes it outlives.
                         named: row.title.is_some(),
                         resume: None,
-                        // Not part of the persisted row yet: an mcp pick made before a restart
-                        // does not survive one, same as `catalogue` above.
+                        // Not part of the persisted row yet: an mcp or skill pick made before a
+                        // restart does not survive one, same as `catalogue` above.
                         mcps: Vec::new(),
+                        skills: Vec::new(),
                     },
                 )
             })
@@ -1702,6 +1706,77 @@ impl Coordinator {
                     servers: crate::mcp::catalogue(),
                 },
             ),
+            // ── the skill and MCP catalog ───────────────────────────
+            // A layer is a directory the library reads and writes (`crate::catalog`). What can
+            // reach the network — an install, a source search, a registry search — runs on a
+            // thread of its own; the rest is a file edit and is answered where it is asked.
+            Message::ListCatalog { scope } => {
+                let answer = if !self.catalog_scope_known(scope) {
+                    Message::CatalogError {
+                        error: "no such project".to_string(),
+                    }
+                } else {
+                    Catalog::new(self.root.path.clone())
+                        .snapshot(scope)
+                        .unwrap_or_else(|error| Message::CatalogError {
+                            error: format!("{error:#}"),
+                        })
+                };
+                self.host.send(To::Client(client), answer);
+            }
+            Message::AddSkill {
+                scope,
+                from: SkillAdd::Remote { source, path, id },
+            } => self.catalog_change(client, scope, true, move |catalog| {
+                catalog.install_remote(scope, &source, &path, id.as_deref())
+            }),
+            Message::AddSkill { scope, from } => {
+                self.catalog_change(client, scope, false, move |catalog| {
+                    catalog.add_skill(scope, &from)
+                })
+            }
+            Message::RemoveSkill { scope, id } => {
+                self.catalog_change(client, scope, false, move |catalog| {
+                    catalog.remove_skill(scope, &id)
+                })
+            }
+            Message::RemoveSkillFolder { scope, path } => {
+                self.catalog_change(client, scope, false, move |catalog| {
+                    catalog.remove_skill_folder(scope, &path)
+                })
+            }
+            Message::SaveSkillSources { sources } => {
+                self.catalog_change(client, None, false, move |catalog| {
+                    catalog.save_sources(&sources)
+                })
+            }
+            Message::SaveCatalogMcp {
+                scope,
+                mcp,
+                previous_id,
+            } => self.catalog_change(client, scope, false, move |catalog| {
+                catalog.save_mcp(scope, &mcp, previous_id.as_deref())
+            }),
+            Message::RemoveCatalogMcp { scope, id } => {
+                self.catalog_change(client, scope, false, move |catalog| {
+                    catalog.remove_mcp(scope, &id)
+                })
+            }
+            Message::SearchSkills { query, source } => {
+                let catalog = Catalog::new(self.root.path.clone());
+                self.catalog_answer(client, "skill-search", move || {
+                    catalog.search_skills(&query, source.as_deref())
+                });
+            }
+            Message::ParseMcpConfig { text } => {
+                self.host
+                    .send(To::Client(client), Catalog::parse_config(&text));
+            }
+            Message::SearchMcpRegistry { query, cursor } => {
+                self.catalog_answer(client, "mcp-registry", move || {
+                    Catalog::search_mcp_registry(&query, cursor.as_deref())
+                });
+            }
             Message::BeginHarnessLogin {
                 agent_type,
                 account,
@@ -2853,13 +2928,12 @@ impl Coordinator {
                 thinking,
                 mode,
                 mcps,
-                // Not acted on yet: the host does not carry a skills pick into the run.
-                skills: _,
+                skills,
                 spawned_by,
             } => {
                 self.start_conversation(
                     client, agent_id, project_id, session_id, rel_path, agent_type, account,
-                    definition, model, thinking, mode, mcps, spawned_by,
+                    definition, model, thinking, mode, mcps, skills, spawned_by,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -3244,6 +3318,7 @@ impl Coordinator {
         thinking: Option<String>,
         mode: Option<String>,
         mcps: Vec<String>,
+        skills: Vec<String>,
         spawned_by: Option<AgentId>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
@@ -3403,6 +3478,7 @@ impl Coordinator {
                 // Nothing has run, so there is no harness session to continue.
                 resume: None,
                 mcps,
+                skills,
             },
         );
         self.remember_conversation(agent_id);
@@ -3566,6 +3642,7 @@ impl Coordinator {
                 prompt: first_prompt,
                 resume: pending.resume.clone(),
                 mcps: pending.mcps.clone(),
+                skills: pending.skills.clone(),
             },
         ) {
             Ok(started) => started,
@@ -4117,6 +4194,7 @@ impl Coordinator {
             model,
             thinking,
             mode,
+            Vec::new(),
             Vec::new(),
             // A relaunch from a stored recipe, not a spawn: who once asked for this agent is not
             // on the row, and re-stamping a parent a reassignment has since cleared would invent
@@ -5217,6 +5295,69 @@ impl Coordinator {
             .ok();
     }
 
+    /// Whether a catalog scope names a layer that exists: the application's, or a project the
+    /// catalogue holds. A layer for a project nobody knows would be a directory nothing can
+    /// forget.
+    fn catalog_scope_known(&self, scope: Option<ProjectId>) -> bool {
+        scope.is_none_or(|project| self.projects.record(project).is_some())
+    }
+
+    /// Apply one catalog mutation, then tell **every** window the layer as it now stands — or
+    /// tell the asker why not.
+    ///
+    /// `background` puts the work on a thread of its own, for the one mutation that fetches over
+    /// the network (`AddSkill::Remote`); the answer goes out from there through mailboxes, so the
+    /// coordinator never waits on a clone.
+    fn catalog_change(
+        &self,
+        client: ClientId,
+        scope: Option<ProjectId>,
+        background: bool,
+        work: impl FnOnce(&Catalog) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        if !self.catalog_scope_known(scope) {
+            self.host.send(
+                To::Client(client),
+                Message::CatalogError {
+                    error: "no such project".to_string(),
+                },
+            );
+            return;
+        }
+        let catalog = Catalog::new(self.root.path.clone());
+        let asker = self.host.mailbox(To::Client(client));
+        let everyone = self.host.mailbox(To::Everyone);
+        let run = move || match work(&catalog).and_then(|()| catalog.snapshot(scope)) {
+            Ok(layer) => everyone.send(layer),
+            Err(error) => asker.send(Message::CatalogError {
+                error: format!("{error:#}"),
+            }),
+        };
+        if background {
+            thread::Builder::new()
+                .name("catalog-install".to_string())
+                .spawn(run)
+                .ok();
+        } else {
+            run();
+        }
+    }
+
+    /// Answer the asker with what `work` produces, on a thread of its own: a search that clones a
+    /// repository or calls a registry.
+    fn catalog_answer(
+        &self,
+        client: ClientId,
+        name: &str,
+        work: impl FnOnce() -> Message + Send + 'static,
+    ) {
+        let asker = self.host.mailbox(To::Client(client));
+        thread::Builder::new()
+            .name(format!("catalog-{name}"))
+            .spawn(move || asker.send(work()))
+            .ok();
+    }
+
     /// Hand one git-family request to the worker.
     ///
     /// The only thing this decides is which folder the request is against; a project the catalogue
@@ -5691,6 +5832,7 @@ impl Coordinator {
             // resolves here exactly as it does for a conversation.
             project: Some(project_id),
             mcps: picks.mcps,
+            skills: picks.skills,
             prompt: None,
             resume: None,
         };
@@ -6735,6 +6877,7 @@ mod tests {
                 named: false,
                 resume: None,
                 mcps: Vec::new(),
+                skills: Vec::new(),
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));

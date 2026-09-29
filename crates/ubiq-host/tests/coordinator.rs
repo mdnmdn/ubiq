@@ -2355,3 +2355,102 @@ fn a_tool_with_no_starting_folder_still_runs_in_the_project() {
         "said {seen:?}"
     );
 }
+
+/// The next catalog-family message, skipping the greeting every window gets on attaching.
+fn next_catalog_message(ui: &Client) -> Message {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::HostInfo { .. }) => continue,
+            Ok(message) => return message,
+            Err(error) => panic!("expected a catalog message: {error}"),
+        }
+    }
+}
+
+fn a_stdio_server(id: &str) -> ubiq_proto::catalog::CatalogMcp {
+    ubiq_proto::catalog::CatalogMcp {
+        id: id.to_string(),
+        kind: ubiq_proto::catalog::McpKind::Stdio,
+        command: Some("npx".to_string()),
+        args: vec!["-y".to_string(), "thing".to_string()],
+        env: Default::default(),
+        url: None,
+        headers: Default::default(),
+        description: None,
+    }
+}
+
+/// A saved server reaches every window as the layer's new state, the asker's refusal reaches the
+/// asker alone, and a project that does not exist has no layer.
+#[test]
+fn a_catalog_change_reaches_every_window_and_a_refusal_only_the_asker() {
+    let (hub, ui) = coordinator();
+    let other = hub.connect();
+
+    ui.send(Message::ListCatalog { scope: None });
+    let Message::Catalog {
+        scope,
+        mcps,
+        sources,
+        ..
+    } = next_catalog_message(&ui)
+    else {
+        panic!("expected the layer");
+    };
+    assert_eq!(scope, None);
+    assert!(mcps.is_empty());
+    assert!(
+        !sources.is_empty(),
+        "the application's layer lists its sources"
+    );
+
+    ui.send(Message::SaveCatalogMcp {
+        scope: None,
+        mcp: Box::new(a_stdio_server("things")),
+        previous_id: None,
+    });
+    for window in [&ui, &other] {
+        let Message::Catalog { mcps, .. } = next_catalog_message(window) else {
+            panic!("expected the layer to be broadcast");
+        };
+        assert_eq!(mcps, vec![a_stdio_server("things")]);
+    }
+
+    // A built-in slug is refused, to the asker only.
+    ui.send(Message::SaveCatalogMcp {
+        scope: None,
+        mcp: Box::new(a_stdio_server("ubiq-help")),
+        previous_id: None,
+    });
+    assert!(matches!(
+        next_catalog_message(&ui),
+        Message::CatalogError { .. }
+    ));
+
+    // A layer for a project the catalogue does not hold.
+    ui.send(Message::ListCatalog {
+        scope: Some(ProjectId::generate()),
+    });
+    assert!(matches!(
+        next_catalog_message(&ui),
+        Message::CatalogError { .. }
+    ));
+
+    // A project's own layer is separate and carries no sources.
+    let (project, _path) = a_project(&ui);
+    ui.send(Message::ListCatalog {
+        scope: Some(project),
+    });
+    let Message::Catalog { mcps, sources, .. } = next_catalog_message(&ui) else {
+        panic!("expected the project's layer");
+    };
+    assert!(mcps.is_empty() && sources.is_empty());
+
+    ui.send(Message::ParseMcpConfig {
+        text: r#"{"mcpServers":{"fs":{"command":"npx"}}}"#.to_string(),
+    });
+    let Message::McpConfigParsed { servers, error } = next_catalog_message(&ui) else {
+        panic!("expected the parse");
+    };
+    assert_eq!((servers.len(), error), (1, None));
+}

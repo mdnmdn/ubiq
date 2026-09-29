@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-27
+updated: 2026-09-29
 verified: 2026-09-27
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
@@ -456,7 +456,7 @@ switch meaning anything.
 No delete or rename, because `FsProfileStore` has neither and saving over an id is the correction
 (`G165`) — a `remove_dir_all` in `agent.rs` would be rule 1 of the boundary crossed. No `extends` in
 the form: the library supports chains, and a first offering of one is a tree editor nobody asked
-for. No mcps, skills, instructions or isolate fields, which is `G78` from the catalogue's side. The
+for. No instructions or isolate fields, which is `G89` from the catalogue's side. The
 model is free text because there is no `ListModels` message and discovery happens only inside
 `start_conversation`'s own thread (`G166`) — the conversation-start picker still shows the harness's
 real list before the first turn. No `thinking`, because `resolve` has no agent definition leg for one
@@ -567,7 +567,7 @@ clean. The rendered policy's home path is what the test asserts for both
 
 ## Deferred, deliberately
 
-Skills and MCP composition on the wire (`G78`, `G89`); Ubiq's own MCP surface so a hosted agent can
+Instructions, hooks and isolation on the wire (`G89`); Ubiq's own MCP surface so a hosted agent can
 call back into the window (`G7`, with the library's in-process MCP as the mechanism); agents on
 remote hosts. None block P1 to P7. Resuming a conversation after a restart has its record — P2c
 wrote it — and waits only on the replay that hands it to a fresh harness (`G120`).
