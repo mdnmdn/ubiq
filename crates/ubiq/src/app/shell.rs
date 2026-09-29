@@ -69,17 +69,23 @@ impl AppState {
             self.bus.send(Message::ListMissions { project_id: id });
             // The overview is cheap and lands first; the working-tree walk follows on the same
             // worker, behind it, so the branch name is not stuck waiting for badges.
-            self.bus.send(Message::ProjectGit { project_id: id });
+            let git_repo = self.git_repo_of(id);
+            self.bus.send(Message::ProjectGit {
+                project_id: id,
+                repo: git_repo.clone(),
+            });
             self.bus.send(Message::RefreshProjectGit {
                 project_id: id,
                 full: true,
             });
             self.bus.send(Message::ProjectGitRefs {
                 project_id: id,
+                repo: git_repo.clone(),
                 with_tracking: true,
             });
             self.bus.send(Message::ProjectGitLog {
                 project_id: id,
+                repo: git_repo,
                 cursor: None,
                 count: 100,
                 rel_path: None,

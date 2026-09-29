@@ -1574,7 +1574,7 @@ impl Coordinator {
                 // The same for a repository just taken on or let go: the badges and the Git screen
                 // read the observation, so it is redone now rather than at the next restart.
                 if managed_changed {
-                    self.git_job(client, project_id, git::Request::Full);
+                    self.git_job(client, project_id, String::new(), git::Request::Full);
                 }
                 // `runs_on` gets no such settle: per D116 the coordinator never learns a drone
                 // exists. It is stored and rebroadcast as part of the record above, and that is
@@ -2443,8 +2443,8 @@ impl Coordinator {
             // Two arms, no syscall: the record is a lookup in memory and the work goes to the
             // worker with the root it resolved against. A status walk on this thread would stall
             // every pane behind it.
-            Message::ProjectGit { project_id } => {
-                self.git_job(client, project_id, git::Request::Overview);
+            Message::ProjectGit { project_id, repo } => {
+                self.git_job(client, project_id, repo, git::Request::Overview);
             }
             Message::RefreshProjectGit { project_id, full } => {
                 let request = if full {
@@ -2452,16 +2452,23 @@ impl Coordinator {
                 } else {
                     git::Request::Overview
                 };
-                self.git_job(client, project_id, request);
+                self.git_job(client, project_id, String::new(), request);
             }
             Message::ProjectGitRefs {
                 project_id,
+                repo,
                 with_tracking,
             } => {
-                self.git_job(client, project_id, git::Request::Refs { with_tracking });
+                self.git_job(
+                    client,
+                    project_id,
+                    repo,
+                    git::Request::Refs { with_tracking },
+                );
             }
             Message::ProjectGitLog {
                 project_id,
+                repo,
                 cursor,
                 count,
                 rel_path,
@@ -2471,6 +2478,7 @@ impl Coordinator {
                 self.git_job(
                     client,
                     project_id,
+                    repo,
                     git::Request::Log {
                         cursor,
                         count,
@@ -2480,15 +2488,20 @@ impl Coordinator {
                     },
                 );
             }
-            Message::WriteProjectGit { project_id, op } => {
-                self.git_job(client, project_id, git::Request::Write { op });
+            Message::WriteProjectGit {
+                project_id,
+                repo,
+                op,
+            } => {
+                self.git_job(client, project_id, repo, git::Request::Write { op });
             }
             Message::ProjectGitChanged {
                 project_id,
+                repo,
                 from,
                 to,
             } => {
-                self.git_job(client, project_id, git::Request::Changed { from, to });
+                self.git_job(client, project_id, repo, git::Request::Changed { from, to });
             }
 
             // ── the work family ─────────────────────────────────────
@@ -5362,11 +5375,17 @@ impl Coordinator {
     ///
     /// The only thing this decides is which folder the request is against; a project the catalogue
     /// does not hold is refused here rather than reaching a thread that could not answer it.
-    fn git_job(&self, client: ClientId, project_id: ProjectId, request: git::Request) {
+    fn git_job(
+        &self,
+        client: ClientId,
+        project_id: ProjectId,
+        repo: String,
+        request: git::Request,
+    ) {
         let Some(record) = self.projects.record(project_id) else {
             self.host.send(
                 To::Client(client),
-                git::git_error(project_id, ubiq_proto::git::GitError::NotFound),
+                git::git_error(project_id, &repo, ubiq_proto::git::GitError::NotFound),
             );
             return;
         };
@@ -5375,6 +5394,7 @@ impl Coordinator {
             project_id,
             root: PathBuf::from(&record.path),
             managed_repos: record.managed_repos.clone(),
+            repo,
             request,
             reply_to: self.host.mailbox(To::Client(client)),
         });
@@ -5386,6 +5406,7 @@ impl Coordinator {
             root: PathBuf::new(),
             // Forgetting drops a cached handle and reads nothing, so there is no set to carry.
             managed_repos: Vec::new(),
+            repo: String::new(),
             request: git::Request::Forget,
             reply_to: self.host.mailbox(To::Client(client)),
         });

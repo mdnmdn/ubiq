@@ -1142,6 +1142,8 @@ fn ticking_a_repository_sends_the_managed_list_then_clears_it(cx: &mut TestAppCo
                 head: GitHead::Branch("main".to_string()),
                 submodule: false,
                 counts: None,
+                ahead: None,
+                behind: None,
                 managed: false,
             }],
             truncated: false,

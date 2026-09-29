@@ -59,9 +59,9 @@ pub mod slider;
 pub use colour::{HsvAction, colour_picker};
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
-    hex_mark, icon_button, meter, mono, pill, primary_button, progress_ring, progress_ring_in,
-    progress_ring_pair, removable_tag, section_label, slab, state_chip, status_dot, stepper, tag,
-    toggle_pill,
+    hex_mark, icon_button, icon_button_tip, meter, mono, pill, primary_button, progress_ring,
+    progress_ring_in, progress_ring_pair, removable_tag, section_label, slab, state_chip,
+    status_dot, stepper, tag, toggle_pill,
 };
 pub use files::{
     file_row, filter_bar, kind_icon, row_font, row_height, row_indent, twisty, view_switch,

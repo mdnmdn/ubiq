@@ -72,11 +72,22 @@ pub fn diff(
         }
     }
 
-    // Upwards from the project's root, so a project that is a folder inside a repository is
-    // diffed against that repository. A project with none above it is refused — the host says
-    // there is no version control here rather than drawing an empty diff, which would read as a
-    // file with no changes.
-    let repo = Repository::discover(root).map_err(|error| {
+    // Upwards from the file, so a file inside a repository nested in the project is diffed against
+    // *that* repository, and a project that is a folder inside a repository is diffed against the
+    // one above it. A project with none above it is refused — the host says there is no version
+    // control here rather than drawing an empty diff, which would read as a file with no changes.
+    let canonical_root = fs::canonicalize(root).map_err(from_io)?;
+    let absolute = match resolved.as_ref() {
+        Some(file) => file.clone(),
+        None => canonical_root.join(rel_path),
+    };
+    // A file a later commit removed is not on disk, and neither may its folder be.
+    let start = absolute
+        .ancestors()
+        .skip(1)
+        .find(|dir| dir.is_dir())
+        .unwrap_or(&canonical_root);
+    let repo = Repository::discover(start).map_err(|error| {
         FileError::Refused(format!("no version control here: {}", error.message()))
     })?;
     let Some(workdir) = repo.workdir().map(Path::to_path_buf) else {
@@ -87,15 +98,12 @@ pub fn diff(
     // Canonical on both sides, because the resolved file is canonical and a repository discovered
     // through a symlinked temporary directory is not.
     let workdir = fs::canonicalize(&workdir).map_err(from_io)?;
-    let tracked: PathBuf = if let Some(file) = resolved.as_ref() {
-        file.strip_prefix(&workdir)
-            .map_err(|_| {
-                FileError::Refused("the file is outside the repository's working tree".to_string())
-            })?
-            .to_path_buf()
-    } else {
-        PathBuf::from(rel_path)
-    };
+    let tracked: PathBuf = absolute
+        .strip_prefix(&workdir)
+        .map_err(|_| {
+            FileError::Refused("the file is outside the repository's working tree".to_string())
+        })?
+        .to_path_buf();
 
     let old_bytes = match base {
         DiffBase::Head | DiffBase::Staged => head_blob(&repo, &tracked)?,

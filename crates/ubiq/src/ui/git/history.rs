@@ -257,13 +257,16 @@ fn uncommitted_row(app: &AppState, lanes: usize, cx: &mut Context<AppState>) -> 
             div()
                 .flex_1()
                 .min_w(px(0.))
+                .truncate()
                 .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
                 .child("Uncommitted changes"),
         )
         .child(
-            mono(format!("{changed} paths"), theme::text_muted())
-                .text_size(theme::font(Family::Chrome, Role::Meta)),
+            div().w(px(AUTHOR_COL)).flex_none().child(
+                mono(format!("{changed} paths"), theme::text_muted())
+                    .text_size(theme::font(Family::Chrome, Role::Meta)),
+            ),
         )
         .child(div().w(px(WHEN_COL)).flex_none().child(
             mono("now", theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
@@ -290,23 +293,25 @@ fn commit_row(
         .child(graph_gutter(commit, cell, lanes))
         .child(
             div()
+                .flex_1()
+                .min_w(px(0.))
                 .flex()
-                .flex_none()
                 .items_center()
                 .gap_1()
+                .overflow_hidden()
                 .children(commit.refs.iter().map(|name| {
-                    pill(theme::accent()).h(px(16.)).px_1().child(
+                    pill(theme::accent()).h(px(16.)).px_1().flex_none().child(
                         mono(name.clone(), theme::text())
                             .text_size(theme::font(Family::Chrome, Role::Micro)),
                     )
-                })),
+                }))
+                .child(elided(
+                    eid("git-commit-summary", index),
+                    commit.summary.clone(),
+                    theme::text(),
+                    theme::font(theme::Family::Chrome, theme::Role::Body),
+                )),
         )
-        .child(elided(
-            eid("git-commit-summary", index),
-            commit.summary.clone(),
-            theme::text(),
-            theme::font(theme::Family::Chrome, theme::Role::Body),
-        ))
         .child(
             div()
                 .w(px(AUTHOR_COL))
@@ -386,6 +391,7 @@ fn load_more_row(loading: bool, cx: &mut Context<AppState>) -> AnyElement {
 fn row_base(id: impl Into<gpui::ElementId>, selected: bool) -> gpui::Stateful<gpui::Div> {
     let mut row = div()
         .id(id)
+        .w_full()
         .h(px(COMMIT_ROW))
         .pr_3()
         .flex()
@@ -510,6 +516,7 @@ fn graph_gutter(commit: &CommitRow, cell: &GraphCell, lanes: usize) -> AnyElemen
 /// does.
 fn header_row(lanes: usize) -> AnyElement {
     div()
+        .w_full()
         .h(px(COMMIT_ROW))
         .pr_3()
         .flex()

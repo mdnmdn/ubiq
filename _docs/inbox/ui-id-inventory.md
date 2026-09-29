@@ -5,7 +5,7 @@ kind: proposal
 status: proposal
 summary: The list the two identity designs both assume and neither supplies — every place in the interface a stable name could point at, what consumes the name, and where in the code to find the place. It reports that Ubiq already names places five times over in five disagreeing spellings, that four of those namespaces are exhaustive enums the inventory can be derived from rather than invented beside, and it argues one new use for the result — a menu declared as a list of ids rather than as three parallel lists matched by position, which is what makes submenus, extension rows and a pointable menu possible at all.
 read_when: you are naming a screen area, deciding what an extension or a personalisation rule may anchor to, adding a menu or a menu row, or looking for the place a given control lives in the code
-updated: 2026-09-20
+updated: 2026-09-29
 depends_on: [wip-in-place-help, inbox-ui-id, inbox-ui-id-tooling, wip-help, inbox-plugin-system, inbox-personalisation, tech-ui, tech-components, feat-workbench]
 ---
 
@@ -181,10 +181,10 @@ is read through.
 | `search.results` | area | The grouped result list | `ui/search.rs`, `results` |
 | `search.results.file-row`, `search.results.hit-row` | instance-kind | A file heading, and one matched line under it | `ui/search.rs`, `results` |
 | `search.status` | element | Counts, truncation and the error line | `ui/search.rs`, `status_bar` |
-| `git.toolbar` | area | Repository, HEAD, the write actions, refresh | `ui/git/mod.rs`, `toolbar` |
-| `git.toolbar.fetch`, `.pull`, `.push`, `.refresh` | element | The four live write actions | `ui/git/mod.rs`, `toolbar` |
-| `git.toolbar.branch`, `.stash`, `.undo` | element | The three drawn-and-inert actions | `ui/git/mod.rs`, `toolbar` |
-| `git.repo`, `git.repo.menu`, `git.repo.menu.row` | element, menu, instance-kind | Which repository the screen reads | `ui/git/repo_selector.rs`, `render`, `panel`, `repo_row` |
+| `git.toolbar` | area | HEAD, the icon actions, refresh | `ui/git/mod.rs`, `toolbar` |
+| `git.toolbar.fetch`, `.pull`, `.push`, `.branch`, `.stash`, `.undo`, `.refresh` | element | The seven icon buttons, each with a tooltip | `ui/git/mod.rs`, `toolbar`, `branch_button` |
+| `git.toolbar.branch.popover` | menu | The `Branch` name field and `Create` | `ui/git/mod.rs`, `branch_button` |
+| `git.refs.repositories`, `git.refs.repository` | area, instance-kind | The Repositories section and one repository row; absent with a single repository | `ui/git/refs.rs`, `repositories`, `repo_row` |
 | `git.refs` | area | Branches, remotes, tags, stashes, submodules | `ui/git/refs.rs`, `render` |
 | `git.refs.local`, `.remotes`, `.tags`, `.stashes`, `.submodules` | element | The five section headings, one per `RefSection` | `ui/git/refs.rs`, `render` |
 | `git.refs.row`, `git.refs.folder-row` | instance-kind | One ref, and a folded path prefix | `ui/git/refs.rs`, `ref_row`, `tree_row` |
@@ -380,7 +380,7 @@ below is the menu itself; §7 is what it would take to name the rows inside it.
 | `explorer.menu` | `Explorer` | A right-click on a row or the empty tree | `state/explorer/menu.rs`, `menu_entries` |
 | `kb.menu` | `Kb` | A right-click in the KB tree | `state/kb.rs`, `KbAction` |
 | `git.menu` | `Git` | A right-click on a change, a commit or a ref | `state/git.rs`, `GitMenuEntry` |
-| `git.repo.menu`, `git.history.branch-menu` | `GitRepo`, `GitBranch` | The two Git pickers | `ui/git/repo_selector.rs`, `ui/git/history.rs` |
+| `git.toolbar.branch.popover`, `git.history.branch-menu` | `GitNewBranch`, `GitBranch` | The `Branch` name popover and the log's branch picker | `ui/git/mod.rs`, `ui/git/history.rs` |
 | `new-agent.menu` | `NewAgent` | Every conversation host's `+` | `ui/agents/mod.rs`, `new_agent_menu` |
 | `conversation.header.menu` | `ConversationLifecycle(AgentId)` | One conversation's three dots | `ui/conversation/mod.rs`, `lifecycle_menu` |
 | `agents.column.add-tab` | `AgentBench(usize)` | One column's `+` | `ui/agents/column.rs`, `add_tab` |

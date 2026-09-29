@@ -3,11 +3,11 @@ id: feat-workbench-git
 title: Git mode — refs, history and changes
 kind: feature
 status: draft
-summary: The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip that names the repository and what HEAD is doing.
+summary: The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules with the repositories a project holds above them, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip of icon actions and the HEAD pill.
 read_when: you are changing the Git screen — its refs, history, change lists, commit box or diff — or the strip above it
-updated: 2026-09-25
-verified: 2026-09-26
-code_anchors: [crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/git/repo_selector.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/tests/git.rs]
+updated: 2026-09-29
+verified: 2026-09-29
+code_anchors: [crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/tests/git.rs]
 depends_on: [feat-workbench, tech-ui, tech-version-control]
 review_cycle: monthly
 ---
@@ -36,15 +36,25 @@ the size they can be read at: the tree answers "is this file changed" and this s
 "what has this repository been doing". A red `experimental` ribbon sits on the screen's top-left
 corner for as long as the rail is on Git.
 
-**The strip over the panels names the repository and what HEAD is doing.** The repository selector
-lists the project's repositories — the root, and a submodule or a nested one where the project has
-one — and the pill beside it is the branch, the tracking counts and any in-progress operation. Every
-git message is keyed by the project alone, so picking a row in the popover only closes it; the
-screen still shows the root repository (`G270`). Fetch all, pull and push write,
-including an `ssh` remote (`git@host:path`); branch, stash and undo take no click. A refresh asks
-the host again. What is typed into the commit box is kept with the project, until the commit it
+**The strip over the panels is icon buttons and the HEAD pill.** Every button is an icon with a
+tooltip. Fetch all, pull and push write, including an `ssh` remote (`git@host:path`). Branch raises a
+popover with a name field, and Enter or `Create` makes that branch at HEAD and checks it out. Stash
+shelves the uncommitted changes, untracked files with them. Undo takes the last commit back into the
+index and is refused on a first commit. All three refuse while a merge or rebase is in progress, and
+the refusal reads as the screen's error. With no repository the buttons but refresh draw faint and
+take no click, and keep their tooltips. The pill beside them is the selected repository's branch,
+tracking counts and any in-progress operation. A refresh asks the host again. What is typed into the commit box is kept with the project, until the commit it
 was written for succeeds: the working-tree reply that follows empties the box and drops the amend
 flag, rather than leaving a message on screen that is now history.
+
+**A project holding more than one repository shows one at a time.** The refs panel opens with a
+Repositories section listing the project's own repository and each nested one it manages; a project
+with a single repository has no such section. Each row carries a dot when the repository has pending
+changes, a `!` when it has conflicts, and the current branch's `↑ahead ↓behind`. Picking a row makes
+it the screen's repository: the refs, the history, the change lists, the commit box's target and
+every write are that repository's only, never mixed with another's, and what belonged to the one
+before — its selection, its diff, its history cursor — is dropped. The choice is kept per project
+for the life of the window and is not saved.
 
 **The uncommitted row is the top row of the history.** What is not committed yet is selected the
 same way a commit is and is what the screen opens on; picking a commit points the panel beside it
@@ -59,9 +69,10 @@ visible. A click on a section's heading, drawn the full width of the panel, shut
 keeps reading while it is shut. `+` on the right of a row stages that path and `-` unstages it,
 right-justified the way the section heading's own `+` (Unstaged, stage all) and `-` (Staged, unstage
 all) are. A conflicted row has neither. A row takes the colour the explorer paints the same path
-in, so the two never disagree.
+in, so the two never disagree. Rows run the panel's full width with the `+`/`-` at its right edge,
+and hovering one names the path relative to the project.
 
-**A search field above the lists narrows the panel to paths that match, as it is typed.** It
+**A search field, full width above the lists, narrows the panel to paths that match, as it is typed.** It
 filters conflicted, staged and unstaged together and the range comparison's own file list the same
 way, case-insensitively over the path; a path a filter drops keeps its stage, its `+`/`-` and its
 section, so a search never changes what a click on a surviving row does. The same field appears over
@@ -127,7 +138,8 @@ the one hollow dot a parent count could offer. The graph is painted as one canva
 straight line where the host says a lane lives, an elbow where a lane ends at a dot or a merge's
 extra-parent lane is born, and a hollow ring for a merge's dot. The rows read as a table: the
 gutter holds the graph, a Message label takes the flexible column, and Author, When and SHA are
-fixed on the right, each named by a faint header row once the history exists. Lane state carries
+fixed on the right, each named by a faint header row once the history exists and each aligned with it
+on every row, the uncommitted one included; a long message truncates rather than pushing the columns. Lane state carries
 across pages, keyed by the cursor and filters the next one arrives with, so a
 branch does not visually collapse and reopen at a page boundary.
 
@@ -135,8 +147,9 @@ branch does not visually collapse and reopen at a page boundary.
 
 **The git family is what the Git screen speaks:** `ProjectGit` and `RefreshProjectGit` for the
 overview and the working tree, `ProjectGitRefs` for the sidebar, `ProjectGitLog` for the history,
-page by page, and `WriteProjectGit` for stage, unstage, commit, fetch, pull and push. The full
-family is [`../tech/transport-contract.md`](../tech/transport-contract.md).
+page by page, and `WriteProjectGit` for stage, unstage, commit, fetch, pull, push, branch, stash and
+undo. Each carries a `repo`, empty for the project's own, and the screen discards a reply whose
+`repo` is not the one it shows. The full family is [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
 ## Implementation
 
@@ -163,14 +176,25 @@ theirs. `last_error` holds a `GitError::Failed` reason until the next working-tr
  file list's own row chrome, so a ref reads the way a path does — `history.rs` the search, the
  graph's painted lanes, the column header and the commits, `changes.rs` the right region's three lists, the `+` / `-` on each path and the
 commit box, `diff.rs` the comparison under the history, which hands the hunks to
-`ui/viewer/diff.rs` rather than drawing them again, and `repo_selector.rs` the chrome-strip control
-that lists a project's repositories when it has more than one, though selecting a row only closes
-the popover (`G270`). `git::toolbar()` is the strip itself,
-painted by `ui/shell.rs` above the dock while the rail is on Git; it carries the selector, the HEAD
-pill, fetch all / pull / push, the working-tree count and a refresh. `ribbon::experimental()` is
+`ui/viewer/diff.rs` rather than drawing them again. `refs.rs`'s `repositories()` draws the
+Repositories section above the five ref sections, from `state/git.rs`'s `repo_entries()`; it is
+absent when that returns nothing, and capped in height so a project of many clones scrolls it.
+`git::toolbar()` is the strip itself,
+painted by `ui/shell.rs` above the dock while the rail is on Git; it carries the HEAD pill, the
+icon buttons — each a `kit::icon_button_tip`, an icon button that names itself in a tooltip and
+draws faint and inert when disabled — fetch all / pull / push / branch / stash / undo, the
+working-tree count and a refresh. `branch_button()` owns the `Branch` popover (`MenuId::GitNewBranch`):
+a text field and a `Create` button, submitted by `submit_git_branch()`. `ribbon::experimental()` is
 the red `experimental` band in that column's top-left corner — `kit::ribbon` at `TopLeft`, drawn
-by `ui/shell.rs` while the rail is on Git. Branch, stash and undo stay inert. `AppState::write_git()` sends `WriteProjectGit`; commit, fetch, pull and push also ask for
-refs and a fresh log page. `PanelKind::GitRefs` / `GitChanges` / `GitHistory` / `GitDiff` are the
+by `ui/shell.rs` while the rail is on Git. `AppState::write_git()` sends `WriteProjectGit`
+against `git_repo_of()`'s repository, and `create_git_branch()`, `stash_git()` and
+`undo_git_commit()` are its callers for the three newer ops; commit, fetch, pull, push, branch,
+stash and undo also ask for refs and a fresh log page.
+`OpenProject::git_repo` is the selected repository, set by `select_git_repo()`, which calls
+`GitView::reset_repo()` and asks for that repository's overview, refs and first log page;
+`git_overview()` is the selected repository's overview, where `open.git` stays the project's own for
+the status bar and the explorer. `GitView`'s change lists are built from the selected repository's
+paths only (the merged map holds every repository's), so a stage never lands in another index. `PanelKind::GitRefs` / `GitChanges` / `GitHistory` / `GitDiff` are the
 four dock panels; they are drawn only in Git mode with a project, and `ModeLayout::default_for(Git)`
 opens the left and right regions onto the first two. `AppState::queue_git_furniture()` puts them in
 their home regions on a first visit, and `toggle_region()` fills an emptied left with the refs and

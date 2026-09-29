@@ -1001,6 +1001,7 @@ fn a_stale_first_page_reply_is_discarded_not_appended(cx: &mut TestAppContext) {
     fixture.deliver(
         Message::GitLogPage {
             project_id: fixture.project,
+            repo: String::new(),
             cursor: None,
             commits: vec![commit("later")],
             next_cursor: Some("later-cursor".to_string()),
@@ -1015,6 +1016,7 @@ fn a_stale_first_page_reply_is_discarded_not_appended(cx: &mut TestAppContext) {
     fixture.deliver(
         Message::GitLogPage {
             project_id: fixture.project,
+            repo: String::new(),
             cursor: None,
             commits: vec![commit("earlier")],
             next_cursor: Some("earlier-cursor".to_string()),
@@ -1098,4 +1100,180 @@ fn write_actions_send_the_matching_ops(cx: &mut TestAppContext) {
         )),
         "push sends WriteProjectGit::Push; got {said:?}"
     );
+}
+
+// ── a project that holds several repositories ───────────────────────────────
+
+fn overview(
+    head: &str,
+    counts: Option<ubiq_proto::git::GitCounts>,
+) -> ubiq_proto::git::RepoOverview {
+    ubiq_proto::git::RepoOverview {
+        scoped_to: String::new(),
+        head: ubiq_proto::git::GitHead::Branch(head.to_string()),
+        upstream: None,
+        ahead: Some(2),
+        behind: None,
+        operation: None,
+        counts,
+        is_bare: false,
+        generation: 1,
+        remotes: Vec::new(),
+        submodules: Vec::new(),
+    }
+}
+
+fn nested_repo(path: &str, managed: bool) -> ubiq_proto::git::GitNested {
+    ubiq_proto::git::GitNested {
+        rel_path: path.to_string(),
+        head: ubiq_proto::git::GitHead::Branch("main".to_string()),
+        submodule: false,
+        counts: Some(ubiq_proto::git::GitCounts {
+            staged: 0,
+            modified: 1,
+            untracked: 0,
+            conflicted: 1,
+        }),
+        ahead: None,
+        behind: Some(3),
+        managed,
+    }
+}
+
+#[test]
+fn the_repositories_section_lists_managed_repositories_and_hides_for_one() {
+    use ubiq::state::git::repo_entries;
+
+    let root = overview("main", None);
+    // One repository is nothing to choose between.
+    assert!(repo_entries(Some(&root), &[], "", "ubiq").is_empty());
+    assert!(repo_entries(Some(&root), &[nested_repo("vendor/lib", false)], "", "ubiq").is_empty());
+    assert!(
+        repo_entries(
+            None,
+            &[nested_repo("vendor/lib", true)],
+            "vendor/lib",
+            "ubiq"
+        )
+        .is_empty()
+    );
+
+    let rows = repo_entries(
+        Some(&root),
+        &[
+            nested_repo("vendor/lib", true),
+            nested_repo("vendor/skip", false),
+        ],
+        "vendor/lib",
+        "ubiq",
+    );
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (rows[0].label.as_str(), rows[0].selected, rows[0].ahead),
+        ("ubiq", false, 2)
+    );
+    let lib = &rows[1];
+    assert_eq!(lib.repo, "vendor/lib");
+    assert!(lib.selected);
+    assert_eq!(
+        (lib.changes, lib.conflicted, lib.ahead, lib.behind),
+        (1, 1, 0, 3)
+    );
+}
+
+#[gpui::test]
+fn the_screen_follows_the_repository_it_was_pointed_at(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.deliver(
+        Message::GitOverview {
+            project_id: fixture.project,
+            repo: String::new(),
+            overview: Some(overview("main", None)),
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::GitWorkingTree {
+            project_id: fixture.project,
+            generation: 1,
+            entries: vec![
+                entry("a.txt", None, Some(GitPathChange::Modified)),
+                entry("vendor/lib/b.txt", None, Some(GitPathChange::Untracked)),
+            ],
+            rollups: Vec::new(),
+            repos: vec![nested_repo("vendor/lib", true)],
+            truncated: false,
+        },
+        cx,
+    );
+    let paths = |cx: &mut TestAppContext| -> Vec<String> {
+        fixture.state.read_with(cx, |state, cx| {
+            state
+                .git_entries(cx)
+                .unwrap_or(&[])
+                .iter()
+                .map(|entry| entry.rel_path.clone())
+                .collect()
+        })
+    };
+    assert_eq!(
+        paths(cx),
+        vec!["a.txt".to_string()],
+        "the project's own list drops the nested repository's paths"
+    );
+
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.select_git_repo("vendor/lib".into(), cx)
+            });
+        })
+        .expect("the window is open");
+    assert_eq!(paths(cx), vec!["vendor/lib/b.txt".to_string()]);
+    let said = fixture.said();
+    for wanted in ["overview", "refs", "log"] {
+        assert!(
+            said.iter().any(|message| match message {
+                Message::ProjectGit { repo, .. } => wanted == "overview" && repo == "vendor/lib",
+                Message::ProjectGitRefs { repo, .. } => wanted == "refs" && repo == "vendor/lib",
+                Message::ProjectGitLog { repo, .. } => wanted == "log" && repo == "vendor/lib",
+                _ => false,
+            }),
+            "selecting a repository asks for its {wanted}; got {said:?}"
+        );
+    }
+
+    // What the repository the user left answers is not the screen's any more.
+    fixture.deliver(
+        Message::GitLogPage {
+            project_id: fixture.project,
+            repo: String::new(),
+            cursor: None,
+            commits: vec![commit("root")],
+            next_cursor: None,
+        },
+        cx,
+    );
+    assert!(fixture.commits(cx).is_empty());
+    fixture.deliver(
+        Message::GitLogPage {
+            project_id: fixture.project,
+            repo: "vendor/lib".to_string(),
+            cursor: None,
+            commits: vec![commit("nested")],
+            next_cursor: None,
+        },
+        cx,
+    );
+    assert_eq!(fixture.commits(cx), vec!["nested".to_string()]);
+
+    // A write goes to the repository on screen.
+    fixture.stage_git_path("vendor/lib/b.txt", cx);
+    assert!(fixture.said().iter().any(|message| matches!(
+        message,
+        Message::WriteProjectGit { repo, .. } if repo == "vendor/lib"
+    )));
 }

@@ -61,6 +61,8 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("Search message or SHA\u{2026}"));
         let git_branch_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter branches\u{2026}"));
+        let git_branch_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder("New branch name\u{2026}"));
         let git_ref_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search refs\u{2026}"));
         let git_change_query =
@@ -761,6 +763,16 @@ impl AppState {
                         git.message = message;
                     }
                     cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &git_branch_name,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.submit_git_branch(window, cx);
                 }
             },
         ));
@@ -1777,6 +1789,7 @@ impl AppState {
             git_search,
             git_message,
             git_branch_query,
+            git_branch_name,
             git_ref_query,
             git_change_query,
             picker_filter,

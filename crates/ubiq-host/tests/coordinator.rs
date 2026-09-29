@@ -562,13 +562,17 @@ fn a_git_request_is_answered_to_the_window_that_asked() {
         .expect("git");
     assert!(output.status.success(), "git init failed");
 
-    ui.send(Message::ProjectGit { project_id });
+    ui.send(Message::ProjectGit {
+        project_id,
+        repo: String::new(),
+    });
 
     let overview = loop {
         match ui.from_host().recv_timeout(PATIENCE) {
             Ok(Message::GitOverview {
                 project_id: id,
                 overview,
+                ..
             }) => {
                 assert_eq!(id, project_id);
                 break overview;

@@ -28,7 +28,7 @@ use std::thread;
 
 use git2::Repository;
 use ubiq_proto::bus::Mailbox;
-use ubiq_proto::git::{GitError, GitWriteOp};
+use ubiq_proto::git::{GitError, GitPathChange, GitWriteOp};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
 
@@ -66,6 +66,10 @@ pub struct Job {
     /// The repositories inside the project it takes on, from the record beside `root`. Empty is
     /// the ordinary answer: a nested repository is found and named until the user ticks it.
     pub managed_repos: Vec<String>,
+    /// The managed nested repository the request is against, as [`ubiq_proto::git::GitNested`]
+    /// spells its `rel_path`; empty is the project's own. `Full` and `Forget` ignore it: the
+    /// working-tree map is one for the whole project.
+    pub repo: String,
     pub request: Request,
     pub reply_to: Mailbox,
 }
@@ -114,18 +118,21 @@ struct LaneCache {
     lanes: graph::Lanes,
 }
 
+/// A project and the repository in it: empty is the project's own, else a managed nested one.
+type RepoKey = (ProjectId, String);
+
 #[derive(Default)]
 struct State {
-    repos: HashMap<ProjectId, Cached>,
+    repos: HashMap<RepoKey, Cached>,
     generation: HashMap<ProjectId, u64>,
-    lane_cache: HashMap<ProjectId, LaneCache>,
+    lane_cache: HashMap<RepoKey, LaneCache>,
 }
 
 /// The lane table to hand `history::log` for this request: the cached one if this request
 /// continues the walk it belongs to, otherwise a fresh, empty table.
 fn lanes_for(
     state: &mut State,
-    project_id: ProjectId,
+    key: &RepoKey,
     cursor: &Option<String>,
     rel_path: &Option<String>,
     first_parent: bool,
@@ -135,14 +142,14 @@ fn lanes_for(
     if cursor.is_none() {
         return Vec::new();
     }
-    match state.lane_cache.get(&project_id) {
+    match state.lane_cache.get(key) {
         Some(cached)
             if &cached.expect_cursor == cursor
                 && &cached.rel_path == rel_path
                 && cached.first_parent == first_parent
                 && &cached.rev == rev =>
         {
-            state.lane_cache.remove(&project_id).unwrap().lanes
+            state.lane_cache.remove(key).unwrap().lanes
         }
         _ => Vec::new(),
     }
@@ -200,73 +207,49 @@ fn enqueue(
     }
 }
 
-fn answer(state: &mut State, job: Job) {
-    match job.request {
+fn answer(state: &mut State, mut job: Job) {
+    // Taken out so the rest of the job stays whole to borrow while the request's fields move.
+    let request = std::mem::replace(&mut job.request, Request::Forget);
+    let project_id = job.project_id;
+    let repo = job.repo.as_str();
+    match request {
         Request::Forget => {
-            state.repos.remove(&job.project_id);
-            state.generation.remove(&job.project_id);
-            state.lane_cache.remove(&job.project_id);
+            state.repos.retain(|(held, _), _| *held != project_id);
+            state.generation.remove(&project_id);
+            state.lane_cache.retain(|(held, _), _| *held != project_id);
         }
         Request::Overview => {
-            let generation = state.generation.get(&job.project_id).copied().unwrap_or(0);
-            let message = match observation(state, &job, generation, false) {
+            let generation = state.generation.get(&project_id).copied().unwrap_or(0);
+            let message = match observation(state, &job, repo, generation, false) {
                 Ok(found) => Message::GitOverview {
-                    project_id: job.project_id,
+                    project_id,
+                    repo: repo.to_string(),
                     overview: found.overview,
                 },
-                Err(error) => git_error(job.project_id, error),
+                Err(error) => git_error(project_id, repo, error),
             };
             job.reply_to.send(message);
         }
-        Request::Full => {
-            let generation = {
-                let held = state.generation.entry(job.project_id).or_insert(0);
-                *held = held.saturating_add(1);
-                *held
-            };
-            match observation(state, &job, generation, true) {
-                Ok(found) => {
-                    job.reply_to.send(Message::GitOverview {
-                        project_id: job.project_id,
-                        overview: found.overview,
-                    });
-                    if let Some(tree) = found.tree {
-                        job.reply_to.send(Message::GitWorkingTree {
-                            project_id: job.project_id,
-                            generation,
-                            entries: tree.entries,
-                            rollups: tree.rollups,
-                            repos: tree.repos,
-                            truncated: tree.truncated,
-                        });
-                    }
-                }
-                Err(error) => {
-                    job.reply_to.send(git_error(job.project_id, error));
-                }
-            }
-        }
+        Request::Full => send_full(state, &job),
         Request::Refs { with_tracking } => {
-            let message = match ensure_repo(state, job.project_id, &job.root) {
-                Ok(false) => Message::GitRefs {
-                    project_id: job.project_id,
+            let message = match ensure_repo(state, &job, repo) {
+                Ok(None) => Message::GitRefs {
+                    project_id,
+                    repo: repo.to_string(),
                     refs: Vec::new(),
                 },
-                Ok(true) => {
-                    let repo = &state
-                        .repos
-                        .get(&job.project_id)
-                        .expect("just inserted or confirmed")
-                        .repo;
-                    match history::refs(repo, with_tracking) {
+                Ok(Some(_)) => {
+                    let held = &state.repos[&(project_id, repo.to_string())].repo;
+                    match history::refs(held, with_tracking) {
                         Ok(refs) => Message::GitRefs {
-                            project_id: job.project_id,
+                            project_id,
+                            repo: repo.to_string(),
                             refs,
                         },
-                        Err(error) => git_error(job.project_id, error),
+                        Err(error) => git_error(project_id, repo, error),
                     }
                 }
-                Err(error) => git_error(job.project_id, error),
+                Err(error) => git_error(project_id, repo, error),
             };
             job.reply_to.send(message);
         }
@@ -277,30 +260,29 @@ fn answer(state: &mut State, job: Job) {
             first_parent,
             rev,
         } => {
-            let message = match ensure_repo(state, job.project_id, &job.root) {
-                Ok(false) => Message::GitLogPage {
-                    project_id: job.project_id,
+            let message = match ensure_repo(state, &job, repo) {
+                Ok(None) => Message::GitLogPage {
+                    project_id,
+                    repo: repo.to_string(),
                     cursor,
                     commits: Vec::new(),
                     next_cursor: None,
                 },
-                Ok(true) => {
-                    let mut lanes = lanes_for(
-                        state,
-                        job.project_id,
-                        &cursor,
-                        &rel_path,
-                        first_parent,
-                        &rev,
-                    );
-                    let cached = state
-                        .repos
-                        .get(&job.project_id)
-                        .expect("just inserted or confirmed");
-                    let scoped_to = match observe::scope(&job.root, &cached.repo) {
+                Ok(Some(root)) => {
+                    let rel_path = match inner_path(repo, rel_path) {
+                        Ok(rel_path) => rel_path,
+                        Err(error) => {
+                            job.reply_to.send(git_error(project_id, repo, error));
+                            return;
+                        }
+                    };
+                    let key = (project_id, repo.to_string());
+                    let mut lanes = lanes_for(state, &key, &cursor, &rel_path, first_parent, &rev);
+                    let cached = &state.repos[&key];
+                    let scoped_to = match observe::scope(&root, &cached.repo) {
                         Ok(scoped_to) => scoped_to,
                         Err(error) => {
-                            job.reply_to.send(git_error(job.project_id, error));
+                            job.reply_to.send(git_error(project_id, repo, error));
                             return;
                         }
                     };
@@ -323,9 +305,9 @@ fn answer(state: &mut State, job: Job) {
                     ) {
                         Ok((commits, next_cursor)) => {
                             state.lane_cache.insert(
-                                job.project_id,
+                                key,
                                 LaneCache {
-                                    rel_path: rel_path.clone(),
+                                    rel_path,
                                     first_parent,
                                     rev: rev.clone(),
                                     expect_cursor: next_cursor.clone(),
@@ -333,92 +315,99 @@ fn answer(state: &mut State, job: Job) {
                                 },
                             );
                             Message::GitLogPage {
-                                project_id: job.project_id,
+                                project_id,
+                                repo: repo.to_string(),
                                 cursor,
                                 commits,
                                 next_cursor,
                             }
                         }
-                        Err(error) => git_error(job.project_id, error),
+                        Err(error) => git_error(project_id, repo, error),
                     }
                 }
-                Err(error) => git_error(job.project_id, error),
+                Err(error) => git_error(project_id, repo, error),
             };
             job.reply_to.send(message);
         }
         Request::Write { ref op } => {
-            match ensure_repo(state, job.project_id, &job.root) {
-                Ok(false) => {
+            let root = match ensure_repo(state, &job, repo) {
+                Ok(Some(root)) => root,
+                Ok(None) => {
                     job.reply_to.send(git_error(
-                        job.project_id,
+                        project_id,
+                        repo,
                         GitError::Failed("the project is not a repository".into()),
                     ));
                     return;
                 }
                 Err(error) => {
-                    job.reply_to.send(git_error(job.project_id, error));
+                    job.reply_to.send(git_error(project_id, repo, error));
                     return;
                 }
-                Ok(true) => {}
-            }
-            let written = {
-                let cached = state
-                    .repos
-                    .get(&job.project_id)
-                    .expect("just inserted or confirmed");
-                write::apply(&cached.repo, &job.root, &job.managed_repos, op)
             };
+            let written = inner_op(repo, op).and_then(|op| {
+                let held = &state.repos[&(project_id, repo.to_string())].repo;
+                // A nested repository has nothing nested to route into: its paths are already
+                // its own once `inner_op` has taken the prefix off.
+                let managed: &[String] = if repo.is_empty() {
+                    &job.managed_repos
+                } else {
+                    &[]
+                };
+                write::apply(held, &root, managed, &op)
+            });
             if let Err(error) = written {
-                job.reply_to.send(git_error(job.project_id, error));
+                job.reply_to.send(git_error(project_id, repo, error));
                 return;
             }
-            let generation = {
-                let held = state.generation.entry(job.project_id).or_insert(0);
-                *held = held.saturating_add(1);
-                *held
-            };
-            match observation(state, &job, generation, true) {
-                Ok(found) => {
-                    job.reply_to.send(Message::GitOverview {
-                        project_id: job.project_id,
-                        overview: found.overview,
-                    });
-                    if let Some(tree) = found.tree {
-                        job.reply_to.send(Message::GitWorkingTree {
-                            project_id: job.project_id,
-                            generation,
-                            entries: tree.entries,
-                            rollups: tree.rollups,
-                            repos: tree.repos,
-                            truncated: tree.truncated,
+            // A nested repository's own head moved, and the project's merged map — which the
+            // explorer's badges draw from — is read again as after any write.
+            if !repo.is_empty() {
+                let generation = state.generation.get(&project_id).copied().unwrap_or(0);
+                match observation(state, &job, repo, generation, false) {
+                    Ok(found) => {
+                        job.reply_to.send(Message::GitOverview {
+                            project_id,
+                            repo: repo.to_string(),
+                            overview: found.overview,
                         });
                     }
-                }
-                Err(error) => {
-                    job.reply_to.send(git_error(job.project_id, error));
+                    Err(error) => {
+                        job.reply_to.send(git_error(project_id, repo, error));
+                    }
                 }
             }
+            send_full(state, &job);
         }
         Request::Changed { from, to } => {
-            let message = match ensure_repo(state, job.project_id, &job.root) {
-                Ok(false) => git_error(
-                    job.project_id,
+            let message = match ensure_repo(state, &job, repo) {
+                Ok(None) => git_error(
+                    project_id,
+                    repo,
                     GitError::Failed("the project is not a repository".into()),
                 ),
-                Err(error) => git_error(job.project_id, error),
-                Ok(true) => {
-                    let cached = state
-                        .repos
-                        .get(&job.project_id)
-                        .expect("just inserted or confirmed");
-                    match history::changed(&cached.repo, &job.root, from.as_deref(), &to) {
-                        Ok(files) => Message::GitChanged {
-                            project_id: job.project_id,
-                            from,
-                            to,
-                            files,
-                        },
-                        Err(error) => git_error(job.project_id, error),
+                Err(error) => git_error(project_id, repo, error),
+                Ok(Some(root)) => {
+                    let held = &state.repos[&(project_id, repo.to_string())].repo;
+                    match history::changed(held, &root, from.as_deref(), &to) {
+                        Ok(mut files) => {
+                            if !repo.is_empty() {
+                                for file in &mut files {
+                                    file.rel_path = format!("{repo}/{}", file.rel_path);
+                                    if let GitPathChange::Renamed { from } = &mut file.change {
+                                        *from = format!("{repo}/{from}");
+                                    }
+                                }
+                            }
+                            Message::GitChanged {
+                                project_id,
+                                repo: repo.to_string(),
+                                from,
+                                to,
+                                files,
+                            }
+                        }
+                        Err(error) => git_error(project_id, repo, error),
                     }
                 }
             };
@@ -427,13 +416,79 @@ fn answer(state: &mut State, job: Job) {
     }
 }
 
+/// Re-observe the project's own repository with its working tree, and answer both halves.
+fn send_full(state: &mut State, job: &Job) {
+    let project_id = job.project_id;
+    let generation = {
+        let held = state.generation.entry(project_id).or_insert(0);
+        *held = held.saturating_add(1);
+        *held
+    };
+    match observation(state, job, "", generation, true) {
+        Ok(found) => {
+            job.reply_to.send(Message::GitOverview {
+                project_id,
+                repo: String::new(),
+                overview: found.overview,
+            });
+            if let Some(tree) = found.tree {
+                job.reply_to.send(Message::GitWorkingTree {
+                    project_id,
+                    generation,
+                    entries: tree.entries,
+                    rollups: tree.rollups,
+                    repos: tree.repos,
+                    truncated: tree.truncated,
+                });
+            }
+        }
+        Err(error) => {
+            job.reply_to.send(git_error(project_id, "", error));
+        }
+    }
+}
+
+/// `path` as the nested repository `repo` spells it: the `repo/` prefix taken off. The project's
+/// own repository (`repo` empty) keeps every path as it is.
+fn inner_rel(repo: &str, path: &str) -> Result<String, GitError> {
+    if repo.is_empty() {
+        return Ok(path.to_string());
+    }
+    path.strip_prefix(repo)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .map(str::to_string)
+        .ok_or_else(|| GitError::Failed("the path is outside the repository".into()))
+}
+
+/// [`inner_rel`] for an optional path, where the repository's own root is no path at all.
+fn inner_path(repo: &str, path: Option<String>) -> Result<Option<String>, GitError> {
+    match path {
+        Some(path) if path != repo => inner_rel(repo, &path).map(Some),
+        _ => Ok(None),
+    }
+}
+
+/// A write with its paths made the nested repository's own.
+fn inner_op(repo: &str, op: &GitWriteOp) -> Result<GitWriteOp, GitError> {
+    Ok(match op {
+        GitWriteOp::Stage { rel_path } if !repo.is_empty() => GitWriteOp::Stage {
+            rel_path: inner_rel(repo, rel_path)?,
+        },
+        GitWriteOp::Unstage { rel_path } if !repo.is_empty() => GitWriteOp::Unstage {
+            rel_path: inner_rel(repo, rel_path)?,
+        },
+        other => other.clone(),
+    })
+}
+
 fn observation(
     state: &mut State,
     job: &Job,
+    repo: &str,
     generation: u64,
     full: bool,
 ) -> Result<Observation, GitError> {
-    if !ensure_repo(state, job.project_id, &job.root)? {
+    let Some(root) = ensure_repo(state, job, repo)? else {
         // No repository of the project's own is an ordinary answer, and it does not mean there is
         // nothing to draw: a folder holding several independent clones still has badges inside
         // each of them. The downward walk runs either way.
@@ -441,47 +496,63 @@ fn observation(
             overview: None,
             tree: observe::nested_only(&job.root, full, &job.managed_repos),
         });
-    }
-    let cached = state
-        .repos
-        .get(&job.project_id)
-        .expect("just inserted or confirmed");
-    observe_repo(
-        &job.root,
-        &cached.repo,
-        generation,
-        full,
-        &job.managed_repos,
-    )
+    };
+    let cached = &state.repos[&(job.project_id, repo.to_string())];
+    // A nested repository is observed as itself: no project prefix, and what is below it is its
+    // own business.
+    let managed: &[String] = if repo.is_empty() {
+        &job.managed_repos
+    } else {
+        &[]
+    };
+    observe_repo(&root, &cached.repo, generation, full, managed)
 }
 
-fn ensure_repo(
-    state: &mut State,
-    project_id: ProjectId,
-    root: &std::path::Path,
-) -> Result<bool, GitError> {
-    let root = canonical(root);
-    if state
-        .repos
-        .get(&project_id)
-        .is_some_and(|held| held.root == root)
-    {
-        return Ok(true);
+/// Make sure the repository the request is against is held, and say where its working tree is.
+///
+/// `repo` empty is the project's own, found by walking upward; `None` means there is not one.
+/// Otherwise it must be a repository the project manages — anything else is
+/// [`GitError::NotFound`] — and it is opened exactly, never discovered, so a folder that stopped
+/// being a repository does not silently answer with the one above it.
+fn ensure_repo(state: &mut State, job: &Job, repo: &str) -> Result<Option<PathBuf>, GitError> {
+    let root = if repo.is_empty() {
+        job.root.clone()
+    } else if job.managed_repos.iter().any(|managed| managed == repo) {
+        job.root.join(repo)
+    } else {
+        return Err(GitError::NotFound);
+    };
+    let key = (job.project_id, repo.to_string());
+    let canon = canonical(&root);
+    if state.repos.get(&key).is_some_and(|held| held.root == canon) {
+        return Ok(Some(root));
     }
-    state.repos.remove(&project_id);
-    match open(&root)? {
-        None => Ok(false),
-        Some(repo) => {
-            state.repos.insert(project_id, Cached { repo, root });
-            Ok(true)
-        }
-    }
+    state.repos.remove(&key);
+    let found = if repo.is_empty() {
+        open(&canon)?
+    } else {
+        Some(Repository::open(&canon).map_err(observe::map_error)?)
+    };
+    Ok(found.map(|found| {
+        state.repos.insert(
+            key,
+            Cached {
+                repo: found,
+                root: canon,
+            },
+        );
+        root
+    }))
 }
 
 /// One project's failure, addressed so the interface can clear badges rather than freeze them.
-pub fn git_error(project_id: ProjectId, error: GitError) -> Message {
+pub fn git_error(project_id: ProjectId, repo: &str, error: GitError) -> Message {
     if matches!(error, GitError::Failed(_)) {
         tracing::warn!("git {project_id}: {error}");
     }
-    Message::GitError { project_id, error }
+    Message::GitError {
+        project_id,
+        repo: repo.to_string(),
+        error,
+    }
 }

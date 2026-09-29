@@ -147,6 +147,15 @@ categories:
     git-branch:
       goal: a branch, told apart from a remote host
       keywords: [ref, head, checkout]
+    git-branch-new:
+      goal: create a branch — the branch glyph with a plus at its foot
+      keywords: [create, add, checkout]
+    git-fetch:
+      goal: bring the remotes' refs down without touching the working tree
+      keywords: [download, remote, update]
+    git-stash:
+      goal: shelve the uncommitted changes in a box
+      keywords: [shelve, archive, save]
 
   # `role_icon` (`ui/work.rs`) maps four role names onto variants that mean something else
   # elsewhere, and everything outside that list falls through to the IDE's own icon.
