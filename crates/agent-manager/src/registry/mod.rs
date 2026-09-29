@@ -11,6 +11,7 @@
 use crate::Result;
 use crate::config::McpServer;
 use crate::source::Source;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// A resolved skill in the catalog: its id, content, and parsed metadata.
@@ -24,6 +25,69 @@ pub struct SkillEntry {
     pub source: Source,
     /// Parsed metadata from `SKILL.md` frontmatter.
     pub meta: SkillMeta,
+    /// Where the skill lives relative to the catalog: copied in, linked, or found in a scanned folder.
+    pub origin: SkillOrigin,
+}
+
+/// How a skill got into a catalog layer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillOrigin {
+    /// A copy under `skills/<id>/`; `remote` says where it was fetched from, when it was.
+    Installed {
+        /// The repository it was installed from (`None` for a hand-made or imported copy).
+        remote: Option<RemoteOrigin>,
+    },
+    /// A `[[skill]]` entry: the folder at this path is referenced in place.
+    Linked(PathBuf),
+    /// Found by scanning the `[[skill_dir]]` folder at this path.
+    Dir(PathBuf),
+}
+
+/// Where an installed skill was fetched from (`.am-origin.toml` beside its `SKILL.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteOrigin {
+    /// Git URL of the repository.
+    pub url: String,
+    /// Branch or tag it was cloned at, when one was asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<String>,
+    /// Folder of the skill inside the repository (`""` for the root).
+    pub path: String,
+    /// Commit that was installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+}
+
+/// A place to search and install skills from (`[[skill_source]]` in `catalog.toml`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillSource {
+    /// Stable id (also the cache folder name); `[A-Za-z0-9._-]+`.
+    pub id: String,
+    /// Human-readable name.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// What kind of place it is.
+    pub kind: SkillSourceKind,
+}
+
+/// The kinds of [`SkillSource`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillSourceKind {
+    /// A git repository scanned for `SKILL.md` files.
+    Git {
+        /// Clone URL.
+        url: String,
+        /// Branch or tag (default branch when absent).
+        rev: Option<String>,
+        /// Only scan under this path of the repository.
+        subpath: Option<String>,
+    },
+    /// An HTTP JSON listing: `[{ "name", "description", "url" (git url), "path", "rev"? }]`
+    /// or `{ "skills": [...] }`. Needs the `remote` feature.
+    Index {
+        /// URL of the listing.
+        url: String,
+    },
 }
 
 /// Skill metadata parsed from `SKILL.md` YAML frontmatter (lenient; all optional).
@@ -48,7 +112,7 @@ pub struct SkillMeta {
 ///
 /// `#[serde(rename_all = "snake_case")]` so this round-trips as `"tools"` /
 /// `"skill"` in `catalog.toml`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum McpExpose {
     /// Injected as a normal, always-on MCP tool set (today's behavior).
@@ -59,7 +123,7 @@ pub enum McpExpose {
 }
 
 /// A resolved MCP server in the catalog.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpEntry {
     /// Stable MCP identifier.
     pub id: String,
@@ -68,9 +132,10 @@ pub struct McpEntry {
     /// How this MCP is exposed to the harness (`tools` default, or `skill`).
     pub expose: McpExpose,
     /// One-line summary seeding the generated skill's `description:`, when
-    /// `expose = "skill"`. `mcp/*.json`-sourced entries never carry one
-    /// (only `catalog.toml` `[[mcp]]` entries can set it).
+    /// `expose = "skill"` (`summary` key of a `catalog.toml` entry or an `mcp/*.json` file).
     pub summary: Option<String>,
+    /// What the server is for, shown to people browsing the catalog (`description` key).
+    pub description: Option<String>,
 }
 
 /// A source of injectable skills and MCP servers, resolved by id.
@@ -202,6 +267,30 @@ impl<G: Registry, P: Registry> Registry for OverlayRegistry<G, P> {
 
 mod fs;
 pub use fs::FsRegistry;
+pub(crate) use fs::ORIGIN_FILE;
+
+mod manage;
+pub use manage::CatalogStore;
+
+pub mod mcp_parse;
+pub use mcp_parse::parse_mcp_config;
+
+#[cfg(feature = "remote")]
+pub mod mcp_registry;
+#[cfg(feature = "remote")]
+pub use mcp_registry::{McpDraft, McpRegistryClient, ParamHint, ParamKind, RegistryServer};
+
+pub mod remote;
+pub use remote::{RemoteSkill, default_skill_sources};
+
+/// Whether `id` is a valid catalog id: non-empty, `[A-Za-z0-9._-]+`, not starting with a dot.
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('.')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
 
 pub mod import;
 pub use import::{Action, ImportItem, ImportOptions, ImportPlan, ItemKind, import};

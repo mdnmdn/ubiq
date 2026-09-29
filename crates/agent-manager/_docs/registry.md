@@ -19,8 +19,9 @@ pub trait Registry {
     fn mcp(&self, id: &str) -> Result<Option<McpEntry>>;
 }
 
-pub struct SkillEntry { pub id: String, pub path: PathBuf, pub meta: SkillMeta }
-pub struct McpEntry   { pub id: String, pub def: McpServer /* transport, cmd, env, … */ }
+pub struct SkillEntry { pub id: String, pub source: Source, pub meta: SkillMeta, pub origin: SkillOrigin }
+pub struct McpEntry   { pub id: String, pub def: McpServer /* transport, cmd, env, … */,
+                        pub expose: McpExpose, pub summary: Option<String>, pub description: Option<String> }
 ```
 
 `resolve` turns `--skills`/`--mcps` ids into `SkillRef`/`McpRef` by querying the
@@ -115,10 +116,95 @@ Two extra, optional `[[mcp]]` fields (`catalog.toml`-only — a single-file
 - `summary` — a one-line description seeding the generated skill's
   `description:` frontmatter when `expose = "skill"`. Ignored otherwise.
 
+`mcp/<id>.json` accepts the same optional `expose`, `summary` and `description` keys next to the
+server fields; `description` is the text a catalog browser shows.
+
 Skills are **always** folders (a `SKILL.md` + supporting files), because that is
 the portable on-disk shape every harness already understands. The registry
 resolves a skill id to its folder and the provisioner copies/links it into the
-ephemeral config dir.
+ephemeral config dir. A layer finds skills in three places (`SkillEntry.origin` says which):
+
+```toml
+[[skill]]            # one folder referenced in place (SkillOrigin::Linked)
+id = "pdf"           # optional; defaults to the folder name
+path = "/abs/path/to/pdf"
+
+[[skill_dir]]        # a folder scanned at list time: every <sub>/SKILL.md is a skill (SkillOrigin::Dir)
+path = "/abs/path/to/my-skills"
+
+[[skill_source]]     # a remote place to search and install from (see below)
+id = "anthropics"
+label = "Anthropic skills"
+kind = "git"         # "git" | "index"
+url = "https://github.com/anthropics/skills"
+rev = "main"         # optional
+subpath = ""         # optional: only scan under this path
+```
+
+and the copies under `skills/<id>/` (`SkillOrigin::Installed`). On an id clash inside one layer:
+installed `skills/<id>` > `[[skill]]` > `[[skill_dir]]` (first folder wins); it is not an error.
+A dangling `[[skill]]` or `[[skill_dir]]` (folder gone) is skipped. Dot-prefixed folders under
+`skills/` are install scratch space and never listed.
+
+## Managing the catalog: `CatalogStore`
+
+`Registry` is read-only. `CatalogStore: Registry` (`registry/manage.rs`) is the write side:
+`link_skill`, `add_skill_dir` / `remove_skill_dir` / `skill_dirs`, `install_skill`, `remove_skill`,
+`put_mcp`, `remove_mcp`, `skill_sources` / `set_skill_sources`. `FsRegistry` implements it and is the
+override point: Ubiq uses one `FsRegistry` per layer, an embedder may bring its own store.
+
+- Ids are `[A-Za-z0-9._-]+` (`registry::valid_id`); anything else is rejected.
+- `catalog.toml` is rewritten through a `toml::Table` (only the edited array changes) and a temp
+  file + rename. Comments in the file are not preserved. The root is created on the first write.
+- `install_skill` copies into `skills/.<id>.tmp`, then swaps it in; a failed install leaves the old
+  copy. `.git` is never copied. When a `RemoteOrigin` is given it is written beside `SKILL.md` as
+  `.am-origin.toml` (`url`, `rev`, `path`, `commit`); `Source::materialize` skips that file, so a
+  run never sees it.
+- `remove_skill`: installed copy -> delete the folder; linked -> drop the `[[skill]]` entry; found
+  in a scanned folder -> error ("remove the folder instead").
+- `put_mcp` writes `mcp/<id>.json`; an id declared inline in `catalog.toml` is rewritten there.
+- `skill_sources()` returns the declared `[[skill_source]]` entries, or `remote::default_skill_sources()`
+  (anthropics/skills and huggingface/skills, both git) when none are declared. Setting an empty list
+  goes back to the defaults.
+
+## Remote skills (`registry/remote.rs`)
+
+A `SkillSource` is `Git { url, rev, subpath }` or `Index { url }`. Git sources use the `git` CLI
+(no extra dependency): `refresh_source` does a shallow clone (or `fetch --depth 1` + `reset --hard`)
+into `<cache>/<source id>` with `GIT_TERMINAL_PROMPT=0`. `list_source` refreshes only when the cache
+is missing or older than an hour (a failed refresh of an existing cache falls back to it), then walks
+it (depth 4 under `subpath`) for `SKILL.md` and reads the frontmatter; a skill inside another skill's
+folder belongs to that skill. `search(sources, cache, query)` is a case-insensitive substring match
+on id, name and description, and a failing source becomes a problem line, not an error.
+`install_remote` copies the folder through `CatalogStore::install_skill` and records the origin.
+
+An `Index` source is an HTTP JSON listing, `[{ "name", "description", "url" (git url), "path", "rev"? }]`
+or `{ "skills": [...] }`; it needs the `remote` feature (without it the source yields a problem line).
+**No `Index` is among the defaults**: agentskills.io could not be checked for a machine-readable
+listing from the build sandbox (its host was blocked), so the parser follows the shape above until
+a real listing is known; adding it is one entry in `default_skill_sources`.
+
+## Pasted MCP configs (`registry/mcp_parse.rs`)
+
+`parse_mcp_config(text) -> Vec<McpServer>` reads any harness's dialect, ids from the map keys:
+`{"mcpServers"}` (Claude, Cursor, Copilot), `{"servers"}` (VS Code), `{"mcp"}` (opencode:
+`type: local|remote`, `command: [cmd, args…]`, `environment`), `{"context_servers"}` (Zed, `command`
+plain or `{path, args, env}`), a bare `{id: server}` map, a single server object (id `""`), and
+Codex TOML `[mcp_servers.<id>]` (`http_headers` is `headers`). `type`: `stdio`/`local` -> stdio,
+`http`/`streamable-http`/`streamableHttp`/`remote` -> http, `sse` -> sse; missing -> stdio with a
+`command`, else http. JSON may carry `//` and `/* */` comments and trailing commas.
+
+## The MCP registry (`registry/mcp_registry.rs`, feature `remote`)
+
+`McpRegistryClient` (default base `https://registry.modelcontextprotocol.io`) calls
+`GET /v0/servers?search=&limit=&version=latest[&cursor=]` (honouring the proxy environment) and
+`parse_registry_page` maps each server to `RegistryServer { name, title, description, version,
+repository, options: Vec<McpDraft> }`. A `McpDraft { label, server, params }` is one package or
+remote: npm -> `npx -y id@ver`, pypi -> `uvx id==ver`, oci -> `docker run -i --rm … id:ver`,
+nuget -> `dnx id@ver --yes` (`runtimeHint` replaces the command; runtime and package arguments are
+added), `remotes[]` and http/sse package transports -> http/sse servers. Environment variables and
+headers become entries with their default or an empty value, each with a `ParamHint { name, kind:
+Env|Header|Arg, description, required, secret, default }` so a UI can ask for them.
 
 Both sources merge into one namespace; an id collision between a single-file MCP
 and an inline one is a load-time error.

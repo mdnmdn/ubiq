@@ -11,13 +11,15 @@ and otherwise treats the first positional as a **harness name** to wrap:
 ```
 am <harness> [am-flags] [-- harness-args…]     # wrap & run a harness
 am catalog   <ls|import|show|path> …            # manage the catalog
+am skill     <ls|link|add-dir|rm-dir|rm|sources|search|install> …   # manage skills of a catalog layer
+am mcp       <ls|add|import|rm|search> …        # manage MCP servers of a catalog layer
 am account   <ls|use|import|login|dump|check|renew|rename|delete> …  # manage accounts + credentials
 am profile   <ls|show|use|create|login> …       # manage profiles
 am session   <ls|show|resume> …                 # manage session history  (ls/show/resume landed)
 am help | am --version
 ```
 
-Reserved words (`catalog`, `account`, `session`, `help`) are checked before
+Reserved words (`catalog`, `skill`, `mcp`, `account`, `session`, `help`) are checked before
 harness resolution. A harness id is never one of these, so there is no
 collision. Unknown first-positional → looked up in the harness registry; if it
 is not a known harness, error with the list of known ids.
@@ -236,6 +238,32 @@ am catalog import --from ~/.claude --dry-run
 dirs (`~/.claude`, `~/.agent`, project `.mcp.json`, …) and copies their skills
 and MCP definitions into the catalog so they can be injected by id. It **reads**
 those dirs; it never writes back to them. Full behavior in
+[`registry.md`](./registry.md).
+
+## Skill and MCP commands
+
+`am skill` and `am mcp` write to one catalog layer: the global one (`--catalog` / `AM_CATALOG` /
+default), or with `--project` the project's `<cwd>/.agent-manager/catalog`.
+
+```bash
+am skill ls                                  # skills of the layer, with where each comes from
+am skill link ~/skills/pdf [--id pdf]        # reference a skill folder in place ([[skill]])
+am skill add-dir ~/skills                    # scan a folder: every <sub>/SKILL.md is a skill
+am skill rm-dir ~/skills
+am skill rm pdf                              # installed copy or link (a scanned skill: remove its folder)
+am skill sources                             # declared [[skill_source]] entries, or the defaults
+am skill search [pdf] [--source anthropics]  # search the sources (git clones are cached, refreshed hourly)
+am skill install anthropics/skills/pdf [--id my-pdf]   # <source>/<path> as printed by search
+
+am mcp ls
+am mcp add fs -- npx -y @x/fs /tmp --env TOKEN=abc    # local: command after `--`
+am mcp add docs --url https://h/mcp [--sse] --header "Authorization: Bearer t"
+am mcp import claude.json [--id-prefix p-]   # any harness's format; `-` reads stdin; --id names one unnamed server
+am mcp rm fs
+am mcp search filesystem [--limit 10]        # official MCP registry
+```
+
+Git sources are cached in `cache/skill-sources` beside the global catalog root. Details in
 [`registry.md`](./registry.md).
 
 ## Account commands
