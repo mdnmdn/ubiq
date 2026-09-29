@@ -40,12 +40,18 @@ pub enum UbiqIcon {
     GitAdded,
     /// a branch, told apart from a remote host
     GitBranch,
+    /// create a branch — the branch glyph with a plus at its foot
+    GitBranchNew,
     /// a path this change removes
     GitDeleted,
+    /// bring the remotes' refs down without touching the working tree
+    GitFetch,
     /// a path whose contents changed
     GitModified,
     /// a path that moved, its old name shown beside it
     GitRenamed,
+    /// shelve the uncommitted changes in a box
+    GitStash,
     /// a path whose kind changed — file to link, or link to file
     GitTypeChange,
     /// a path git has never been told about
@@ -170,9 +176,12 @@ impl IconNamed for UbiqIcon {
             Self::FamilyUbiq => "icons/family-ubiq.svg",
             Self::GitAdded => "icons/git-added.svg",
             Self::GitBranch => "icons/git-branch.svg",
+            Self::GitBranchNew => "icons/git-branch-new.svg",
             Self::GitDeleted => "icons/git-deleted.svg",
+            Self::GitFetch => "icons/git-fetch.svg",
             Self::GitModified => "icons/git-modified.svg",
             Self::GitRenamed => "icons/git-renamed.svg",
+            Self::GitStash => "icons/git-stash.svg",
             Self::GitTypeChange => "icons/git-type-change.svg",
             Self::GitUntracked => "icons/git-untracked.svg",
             Self::HarnessAntigravity => "icons/harness-antigravity.svg",
@@ -245,9 +254,12 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::FamilyUbiq,
     UbiqIcon::GitAdded,
     UbiqIcon::GitBranch,
+    UbiqIcon::GitBranchNew,
     UbiqIcon::GitDeleted,
+    UbiqIcon::GitFetch,
     UbiqIcon::GitModified,
     UbiqIcon::GitRenamed,
+    UbiqIcon::GitStash,
     UbiqIcon::GitTypeChange,
     UbiqIcon::GitUntracked,
     UbiqIcon::HarnessAntigravity,
@@ -330,9 +342,12 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/family-ubiq.svg" => ours!("family-ubiq"),
         "icons/git-added.svg" => ours!("git-added"),
         "icons/git-branch.svg" => ours!("git-branch"),
+        "icons/git-branch-new.svg" => ours!("git-branch-new"),
         "icons/git-deleted.svg" => ours!("git-deleted"),
+        "icons/git-fetch.svg" => ours!("git-fetch"),
         "icons/git-modified.svg" => ours!("git-modified"),
         "icons/git-renamed.svg" => ours!("git-renamed"),
+        "icons/git-stash.svg" => ours!("git-stash"),
         "icons/git-type-change.svg" => ours!("git-type-change"),
         "icons/git-untracked.svg" => ours!("git-untracked"),
         "icons/harness-antigravity.svg" => ours!("harness-antigravity"),

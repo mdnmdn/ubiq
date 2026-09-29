@@ -33,7 +33,8 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 use ubiq_proto::files::{DiffBase, FileDiff};
 use ubiq_proto::git::{
-    GitChangedPath, GitCommit, GitEntry, GitHead, GitPathChange, GitRef, GitRefKind, GitSubmodule,
+    GitChangedPath, GitCommit, GitCounts, GitEntry, GitHead, GitNested, GitPathChange, GitRef,
+    GitRefKind, GitSubmodule, RepoOverview,
 };
 
 use crate::state::when;
@@ -298,6 +299,78 @@ pub fn ref_tree(rows: &[(usize, &RefRow)], shut: &HashSet<String>) -> Vec<RefTre
     out
 }
 
+/// One row of the Repositories section: a repository the project holds, and the few figures that
+/// say whether it wants attention.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoEntry {
+    /// What `select_git_repo` takes: empty is the project's own, else the nested `rel_path`.
+    pub repo: String,
+    /// The project's name for its own repository, the folder's path for a nested one.
+    pub label: String,
+    pub selected: bool,
+    /// Staged, modified and untracked paths together.
+    pub changes: u32,
+    pub conflicted: u32,
+    /// Commits either side of the current branch's upstream. Zero when there is none.
+    pub ahead: u32,
+    pub behind: u32,
+}
+
+/// The rows of the Repositories section, in the order it draws them: the project's own repository
+/// first, then each nested one it manages. **Empty when the project holds a single repository** —
+/// there is nothing to choose between, so the section is not drawn.
+pub fn repo_entries(
+    root: Option<&RepoOverview>,
+    nested: &[GitNested],
+    selected: &str,
+    project_name: &str,
+) -> Vec<RepoEntry> {
+    let figures = |counts: Option<GitCounts>, ahead: Option<u32>, behind: Option<u32>| {
+        let counts = counts.unwrap_or(GitCounts {
+            staged: 0,
+            modified: 0,
+            untracked: 0,
+            conflicted: 0,
+        });
+        (
+            counts.staged + counts.modified + counts.untracked,
+            counts.conflicted,
+            ahead.unwrap_or(0),
+            behind.unwrap_or(0),
+        )
+    };
+    let mut rows = Vec::new();
+    if let Some(overview) = root {
+        let (changes, conflicted, ahead, behind) =
+            figures(overview.counts, overview.ahead, overview.behind);
+        rows.push(RepoEntry {
+            repo: String::new(),
+            label: project_name.to_string(),
+            selected: selected.is_empty(),
+            changes,
+            conflicted,
+            ahead,
+            behind,
+        });
+    }
+    for repo in nested.iter().filter(|repo| repo.managed) {
+        let (changes, conflicted, ahead, behind) = figures(repo.counts, repo.ahead, repo.behind);
+        rows.push(RepoEntry {
+            repo: repo.rel_path.clone(),
+            label: repo.rel_path.clone(),
+            selected: selected == repo.rel_path,
+            changes,
+            conflicted,
+            ahead,
+            behind,
+        });
+    }
+    if rows.len() < 2 {
+        rows.clear();
+    }
+    rows
+}
+
 /// The sidebar's rows: Local, Remotes, Tags and Stashes from the refs reply, Submodules from the
 /// overview — a submodule is a repository and not a ref, so it never rides on [`GitRef`].
 pub fn ref_rows(refs: &[GitRef], submodules: &[GitSubmodule]) -> Vec<RefRow> {
@@ -545,6 +618,9 @@ pub enum GitPending {
     FetchAll,
     Pull,
     Push,
+    CreateBranch,
+    Stash,
+    Undo,
     Refresh,
     Log,
     Compare,
@@ -559,6 +635,9 @@ impl GitPending {
             GitPending::FetchAll => "Fetching\u{2026}",
             GitPending::Pull => "Pulling\u{2026}",
             GitPending::Push => "Pushing\u{2026}",
+            GitPending::CreateBranch => "Creating branch\u{2026}",
+            GitPending::Stash => "Stashing\u{2026}",
+            GitPending::Undo => "Undoing\u{2026}",
             GitPending::Refresh => "Refreshing\u{2026}",
             GitPending::Log => "Loading history\u{2026}",
             GitPending::Compare => "Comparing\u{2026}",
@@ -779,6 +858,8 @@ pub struct GitView {
     shut: HashSet<RefSection>,
     /// Slash-prefix folders the user has shut in the local and remote trees. Absent means open.
     shut_folders: HashSet<(RefSection, String)>,
+    /// The Repositories section above them, shut by the user. Open until it is.
+    shut_repos: bool,
     /// Which sidebar row is selected, as an index into `refs`.
     pub selected_ref: Option<usize>,
     /// What was typed into the ref sidebar's search field. Filters every section's rows by name,
@@ -893,6 +974,7 @@ impl GitView {
                 .filter(|section| *section != RefSection::Local)
                 .collect(),
             shut_folders: HashSet::new(),
+            shut_repos: false,
             selected_ref: refs.iter().position(|row| row.current),
             ref_search: String::new(),
             search: String::new(),
@@ -928,6 +1010,14 @@ impl GitView {
         };
         view.set_commits(commits);
         view
+    }
+
+    pub fn repos_open(&self) -> bool {
+        !self.shut_repos
+    }
+
+    pub fn toggle_repos(&mut self) {
+        self.shut_repos = !self.shut_repos;
     }
 
     pub fn is_open(&self, section: RefSection) -> bool {
@@ -1174,6 +1264,30 @@ impl GitView {
 
     /// Show the whole history again. One control clears every filter, so a history emptied by a
     /// filter is always one click from being full.
+    /// Forget everything that belongs to the repository the screen was showing: the ref rows, the
+    /// history and its cursor, the selection, the diff, any range comparison and the branch
+    /// filter. What is typed in a search field, the commit draft and the layout stay.
+    pub fn reset_repo(&mut self) {
+        self.refs.clear();
+        self.selected_ref = None;
+        self.set_commits(Vec::new());
+        self.log_cursor = None;
+        self.log_done = false;
+        self.log_inflight = None;
+        self.branch_filter = None;
+        self.selected_commit = None;
+        self.compare_commit = None;
+        self.selected_path = None;
+        self.diff = None;
+        self.range_from = None;
+        self.range_to = None;
+        self.range_files.clear();
+        self.range_inflight = false;
+        self.last_error = None;
+        self.pending = None;
+        self.menu = None;
+    }
+
     pub fn clear_filters(&mut self) {
         self.mine_only = false;
         self.search.clear();

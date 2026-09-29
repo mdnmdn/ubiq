@@ -138,6 +138,13 @@ pub struct GitNested {
     /// that is not managed, which is not opened at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub counts: Option<GitCounts>,
+    /// Commits the current branch holds that its upstream does not, capped at
+    /// [`AHEAD_BEHIND_CAP`]. Absent with no upstream, a detached HEAD, or an unread repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ahead: Option<u32>,
+    /// Commits the upstream holds that the current branch does not. Absent like `ahead`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behind: Option<u32>,
     /// The project takes this repository on: it is walked, it colours the explorer, and its
     /// changes show on the Git screen. `false` is a repository found and named and nothing more.
     ///
@@ -348,6 +355,13 @@ pub enum GitWriteOp {
     StageAll,
     /// Restore the index to HEAD for every path in the project's scope.
     UnstageAll,
+    /// Create a branch at `HEAD` and check it out.
+    CreateBranch { name: String },
+    /// Stash the uncommitted changes, untracked files included, under the default message.
+    Stash,
+    /// Soft-reset `HEAD` to its first parent: the last commit's changes return to the index.
+    /// Refused on a root commit or an unborn branch.
+    UndoCommit,
 }
 
 /// One path that differs between two revs. The Git screen's range comparison lists these.

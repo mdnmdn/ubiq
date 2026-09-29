@@ -14,12 +14,12 @@ use crate::ask::{AskClosed, AskOutcome, AskQuestion};
 use crate::assist::{
     AiModelList, AiProviderDraft, AiProviderInfo, AssistLimits, AssistReason, SuggestSubject,
 };
-use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
-use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
-use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
 use crate::catalog::{
     CatalogMcp, RegistryMcpInfo, RemoteSkillInfo, SkillAdd, SkillInfo, SkillSourceInfo,
 };
+use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
+use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
+use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, PathOp, RelatedFile,
@@ -1496,10 +1496,17 @@ pub enum Message {
     // own — a repository is a fact about a project, discovered by the host. Nothing in this
     // family is broadcast: a project is open in exactly one window, so the window that asked is
     // the only one drawing it. Not a repository is [`Message::GitOverview`] with `overview`
-    // absent, not an error.
+    // absent, not an error. A project may hold several repositories: every variant but
+    // `RefreshProjectGit` and `GitWorkingTree` (which is one merged map) carries a `repo`, empty
+    // for the project's own and a managed nested repository's `rel_path` otherwise, and a reply
+    // echoes the request's.
     /// What the status bar reads. Cheap: refs and a handful of files in the git directory.
     ProjectGit {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
     },
     /// Re-read the repository. `full` also walks the working tree for the explorer's badges.
     RefreshProjectGit {
@@ -1513,6 +1520,10 @@ pub enum Message {
     /// Answered with [`Message::GitLogPage`], or [`Message::GitError`].
     ProjectGitLog {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         /// Where this page of the walk starts. Absent is the first page, which starts at HEAD
         /// unless [`Self::ProjectGitLog::rev`] names a ref.
         cursor: Option<String>,
@@ -1533,12 +1544,20 @@ pub enum Message {
     /// Answered with [`Message::GitRefs`], or [`Message::GitError`].
     ProjectGitRefs {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         with_tracking: bool,
     },
     /// Mutate the project's repository. Answered with a full refresh — [`Message::GitOverview`]
     /// and [`Message::GitWorkingTree`] — or [`Message::GitError`].
     WriteProjectGit {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         op: git::GitWriteOp,
     },
     /// The paths that differ between two revs. `from` absent is the empty tree — the files a
@@ -1546,6 +1565,10 @@ pub enum Message {
     /// [`Message::GitError`].
     ProjectGitChanged {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         from: Option<String>,
         to: String,
     },
@@ -1554,6 +1577,10 @@ pub enum Message {
     /// `overview` absent means the project is not in a repository. That is an ordinary answer.
     GitOverview {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         overview: Option<RepoOverview>,
     },
     /// Paths that have something to say, plus a rollup for every ancestor directory of those
@@ -1575,6 +1602,10 @@ pub enum Message {
     /// A repository that exists and could not be read.
     GitError {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         error: git::GitError,
     },
     /// One page of history. `cursor` echoes the request's own, so a reply that lands after a
@@ -1583,6 +1614,10 @@ pub enum Message {
     /// end.
     GitLogPage {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         /// The cursor [`Message::ProjectGitLog`] was asked with. `None` was a request for the
         /// first page.
         cursor: Option<String>,
@@ -1592,11 +1627,19 @@ pub enum Message {
     /// Every ref the sidebar draws, in one reply — five sections would otherwise be five walks.
     GitRefs {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         refs: Vec<GitRef>,
     },
     /// The paths that differ between the two revs [`Message::ProjectGitChanged`] asked for.
     GitChanged {
         project_id: ProjectId,
+        /// The managed nested repository this is about, as [`git::GitNested::rel_path`] spells it.
+        /// Empty is the project's own repository.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        repo: String,
         from: Option<String>,
         to: String,
         files: Vec<GitChangedPath>,

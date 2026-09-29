@@ -405,6 +405,15 @@ pub struct OpenProject {
     /// the host sent them — the project settings dialog draws this list, not the explorer's
     /// projection of it.
     pub git_repos: Vec<GitNested>,
+    /// The repository the Git screen is showing, as [`GitNested::rel_path`] spells it: empty is the
+    /// project's own. Kept here so a switch of mode or project and back finds it where it was left.
+    pub git_repo: String,
+    /// The selected nested repository's own overview (head, tracking, operation). Absent while
+    /// `git_repo` is empty — `git` is the project's own — and until the host has answered.
+    pub git_nested: Option<RepoOverview>,
+    /// `git_entries` as the Git screen draws them: the selected repository's paths only, where
+    /// `git_entries` is the whole project's map. Rebuilt by [`OpenProject::refilter_git`].
+    pub git_screen_entries: Vec<GitEntry>,
     /// The Git screen's view of all of it: which sections are open, what is selected, what is
     /// typed in the commit box. Per project, for the reason the graph's view is.
     pub git_view: GitView,
@@ -415,6 +424,68 @@ pub struct OpenProject {
 }
 
 impl OpenProject {
+    /// The overview of the repository the Git screen is showing.
+    pub fn git_overview(&self) -> Option<&RepoOverview> {
+        if self.git_repo.is_empty() {
+            self.git.as_ref()
+        } else {
+            self.git_nested.as_ref()
+        }
+    }
+
+    /// The repository a project opens the Git screen on, and the one to fall back to when the
+    /// selected one is gone: its own when it has one, else the first nested repository it manages.
+    pub fn default_git_repo(&self) -> String {
+        if self.git.is_some() {
+            return String::new();
+        }
+        self.git_repos
+            .iter()
+            .find(|nested| nested.managed)
+            .map(|nested| nested.rel_path.clone())
+            .unwrap_or_default()
+    }
+
+    /// Whether `git_repo` still names a repository the project has.
+    pub fn git_repo_exists(&self) -> bool {
+        if self.git_repo.is_empty() {
+            self.git.is_some()
+        } else {
+            self.git_repos
+                .iter()
+                .any(|nested| nested.managed && nested.rel_path == self.git_repo)
+        }
+    }
+
+    /// Rebuild [`OpenProject::git_screen_entries`] from the whole map: the selected repository's
+    /// paths only. The project's own repository drops every path under a managed nested one; a
+    /// nested repository keeps only its own, prefix included, which is how the host reports them.
+    pub fn refilter_git(&mut self) {
+        let under = |path: &str, root: &str| {
+            path.strip_prefix(root)
+                .is_some_and(|rest| rest.starts_with('/'))
+        };
+        self.git_screen_entries = if self.git_repo.is_empty() {
+            let nested: Vec<&str> = self
+                .git_repos
+                .iter()
+                .filter(|nested| nested.managed)
+                .map(|nested| nested.rel_path.as_str())
+                .collect();
+            self.git_entries
+                .iter()
+                .filter(|entry| !nested.iter().any(|root| under(&entry.rel_path, root)))
+                .cloned()
+                .collect()
+        } else {
+            self.git_entries
+                .iter()
+                .filter(|entry| under(&entry.rel_path, &self.git_repo))
+                .cloned()
+                .collect()
+        };
+    }
+
     /// A project this window has just taken, in the furniture it was last left in.
     ///
     /// **Runs exactly once per project this window ever holds** — later re-entries look this
@@ -447,6 +518,9 @@ impl OpenProject {
             git_truncated: false,
             git_entries: Vec::new(),
             git_repos: Vec::new(),
+            git_repo: String::new(),
+            git_nested: None,
+            git_screen_entries: Vec::new(),
             git_view: GitView::default(),
             just_saved: HashSet::new(),
         }
@@ -897,6 +971,8 @@ pub struct AppState {
     pub git_message: Entity<TextareaState>,
     /// The history's branch picker's own filter field. Window-scoped because the picker is.
     pub git_branch_query: Entity<InputState>,
+    /// The name field in the Git strip's `Branch` popover.
+    pub git_branch_name: Entity<InputState>,
     /// The ref sidebar's and the changes panel's instant-search fields. Same arrangement as
     /// `git_search`: the entity is the window's, the text is the project's `GitView`'s.
     pub git_ref_query: Entity<InputState>,
@@ -1317,8 +1393,8 @@ mod agents;
 mod ask;
 mod board;
 mod boot;
-mod catalog;
 mod capture;
+mod catalog;
 mod chat;
 mod clipboard;
 mod clone;

@@ -1,4 +1,4 @@
-//! Mutate a project's repository: stage, unstage, commit, fetch, pull, push.
+//! Mutate a project's repository: stage, unstage, commit, fetch, pull, push, branch, stash, undo.
 //!
 //! Runs on the git worker's thread, the same one that reads, so the per-project `Repository`
 //! handle stays un-mutexed — the thread is the lock (`D122`). Status walks still leave the
@@ -70,7 +70,81 @@ pub fn apply(
             let scope = super::observe::scope(root, repo)?;
             unstage_all(repo, &scope)
         }
+        GitWriteOp::CreateBranch { name } => {
+            refuse_if_busy(repo)?;
+            create_branch(repo, name)
+        }
+        GitWriteOp::Stash => {
+            refuse_if_busy(repo)?;
+            stash(repo)
+        }
+        GitWriteOp::UndoCommit => {
+            refuse_if_busy(repo)?;
+            undo_commit(repo)
+        }
     }
+}
+
+/// A branch at `HEAD`, checked out. The name is validated the way `git branch` does, and an
+/// existing branch is refused rather than moved.
+fn create_branch(repo: &Repository, name: &str) -> Result<(), GitError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(GitError::Failed("a branch needs a name".into()));
+    }
+    if !git2::Branch::name_is_valid(name).map_err(map_error)? {
+        return Err(GitError::Failed(format!(
+            "'{name}' is not a valid branch name"
+        )));
+    }
+    let head = repo
+        .head()
+        .and_then(|head| head.peel_to_commit())
+        .map_err(|_| GitError::Failed("there is no commit to branch from".into()))?;
+    let branch = repo
+        .branch(name, &head, false)
+        .map_err(|error| match error.code() {
+            ErrorCode::Exists => GitError::Failed(format!("branch '{name}' already exists")),
+            _ => map_error(error),
+        })?;
+    let refname = branch
+        .get()
+        .name()
+        .map_err(|_| GitError::Failed("the branch name is not utf-8".into()))?
+        .to_string();
+    // The new branch points at the commit HEAD already names, so the tree is the one on disk.
+    repo.set_head(&refname).map_err(map_error)?;
+    Ok(())
+}
+
+/// Stash the uncommitted changes, untracked files with them. libgit2 wants `&mut Repository`, which
+/// the worker's cached handle is not lent as, so this opens its own on the same git directory.
+fn stash(repo: &Repository) -> Result<(), GitError> {
+    let sig = repo
+        .signature()
+        .map_err(|_| GitError::Failed("user.name and user.email are not set".into()))?;
+    let mut owned = Repository::open(repo.path()).map_err(map_error)?;
+    owned
+        .stash_save2(&sig, None, Some(git2::StashFlags::INCLUDE_UNTRACKED))
+        .map_err(|error| match error.code() {
+            ErrorCode::NotFound => GitError::Failed("nothing to stash".into()),
+            _ => map_error(error),
+        })?;
+    Ok(())
+}
+
+/// Soft reset to the first parent: the commit goes, its changes stay in the index.
+fn undo_commit(repo: &Repository) -> Result<(), GitError> {
+    let head = repo
+        .head()
+        .and_then(|head| head.peel_to_commit())
+        .map_err(|_| GitError::Failed("there is no commit to undo".into()))?;
+    let parent = head
+        .parent(0)
+        .map_err(|_| GitError::Failed("the first commit cannot be undone".into()))?;
+    repo.reset(parent.as_object(), git2::ResetType::Soft, None)
+        .map_err(map_error)?;
+    Ok(())
 }
 
 enum Target<'a> {

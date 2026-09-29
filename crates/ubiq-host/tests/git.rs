@@ -971,6 +971,79 @@ fn an_empty_message_is_refused() {
 }
 
 #[test]
+fn create_branch_checks_out_a_new_branch_at_head() {
+    let dir = repository();
+    write::apply_at(
+        dir.path(),
+        &[],
+        &GitWriteOp::CreateBranch {
+            name: "feature/x".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        git_stdout(dir.path(), &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "feature/x"
+    );
+}
+
+#[test]
+fn create_branch_refuses_an_existing_or_invalid_name() {
+    let dir = repository();
+    for name in ["main", "bad name", "  "] {
+        let error = write::apply_at(
+            dir.path(),
+            &[],
+            &GitWriteOp::CreateBranch { name: name.into() },
+        )
+        .unwrap_err();
+        assert!(matches!(error, GitError::Failed(_)), "{name:?}: {error:?}");
+    }
+}
+
+#[test]
+fn stash_takes_modified_and_untracked_files() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"changed\n").unwrap();
+    fs::write(dir.path().join("new.txt"), b"new\n").unwrap();
+    write::apply_at(dir.path(), &[], &GitWriteOp::Stash).unwrap();
+    assert_eq!(fs::read(dir.path().join("file.txt")).unwrap(), b"hello\n");
+    assert!(!dir.path().join("new.txt").exists());
+    assert_eq!(
+        git_stdout(dir.path(), &["stash", "list"]).lines().count(),
+        1
+    );
+}
+
+#[test]
+fn stash_of_a_clean_tree_is_refused() {
+    let dir = repository();
+    let error = write::apply_at(dir.path(), &[], &GitWriteOp::Stash).unwrap_err();
+    assert!(matches!(error, GitError::Failed(reason) if reason.contains("nothing")));
+}
+
+#[test]
+fn undo_commit_returns_the_changes_to_the_index() {
+    let dir = repository();
+    fs::write(dir.path().join("file.txt"), b"second\n").unwrap();
+    git(dir.path(), &["commit", "-q", "-a", "-m", "second"]);
+    write::apply_at(dir.path(), &[], &GitWriteOp::UndoCommit).unwrap();
+    assert_eq!(git_stdout(dir.path(), &["log", "--format=%s"]), "first");
+    assert_eq!(
+        git_stdout(dir.path(), &["diff", "--cached", "--name-only"]),
+        "file.txt"
+    );
+    assert_eq!(fs::read(dir.path().join("file.txt")).unwrap(), b"second\n");
+}
+
+#[test]
+fn undo_commit_refuses_a_root_commit() {
+    let dir = repository();
+    let error = write::apply_at(dir.path(), &[], &GitWriteOp::UndoCommit).unwrap_err();
+    assert!(matches!(error, GitError::Failed(_)));
+}
+
+#[test]
 fn fetch_all_speaks_ssh() {
     let dir = repository();
     git(
@@ -1078,4 +1151,161 @@ fn push_sends_the_current_branch() {
     );
     let body = fs::read_to_string(mirror.path().join("file.txt")).unwrap();
     assert_eq!(body, "pushed\n");
+}
+
+// ── a request that names a nested repository ────────────────────────────────
+
+/// Run one request through the worker and collect what it answered, repository by repository.
+fn ask(
+    root: &Path,
+    managed_repos: &[&str],
+    repo: &str,
+    request: ubiq_host::git::Request,
+    replies: usize,
+) -> Vec<ubiq_proto::messages::Message> {
+    let (hub, host) = ubiq_proto::bus::hub();
+    let client = hub.connect();
+    let worker = ubiq_host::git::Git::start();
+    worker.submit(ubiq_host::git::Job {
+        project_id: ubiq_proto::ids::ProjectId::generate(),
+        root: root.to_path_buf(),
+        managed_repos: managed(managed_repos),
+        repo: repo.to_string(),
+        request,
+        reply_to: host.mailbox(ubiq_proto::bus::To::Client(client.id())),
+    });
+    (0..replies)
+        .map(|_| {
+            client
+                .from_host()
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("the worker answered")
+        })
+        .collect()
+}
+
+#[test]
+fn a_nested_repository_answers_its_own_overview() {
+    use ubiq_proto::messages::Message;
+    let dir = with_a_nested_clone();
+    git(dir.path(), &["checkout", "-q", "-b", "outer-branch"]);
+
+    let inner = ask(
+        dir.path(),
+        &["inner"],
+        "inner",
+        ubiq_host::git::Request::Overview,
+        1,
+    );
+    let Message::GitOverview { repo, overview, .. } = &inner[0] else {
+        panic!("not an overview: {:?}", inner[0]);
+    };
+    assert_eq!(repo, "inner");
+    let overview = overview.as_ref().expect("the nested repository");
+    assert_eq!(overview.head, GitHead::Branch("main".into()));
+    assert_eq!(overview.scoped_to, "");
+
+    let outer = ask(
+        dir.path(),
+        &["inner"],
+        "",
+        ubiq_host::git::Request::Overview,
+        1,
+    );
+    let Message::GitOverview { repo, overview, .. } = &outer[0] else {
+        panic!("not an overview: {:?}", outer[0]);
+    };
+    assert_eq!(repo, "");
+    assert_eq!(
+        overview.as_ref().unwrap().head,
+        GitHead::Branch("outer-branch".into())
+    );
+}
+
+#[test]
+fn a_nested_repository_answers_its_own_log() {
+    use ubiq_proto::messages::Message;
+    let dir = with_a_nested_clone();
+    let log = |repo: &str| {
+        let answered = ask(
+            dir.path(),
+            &["inner"],
+            repo,
+            ubiq_host::git::Request::Log {
+                cursor: None,
+                count: 10,
+                rel_path: None,
+                first_parent: false,
+                rev: None,
+            },
+            1,
+        );
+        match answered.into_iter().next().unwrap() {
+            Message::GitLogPage {
+                repo: echoed,
+                commits,
+                ..
+            } => {
+                assert_eq!(echoed, repo);
+                commits
+                    .into_iter()
+                    .map(|commit| commit.summary)
+                    .collect::<Vec<_>>()
+            }
+            other => panic!("not a log page: {other:?}"),
+        }
+    };
+    assert_eq!(log("inner"), vec!["inner first".to_string()]);
+    assert_eq!(log(""), vec!["first".to_string()]);
+}
+
+#[test]
+fn a_repository_the_project_does_not_manage_is_not_found() {
+    use ubiq_proto::messages::Message;
+    let dir = with_a_nested_clone();
+    let answered = ask(
+        dir.path(),
+        &[],
+        "inner",
+        ubiq_host::git::Request::Overview,
+        1,
+    );
+    assert!(matches!(
+        &answered[0],
+        Message::GitError { repo, error: GitError::NotFound, .. } if repo == "inner"
+    ));
+}
+
+#[test]
+fn a_write_to_a_nested_repository_stages_there_and_refreshes_the_project() {
+    use ubiq_proto::messages::Message;
+    let dir = with_a_nested_clone();
+    let answered = ask(
+        dir.path(),
+        &["inner"],
+        "inner",
+        ubiq_host::git::Request::Write {
+            op: GitWriteOp::Stage {
+                rel_path: "inner/kept.txt".into(),
+            },
+        },
+        3,
+    );
+    assert!(matches!(&answered[0], Message::GitOverview { repo, .. } if repo == "inner"));
+    assert!(matches!(&answered[1], Message::GitOverview { repo, .. } if repo.is_empty()));
+    let Message::GitWorkingTree { entries, .. } = &answered[2] else {
+        panic!("not a working tree: {:?}", answered[2]);
+    };
+    let staged = entries
+        .iter()
+        .find(|entry| entry.rel_path == "inner/kept.txt")
+        .expect("the nested file is in the merged map");
+    assert!(staged.index.is_some());
+    assert_eq!(
+        git_stdout(
+            &dir.path().join("inner"),
+            &["diff", "--cached", "--name-only"]
+        ),
+        "kept.txt"
+    );
 }

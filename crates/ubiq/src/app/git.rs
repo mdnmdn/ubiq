@@ -14,9 +14,81 @@ impl AppState {
 
     /// Every path the last working-tree map had something to say about. **Absent is "nothing has
     /// been read"** and empty is "nothing has changed", which are two different screens.
+    ///
+    /// Only the selected repository's paths: the merged map the explorer draws from holds every
+    /// repository's, and mixing them here would stage one repository's file into another's index.
     pub fn git_entries(&self, cx: &App) -> Option<&[GitEntry]> {
         let open = self.open_project(cx)?;
-        open.git.as_ref().map(|_| open.git_entries.as_slice())
+        // A nested repository's paths ride on the project's working tree, so they are on screen
+        // the moment it is selected rather than once its own overview answers.
+        (open.git_overview().is_some() || !open.git_repo.is_empty())
+            .then_some(open.git_screen_entries.as_slice())
+    }
+
+    /// The overview of the repository the Git screen is showing: the project's own, or the nested
+    /// one selected in the Repositories section. `open.git` stays the project's own, which is what
+    /// the status bar and the explorer read.
+    pub fn git_overview(&self, cx: &App) -> Option<&RepoOverview> {
+        self.open_project(cx)?.git_overview()
+    }
+
+    /// The repository the Git screen is showing, for a project this window holds. Empty is the
+    /// project's own.
+    pub fn git_repo_of(&self, project_id: ProjectId) -> String {
+        self.projects
+            .get(&project_id)
+            .map(|open| open.git_repo.clone())
+            .unwrap_or_default()
+    }
+
+    /// Point the Git screen at another repository of the project on screen.
+    pub fn select_git_repo(&mut self, repo: String, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        self.apply_git_repo(project_id, repo);
+        cx.notify();
+    }
+
+    /// Switch the repository a project's Git screen shows: drop everything that belonged to the
+    /// old one and ask for the new one's overview, refs and first page of history. A no-op when
+    /// it is already the one.
+    pub(super) fn apply_git_repo(&mut self, project_id: ProjectId, repo: String) {
+        let Some(open) = self.projects.get_mut(&project_id) else {
+            return;
+        };
+        if open.git_repo == repo {
+            return;
+        }
+        open.git_repo = repo.clone();
+        open.git_nested = None;
+        open.git_view.reset_repo();
+        open.refilter_git();
+        open.git_view.log_inflight = Some(None);
+        self.bus.send(Message::ProjectGit {
+            project_id,
+            repo: repo.clone(),
+        });
+        self.bus.send(Message::ProjectGitRefs {
+            project_id,
+            repo: repo.clone(),
+            with_tracking: true,
+        });
+        self.request_git_log(project_id, None);
+    }
+
+    /// The working tree, the project's own overview and — while a nested repository is on screen —
+    /// that repository's overview, asked again. What a change on disk or in the repository's
+    /// plumbing sets off.
+    pub(super) fn request_git_refresh(&mut self, project_id: ProjectId) {
+        self.bus.send(Message::RefreshProjectGit {
+            project_id,
+            full: true,
+        });
+        let repo = self.git_repo_of(project_id);
+        if !repo.is_empty() {
+            self.bus.send(Message::ProjectGit { project_id, repo });
+        }
     }
 
     /// Ask for the repository again: the overview, the working tree, the refs and the first page
@@ -25,13 +97,18 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        self.bus.send(Message::ProjectGit { project_id });
+        let repo = self.git_repo_of(project_id);
+        self.bus.send(Message::ProjectGit {
+            project_id,
+            repo: repo.clone(),
+        });
         self.bus.send(Message::RefreshProjectGit {
             project_id,
             full: true,
         });
         self.bus.send(Message::ProjectGitRefs {
             project_id,
+            repo,
             with_tracking: true,
         });
         if let Some(git) = self.git_view_mut(cx) {
@@ -100,6 +177,42 @@ impl AppState {
         self.write_git(GitWriteOp::Push, true, cx);
     }
 
+    /// Stash the uncommitted changes, untracked files included.
+    pub fn stash_git(&mut self, cx: &mut Context<Self>) {
+        self.write_git(GitWriteOp::Stash, true, cx);
+    }
+
+    /// Soft-reset the last commit: its changes go back to the index.
+    pub fn undo_git_commit(&mut self, cx: &mut Context<Self>) {
+        self.write_git(GitWriteOp::UndoCommit, true, cx);
+    }
+
+    /// Create a branch at HEAD and check it out. A blank name is a no-op.
+    pub fn create_git_branch(&mut self, name: String, cx: &mut Context<Self>) {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        self.write_git(GitWriteOp::CreateBranch { name }, true, cx);
+    }
+
+    /// Raise the `Branch` popover with an empty name field, focused.
+    pub fn open_git_branch_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_menu(MenuId::GitNewBranch, cx);
+        let field = self.git_branch_name.clone();
+        field.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+    }
+
+    /// Enter or `Create` in the `Branch` popover: create the branch and close it.
+    pub fn submit_git_branch(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.git_branch_name.read(cx).value().to_string();
+        self.close_menu(cx);
+        self.create_git_branch(name, cx);
+    }
+
     fn write_git(&mut self, op: GitWriteOp, refresh_history: bool, cx: &mut Context<Self>) {
         let Some(project_id) = self.project(cx) else {
             return;
@@ -114,12 +227,21 @@ impl AppState {
                 GitWriteOp::FetchAll => GitPending::FetchAll,
                 GitWriteOp::Pull => GitPending::Pull,
                 GitWriteOp::Push => GitPending::Push,
+                GitWriteOp::CreateBranch { .. } => GitPending::CreateBranch,
+                GitWriteOp::Stash => GitPending::Stash,
+                GitWriteOp::UndoCommit => GitPending::Undo,
             });
         }
-        self.bus.send(Message::WriteProjectGit { project_id, op });
+        let repo = self.git_repo_of(project_id);
+        self.bus.send(Message::WriteProjectGit {
+            project_id,
+            repo: repo.clone(),
+            op,
+        });
         if refresh_history {
             self.bus.send(Message::ProjectGitRefs {
                 project_id,
+                repo,
                 with_tracking: true,
             });
             if let Some(git) = self.git_view_mut(cx) {
@@ -151,15 +273,23 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        let rev = self.git_view(cx).and_then(|git| git.branch_filter.clone());
-        if let Some(git) = self.git_view_mut(cx) {
-            if cursor.is_none() {
-                git.log_cursor = None;
-            }
-            git.log_inflight = Some(cursor.clone());
+        self.request_git_log(project_id, cursor);
+    }
+
+    /// [`Self::send_git_log`] for any project this window holds, against the repository it shows.
+    fn request_git_log(&mut self, project_id: ProjectId, cursor: Option<String>) {
+        let Some(open) = self.projects.get_mut(&project_id) else {
+            return;
+        };
+        let repo = open.git_repo.clone();
+        let rev = open.git_view.branch_filter.clone();
+        if cursor.is_none() {
+            open.git_view.log_cursor = None;
         }
+        open.git_view.log_inflight = Some(cursor.clone());
         self.bus.send(Message::ProjectGitLog {
             project_id,
+            repo,
             cursor,
             count: 100,
             rel_path: None,
@@ -171,6 +301,13 @@ impl AppState {
     pub fn toggle_git_section(&mut self, section: RefSection, cx: &mut Context<Self>) {
         if let Some(git) = self.git_view_mut(cx) {
             git.toggle_section(section);
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_git_repos(&mut self, cx: &mut Context<Self>) {
+        if let Some(git) = self.git_view_mut(cx) {
+            git.toggle_repos();
         }
         cx.notify();
     }
@@ -279,8 +416,10 @@ impl AppState {
             }
         };
         if let Some((from, to)) = request {
+            let repo = self.git_repo_of(project_id);
             self.bus.send(Message::ProjectGitChanged {
                 project_id,
+                repo,
                 from: Some(from),
                 to,
             });

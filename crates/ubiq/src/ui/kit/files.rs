@@ -84,7 +84,7 @@ pub fn filter_bar(
 ) -> impl IntoElement {
     // Flush with the panel's edges: the field is chrome, not content, so it touches the borders
     // rather than floating inside a margin.
-    div().flex().flex_none().child(
+    div().w_full().flex().flex_none().child(
         field(theme::border(), focused)
             .w_full()
             .h(px(28.))
