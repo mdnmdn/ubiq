@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-29
-verified: 2026-09-29
+updated: 2026-09-30
+verified: 2026-09-30
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -127,7 +127,7 @@ recolour and a move on disk.
 | `ListProjects` | UI → host | — | `ProjectList` |
 | `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary`, `storage` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
-| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `mission_term?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?` | `ProjectChanged` |
+| `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `mission_term?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?`, `definitions_use_global?`, `definitions_allowed?` | `ProjectChanged` |
 | `SetProjectInitials` | UI → host | `project_id`, `initials` | `ProjectChanged` |
 | `LocateProject` | UI → host | `project_id`, `path` | `ProjectChanged` or `ProjectError` |
 | `SetProjectStorage` | UI → host | `project_id`, `storage` | `ProjectStorageMoved` + `ProjectChanged`, or `ProjectStorageError` |
@@ -338,6 +338,16 @@ itself to a strip when it holds no task — and the list is sparse: a lane the p
 asked about carries no entry and reads back as `LanePref::plain`, drawn and never self-collapsing.
 Hiding a lane never touches its tasks; the host keeps them and counts them, only the board stops
 drawing the column.
+
+**Which global agent definitions a project inherits is two fields on its record, both carried by
+`UpdateProject`.** `definitions_use_global` defaults to `true` and means every global is on offer
+at a start aimed at that project — what every record written before the field existed meant, so
+the catalogue version does not move. With it `false`, only the ids on `definitions_allowed` are
+inherited; that list is replaced whole, like `search_excludes`. An allow-list rather than a
+deny-list, so a global added after a project narrowed itself is not silently on offer there. The
+project's own definitions are in scope either way and shadow a global of the same id either way —
+neither field says anything about them. `AddProject` carries neither: a new project is on the
+globals, and narrowing it is a settings gesture.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
 already in the catalogue answers with the project that is there, so no duplicate appears.
@@ -1671,7 +1681,7 @@ Forty-seven records travel inside payloads.
 | `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `wait_on_error`, `single_instance`, `starting_folder?` |
 | `ToolRun` | `scope`, `id` |
 | `ListedTool` | `scope`, `tool`, `applicable` |
-| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `mission_term?`, `tools[]`, `managed_repos[]`, `initials` |
+| `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `mission_term?`, `tools[]`, `managed_repos[]`, `initials`, `definitions_use_global`, `definitions_allowed[]` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |
 | `DirListing` | `rel_path`, `entries[]`, `truncated` |

@@ -42,6 +42,8 @@ fn record(name: &str, path: &str) -> ProjectRecord {
         lanes: Vec::new(),
         runs_on: None,
         initials: String::new(),
+        definitions_use_global: true,
+        definitions_allowed: Vec::new(),
         storage: StorageMode::UbiqManaged,
     }
 }
@@ -263,6 +265,8 @@ fn updating_a_project_sets_its_drone_origin() {
         None,
         None,
         Some(DroneChange::Set(origin.clone())),
+        None,
+        None,
     );
 
     assert_eq!(projects.record(id).unwrap().runs_on, Some(origin));
@@ -284,12 +288,16 @@ fn an_update_that_says_nothing_about_the_drone_keeps_it() {
         None,
         None,
         Some(DroneChange::Set(origin.clone())),
+        None,
+        None,
     );
 
     // A rename says nothing about where the project runs, so it keeps what it had.
     projects.update(
         id,
         Some("renamed".to_string()),
+        None,
+        None,
         None,
         None,
         None,
@@ -321,6 +329,8 @@ fn updating_a_project_can_bring_it_back_home() {
         None,
         None,
         Some(DroneChange::Set(origin())),
+        None,
+        None,
     );
 
     projects.update(
@@ -335,6 +345,8 @@ fn updating_a_project_can_bring_it_back_home() {
         None,
         None,
         Some(DroneChange::Local),
+        None,
+        None,
     );
 
     assert_eq!(projects.record(id).unwrap().runs_on, None);
@@ -617,6 +629,8 @@ fn renaming_a_project_managed_project_rewrites_its_in_project_metadata() {
     projects.update(
         id,
         Some("after".to_string()),
+        None,
+        None,
         None,
         None,
         None,

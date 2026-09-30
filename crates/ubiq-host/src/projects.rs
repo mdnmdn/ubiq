@@ -428,6 +428,8 @@ impl Projects {
                     None,
                     None,
                     None,
+                    None,
+                    None,
                 );
             }
             // The path is a uniqueness key, not an identity: this is the project that is there.
@@ -468,6 +470,10 @@ impl Projects {
             } else {
                 storage
             },
+            // A new project is on the globals, which is what every project was before the field
+            // existed; narrowing it is a settings gesture, not a creation one.
+            definitions_use_global: true,
+            definitions_allowed: Vec::new(),
         };
 
         // Before the record exists anywhere, so a refusal leaves no half-made project behind.
@@ -512,6 +518,8 @@ impl Projects {
         managed_repos: Option<Vec<String>>,
         lanes: Option<Vec<LanePref>>,
         runs_on: Option<DroneChange>,
+        definitions_use_global: Option<bool>,
+        definitions_allowed: Option<Vec<String>>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -545,6 +553,12 @@ impl Projects {
         }
         if let Some(runs_on) = runs_on {
             record.runs_on = runs_on.resolve();
+        }
+        if let Some(use_global) = definitions_use_global {
+            record.definitions_use_global = use_global;
+        }
+        if let Some(allowed) = definitions_allowed {
+            record.definitions_allowed = allowed;
         }
 
         let snapshot = self.snapshot(&record);
@@ -632,6 +646,8 @@ impl Projects {
         managed_repos: Option<Vec<String>>,
         lanes: Option<Vec<LanePref>>,
         runs_on: Option<DroneChange>,
+        definitions_use_global: Option<bool>,
+        definitions_allowed: Option<Vec<String>>,
     ) -> Vec<Reply> {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
@@ -651,6 +667,8 @@ impl Projects {
                 managed_repos,
                 lanes,
                 runs_on,
+                definitions_use_global,
+                definitions_allowed,
             );
         }
         let mut record = record.clone();
@@ -681,6 +699,12 @@ impl Projects {
         }
         if let Some(runs_on) = runs_on {
             record.runs_on = runs_on.resolve();
+        }
+        if let Some(use_global) = definitions_use_global {
+            record.definitions_use_global = use_global;
+        }
+        if let Some(allowed) = definitions_allowed {
+            record.definitions_allowed = allowed;
         }
 
         let snapshot = self.snapshot(&record);

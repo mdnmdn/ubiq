@@ -16,9 +16,11 @@ use ubiq::app::{AppState, BusHub};
 use ubiq::state::editor::{OpenFile, ViewLayout, ViewerKind};
 use ubiq::state::layout::Algo;
 use ubiq::state::nav::{Destination, Locus, View};
+use ubiq::state::new_agent::Target;
 use ubiq::state::prefs;
 use ubiq::state::settings::{self, MarkdownOpen, TabClose, UiSettings};
 use ubiq::state::{HarnessChoice, WindowRegistry};
+use ubiq::ui::new_agent::target_control;
 use ubiq_proto::assist::{
     AiProvider, AiProviderInfo, AiProviderKind, AssistProvider, ModelRole, SuggestSubject,
 };
@@ -224,6 +226,8 @@ fn a_project() -> ProjectSnapshot {
             lanes: Vec::new(),
             runs_on: None,
             initials: String::new(),
+            definitions_use_global: true,
+            definitions_allowed: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -1330,6 +1334,12 @@ fn signing_out_shortens_logged_in(cx: &mut TestAppContext) {
 /// installed tool with no account was unreachable from the New agent dialog. The row it gets is
 /// `HarnessChoice::Harness`, under its own `Default` heading, **after** `Configured` — a signed-in
 /// pairing stays the first thing offered.
+///
+/// `Default` carries *every* offered harness, not only the ones nobody signed into: running a
+/// harness as whatever identity it would use itself is an answer it has whether or not accounts
+/// exist for it, and withholding the row made that answer unreachable for a signed-in tool. So
+/// `claude-code` is both a `Configured` pair and a `Default` row here; the two groups do not
+/// partition the list.
 #[gpui::test]
 fn an_installed_harness_with_no_account_is_offered(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
@@ -1365,9 +1375,10 @@ fn an_installed_harness_with_no_account_is_offered(cx: &mut TestAppContext) {
                 },
                 HarnessChoice::Separator,
                 HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
                 HarnessChoice::Harness(1),
             ],
-            "the signed-in pairing first, then the harness nobody signed into"
+            "the signed-in pairing first, then every offered harness on its own configuration"
         );
     });
 }
@@ -1378,8 +1389,11 @@ fn an_installed_harness_with_no_account_is_offered(cx: &mut TestAppContext) {
 ///
 /// The gate is one question (`WorkbenchState::harness_offered`) asked by every surface that offers
 /// a harness to run, so the list a frame draws and the list a pick resolves against cannot
-/// disagree. The harness's **row on the Harnesses settings list** is deliberately not gated: that
-/// list is the inventory of what exists, and it is where the switch lives.
+/// disagree. The harness's **row on the Harnesses settings list is gated too** — reversing the
+/// earlier call to keep it: `ui::settings::harness_list` draws only where
+/// `!acp_sibling_gated`, so a gated sibling disappears from Installed as well and only its
+/// `Enable <tool> ACP` switch still names it — see
+/// [`installed_hides_a_gated_acp_sibling_and_shows_it_once_enabled`].
 ///
 /// The four surfaces are `harness_choices` (the target picker, and `ui::new_agent::pair_rows`
 /// behind `Customize`, both of which read nothing else), the sign-in pill picker — which filters
@@ -1484,6 +1498,75 @@ fn an_acp_sibling_is_gated_out_of_every_selection_surface(cx: &mut TestAppContex
     });
 }
 
+/// The Harnesses settings page's `Installed` list draws no row for an ACP sibling whose switch is
+/// off, and the row comes back the moment the switch is turned on.
+///
+/// `ui::settings::harness_list` is a private render function, so this asserts the exact predicate
+/// it filters on (`!WorkbenchState::acp_sibling_gated`) rather than the rendered tree — the same
+/// level every other test in this file works at, and the one the `ubiq-ui` skill asks for. The
+/// switch itself is `acp_switches`, which draws one row per sibling regardless of its switch
+/// (`WorkbenchState::acp_siblings`, asserted above) so that turning a hidden one back on stays
+/// possible; that list is untouched by this change.
+#[gpui::test]
+fn installed_hides_a_gated_acp_sibling_and_shows_it_once_enabled(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![a_shared_home_harness("claude-code", "Claude Code"), {
+                let mut it = a_shared_home_harness("claude-code-acp", "Claude Code (ACP)");
+                it.acp = true;
+                it
+            }],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    let installed_rows = |state: &AppState| {
+        state
+            .workbench
+            .agent_types
+            .iter()
+            .filter(|info| !state.workbench.acp_sibling_gated(info))
+            .map(|info| info.id.clone())
+            .collect::<Vec<_>>()
+    };
+
+    fixture.state.read_with(cx, |state, _| {
+        assert_eq!(
+            installed_rows(state),
+            vec!["claude-code".to_string()],
+            "off, the ACP sibling draws no row under Installed"
+        );
+        // Its switch still draws, whatever the row above does.
+        assert_eq!(
+            state
+                .workbench
+                .acp_siblings()
+                .iter()
+                .map(|it| it.id.clone())
+                .collect::<Vec<_>>(),
+            vec!["claude-code-acp".to_string()],
+            "the Enable ... ACP switch keeps drawing so turning it back on stays possible"
+        );
+    });
+
+    fixture.state.update(cx, |state, cx| {
+        state.toggle_acp_harness("claude-code-acp".to_string(), cx)
+    });
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.state.read_with(cx, |state, _| {
+        assert_eq!(
+            installed_rows(state),
+            vec!["claude-code".to_string(), "claude-code-acp".to_string()],
+            "on, the row is back under Installed"
+        );
+    });
+}
+
 /// A definition already written against a gated ACP harness opens its form **on that harness**,
 /// not on the placeholder.
 ///
@@ -1531,8 +1614,16 @@ fn a_definition_on_a_gated_harness_opens_on_it(cx: &mut TestAppContext) {
         );
         let (rows, trigger) = target_control(state, form, cx);
         assert_eq!(
-            rows.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(),
-            vec!["Default", "Claude Code", "", "Already chosen", "Claude Code (ACP)"],
+            rows.iter()
+                .map(|(label, _)| label.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Default",
+                "Claude Code",
+                "",
+                "Already chosen",
+                "Claude Code (ACP)"
+            ],
             "the gated harness is a row again, under a heading that says it is not on offer"
         );
         assert_eq!(
@@ -1607,6 +1698,233 @@ fn add_agent_is_unavailable_where_the_only_harness_is_gated(cx: &mut TestAppCont
         assert!(
             state.can_write_definition(),
             "switched on, it is a harness a definition may name"
+        );
+    });
+}
+
+/// A definition naming a harness this machine has **not installed** opens on it too, and says so
+/// on the control rather than on the placeholder (`G386`).
+///
+/// The row stays unpickable — "not installed" is what a disabled row says, and writing the
+/// definition back onto a harness that is not there is not an answer worth offering — so the value
+/// behind it is `None` and no amount of searching the rows' values will find it. The trigger is
+/// resolved from what the *form* holds instead, which is the only thing that knows.
+#[gpui::test]
+fn a_definition_on_an_uninstalled_harness_names_it_on_the_trigger(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![a_shared_home_harness("codex", "Codex"), {
+                let mut it = a_shared_home_harness("claude-code", "Claude Code");
+                it.available = false;
+                it
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_definition_form(Some(a_definition("reviewer", None)), None, window, cx)
+    });
+
+    fixture.state.read_with(cx, |state, cx| {
+        let form = state
+            .workbench
+            .settings
+            .definition_form
+            .as_ref()
+            .expect("the form is up");
+        let (rows, trigger) = target_control(state, form, cx);
+        assert_eq!(
+            rows,
+            vec![
+                ("Default".to_string(), None),
+                (
+                    "Codex".to_string(),
+                    Some(Target::Harness {
+                        agent_type: "codex".to_string(),
+                        account: None,
+                    })
+                ),
+                ("Claude Code".to_string(), None),
+            ],
+            "the uninstalled harness is drawn, disabled, in the group it belongs to"
+        );
+        assert_eq!(
+            trigger, "Claude Code",
+            "and the control names what the form holds, unpickable row and all"
+        );
+    });
+}
+
+/// Picking the harness the form already holds changes nothing else.
+///
+/// It reads as a harmless click — the `Already chosen` row exists to be the one you already hold —
+/// and it rebuilt the form from defaults: the model, the level, the mode, the subagent cap, the
+/// MCPs, the skills, the prompt, the description, the scope and the switched-off flag all went,
+/// and a definition form then saved that over the definition being edited. Picking a *different*
+/// harness still drops them, which is the other half of the same guard.
+#[gpui::test]
+fn picking_the_harness_the_form_holds_leaves_every_other_answer_alone(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![
+                a_shared_home_harness("claude-code", "Claude Code"),
+                a_shared_home_harness("codex", "Codex"),
+            ],
+        },
+    );
+    cx.run_until_parked();
+
+    let mut definition = a_definition("reviewer", None);
+    definition.model = Some("opus".to_string());
+    definition.thinking = Some("high".to_string());
+    definition.mode = Some("plan".to_string());
+    definition.max_subagents = Some(3);
+    definition.mcps = vec!["files".to_string()];
+    definition.skills = vec!["review".to_string()];
+    definition.prompt = Some("Review the diff.".to_string());
+    definition.description = Some("The reviewer.".to_string());
+    definition.disabled = true;
+    fixture.with(cx, |state, window, cx| {
+        state.open_definition_form(Some(definition), None, window, cx)
+    });
+
+    let held = Target::Harness {
+        agent_type: "claude-code".to_string(),
+        account: None,
+    };
+    fixture.with(cx, |state, window, cx| {
+        state.pick_new_agent_target(held.clone(), window, cx)
+    });
+
+    fixture.state.read_with(cx, |state, _| {
+        let form = state
+            .workbench
+            .settings
+            .definition_form
+            .as_ref()
+            .expect("the form is still up");
+        assert_eq!(
+            form.target.as_ref(),
+            Some(&held),
+            "still on the same answer"
+        );
+        assert_eq!(form.model.as_deref(), Some("opus"));
+        assert_eq!(form.thinking.as_deref(), Some("high"));
+        assert_eq!(form.mode.as_deref(), Some("plan"));
+        assert_eq!(form.max_subagents, Some(3));
+        assert_eq!(form.mcps, vec!["files".to_string()]);
+        assert_eq!(form.skills, vec!["review".to_string()]);
+        assert_eq!(form.prompt, "Review the diff.");
+        assert_eq!(form.description, "The reviewer.");
+        assert!(form.disabled, "and it is still switched off");
+    });
+
+    // The other half: a different harness owns none of those answers, so they go.
+    fixture.with(cx, |state, window, cx| {
+        state.pick_new_agent_target(
+            Target::Harness {
+                agent_type: "codex".to_string(),
+                account: None,
+            },
+            window,
+            cx,
+        )
+    });
+    fixture.state.read_with(cx, |state, _| {
+        let form = state
+            .workbench
+            .settings
+            .definition_form
+            .as_ref()
+            .expect("the form is still up");
+        assert_eq!(form.agent_type, "codex");
+        assert_eq!(
+            form.model, None,
+            "a model belongs to the harness that offered it"
+        );
+        assert_eq!(
+            form.prompt, "",
+            "and the form is a fresh answer to every other question"
+        );
+    });
+}
+
+/// A gated ACP sibling beside an installed native wire takes nothing away from `Add agent`.
+///
+/// The companion to [`add_agent_is_unavailable_where_the_only_harness_is_gated`]: gating is about
+/// which harness may be *named*, and one that may be is enough.
+#[gpui::test]
+fn a_definition_is_still_writable_beside_a_gated_sibling(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![a_shared_home_harness("claude-code", "Claude Code"), {
+                let mut it = a_shared_home_harness("claude-code-acp", "Claude Code (ACP)");
+                it.acp = true;
+                it
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.state.read_with(cx, |state, _| {
+        assert!(
+            !state
+                .workbench
+                .harness_offered(&state.workbench.agent_types[1]),
+            "the ACP wire is gated"
+        );
+        assert!(
+            state.can_write_definition(),
+            "a definition can still be written \u{2014} the native wire is installed"
+        );
+    });
+}
+
+/// `Add agent` is drawn unavailable where the only installed harness cannot hold a conversation,
+/// and the sentence on it says that rather than naming a fix that does not exist.
+///
+/// `harness_offered` answers only the ACP question, so the predicate that asked it alone still
+/// said yes for a harness with no structured bridge — `harness_choices` drops those, so the form
+/// opened on an empty picker under a note telling the user to install a harness or switch on an
+/// ACP wire, both impossible: it *is* installed and it has no ACP wire. The predicate is the
+/// list's own now, terms and all.
+#[gpui::test]
+fn add_agent_is_unavailable_where_the_only_harness_cannot_converse(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![{
+                let mut it = a_shared_home_harness("grok", "Grok");
+                it.chat = false;
+                it
+            }],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.state.read_with(cx, |state, _| {
+        assert!(
+            state.workbench.harness_choices(&[], &[], None).is_empty(),
+            "nothing is on offer, which is what the button has to agree with"
+        );
+        assert!(
+            !state.can_write_definition(),
+            "so the form would open on an empty picker"
+        );
+        assert!(
+            state
+                .no_harness_reason()
+                .contains("cannot hold a conversation"),
+            "and the sentence says the true thing, not \u{201c}install one\u{201d}: {}",
+            state.no_harness_reason()
         );
     });
 }

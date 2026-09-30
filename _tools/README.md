@@ -14,6 +14,7 @@ path or a flag.
 | `webassets.py` | `just web-assets`, `web-assets-verify`, `web-assets-drawio`, `web-assets-verify-drawio` | Snapshots a web-panel tenant's offline mirror and writes the expected SHA-256 of every file as generated Rust the host verifies downloads against — Excalidraw's own `dist/prod` plus its transitive `+esm` closure from jsDelivr's npm CDN (`--tenant excalidraw`, the default), or draw.io's `src/main/webapp/` from jsDelivr's GitHub CDN (`--tenant drawio`) |
 | `teamsim/teamsim.py` | `just teamsim` | Renders the teams graph's block-positioning algorithms as PNGs — a port of `crates/ubiq/src/state/layout.rs` plus the incremental `adaptive` arrangement, the readability metrics, and the scenarios in `_tools/teamsim/scenarios/` that are also the sink's presets |
 | `icns.py` | `just icns`, `just bundle` | Builds the macOS application icon from the logo in `assets/` — the ten representations an `.iconset` needs — through `iconutil` |
+| `tape-subagents.py` | `just tape-subagents`, `just tape-subagents-json` | Reads a Ubiq tape of a Claude Code conversation and says when each subagent spawned, when it stopped working, when it was marked ended — the background-delegate lag between those last two — alongside the fan-out, the timeline and the per-subagent token spend |
 
 What the check ids mean and what to do about each is in `_docs/_meta/librarian.md`. The diagram
 format is specified in `_docs/tech/diagram-format.md`. The icon rules and the drawing loop are in

@@ -187,6 +187,8 @@ mod tests {
                 lanes: vec![],
                 runs_on: None,
                 initials: String::new(),
+                definitions_use_global: true,
+                definitions_allowed: Vec::new(),
                 storage: crate::projects::StorageMode::UbiqManaged,
             },
             health: ProjectHealth::Ok,

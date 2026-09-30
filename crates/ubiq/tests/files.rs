@@ -192,6 +192,8 @@ fn a_project() -> ProjectSnapshot {
             lanes: Vec::new(),
             runs_on: None,
             initials: String::new(),
+            definitions_use_global: true,
+            definitions_allowed: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -1075,6 +1077,7 @@ fn exclude_from_search_adds_the_path_then_offers_to_add_it_back(cx: &mut TestApp
             managed_repos,
             lanes,
             runs_on,
+            ..
         } => Some((
             project_id,
             name,

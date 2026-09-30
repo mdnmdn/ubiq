@@ -297,6 +297,16 @@ dump-list *ARGS:
 dump-outline *ARGS:
     @uv run _tools/dump.py --outline {{ARGS}}
 
+# ── reading a tape ────────────────────────────────────────────────
+
+# When each subagent in a Ubiq tape spawned, stopped, was marked ended, and what it cost
+tape-subagents *ARGS:
+    @uv run _tools/tape-subagents.py {{ARGS}}
+
+# The same analysis, as JSON
+tape-subagents-json *ARGS:
+    @uv run _tools/tape-subagents.py --json {{ARGS}}
+
 # ── housekeeping ───────────────────────────────────────────────────
 
 # Remove build output

@@ -247,6 +247,97 @@ impl AppState {
         }
     }
 
+    /// Keep `settings.definition_scopes` in step with one project record.
+    ///
+    /// Called wherever a record arrives — `ProjectList`, `ProjectAdded`, `ProjectChanged` — so
+    /// the answer `SettingsState::definitions_in` gives is the record's, without that method
+    /// needing the catalogue it cannot reach.
+    pub(super) fn note_definition_scope(&mut self, record: &ubiq_proto::projects::ProjectRecord) {
+        self.workbench.settings.definition_scopes.insert(
+            record.id,
+            crate::state::settings::DefinitionScope {
+                use_global: record.definitions_use_global,
+                allowed: record.definitions_allowed.clone(),
+            },
+        );
+    }
+
+    /// Whether this project is on every global definition or only on the ones it named.
+    ///
+    /// Sent on the click, the way `set_project_index` is: the host holds the answer, so a dialog
+    /// closed straight after the tick keeps it (`G358`). The allow-list is left as it is — a
+    /// project that narrows, reticks and narrows again gets the same list back rather than an
+    /// empty one.
+    pub fn set_project_definitions_use_global(
+        &mut self,
+        project: ProjectId,
+        use_global: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let mut scope = self.workbench.settings.definition_scope(project);
+        scope.use_global = use_global;
+        self.workbench
+            .settings
+            .definition_scopes
+            .insert(project, scope);
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: None,
+            mission_term: None,
+            tools: None,
+            managed_repos: None,
+            lanes: None,
+            runs_on: None,
+            definitions_use_global: Some(use_global),
+            definitions_allowed: None,
+        });
+        cx.notify();
+    }
+
+    /// Add or remove one global definition from what this project inherits.
+    ///
+    /// Only meaningful while `definitions_use_global` is off — with it on, every global is
+    /// inherited and the list says nothing — which is why the row that calls this is only drawn
+    /// there. The whole list is replaced, the way `search_excludes` is.
+    pub fn set_project_definition_inherited(
+        &mut self,
+        project: ProjectId,
+        id: String,
+        inherited: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let mut scope = self.workbench.settings.definition_scope(project);
+        scope.allowed.retain(|it| it != &id);
+        if inherited {
+            scope.allowed.push(id);
+        }
+        let allowed = scope.allowed.clone();
+        self.workbench
+            .settings
+            .definition_scopes
+            .insert(project, scope);
+        self.bus.send(Message::UpdateProject {
+            project_id: project,
+            name: None,
+            colour: None,
+            custom_colour: None,
+            search_excludes: None,
+            index: None,
+            mission_term: None,
+            tools: None,
+            managed_repos: None,
+            lanes: None,
+            runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: Some(allowed),
+        });
+        cx.notify();
+    }
+
     // ── Asking the host ─────────────────────────────────────────────
 
     /// Rename or recolour. The host answers, and every window redraws.
@@ -270,6 +361,8 @@ impl AppState {
             managed_repos: None,
             lanes: None,
             runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         self.workbench.row_action = None;
         cx.notify();
@@ -298,6 +391,8 @@ impl AppState {
             managed_repos: None,
             lanes: None,
             runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         cx.notify();
     }
@@ -329,6 +424,8 @@ impl AppState {
             managed_repos: None,
             lanes: None,
             runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -417,6 +514,8 @@ impl AppState {
             managed_repos: None,
             lanes: None,
             runs_on: Some(change),
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -449,6 +548,8 @@ impl AppState {
             managed_repos: None,
             lanes: None,
             runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -485,6 +586,8 @@ impl AppState {
             managed_repos: None,
             lanes: Some(lanes),
             runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -516,6 +619,8 @@ impl AppState {
             managed_repos: None,
             lanes: None,
             runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -548,6 +653,8 @@ impl AppState {
             managed_repos: Some(repos),
             lanes: None,
             runs_on: None,
+            definitions_use_global: None,
+            definitions_allowed: None,
         });
         cx.global_mut::<WindowRegistry>().apply(snapshot);
         cx.notify();
@@ -957,14 +1064,9 @@ impl AppState {
             },
             drone: DroneField::from_origin(snapshot.record.runs_on.as_ref()),
             nav: ProjectNav::default(),
-            // Read off the definitions rather than stored: a project that has written none of its
-            // own is a project on the globals.
-            definitions_use_global: !self
-                .workbench
-                .settings
-                .project_definitions
-                .iter()
-                .any(|it| it.project == Some(project)),
+            // The record's own answer. It used to be read off "has this project written a setup
+            // of its own", which the user's tick could not outlive — `G358`.
+            definitions_use_global: snapshot.record.definitions_use_global,
             // A dialog opens on what the record says; nothing is in flight and nothing has failed.
             storage_pending: None,
             storage_dir: None,

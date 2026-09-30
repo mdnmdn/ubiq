@@ -35,6 +35,8 @@ fn record(id: ProjectId, path: &Path, temporary: bool) -> ProjectRecord {
         lanes: Vec::new(),
         runs_on: None,
         initials: String::new(),
+        definitions_use_global: true,
+        definitions_allowed: Vec::new(),
         storage: Default::default(),
     }
 }

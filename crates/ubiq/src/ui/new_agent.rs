@@ -1115,9 +1115,10 @@ pub fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String
                 });
                 Some((pair_label(harness, Some(&account)), target))
             }
-            // The harness on its own default configuration, no account: what an installed harness
-            // nobody has signed into runs as, and the account-less twin of the row above — the
-            // same `Target::Harness`, with `account: None`, which the pick already understands.
+            // The harness on its own default configuration, no account: what it runs as when
+            // nothing else is answered, offered whether or not some account has signed into it —
+            // the account-less twin of the row above, the same `Target::Harness`, with
+            // `account: None`, which the pick already understands.
             HarnessChoice::Harness(harness) => {
                 let harness = app.workbench.agent_types.get(harness)?;
                 let target = harness.available.then(|| Target::Harness {
@@ -1307,10 +1308,7 @@ fn filtered_rows<T>(rows: Vec<(String, Option<T>)>, needle: &str) -> Vec<(String
         if row.1.is_none() && row.0.is_empty() {
             groups.push(Vec::new());
         } else {
-            groups
-                .last_mut()
-                .expect("a group is always open")
-                .push(row);
+            groups.last_mut().expect("a group is always open").push(row);
         }
     }
 
@@ -1385,11 +1383,7 @@ pub fn pair_control(app: &AppState, form: &NewAgentForm) -> (Vec<(String, Option
     let chosen =
         (!form.agent_type.is_empty()).then(|| (form.agent_type.clone(), form.account.clone()));
     let held = held_harness_label(app, form);
-    let trigger = trigger_label(
-        &rows,
-        &chosen,
-        held.as_deref().unwrap_or("Choose\u{2026}"),
-    );
+    let trigger = trigger_label(&rows, &chosen, held.as_deref().unwrap_or("Choose\u{2026}"));
     (rows, trigger)
 }
 
@@ -1434,4 +1428,68 @@ pub fn pair_rows(app: &AppState, form: &NewAgentForm) -> Vec<(String, Option<Pai
             HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rows() -> Vec<(String, Option<&'static str>)> {
+        vec![
+            ("Configured".to_string(), None),
+            ("Claude Code \u{b7} mdn".to_string(), Some("cc")),
+            (String::new(), None),
+            ("Default".to_string(), None),
+            ("Codex".to_string(), Some("codex")),
+            (String::new(), None),
+            ("Already chosen".to_string(), None),
+            ("Claude Code (ACP)".to_string(), Some("acp")),
+        ]
+    }
+
+    fn labels<'a>(rows: &'a [(String, Option<&'static str>)]) -> Vec<&'a str> {
+        rows.iter().map(|(label, _)| label.as_str()).collect()
+    }
+
+    /// A search keeps each surviving group's heading, because the heading is what the row means:
+    /// `Already chosen` is the only thing saying the pinned row is the form's own answer rather
+    /// than one more offer, and filtering it away turned it back into an offer.
+    #[test]
+    fn a_search_keeps_the_heading_over_the_rows_it_left() {
+        let shown = filtered_rows(rows(), "acp");
+        assert_eq!(
+            labels(&shown),
+            vec!["Already chosen", "Claude Code (ACP)"],
+            "the one group with a row left, heading and all"
+        );
+    }
+
+    /// The hairlines are dropped and put back between whichever groups survive: never leading,
+    /// never trailing, never two in a row.
+    #[test]
+    fn a_search_leaves_no_orphaned_hairline() {
+        let shown = filtered_rows(rows(), "codex");
+        assert_eq!(labels(&shown), vec!["Default", "Codex"]);
+
+        let shown = filtered_rows(rows(), "c");
+        assert_eq!(
+            labels(&shown),
+            vec![
+                "Configured",
+                "Claude Code \u{b7} mdn",
+                "",
+                "Default",
+                "Codex",
+                "",
+                "Already chosen",
+                "Claude Code (ACP)",
+            ],
+            "three groups left, two hairlines between them"
+        );
+
+        assert!(
+            filtered_rows(rows(), "zzz").is_empty(),
+            "nothing left is nothing drawn \u{2014} not a list of headings"
+        );
+    }
 }

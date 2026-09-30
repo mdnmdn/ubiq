@@ -883,6 +883,8 @@ fn record_for(root: &Root) -> ProjectRecord {
         lanes: Vec::new(),
         runs_on: None,
         initials: String::new(),
+        definitions_use_global: true,
+        definitions_allowed: Vec::new(),
         // A drone writes nothing down at all, so the mode that decides *where* it would is the
         // plain one — there is no `.ubiq/` to make on the far machine and nobody to make it.
         storage: ubiq_proto::projects::StorageMode::UbiqManaged,

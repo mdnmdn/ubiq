@@ -1549,6 +1549,8 @@ impl Coordinator {
                 managed_repos,
                 lanes,
                 runs_on,
+                definitions_use_global,
+                definitions_allowed,
             } => {
                 let managed_changed = managed_repos.is_some();
                 let replies = self.projects.update(
@@ -1563,6 +1565,8 @@ impl Coordinator {
                     managed_repos,
                     lanes,
                     runs_on,
+                    definitions_use_global,
+                    definitions_allowed,
                 );
                 self.answer(client, replies);
                 // A level the user just changed takes effect now, not at the next open: turning

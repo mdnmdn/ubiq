@@ -1850,12 +1850,11 @@ fn integrations() -> AnyElement {
 /// The Agent definitions section: whether this project uses the globals, and the list it uses
 /// instead.
 ///
-/// **Ticked is the answer until the project writes a setup of its own.** The globals are what a
-/// start in any project is offered, so a project that has written nothing has nothing to say here
-/// — and unticking is what says "this project has its own", which is the gesture that enables the
-/// list and the `Add agent` beside it. The globals stay in that list, ticked and not editable
-/// from here: a project adds to what it inherits, it does not take from it, and the app-wide
-/// settings screen is where a global is edited.
+/// **Ticked is the record's own default**, and it is the record that holds it: the globals are
+/// what a start in any project is offered, and unticking narrows this project to the globals it
+/// names one by one, plus whatever it has written itself. The globals stay in the list either
+/// way, each with its own tick and a `Clone to project` — a global is edited where it was
+/// written, so taking one into a project means copying it.
 fn agent_definitions(
     app: &AppState,
     form: Form,
@@ -1993,11 +1992,14 @@ fn project_definitions(
         .iter()
         .map(|definition| crate::ui::settings::definition_row(app, definition, Some(project), cx))
         .collect();
+    let scope = app.workbench.settings.definition_scope(project);
     let global_rows: Vec<AnyElement> = globals
         .iter()
         .map(|definition| {
             let shadowed = own.iter().any(|it| it.id == definition.id);
-            inherited_row(app, definition, shadowed)
+            let inherited =
+                scope.use_global || scope.allowed.iter().any(|it| it == &definition.id);
+            inherited_row(app, definition, project, shadowed, inherited, cx)
         })
         .collect();
 
@@ -2043,12 +2045,26 @@ fn project_definitions(
     )
 }
 
-/// One global, as a project screen shows it: what it is and what it runs, and no action.
+/// One global, as a project screen shows it: what it is, whether this project inherits it, and
+/// the one action a project screen may take on it.
 ///
-/// A global is edited where it was written. Drawn ticked because that is what it is — on offer
-/// here — and struck through in words when this project has written a setup of the same name,
-/// which shadows it inside this project only.
-fn inherited_row(app: &AppState, definition: &AgentDefinition, shadowed: bool) -> AnyElement {
+/// **The tick is the project's answer, not the global's state.** It writes the definition's id
+/// into — or out of — `ProjectRecord::definitions_allowed`, so unticking a global takes it out of
+/// what a start here is offered and leaves it untouched everywhere else. A global is still edited
+/// where it was written, which is why the only button is `Clone to project`: that makes a
+/// project-local copy, and the copy is editable here.
+///
+/// A row is struck through in words when this project has written a setup of the same id, which
+/// shadows it inside this project only, or when the global itself is switched off. Neither is
+/// something the tick can fix, so both rows are drawn faint and their tick is not offered.
+fn inherited_row(
+    app: &AppState,
+    definition: &AgentDefinition,
+    project: ProjectId,
+    shadowed: bool,
+    inherited: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let harness = app
         .workbench
         .agent_types
@@ -2056,11 +2072,18 @@ fn inherited_row(app: &AppState, definition: &AgentDefinition, shadowed: bool) -
         .find(|it| it.id == definition.agent_type)
         .map(|it| it.label.clone())
         .unwrap_or_else(|| definition.agent_type.clone());
-    let note = match (shadowed, definition.disabled) {
-        (true, _) => " \u{2014} shadowed by this project's own".to_string(),
-        (false, true) => " \u{2014} off".to_string(),
-        (false, false) => String::new(),
+    let note = match (shadowed, definition.disabled, inherited) {
+        (true, _, _) => " \u{2014} shadowed by this project's own".to_string(),
+        (false, true, _) => " \u{2014} off".to_string(),
+        (false, false, false) => " \u{2014} not inherited here".to_string(),
+        (false, false, true) => String::new(),
     };
+    let muted = shadowed || definition.disabled || !inherited;
+    // A shadowed or switched-off global is not on offer here whatever this project says, so the
+    // tick has nothing to decide and toggling it would write an answer with no effect.
+    let settled = shadowed || definition.disabled;
+    let toggle_id = definition.id.clone();
+    let clone_id = definition.id.clone();
 
     div()
         .flex()
@@ -2069,13 +2092,20 @@ fn inherited_row(app: &AppState, definition: &AgentDefinition, shadowed: bool) -
         .py_1()
         .child(check_box(
             ElementId::Name(format!("project-definition-global-{}", definition.id).into()),
-            !shadowed && !definition.disabled,
-            |_, _, _| {},
+            inherited && !settled,
+            cx.listener(move |this, _, _, cx| {
+                if settled {
+                    return;
+                }
+                this.set_project_definition_inherited(project, toggle_id.clone(), !inherited, cx);
+            }),
         ))
         .child(
             div()
+                .flex_1()
+                .min_w(px(0.))
                 .text_size(theme::font(Family::Chrome, Role::Body))
-                .text_color(if shadowed || definition.disabled {
+                .text_color(if muted {
                     theme::text_faint()
                 } else {
                     theme::text()
@@ -2085,6 +2115,18 @@ fn inherited_row(app: &AppState, definition: &AgentDefinition, shadowed: bool) -
                     definition.id
                 ))),
         )
+        // Absent on a global this project already shadows: the copy is the row above, and a second
+        // one would only be `<id> copy` beside it.
+        .when(!shadowed, |row| {
+            row.child(ghost_button(
+                ElementId::Name(format!("project-definition-global-{}-clone", definition.id).into()),
+                None,
+                "Clone to project",
+                cx.listener(move |this, _, _, cx| {
+                    this.clone_definition(clone_id.clone(), Some(project), cx)
+                }),
+            ))
+        })
         .into_any_element()
 }
 

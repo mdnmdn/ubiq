@@ -35,12 +35,82 @@ impl AppState {
 
     /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
     /// The one thing a click in the sidebar does.
+    ///
+    /// **Only ever visible in `RailMode::AGENTS`** — the agents columns are the centre in that
+    /// mode alone (`ui/rail.rs`). Call [`Self::reveal_agent_for_mode`] instead unless the current
+    /// mode is already known to be `AGENTS`; it is this, there, and a chat panel everywhere else.
     pub fn reveal_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
         if let Some(agents) = self.agents_mut(cx) {
             agents.reveal(agent);
         }
         self.refill_columns = true;
         cx.notify();
+    }
+
+    /// Reveal an agent on whatever surface the current rail mode can actually show.
+    ///
+    /// `reveal_agent` only ever puts an agent in the agents columns, which draw as the centre in
+    /// `RailMode::AGENTS` alone (`ui/rail.rs`) — calling it from any other mode reveals an agent
+    /// onto a surface nothing draws, which reads as nothing happening at all (`T-266`, `T-275`).
+    /// This is the one place that picks the right surface for the mode on screen:
+    ///
+    /// - `RailMode::AGENTS`: exactly `reveal_agent`.
+    /// - Everywhere else: a chat panel in the dock. An existing tab already attached to this
+    ///   agent is revealed as-is — never a second one minted for the same conversation; failing
+    ///   that, an existing tab attached to nothing is attached and revealed; failing that, one is
+    ///   minted. `PanelEdit::Reveal`, not `Open`: this is a gesture (a Start, or a row picked from
+    ///   the attach menu), so a put-away right region has to come back, the same reason
+    ///   `open_chat_tab_now` already reveals rather than merely opens.
+    ///
+    /// **Every chat slot already taken is not a reason to show nothing.** `free_chat_slot` hands
+    /// out a fixed band of `CHATS_MAX` composer slots, so a project that has accumulated that many
+    /// tabs can mint no more — and falling back to `reveal_agent` there put the conversation in
+    /// the agents columns, which nothing draws outside `RailMode::AGENTS`, so the gesture read as
+    /// doing nothing in exactly the modes this method exists to serve (`T-275`). The last resort
+    /// is therefore to **re-point the project's last chat tab** at this agent: a view is never the
+    /// workspace, so moving one costs nothing that was not already the user's to move, and the
+    /// conversation it was looking at is one click away on that tab's own attach control.
+    /// `reveal_agent` is left for the one case with no tab to re-point at all — no project, or a
+    /// project with no chats.
+    pub fn reveal_agent_for_mode(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        if self.workbench.rail_mode == RailMode::AGENTS {
+            self.reveal_agent(agent, cx);
+            return;
+        }
+        let attached = self
+            .open_project(cx)
+            .and_then(|open| open.chats.iter().find(|tab| tab.attached == Some(agent)))
+            .map(|tab| tab.id);
+        let chat = if let Some(id) = attached {
+            Some(id)
+        } else if let Some(id) = self
+            .open_project(cx)
+            .and_then(|open| open.chats.iter().find(|tab| tab.attached.is_none()))
+            .map(|tab| tab.id)
+        {
+            self.attach_chat(id, Some(agent), cx);
+            Some(id)
+        } else if let Some(id) = self.open_chat_tab(cx) {
+            self.attach_chat(id, Some(agent), cx);
+            Some(id)
+        } else if let Some(id) = self
+            .open_project(cx)
+            .and_then(|open| open.chats.last())
+            .map(|tab| tab.id)
+        {
+            self.attach_chat(id, Some(agent), cx);
+            Some(id)
+        } else {
+            None
+        };
+        match chat {
+            Some(id) => {
+                self.pending_panels
+                    .push(PanelEdit::Reveal(PanelKind::Chat(id)));
+                cx.notify();
+            }
+            None => self.reveal_agent(agent, cx),
+        }
     }
 
     /// Add an agent to one column's strip. What a column's `+` does — grouping it with whatever is
@@ -1373,19 +1443,20 @@ impl AppState {
 
     /// Raise the New agent form directly, skipping the `+` menu's first stage.
     ///
-    /// The titlebar's shortcut is the menu's row 0 with the stop left out: [`Self::aim_start`]
-    /// says where the conversation lands once it does, the same call [`Self::pick_new_agent_menu`]
-    /// makes for that row, and the surface is picked the same way — the chat strip in the IDE and
-    /// in Tasks (`T-109`: the board's own `+ New agent` reaches this, and a start it raises has to
-    /// land in the right dock beside the task it was asked from, the same as `assign_task_to_agent`
-    /// already lands one), an agents-screen column everywhere else.
+    /// **This start aims at nothing, and that is the point.** It used to aim at
+    /// `NewAgentSurface::Chat` in IDE and Tasks, which routed the answer through the
+    /// `(None, true, _)` arm of `Message::ConversationStarted` — `open_chat_tab_now`, whose whole
+    /// contract is *mint a new view*. A `+` in the chat strip means that; a titlebar button
+    /// labelled *New agent* does not, and minting one tab per press walked the project through the
+    /// `CHATS_MAX` slot band until `free_chat_slot` answered `None` and Start silently stopped
+    /// doing anything at all (`T-275`). Leaving the aim clear takes the `(None, false, false)` arm
+    /// instead, and [`Self::reveal_agent_for_mode`] is what places it: the agents columns in
+    /// `RailMode::AGENTS`, a chat panel in the right dock in every other project mode — which is
+    /// the same answer the old surface split was reaching for, arrived at once rather than per
+    /// mode, and reusing a tab rather than adding one. `T-109`'s claim still holds: the board's own
+    /// `+ New agent` reaches this in Tasks, and a chat panel in the right dock is where it lands.
     pub fn open_new_agent_direct(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let surface = if matches!(self.workbench.rail_mode, RailMode::IDE | RailMode::TASKS) {
-            NewAgentSurface::Chat
-        } else {
-            NewAgentSurface::Agents
-        };
-        self.aim_start(surface, cx);
+        self.clear_aim();
         self.open_new_agent(window, cx);
     }
 
@@ -1573,11 +1644,12 @@ impl AppState {
     ) {
         match surface {
             NewAgentSurface::Agents => self.reveal_agent(agent, cx),
-            NewAgentSurface::Chat => {
-                if let Some(id) = self.open_chat_tab_now(cx) {
-                    self.attach_chat(id, Some(agent), cx);
-                }
-            }
+            // No room left in the slot band is not a reason to show nothing — the same fallback
+            // `Message::ConversationStarted`'s own chat arm takes (`T-275`).
+            NewAgentSurface::Chat => match self.open_chat_tab_now(cx) {
+                Some(id) => self.attach_chat(id, Some(agent), cx),
+                None => self.reveal_agent_for_mode(agent, cx),
+            },
             NewAgentSurface::Sink => self.set_sink_conversation(agent, cx),
         }
     }

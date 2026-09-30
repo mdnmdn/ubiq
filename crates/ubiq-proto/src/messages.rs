@@ -1106,6 +1106,15 @@ pub enum Message {
         /// is; see [`DroneChange`] for why this is not an `Option<Option<_>>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         runs_on: Option<DroneChange>,
+        /// Whether this project inherits every global agent definition. Absent leaves it as it is;
+        /// see [`crate::projects::ProjectRecord::definitions_use_global`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definitions_use_global: Option<bool>,
+        /// Which global definitions it inherits while that flag is off. Absent leaves the set as
+        /// it is; `Some` replaces the whole list, the way `search_excludes` does. See
+        /// [`crate::projects::ProjectRecord::definitions_allowed`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definitions_allowed: Option<Vec<String>>,
     },
     /// Override the letters the rail's badge shows for this project, in place of the name's own
     /// first letter. Capped at two characters; an empty string clears the override and returns

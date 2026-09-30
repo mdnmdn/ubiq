@@ -1577,6 +1577,13 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // `new_agent_form`/`new_agent_form_mut` (`app/new_agent.rs`) read `workbench.new_agent`
+        // ahead of this form whenever both happen to be `Some` — "only one of the two is ever up"
+        // is the intended invariant, not something enforced elsewhere. A New agent modal left open
+        // behind Settings would otherwise take over every mutator below, including the Save that
+        // writes this definition down, under whatever scope that other form carries (typically
+        // none, i.e. global) rather than the one this form is about to be given.
+        self.workbench.new_agent = None;
         let mut form = match &definition {
             Some(definition) => NewAgentForm::from_definition(definition, Purpose::AgentDefinition),
             None => NewAgentForm::new(Purpose::AgentDefinition),

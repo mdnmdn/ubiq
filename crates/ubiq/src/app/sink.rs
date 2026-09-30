@@ -579,18 +579,29 @@ impl AppState {
 
     /// Whether this project's Agent definitions section is on the globals or on its own list.
     ///
-    /// The tick is the section's own state, not a record the host keeps: what outlives the dialog
-    /// is whether the project has definitions of its own, which is what the tick is seeded from
-    /// when it opens. Unticking enables the list and the `Add agent` beside it; reticking it
-    /// hides the list, and a definition already written there stays written.
+    /// The tick is the **record's**, not the dialog's: it is sent to the host on the click, the
+    /// same immediacy the index and mission-term rows have, so closing the dialog keeps it
+    /// (`G358`). The field on `ProjectSettings` is only what the open dialog draws from, and the
+    /// kitchen sink's fixture — which has no project behind it — has nothing to send and keeps
+    /// its copy alone.
     pub fn toggle_definitions_use_global(&mut self, cx: &mut Context<Self>) {
-        match self.workbench.project_settings.as_mut() {
-            Some(settings) => settings.definitions_use_global = !settings.definitions_use_global,
-            None => {
-                self.sink.project.definitions_use_global = !self.sink.project.definitions_use_global
-            }
+        let Some(settings) = self.workbench.project_settings.as_mut() else {
+            self.sink.project.definitions_use_global = !self.sink.project.definitions_use_global;
+            cx.notify();
+            return;
+        };
+        let use_global = !settings.definitions_use_global;
+        settings.definitions_use_global = use_global;
+        let project = match settings.mode {
+            ProjectSettingsMode::Edit { project } => Some(project),
+            // A folder with no record yet has nowhere to put the answer; creating it writes a
+            // project on the globals, and the tick is made again on the dialog that reopens.
+            ProjectSettingsMode::Create { .. } => None,
+        };
+        match project {
+            Some(project) => self.set_project_definitions_use_global(project, use_global, cx),
+            None => cx.notify(),
         }
-        cx.notify();
     }
 
     /// Which colour the two project forms are editing: the live dialog's when it is up, the

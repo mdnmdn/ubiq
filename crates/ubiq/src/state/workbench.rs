@@ -214,14 +214,13 @@ pub struct ProjectSettings {
     /// The dialog's own nav, starting on General. The sink page keeps its separate
     /// [`crate::state::sink`] nav — a dialog left on Tools must not reopen the sink there.
     pub nav: ProjectNav,
-    /// The Agent definitions section's `Use the global agents` tick.
+    /// The Agent definitions section's `Use the global agents` tick, as this dialog draws it.
     ///
-    /// **Seeded from the definitions, not stored beside them.** A project that has written none of
-    /// its own is a project using the globals, so the tick opens on "yes" there and on "no" for a
-    /// project that has — the answer is what the definitions say, and a second record of it could
-    /// disagree with them. Unticking it enables the list and the `Add agent` beside it; the first
-    /// definition written is what makes the answer outlive the dialog. `G-` in `_docs/backlog.md`
-    /// is where a project that wants *only* its own, with no global on offer, is filed.
+    /// **Seeded from the record and written back to it.** The answer lives in
+    /// `ProjectRecord::definitions_use_global`, so a tick survives the dialog closing; this field
+    /// is the copy the open dialog draws from, updated by the same call that sends the
+    /// `UpdateProject`. Unticking it enables the inherited list, where each global is ticked
+    /// individually into `ProjectRecord::definitions_allowed`.
     pub definitions_use_global: bool,
     /// The storage mode a `SetProjectStorage` has been sent for and not answered yet.
     ///
@@ -1071,13 +1070,12 @@ impl WorkbenchState {
     /// setup — grouped so both are legible, read by every surface that offers a list of them and
     /// by the pick behind it.
     ///
-    /// **A bare harness is a row again, but only where there is no pairing to offer instead.**
-    /// Starting one with nothing else answered is still what the New agent form is for, so a
-    /// harness some account has signed into is offered as that pairing and nothing else. But a
-    /// harness with *no* account signed into it ran nowhere at all: it appeared in no group, even
-    /// though it starts perfectly well on its own default configuration. Those are the `Default`
-    /// group — one [`HarnessChoice::Harness`] row each, under their own heading, **after**
-    /// `Configured`, because a signed-in pairing stays the first thing offered.
+    /// **Every conversable, offered harness gets a bare row too, signed-in or not.** Starting one
+    /// with nothing else answered is still what the New agent form is for — "run it with whatever
+    /// identity the harness would use itself" is a real and different answer from any account
+    /// pairing, not a fallback for harnesses no account has claimed. So the `Default` group is the
+    /// full offered-harness list, one [`HarnessChoice::Harness`] row each, under its own heading,
+    /// **after** `Configured`, because a signed-in pairing stays the first thing offered.
     ///
     /// Unavailable harnesses are still what a row draws disabled over, so a list says a tool is
     /// missing rather than silently omitting it.
@@ -1129,19 +1127,14 @@ impl WorkbenchState {
             })
             .collect();
 
-        // A harness no account signed into. Its default configuration is what it runs on, which is
-        // a real and working answer — and the only one it has, so leaving it out made an installed
-        // tool unreachable. Unavailable ones are kept for the same reason the pairs keep them: the
-        // row says the tool is missing rather than silently omitting it.
+        // Every conversable, offered harness, signed-in or not. Its default configuration is what
+        // it runs on with nothing else answered, which is a real and working answer in its own
+        // right — not only the one left for a harness no account has claimed. Unavailable ones are
+        // kept for the same reason the pairs keep them: the row says the tool is missing rather
+        // than silently omitting it.
         let bare: Vec<HarnessChoice> = conversable
             .iter()
             .copied()
-            .filter(|&index| {
-                let harness = &self.agent_types[index];
-                !accounts
-                    .iter()
-                    .any(|account| account.logged_in.contains(&harness.id))
-            })
             .map(HarnessChoice::Harness)
             .collect();
 
@@ -1217,9 +1210,10 @@ impl WorkbenchState {
     /// Whether this harness is an ACP second wire onto a tool that has a native one **and** its
     /// switch is off — the state in which it is offered for selection nowhere.
     ///
-    /// The switch itself lives on the Harnesses settings list, one row per such harness, and that
-    /// row stays drawn whatever the switch says: the list is the inventory of what exists, and
-    /// hiding the row would hide the switch.
+    /// Gated is gated everywhere, the `Installed` inventory included: the harness draws no row
+    /// there either. What keeps it reachable is the `Enable <tool> ACP` switch at the end of the
+    /// Harnesses section, which is drawn from [`Self::acp_siblings`] and so stays whatever the
+    /// switch says — that switch, and nothing else, is what says the wire exists while it is off.
     pub fn acp_sibling_gated(&self, harness: &AgentTypeInfo) -> bool {
         self.native_sibling(harness).is_some()
             && !self.settings.ui.acp_enabled.contains(&harness.id)
@@ -1355,8 +1349,8 @@ mod tests {
         assert_eq!(with(Vec::new()).harness_choices(&[], &[], None), Vec::new());
     }
 
-    /// Signing in is what puts a harness in `Configured` — and takes it out of `Default`, which is
-    /// for the harnesses that have no pairing to offer instead.
+    /// Signing in is what puts a harness in `Configured` — it does not take it out of `Default`,
+    /// which is the full offered-harness list regardless of who has signed in.
     #[test]
     fn accounts_are_the_configured_group() {
         let state = with(vec![harness("claude-code", true)]);
@@ -1377,13 +1371,17 @@ mod tests {
                     harness: 0,
                     account: "syn".to_string()
                 },
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
             ]
         );
     }
 
     /// An account is only offered for the harnesses it actually has a login for. One account
-    /// serving two harnesses is normal, and an account that serves neither offers nothing — the
-    /// harness it does not serve falls to `Default`, after the pairings and its own hairline.
+    /// serving two harnesses is normal, and an account that serves neither adds no pairing — but
+    /// every conversable harness, signed into or not, still gets its own `Default` row, after the
+    /// pairings and their own hairline.
     #[test]
     fn an_account_is_only_offered_where_it_is_signed_in() {
         let state = with(vec![
@@ -1410,6 +1408,8 @@ mod tests {
                 },
                 HarnessChoice::Separator,
                 HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Harness(1),
                 HarnessChoice::Harness(2),
             ]
         );
@@ -1481,6 +1481,10 @@ mod tests {
                     harness: 2,
                     account: "mdn".to_string()
                 },
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
+                HarnessChoice::Harness(2),
             ],
             "the indices are still positions in `agent_types`, gap and all"
         );
@@ -1561,12 +1565,15 @@ mod tests {
                     harness: 0,
                     account: "mdn".to_string()
                 },
+                HarnessChoice::Separator,
+                HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
             ]
         );
     }
 
-    /// On, it is a harness like any other — a pairing where it has one, a `Default` row where it
-    /// does not.
+    /// On, it is a harness like any other — a pairing where it has one, and a `Default` row
+    /// regardless.
     #[test]
     fn an_acp_sibling_is_offered_like_any_other_with_its_flag_on() {
         let state = with_acp_on(
@@ -1586,6 +1593,7 @@ mod tests {
                 },
                 HarnessChoice::Separator,
                 HarnessChoice::Label("Default".into()),
+                HarnessChoice::Harness(0),
                 HarnessChoice::Harness(1),
             ]
         );

@@ -25,7 +25,7 @@ use ubiq::state::agents::{COMPOSER_ROWS_MAX, COMPOSER_ROWS_MIN};
 use ubiq::state::conversation::{
     ActivityPanel, Conversation, Pending, Run, TranscriptScroll, short_model_label,
 };
-use ubiq::state::{NewAgentStage, NewAgentSurface, WindowRegistry};
+use ubiq::state::{NewAgentStage, NewAgentSurface, RailMode, WindowRegistry};
 use ubiq::ui::conversation::{self, ConversationView};
 use ubiq_proto::acp::{
     AcpCapabilitiesRecord, AcpCapabilityGroupRecord, AcpCapabilityRecord, AcpImplementationRecord,
@@ -155,6 +155,8 @@ fn a_project() -> ProjectSnapshot {
             lanes: Vec::new(),
             runs_on: None,
             initials: String::new(),
+            definitions_use_global: true,
+            definitions_allowed: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
@@ -649,9 +651,16 @@ fn a_one_shot_harness_is_known_before_a_turn_is_typed(cx: &mut TestAppContext) {
 /// The failure this guards against looked like nothing happening at all: the host started the
 /// harness, the agent reached the projection, and the screen stayed empty — because the sidebar
 /// lists agents *under* a session and the window's own session is not one the work invented.
+///
+/// Run in Agents mode, so "put on the field" (a column) is what a fresh start with no other claim
+/// on it lands on — see `crates/ubiq/tests/chat.rs` for what one lands on in every other mode
+/// instead, since `AppState::reveal_agent_for_mode` no longer puts it on a column there.
 #[gpui::test]
 fn a_started_agent_is_listed_under_its_session_and_put_on_the_field(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
+    fixture.state.update(cx, |state, cx| {
+        state.set_rail_mode(RailMode::AGENTS, cx);
+    });
     let id = AgentId::generate();
     let agent = an_agent(id);
     let session = agent.session;
@@ -1955,6 +1964,12 @@ fn the_todo_panel_shares_the_activity_bar_with_subagents(cx: &mut TestAppContext
 #[gpui::test]
 fn up_in_an_empty_composer_recalls_the_last_turn(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
+    // Agents mode, so the fresh start lands on column 0 — `recall_last_message` reads that
+    // column's composer, and outside Agents mode a fresh start no longer lands on one at all
+    // (`AppState::reveal_agent_for_mode`).
+    fixture.state.update(cx, |state, cx| {
+        state.set_rail_mode(RailMode::AGENTS, cx);
+    });
     let id = AgentId::generate();
     fixture.started(an_agent(id), cx);
     fixture.update(
@@ -2455,4 +2470,68 @@ fn an_acp_harness(id: &str, label: &str, acp: bool) -> AgentTypeInfo {
         quota: Default::default(),
         shares_home: false,
     }
+}
+
+/// REPRO (bug 1): the New agent dialog's own Start, driven end to end — the form raised from the
+/// titlebar (no aim), a bare harness with no account picked, then Start. What has to be true:
+/// the modal closes, and `Message::StartConversation` leaves for the host.
+#[gpui::test]
+fn the_dialog_start_sends_a_start_conversation_and_closes_the_form(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![AgentTypeInfo {
+                id: "claude-code".to_string(),
+                label: "Claude Code".to_string(),
+                command: "claude".to_string(),
+                available: true,
+                chat: true,
+                acp: false,
+                modes: Vec::new(),
+                unattended_mode: None,
+                keeps_sessions: true,
+                quota: Default::default(),
+                shares_home: false,
+            }],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent(window, cx);
+                state.pick_new_agent_target(
+                    ubiq::state::new_agent::Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+            })
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let agent_id = fixture
+        .state
+        .update(cx, |state, cx| state.start_new_agent(cx))
+        .expect("Start answered with the id it minted");
+    cx.run_until_parked();
+
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.new_agent_form().is_none()),
+        "the modal must close on Start — if it is still up, the refusal is in \
+         `take_startable_new_agent`"
+    );
+    let started = fixture.said().into_iter().any(|message| {
+        matches!(message, Message::StartConversation { agent_id: id, .. } if id == agent_id)
+    });
+    assert!(started, "Start must put a `StartConversation` on the bus");
 }

@@ -1607,8 +1607,10 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// ([`crate::state::WorkbenchState::native_sibling`]). The native path is the better one — no
 /// adapter process, no npm dependency between Ubiq and the model, and three readings no ACP
 /// adapter states (`D95`) — so offering both wires for one tool in every start menu is two rows
-/// where the user has one question. On, the harness is offered everywhere any other is; off, it is
-/// offered nowhere, and only its row above and this switch say it exists at all.
+/// where the user has one question. On, the harness is offered everywhere any other is, including
+/// `harness_list`'s inventory above; off, it is offered nowhere and this switch is the only place
+/// it is still named at all — so this list always draws every sibling regardless of its switch,
+/// or turning one back on becomes impossible.
 ///
 /// At the end of the section because it qualifies the list above rather than adding to it.
 fn acp_switches(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
@@ -1630,7 +1632,8 @@ fn acp_switches(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
                 "Offer this tool's Agent Client Protocol wire as a harness of its own. Off, the \
                  native wire is the only one on offer \u{2014} it runs no adapter process and \
                  states the context window, a delegate's spend and the full token breakdown, none \
-                 of which ACP carries. The row above stays either way.",
+                 of which ACP carries. Off, its row above in Installed disappears too; this \
+                 switch is what brings it back.",
                 check_box(
                     ElementId::Name(format!("app-settings-acp-enable-{}", info.id).into()),
                     on,
@@ -1657,84 +1660,98 @@ fn acp_switches(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
 /// with an override keeps its button whatever else is true, or the path it names becomes
 /// uneditable.
 ///
-/// **An ACP harness with a native sibling keeps its row even with its switch off**, because this
-/// list is the inventory of what exists and the switch is on the row.
+/// **An ACP harness with a native sibling and its switch off draws no row here at all**
+/// ([`crate::state::WorkbenchState::acp_sibling_gated`]) — this list is the inventory of what is
+/// offered, and a gated sibling is offered nowhere. Its `Enable <tool> ACP` switch, drawn by
+/// [`acp_switches`], is the only thing that still names it, and turning that switch on is what
+/// brings its row back.
 fn harness_list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let now_ms = chrono::Utc::now().timestamp_millis();
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .children(app.workbench.agent_types.iter().map(|info| {
-            let id = info.id.clone();
-            let custom = app
-                .workbench
-                .settings
-                .host
-                .agent_commands
-                .contains_key(&info.id);
-            let discovered = info.available && !custom;
-            // A harness row runs as nobody, so the reading it shows is its first signed-in
-            // identity's — the same figure that identity's own block draws, not a second one, and
-            // named as that identity's rather than left to read as the harness's own total. With
-            // no identity there is nothing to read at all, which `harness_quota` says in as many
-            // words.
-            let account = app
-                .workbench
-                .settings
-                .accounts_for(&info.id)
-                .first()
-                .map(|it| it.id.clone());
-            div()
-                .flex()
-                .flex_col()
-                .child(
+        .children(
+            app.workbench
+                .agent_types
+                .iter()
+                .filter(|info| !app.workbench.acp_sibling_gated(info))
+                .map(|info| {
+                    let id = info.id.clone();
+                    let custom = app
+                        .workbench
+                        .settings
+                        .host
+                        .agent_commands
+                        .contains_key(&info.id);
+                    let discovered = info.available && !custom;
+                    // A harness row runs as nobody, so the reading it shows is its first signed-in
+                    // identity's — the same figure that identity's own block draws, not a second one, and
+                    // named as that identity's rather than left to read as the harness's own total. With
+                    // no identity there is nothing to read at all, which `harness_quota` says in as many
+                    // words.
+                    let account = app
+                        .workbench
+                        .settings
+                        .accounts_for(&info.id)
+                        .first()
+                        .map(|it| it.id.clone());
                     div()
                         .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .py_1()
-                        .child(
-                            div()
-                                .text_size(theme::font(Family::Chrome, Role::Body))
-                                .text_color(if info.available {
-                                    theme::text()
-                                } else {
-                                    theme::text_faint()
-                                })
-                                .child(SharedString::from(info.label.clone())),
-                        )
+                        .flex_col()
                         .child(
                             div()
                                 .flex()
                                 .items_center()
-                                .gap_1()
-                                .children((!discovered).then(|| {
-                                    ghost_button(
-                                        ElementId::Name(
-                                            format!("app-settings-{}-command", info.id).into(),
-                                        ),
-                                        None,
-                                        "Command",
-                                        cx.listener(move |this, _, window, cx| {
-                                            this.open_harness_command(Some(id.clone()), window, cx)
-                                        }),
-                                    )
-                                }))
-                                .children(capabilities_button(app, &info.id, cx)),
-                        ),
-                )
-                .child(harness_quota(
-                    app,
-                    account.as_deref(),
-                    &info.id,
-                    now_ms,
-                    QuotaScope::Harness,
-                    cx,
-                ))
-                .into_any_element()
-        }))
+                                .justify_between()
+                                .gap_2()
+                                .py_1()
+                                .child(
+                                    div()
+                                        .text_size(theme::font(Family::Chrome, Role::Body))
+                                        .text_color(if info.available {
+                                            theme::text()
+                                        } else {
+                                            theme::text_faint()
+                                        })
+                                        .child(SharedString::from(info.label.clone())),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .children((!discovered).then(|| {
+                                            ghost_button(
+                                                ElementId::Name(
+                                                    format!("app-settings-{}-command", info.id)
+                                                        .into(),
+                                                ),
+                                                None,
+                                                "Command",
+                                                cx.listener(move |this, _, window, cx| {
+                                                    this.open_harness_command(
+                                                        Some(id.clone()),
+                                                        window,
+                                                        cx,
+                                                    )
+                                                }),
+                                            )
+                                        }))
+                                        .children(capabilities_button(app, &info.id, cx)),
+                                ),
+                        )
+                        .child(harness_quota(
+                            app,
+                            account.as_deref(),
+                            &info.id,
+                            now_ms,
+                            QuotaScope::Harness,
+                            cx,
+                        ))
+                        .into_any_element()
+                }),
+        )
         .into_any_element()
 }
 

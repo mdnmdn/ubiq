@@ -53,6 +53,8 @@ const PROJECT_RECORD_FIELDS: &[&str] = &[
     "runs_on",
     "initials",
     "storage",
+    "definitions_use_global",
+    "definitions_allowed",
 ];
 
 /// The `version` at the top of a file, before anything else about it is believed.

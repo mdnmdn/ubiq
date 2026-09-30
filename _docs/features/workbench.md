@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-09-29
-verified: 2026-09-29
+updated: 2026-09-30
+verified: 2026-09-30
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -395,20 +395,23 @@ message and the answer is the layer: the form closes when the `Catalog` for its 
 definition form.
 
 **Agent definitions is the project's own nav item, and it opens on `Use the global agents`.**
-Ticked is the answer a project gives until it has written a setup of its own: the globals are what
-a start in any project is offered, so a project with nothing of its own has nothing to say here.
-Unticking it enables the list below — this project's own setups, each with `Clone` and `Edit`,
-`Add agent` above them under the same no-harness guard the application section's carries, and then
-the globals, listed ticked and with no action on them, because a global is edited where it was
-written and a project adds to what it inherits rather than taking from it. A global a project
-setup shadows by name says so on its row.
+Ticked is the default and means every global is on offer at a start aimed here. Unticking it
+enables the list below — this project's own setups, each with `Clone` and `Edit`, `Add agent`
+above them under the same no-harness guard the application section's carries, and then the
+globals, each with **its own tick** and a `Clone to project`. Unticking a global takes it out of
+what a start in this project is offered and changes it nowhere else; `Clone to project` copies it
+into the project under a free name, which is how a global is taken in and edited here, because a
+global itself is still edited where it was written. A global a project setup shadows by name says
+so on its row, is drawn faint, and offers neither control — the copy above it is the row that
+answers for it.
 
-**The tick is seeded, not stored.** What outlives the dialog is whether the project has
-definitions of its own — `ProjectSettings::definitions_use_global` is read off
-`project_definitions` when the dialog opens and is the section's own state thereafter. There is
-deliberately no record of it on the wire: a second record of "does this project use the globals"
-could disagree with the definitions themselves. A project that wants *only* its own, with no
-global on offer at all, is `G358` in the backlog.
+**The tick is the record's.** `ProjectRecord.definitions_use_global` and
+`ProjectRecord.definitions_allowed` are what outlive the dialog, written by an `UpdateProject`
+sent on the click the way the index and mission-term rows are, and honoured at resolve time.
+`ProjectSettings::definitions_use_global` is only what the open dialog draws from. With the flag
+on, every global is inherited; with it off, only the ids on `definitions_allowed` are. The
+project's own setups are in scope either way — narrowing the inheritance never takes away a setup
+the project wrote itself — and shadowing by id is unchanged.
 
 An agent definition saved here belongs to the
 project, which is a fact about where it is stored and not a field it carries (`D158`): the host
@@ -702,18 +705,40 @@ machine has, and a row that puts the console on screen. A runnable tool is not o
 the titlebar's own play triangle and chevron are where a project's tools are reached. What the rows are and what a click does is
 `feat-panes`'s. Past a divider, the titlebar offers search (a stub), then two shortcuts that need a
 project the same reason the pane region's own `+` does: **New agent** (`IconName::Bot`) raises the
-New agent form directly, picking the chat strip as its surface in IDE mode and the agents screen
-everywhere else — the same aim the `+` menu's own first row makes, with that menu's first stage
-skipped. **A narrow chevron is flush against it**, half the width of a control and with no gap, so
-the pair reads as one split button rather than two: it opens the **hidden agents** — every live
-agent of the project the user cannot currently see, drawn by no surface at all (`T-266`, `T-275`).
-**Read against the agent model, not the pane model**: an agent is not necessarily a pane with a
-dock panel — one an agents-column tab or a chat tab draws is drawn by that surface, never by the
-dock — so the candidate set is `AppState::attach_rows`'s own live agents (`work.agents` narrowed to
-`AgentsView::live`), and "shown" is the union every surface can show a conversation on: every
-agents-column tab and every chat tab's `attached`, since this chevron is global rather than
-per-surface. Picking a row *reveals* the agent — front of its column, or a column of its own —
-and nothing is respawned. A harness started as a plain terminal pane rather than as a conversation
+New agent form directly, with the `+` menu's first stage skipped. **It aims the start at no
+surface at all**, and where the conversation lands is decided when it arrives, by
+`AppState::reveal_agent_for_mode` — the same rule a row picked from the chevron beside it follows,
+so *started* and *attached* land in the same place in the same mode. Aiming it at the chat strip in
+IDE and Tasks is what it used to do, and that routed the answer through `open_chat_tab_now()`,
+whose contract is *mint a new view*: one fresh tab per press, until the project had used up the
+`CHATS_MAX` slot band and Start silently did nothing at all (`T-275`). **A narrow chevron is flush
+against it**, half the width of a control and with no gap, so
+the pair reads as one split button rather than two: it opens the **agents to attach** — every
+live agent the *current rail mode* draws nowhere, so attaching it is what makes it visible
+(`T-266`, `T-275`). **Read against the agent model, not the pane model**: an agent is not
+necessarily a pane with a dock panel — one an agents-column tab or a chat tab draws is drawn by
+that surface, never by the dock — so the candidate set is `AppState::attach_rows`'s own live
+agents (`work.agents` narrowed to `AgentsView::live`). **"Shown" is mode-relative, not a global
+union**: the columns are the centre only in `RailMode::AGENTS` (`ui/rail.rs`), so a column tab
+counts as shown only while the window is in Agents mode; a chat tab's own `attached` is drawn in
+every mode except Agents, Control and the sink (`state::dock::PanelKind::Chat`), so it counts as
+shown in all of those and nowhere else. An agent sitting in an agents column while the window is
+in IDE mode is thus listed — nothing IDE mode renders shows it — even though a switch to Agents
+mode would. With nothing to attach the menu says so in one disabled row, "No agents to attach".
+Picking a row *reveals* the agent through `AppState::reveal_agent_for_mode` — in `RailMode::AGENTS`
+exactly `reveal_agent`, front of its column or a column of its own; everywhere else a chat panel in
+the dock, reusing a tab already attached to the agent or one attached to nothing before minting a
+fresh one, and bringing a put-away right region back the way any other freshly attached chat does.
+**A full slot band re-points the project's last chat tab** rather than giving up: `free_chat_slot`
+hands out a fixed band of `CHATS_MAX`, and falling back to `reveal_agent` there put the
+conversation in the agents columns, which nothing draws outside Agents mode — the gesture read as
+doing nothing in exactly the modes this path exists to serve (`T-275`). A view is never the
+workspace, so moving one costs nothing that was not already the user's to move, and what it was
+looking at is one click away on that tab's own attach control. `reveal_agent` is left only for a
+window with no chat tab to re-point at all. Nothing is respawned, and revealing never itself switches the rail mode: a row picked outside
+Agents mode leaves the reader in whatever mode they were in, now showing the agent through a chat
+tab there — the fix for `G387`, closed. A harness
+started as a plain terminal pane rather than as a conversation
 (*Start in terminal*) mints no `AgentId` at all, so it is invisible to that rule and keeps the
 older, narrower one instead: a pane whose harness the host offers as an agent type, out of sight
 the way `feat-panes`'s dock-visibility rule says — a tab's `Hide`, a rail mode that does not draw
@@ -1024,9 +1049,12 @@ both are readings of a login. A harness that states no limit anything can read s
 the section, off by default.** "Enable Claude Code ACP", "Enable Codex ACP" —
 `UiSettings::acp_enabled`, persisted on the interface's own layer like every other UI setting, and
 an absent field in an older blob is the same answer as an unticked box. While a switch is off, that
-harness is offered by no surface a run begins ([`workbench-agents.md`](workbench-agents.md)), but
-**its row under `Installed` stays**: that list is the inventory of what exists, and hiding the row
-would hide the switch. Which harnesses have a switch is read off the harness list, not written down
+harness is offered by no surface a run begins ([`workbench-agents.md`](workbench-agents.md)), and
+**its row under `Installed` draws nowhere either**
+(`WorkbenchState::acp_sibling_gated`, `ui::settings::harness_list`): gated is gated in the
+inventory too, and the switch — drawn for every sibling regardless of its own state — is the only
+thing that still names the harness while it is off. Turning the switch on brings the row back.
+Which harnesses have a switch is read off the harness list, not written down
 (`WorkbenchState::native_sibling`), so a tool whose only wire is ACP never gets one.
 
 **Command opens the login modal on its one question: the command Ubiq starts that harness with.**
@@ -1770,8 +1798,9 @@ pane. It switches to the IDE when the mode has no pane region (`RailMode::has_pa
 `settle_mode()` has forced the incoming mode's own regions and after `hide_emptied_regions()` has
 had its say, because both would otherwise shut the region again in the same frame. A chevron beside it opens
 the same new-pane menu the terminal `+` offers, with its shells and runnable tools. `open_new_agent_direct()` is
-the titlebar's New agent shortcut, making the same `aim_start()` call `pick_new_agent_menu()` makes
-for the `+` menu's first row, with that menu's own first stage skipped. `open_teams_add_agent()` is
+the titlebar's New agent shortcut: the `+` menu's first row with both the menu's first stage *and*
+its `aim_start()` left out, so `Message::ConversationStarted` takes its unaimed arm and
+`reveal_agent_for_mode()` places the answer. `open_teams_add_agent()` is
 the Teams toolbar's, and the one that can aim somewhere other than the active project:
 `pick_teams_add_agent()` answers its `MenuId::TeamsAddAgent` menu by index into
 `window_projects()`, and `start_teams_agent()` writes the chosen project into

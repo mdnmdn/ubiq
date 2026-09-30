@@ -111,6 +111,37 @@ pub struct ProjectRecord {
     /// catalogue version does not move.
     #[serde(default, skip_serializing_if = "StorageMode::is_default")]
     pub storage: StorageMode,
+    /// Whether a start inside this project inherits **every** global agent definition.
+    ///
+    /// `true` — the default, and what every record written before this field existed meant — is
+    /// the whole global list on offer here. `false` narrows it to [`Self::definitions_allowed`].
+    /// The project's own definitions are in scope either way, and shadow a global of the same id
+    /// either way: this field says nothing about them.
+    ///
+    /// A record, not a derivation. It used to be read off "has this project written a setup of
+    /// its own", which cannot express a project that wants some of the globals and none of its
+    /// own, and which lost the user's answer the moment the dialog closed (`G358`).
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub definitions_use_global: bool,
+    /// Which global definitions this project inherits when [`Self::definitions_use_global`] is
+    /// `false`, by [`crate::messages::AgentDefinition::id`]. Ignored while that flag is `true`.
+    ///
+    /// An allow-list rather than a deny-list: a global added after the user narrowed this project
+    /// is not silently on offer here, which is the answer a narrowed project meant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub definitions_allowed: Vec<String>,
+}
+
+/// The default for [`ProjectRecord::definitions_use_global`] — a bare `true` serde can name.
+fn yes() -> bool {
+    true
+}
+
+/// Whether [`ProjectRecord::definitions_use_global`] is at its default, so the catalogue keeps
+/// naming only what is unusual.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_yes(value: &bool) -> bool {
+    *value
 }
 
 /// Where a project's own data — its tasks, its metadata, the configuration that belongs to the
@@ -436,6 +467,8 @@ mod tests {
             runs_on: None,
             initials: String::new(),
             storage: StorageMode::default(),
+            definitions_use_global: true,
+            definitions_allowed: Vec::new(),
         }
     }
 

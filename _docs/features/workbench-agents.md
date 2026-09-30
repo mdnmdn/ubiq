@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-09-29
-verified: 2026-09-29
+updated: 2026-09-30
+verified: 2026-09-30
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -128,15 +128,16 @@ this form's job.
 
 What survives is these groups, in this order. **`Configured`** is one row per harness-and-identity
 signed in — `HarnessChoice::Pair`, the pair the interface calls a harness — because a pairing the
-user set up is the first thing worth offering. **`Default`** is one row per remaining harness, the
-ones no account has signed into: `HarnessChoice::Harness`, which names no account, so the run uses
-the harness's own configuration in place — a login is the account's (`D194`) and a run with none
-has one anyway, its own. Without that group an installed harness nobody had signed into was
-offered nowhere at all, though it starts perfectly well (`T-276`). A harness with a pairing is in
-`Configured` and not in `Default`: the two groups partition the list rather than repeating it. A
-harness whose binary is not on this machine is still what a row draws disabled over in either
-group, so a list says a tool is missing rather than omitting it. The form asks the model, the level
-and the mode below whichever row is picked.
+user set up is the first thing worth offering. **`Default`** is one row per every conversable,
+offered harness, signed in or not: `HarnessChoice::Harness`, which names no account, so the run
+uses the harness's own configuration in place — a login is the account's (`D194`), and "run it as
+whatever identity the harness would use itself" is a real and different answer from any pairing,
+not a fallback for harnesses no account has claimed. Without that group an installed harness
+nobody had signed into was offered nowhere at all, though it starts perfectly well (`T-276`); a
+harness that *is* signed into gets both — a `Configured` pairing and its own `Default` row, since
+the two groups no longer partition the list. A harness whose binary is not on this machine is
+still what a row draws disabled over in either group, so a list says a tool is missing rather than
+omitting it. The form asks the model, the level and the mode below whichever row is picked.
 
 **A harness with an ACP wire *and* a native one is in neither group unless its switch is on.**
 `claude-code-acp` and `codex-acp` are second ids onto tools that already have a native wire, and

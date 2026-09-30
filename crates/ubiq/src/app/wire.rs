@@ -673,6 +673,7 @@ impl AppState {
                 let keep = self.bus.projects_not_on(host);
                 for project in &projects {
                     self.bus.note_project(project.record.id, host);
+                    self.note_definition_scope(&project.record);
                 }
                 cx.global_mut::<WindowRegistry>()
                     .replace_all_except(projects, &keep);
@@ -686,6 +687,7 @@ impl AppState {
                 let id = project.record.id;
                 let root = project.record.path.clone();
                 self.bus.note_project(id, host);
+                self.note_definition_scope(&project.record);
                 cx.global_mut::<WindowRegistry>().apply(project);
                 // There is no clone-success message: a finished clone is a registered project, so
                 // this is where the modal learns it worked and gets out of the way.
@@ -712,12 +714,14 @@ impl AppState {
 
             Message::ProjectChanged { project } => {
                 self.bus.note_project(project.record.id, host);
+                self.note_definition_scope(&project.record);
                 cx.global_mut::<WindowRegistry>().apply(project);
                 cx.notify();
             }
 
             Message::ProjectForgotten { project_id } => {
                 self.bus.forget_project(project_id);
+                self.workbench.settings.definition_scopes.remove(&project_id);
                 cx.global_mut::<WindowRegistry>().forget(project_id);
                 self.sync_projects(cx);
             }
@@ -2067,17 +2071,22 @@ impl AppState {
                     (Some(chat), _, _) => self.attach_chat(chat, Some(id), cx),
                     // The chat strip's `+`: **this** is where the tab comes into being, so a form
                     // that was dismissed instead left no empty tab behind.
-                    (None, true, _) => {
-                        if let Some(chat) = self.open_chat_tab_now(cx) {
-                            self.attach_chat(chat, Some(id), cx);
-                        }
-                    }
+                    // A slot band with nothing left in it is not a reason to show nothing: the
+                    // strip's `+` asked for a *new* view and there is no room for one, so the
+                    // conversation takes whatever view the mode can give it instead of vanishing
+                    // (`T-275`).
+                    (None, true, _) => match self.open_chat_tab_now(cx) {
+                        Some(chat) => self.attach_chat(chat, Some(id), cx),
+                        None => self.reveal_agent_for_mode(id, cx),
+                    },
                     (None, false, true) => self.sink.messages.agent = Some(id),
-                    (None, false, false) => {
-                        if let Some(open) = self.projects.get_mut(&project_id) {
-                            open.agents.reveal(id);
-                        }
-                    }
+                    // Nothing else claimed it — the New agent dialog's own Start, or an
+                    // attach-menu row with no chat asking. `reveal_agent_for_mode` puts it
+                    // wherever the mode on screen can actually show it: the agents columns in
+                    // `RailMode::AGENTS`, a chat panel in the dock otherwise — landing it in the
+                    // columns unconditionally left Start looking like it did nothing in every
+                    // other mode (`T-266`, `T-275`).
+                    (None, false, false) => self.reveal_agent_for_mode(id, cx),
                 }
                 // A launch composed for a mission owes one assignment, parked until there is a
                 // `WorkAgent` to assign — see `WorkbenchState::agent_assignments`. Spent here,

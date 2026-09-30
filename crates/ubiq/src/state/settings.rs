@@ -687,6 +687,17 @@ pub struct SettingsState {
     /// [`AgentDefinition::project`]. Read through [`Self::definitions_in`], never directly — a surface
     /// that means "the definitions on offer here" wants the global ones too.
     pub project_definitions: Vec<AgentDefinition>,
+    /// What each project says about inheriting the globals, keyed by project: the two fields of
+    /// its record, `definitions_use_global` and `definitions_allowed`.
+    ///
+    /// **A mirror of the catalogue, not a second truth.** The record is the host's; this is the
+    /// projection [`Self::definitions_in`] needs, kept here because that question is answered
+    /// from `SettingsState` alone and the catalogue lives in a gpui global no plain method can
+    /// read. Written only where a `ProjectList`, `ProjectAdded` or `ProjectChanged` arrives.
+    ///
+    /// A project with no entry — one this window has not heard about yet — is on the globals,
+    /// which is the record's own default.
+    pub definition_scopes: HashMap<ProjectId, DefinitionScope>,
     /// The definition form, while one is up. The same form the New agent modal is drawn from — a
     /// definition is a saved answer to the same questions — with the name read out of its field at
     /// save time, the way the login modal reads its own.
@@ -871,6 +882,27 @@ pub struct ReconnectState {
     pub generation: u64,
 }
 
+/// What one project says about inheriting the global agent definitions, off its record.
+///
+/// [`Self::default`] is the record's own default — every global on offer — so a project this
+/// window has not heard about behaves exactly as it did before the setting existed.
+#[derive(Clone, Debug)]
+pub struct DefinitionScope {
+    /// Every global is inherited. While this is `true`, `allowed` says nothing.
+    pub use_global: bool,
+    /// The ids of the globals inherited while `use_global` is `false`.
+    pub allowed: Vec<String>,
+}
+
+impl Default for DefinitionScope {
+    fn default() -> Self {
+        Self {
+            use_global: true,
+            allowed: Vec::new(),
+        }
+    }
+}
+
 impl SettingsState {
     /// The accounts that can run `agent_type`, for a picker that must not offer an identity
     /// which would start the harness logged out.
@@ -881,17 +913,32 @@ impl SettingsState {
             .collect()
     }
 
+    /// What `project` says about inheriting the globals, which is the record's default for a
+    /// project this window has not heard about yet.
+    pub fn definition_scope(&self, project: ProjectId) -> DefinitionScope {
+        self.definition_scopes
+            .get(&project)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// The definitions on offer inside `project`: that project's own first, then every global one
-    /// it does not shadow by name.
+    /// it inherits and does not shadow by name.
     ///
     /// `None` — a surface with no project in hand — is the global list alone, which is what the
     /// app-wide settings screen draws and what every start outside a project sees. This is the
     /// interface's copy of the rule the host resolves a run by, so a name means the same thing
     /// in the picker as it does at launch.
+    ///
+    /// **Which globals are inherited is the project's answer**, not a constant: a project whose
+    /// record has `definitions_use_global` off inherits only the ids on its
+    /// `definitions_allowed`. The project's own definitions are in scope either way — narrowing
+    /// the inheritance never takes away a setup the project wrote itself.
     pub fn definitions_in(&self, project: Option<ProjectId>) -> Vec<AgentDefinition> {
         let Some(project) = project else {
             return self.definitions.clone();
         };
+        let scope = self.definition_scope(project);
         let scoped: Vec<AgentDefinition> = self
             .project_definitions
             .iter()
@@ -902,6 +949,7 @@ impl SettingsState {
         offered.extend(
             self.definitions
                 .iter()
+                .filter(|global| scope.use_global || scope.allowed.iter().any(|id| id == &global.id))
                 .filter(|global| !scoped.iter().any(|it| it.id == global.id))
                 .cloned(),
         );
@@ -999,6 +1047,7 @@ impl Default for SettingsState {
             accounts: Vec::new(),
             definitions: Vec::new(),
             project_definitions: Vec::new(),
+            definition_scopes: HashMap::new(),
             definition_form: None,
             catalog: Default::default(),
             bundled: Vec::new(),

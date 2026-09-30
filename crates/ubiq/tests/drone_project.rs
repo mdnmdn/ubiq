@@ -54,6 +54,8 @@ fn snapshot(id: ProjectId, name: &str, runs_on: Option<DroneOrigin>) -> ProjectS
             lanes: Vec::new(),
             runs_on,
             initials: String::new(),
+            definitions_use_global: true,
+            definitions_allowed: Vec::new(),
         },
         health: ProjectHealth::Ok,
         open_panes: 0,
