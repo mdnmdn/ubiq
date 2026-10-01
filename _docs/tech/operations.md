@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-26
-verified: 2026-09-27
+updated: 2026-10-01
+verified: 2026-10-01
 code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -323,6 +323,7 @@ The wording says which half of the problem it is, and they have opposite fixes.
 | `operation not permitted`, from the shell or from `ls` | The policy denied the path. The binary is there and the run cannot reach it | `environment.toml`, below |
 | `command not found` | Nothing was denied — the name is not on the run's `PATH` | `PATH` in `environment.toml`, or `agent_commands` in Settings for a harness binary |
 | `cannot find GOROOT`, `DOTNET_CLI_HOME not set`, `.. is not a directory` | The tool ran and could not find its own root. A variable is missing, not a grant | The `[env]` table |
+| On Windows, `dotnet restore` fails with `Value cannot be null. (Parameter 'path1')`, or `dotnet build` hangs with every MSBuild node idle | A session variable isol8 does not pass (`ProgramData`, `SystemDrive`, …), or MSBuild's `\\.\pipe\MSBuild<pid>` pipes denied | `WINDOWS_ENV_PASS` and the generated `toolchains/dotnet` layer in `crates/agent-manager/src/isolate.rs`; restart Ubiq |
 | The harness hangs on its splash screen, with no error | A denied lookup the harness blocks on, not a path | `DEV_LAYERS` in `crates/agent-manager/src/isolate.rs` |
 | A confined `swift` or `xcodebuild` is denied | isol8's `integrations/xcode` layer is in `BROKEN_LAYERS`, so the SDK and toolchain paths are named by hand | `APPLE_SDK_RO_ROOTS` / `APPLE_RW_HOME_ROOTS` in `crates/agent-manager/src/isolate.rs` |
 | `framework 'FoundationModels' not found`, or `unable to load standard library`, from a build pulling in `foundation-models` (`assist-apple`) — `just dev`, `just verbose`, `just build`, `just bundle`, `just bundle-win`, `just apple` or `just assist` | The Swift/clang module cache or SwiftPM's home symlinks are denied, so `swiftc` cannot load the SDK's frameworks | `~/.cache/clang` and `~/.swiftpm` are in `APPLE_RW_HOME_ROOTS`; re-restart Ubiq |
