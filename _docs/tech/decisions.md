@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-09-29
+updated: 2026-10-01
 verified: 2026-09-29
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -1978,6 +1978,8 @@ cannot know and the menu must not offer what cannot run there. Wait-on-exit is i
 `PaneExited` a waiting pane dims its dot through `pane_stopped()` and the tab stays with its output
 until it is closed, so closing — the tab's × through `close_pane()` — stays the one path that ends
 a pane, and the host learns of it through the same `CloseWorkspace` as every other close.
+
+`D197` adds the rows the user did not write: discovered runner targets ride `ToolsListed` beside these.
 
 **Why:** a per-field update protocol would buy nothing here — a row is edited as a row, and two
 windows editing two rows are both whole-list writes that last-writer-wins the same way any settings
@@ -4898,6 +4900,35 @@ config root even for a project that keeps its data in `.ubiq/` (`G355`), so it d
 clone. An install and a search shell out to `git` and, for the MCP registry, make an HTTP request, so
 they need `git` and a network on the host, and are answered late on a thread of their own. A linked
 skill is a path on the host's disk, which a clone of the project on another machine may not have.
+
+### D197 — A project's runner targets are discovered, cached and never stored, and the run chevron opens a picker
+
+A project's `justfile`, `Makefile` and `mise.toml` list what is worth running, and a user
+who wrote a tool row per recipe would be keeping a second copy that drifts. The host reads them
+instead, and the interface offers them beside the rows the user wrote.
+
+**A discovered tool is a `ListedTool` with `ToolOrigin::Discovered { runner }`, and nothing writes
+it down.** The runner sources are a seeded `ubiq_host::runners::Registry` on `Contributions`, a host
+service for `D189`'s reason: resolved by id, never drawn. A scan runs on its own thread because
+`just` and `mise` are CLIs, each bounded by a two-second timeout, and the coordinator keeps the last
+result per project in memory. `ListTools` is answered from that cache at once; a scan starts when
+the project opens or when the cache is more than three seconds old, and `ToolsListed` is sent again
+only when the list changed. `ToolId::derived` is an FNV-1a hash of `runner:target` rather than a
+minted ULID, so the id is the same on every run, build and host and a starred target survives. A
+target runs as a tool with `wait_on_exit` and `single_instance` set, which is what makes "one live
+run per tool" a host rule. `Message::StopPane` is the matching verb: kill the process, keep the pane.
+
+**The run chevron is a filter picker, not a menu.** Rows are favourites, recents, defined tools and
+discovered ones, with a star, Play, Stop and Restart per row; favourites and recents are `ViewPrefs`
+text ids, per project. The bar-menu container loses its run-tool block, since a picker has no flat
+row list to register, and a second edition adds a runner by registering a source on the host and a
+`RunnerKindSpec` on the interface.
+
+**Cost:** a target added to a runner file appears on the next open or scan, not instantly, because
+nothing watches the file. Two projects' `just build` share one id, so the id alone does not say
+which project a run belongs to and the host checks `single_instance` per project. `StopPane` is a
+hangup, not a graceful terminate, until `Pty` exposes a pid. A hung runner CLI costs two seconds of
+staleness and no more, and a CLI that is not installed is an empty list with no message saying so.
 
 ## Related docs
 

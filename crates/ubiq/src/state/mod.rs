@@ -41,6 +41,7 @@ pub mod plan;
 pub mod prefs;
 pub mod remote;
 pub mod remote_hosts;
+pub mod run_picker;
 pub mod scene;
 pub mod script;
 pub mod search;

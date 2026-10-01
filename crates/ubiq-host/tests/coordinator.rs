@@ -52,6 +52,7 @@ fn coordinator() -> (Hub, Client) {
         work,
         settings,
         ubiq_host::tasksrc::Registry::with_defaults(),
+        ubiq_host::runners::Registry::with_defaults(),
         pending,
     );
     let client = hub.connect();
@@ -89,6 +90,7 @@ fn coordinator_on_disk() -> (Hub, Client, std::path::PathBuf) {
         work,
         settings,
         ubiq_host::tasksrc::Registry::with_defaults(),
+        ubiq_host::runners::Registry::with_defaults(),
         pending,
     );
     let client = hub.connect();
@@ -1059,6 +1061,7 @@ fn coordinator_with_catalogue() -> (Hub, Client, std::path::PathBuf) {
         work,
         settings,
         ubiq_host::tasksrc::Registry::with_defaults(),
+        ubiq_host::runners::Registry::with_defaults(),
         pending,
     );
     let client = hub.connect();

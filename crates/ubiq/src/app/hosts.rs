@@ -213,6 +213,7 @@ fn pane_id_of(message: &Message) -> Option<PaneId> {
         | Message::TerminalResize { pane_id, .. }
         | Message::Focus { pane_id }
         | Message::CloseWorkspace { pane_id }
+        | Message::StopPane { pane_id }
         | Message::HarnessLoginStarted { pane_id, .. }
         | Message::HarnessLoginLink { pane_id, .. } => Some(*pane_id),
         Message::WorkspaceSpawned { workspace } => Some(workspace.id),

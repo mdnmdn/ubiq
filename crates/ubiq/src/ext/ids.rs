@@ -114,8 +114,6 @@ pub const MENU: SlotId = SlotId::new("menu");
 
 /// The titlebar's new-project chevron, beside the `+` next to the project picker.
 pub const MENU_NEW_PROJECT: SlotId = SlotId::new("menu/new-project");
-/// The titlebar's run chevron, beside the play triangle.
-pub const MENU_RUN_TOOL: SlotId = SlotId::new("menu/run-tool");
 /// The new-pane chevron, in the titlebar and on the terminal region's tab bar.
 pub const MENU_NEW_PANE: SlotId = SlotId::new("menu/new-pane");
 /// The titlebar's overflow chevron.
@@ -126,10 +124,19 @@ pub const MENU_HIDDEN_AGENTS: SlotId = SlotId::new("menu/hidden-agents");
 // ── The base's own blocks, one per menu ─────────────────────────────
 
 pub const MENU_NEW_PROJECT_BASE: SlotId = SlotId::new("ubiq.menu.new-project");
-pub const MENU_RUN_TOOL_BASE: SlotId = SlotId::new("ubiq.menu.run-tool");
 pub const MENU_NEW_PANE_BASE: SlotId = SlotId::new("ubiq.menu.new-pane");
 pub const MENU_OVERFLOW_BASE: SlotId = SlotId::new("ubiq.menu.overflow");
 pub const MENU_HIDDEN_AGENTS_BASE: SlotId = SlotId::new("ubiq.menu.hidden-agents");
+
+// ── The runner-kind container ───────────────────────────────────────
+
+/// The kinds of runner a discovered tool can come from — one group, since a kind has nothing to
+/// be ordered against.
+pub const RUNNER_KIND: SlotId = SlotId::new("runner-kind");
+
+pub const RUNNER_MAKE: SlotId = SlotId::new("ubiq.runner.make");
+pub const RUNNER_JUST: SlotId = SlotId::new("ubiq.runner.just");
+pub const RUNNER_MISE: SlotId = SlotId::new("ubiq.runner.mise");
 
 // ── The kitchen sink's own demo registrations (`X11`, invariant 9, M4) ──────
 //

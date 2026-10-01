@@ -266,30 +266,6 @@ pub fn new_project(app: &AppState, _cx: &App) -> Vec<MenuEntry> {
     ]
 }
 
-/// What the run menu says when this host has no tool it could run here. Drawn disabled: a menu
-/// that opened onto nothing at all would read as a control that did not work.
-pub const NO_TOOLS_ROW: &str = "No tools for this project";
-
-/// The titlebar's run chevron: every runnable tool this project offers, machine-wide rows and the
-/// project's own together, in the order the host listed them.
-///
-/// `WorkbenchState::run_tool_rows` is still what says which tools are applicable — that is the
-/// host's own stamp, and the play triangle beside the chevron reads the same list.
-pub fn run_tool(app: &AppState, _cx: &App) -> Vec<MenuEntry> {
-    let rows = app.workbench.run_tool_rows();
-    if rows.is_empty() {
-        return vec![MenuEntry::heading(NO_TOOLS_ROW)];
-    }
-    rows.iter()
-        .map(|&at| {
-            let name = app.workbench.tools[at].tool.name.clone();
-            MenuEntry::new(SharedString::from(name))
-                .icon(IconName::Play)
-                .on(move |this, _, cx| this.run_tool_at(at, cx))
-        })
-        .collect()
-}
-
 /// The trailing row of the new-pane menu, which is not a shell: it brings the console back on
 /// screen.
 pub const CONSOLE_ROW: &str = "Logs";
@@ -303,7 +279,7 @@ pub const CONSOLE_ROW: &str = "Logs";
 ///
 /// **No harness is a row here**: starting an agent is the New agent form's job, which asks the
 /// identity, the model, the level and the mode. **No runnable tool either** — those are the
-/// titlebar's own play control's, through [`run_tool`].
+/// run picker's (`ui::run_tool_menu`) and the titlebar's play control's.
 pub fn new_pane(app: &AppState, cx: &App) -> Vec<MenuEntry> {
     let has_project = app.project(cx).is_some();
     let detached = app.detached_panes(cx);
@@ -337,8 +313,8 @@ pub fn new_pane(app: &AppState, cx: &App) -> Vec<MenuEntry> {
     entries
 }
 
-/// What the hidden-agents menu says when nothing is hidden. Drawn disabled, for
-/// [`NO_TOOLS_ROW`]'s reason.
+/// What the hidden-agents menu says when nothing is hidden. Drawn disabled: a menu that
+/// opened onto nothing at all would read as a control that did not work.
 pub const NO_HIDDEN_AGENTS_ROW: &str = "No agents to attach";
 
 /// The chevron beside New agent: every live agent the current mode does not draw, so attaching it
@@ -506,7 +482,7 @@ pub fn overflow(app: &AppState, cx: &App) -> Vec<MenuEntry> {
     ]
 }
 
-/// The base's five blocks, one per menu, registered the way a second edition registers its own.
+/// The base's four blocks, one per menu, registered the way a second edition registers its own.
 pub fn blocks(reg: &mut crate::ext::Registry<crate::ext::menu::MenuBlockSpec>) {
     use crate::ext::menu::{MenuBlockSpec, register};
 
@@ -516,7 +492,6 @@ pub fn blocks(reg: &mut crate::ext::Registry<crate::ext::menu::MenuBlockSpec>) {
             ids::MENU_NEW_PROJECT,
             new_project as fn(&AppState, &App) -> Vec<MenuEntry>,
         ),
-        (ids::MENU_RUN_TOOL_BASE, ids::MENU_RUN_TOOL, run_tool),
         (ids::MENU_NEW_PANE_BASE, ids::MENU_NEW_PANE, new_pane),
         (ids::MENU_OVERFLOW_BASE, ids::MENU_OVERFLOW, overflow),
         (

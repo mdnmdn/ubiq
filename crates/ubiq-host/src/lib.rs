@@ -57,6 +57,8 @@
 //! - `tasksrc`: binding a project's board to a board somewhere else — the provider trait, the
 //!   binding and its link table, the `tasksrc.toml` sidecar, and Trello as the first provider
 //!   (the provider itself behind `listener`, since it makes HTTP requests)
+//! - `runners`: the targets a project's `justfile`, `Makefile` and `mise.toml` offer, served as
+//!   tools the user never wrote — the source trait, its registry, and the three base sources
 //! - `index`: the full-text index that speeds up content search (behind `index`)
 //! - `notifications`: telling the desktop about a notification (behind `desktop`)
 //! - `remote`, `links`: the rest of what `listener` gates
@@ -125,6 +127,7 @@ pub mod remote;
 pub mod reply;
 #[cfg(feature = "git")]
 pub mod repos;
+pub mod runners;
 pub mod search;
 pub mod settings;
 pub mod shells;

@@ -96,6 +96,23 @@ pub struct ToolRun {
     pub id: ToolId,
 }
 
+/// Where a listed tool came from: a row the user wrote, or a target the host found.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolOrigin {
+    /// A row the user wrote, in the machine list or a project's.
+    #[default]
+    Defined,
+    /// A target the host found in a project's runner file. Never stored: it is read again on
+    /// every [`Message::ListTools`], and its [`ToolDef::id`] is [`ToolId::derived`] from the
+    /// runner and the target so it is the same id each time.
+    ///
+    /// [`Message::ListTools`]: crate::messages::Message::ListTools
+    Discovered {
+        /// The runner source's id — `make`, `just`, `mise`, or one a second edition contributes.
+        runner: String,
+    },
+}
+
 /// One tool as a menu offers it: the definition, whose list it came from, and whether the host
 /// answering runs it on its own platform.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +121,9 @@ pub struct ListedTool {
     pub scope: Scope,
     pub tool: ToolDef,
     pub applicable: bool,
+    /// Whether the user wrote this row or the host found it. Absent on the wire is `Defined`.
+    #[serde(default)]
+    pub origin: ToolOrigin,
 }
 
 /// Parse the env textbox: one `KEY=VALUE` per line. Returns the pairs and the lines that were
@@ -156,6 +176,13 @@ mod tests {
             single_instance: false,
             starting_folder: None,
         }
+    }
+
+    #[test]
+    fn a_derived_id_is_stable_and_tells_keys_apart() {
+        assert_eq!(ToolId::derived("just:build"), ToolId::derived("just:build"));
+        assert_ne!(ToolId::derived("just:build"), ToolId::derived("just:test"));
+        assert_ne!(ToolId::derived("just:build"), ToolId::derived("make:build"));
     }
 
     #[test]

@@ -412,6 +412,10 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter repositories\u{2026}"));
         let clone_url_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("https://github.com/owner/name"));
+
+        // The run picker's filter. Emptied and focused whenever the picker opens.
+        let run_tool_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter tools\u{2026}"));
         let clone_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Folder name"));
 
         // The feedback modal's fields. Cleared whenever the modal closes, so a second report never
@@ -1375,6 +1379,17 @@ impl AppState {
                 }
             },
         ));
+        // The run picker's filter: new rows, and the cursor back to the top.
+        subscriptions.push(cx.subscribe_in(
+            &run_tool_input,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let typed = input.read(cx).value().to_string();
+                    this.retype_run_picker(typed, cx);
+                }
+            },
+        ));
         subscriptions.push(cx.subscribe_in(
             &clone_url_input,
             window,
@@ -1562,6 +1577,7 @@ impl AppState {
             remote_root_input.read(cx).focus_handle(cx),
             project_remote_root_input.read(cx).focus_handle(cx),
             clone_filter_input.read(cx).focus_handle(cx),
+            run_tool_input.read(cx).focus_handle(cx),
             clone_url_input.read(cx).focus_handle(cx),
             clone_name_input.read(cx).focus_handle(cx),
             feedback_title_input.read(cx).focus_handle(cx),
@@ -1863,6 +1879,7 @@ impl AppState {
             new_mission_task_query,
             account_rename_input,
             clone_filter_input,
+            run_tool_input,
             clone_url_input,
             clone_name_input,
             feedback_title_input,

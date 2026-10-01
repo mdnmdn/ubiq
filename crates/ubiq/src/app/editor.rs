@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::run_picker;
 
 impl AppState {
     /// One open tab of the project on screen, by its key. What a file panel draws and what its tab
@@ -998,46 +999,180 @@ impl AppState {
         cx.notify();
     }
 
-    /// Open the titlebar's run chevron, anchored where it was clicked: every runnable tool this
-    /// project offers.
+    /// Open the titlebar's run picker, anchored where the chevron was clicked: a filter field with
+    /// the caret in it, over every tool this project offers.
     ///
     /// The list is asked for again here for [`Self::open_new_pane_menu`]'s reason: a tool added
-    /// in the settings since the window opened is offered without a restart. Whatever is already
-    /// known is what this frame draws; the answer replaces it.
-    pub fn open_run_tool_menu(&mut self, at: (f32, f32), cx: &mut Context<Self>) {
+    /// in the settings since the window opened is offered without a restart, and the project's
+    /// runner files are read again. Whatever is already known is what this frame draws; the
+    /// answer replaces it.
+    pub fn open_run_tool_menu(
+        &mut self,
+        at: (f32, f32),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.workbench.open_menu.is_some() {
             self.close_menu(cx);
         }
         self.workbench.open_menu = Some(MenuId::RunTool);
         self.workbench.run_tool_menu = Some(at);
+        self.workbench.run_tool_filter.clear();
+        self.workbench.run_tool_cursor = 0;
+        self.run_tool_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+            input.focus(window, cx);
+        });
         self.bus.send(Message::ListTools {
             project_id: self.project(cx),
         });
         cx.notify();
     }
 
-    /// Act on one row of the open run menu, by the row's index.
-    pub fn pick_run_tool_menu(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.workbench.open_menu = None;
-        self.workbench.run_tool_menu = None;
-        self.pick_menu_row(ids::MENU_RUN_TOOL, index, window, cx);
-    }
-
-    /// Dismiss the run menu — an outside click, or a pick already taken it.
+    /// Dismiss the run picker — an outside click, Escape, or a row that has done its work.
     pub fn dismiss_run_tool_menu(&mut self, cx: &mut Context<Self>) {
         self.workbench.open_menu = None;
         self.workbench.run_tool_menu = None;
+        self.workbench.run_tool_filter.clear();
+        cx.notify();
+    }
+
+    /// The field changed under an open picker: new rows, and the cursor back to the top.
+    pub(super) fn retype_run_picker(&mut self, typed: String, cx: &mut Context<Self>) {
+        if self.workbench.run_tool_menu.is_none() {
+            return;
+        }
+        self.workbench.run_tool_filter = typed;
+        self.workbench.run_tool_cursor = 0;
+        cx.notify();
+    }
+
+    /// What the run picker offers right now, as the window's own listing and the open project's
+    /// favourites and recents read.
+    pub fn run_picker_rows(&self, cx: &App) -> Vec<run_picker::PickerRow> {
+        let prefs = self.open_project(cx).map(|open| &open.prefs);
+        run_picker::rows(
+            &self.workbench.tools,
+            prefs.map_or(&[][..], |prefs| prefs.tool_favorites.as_slice()),
+            prefs.map_or(&[][..], |prefs| prefs.tool_recents.as_slice()),
+            &self.workbench.run_tool_filter,
+        )
+    }
+
+    /// Move the picker's keyboard cursor one row, stopping at the ends.
+    pub fn move_run_picker(&mut self, down: bool, cx: &mut Context<Self>) {
+        let last = self.run_picker_rows(cx).len().saturating_sub(1);
+        let at = &mut self.workbench.run_tool_cursor;
+        *at = match down {
+            true => (*at + 1).min(last),
+            false => at.saturating_sub(1),
+        };
+        cx.notify();
+    }
+
+    /// Enter in the picker: the row under the cursor does what clicking its name does.
+    pub fn press_run_picker(&mut self, cx: &mut Context<Self>) {
+        let rows = self.run_picker_rows(cx);
+        let at = self
+            .workbench
+            .run_tool_cursor
+            .min(rows.len().saturating_sub(1));
+        if let Some(row) = rows.get(at) {
+            self.activate_tool(row.index, cx);
+        }
+    }
+
+    /// The pane a listed tool is held by in the open project: the running one if there is one,
+    /// else a stopped one that is still kept (`wait_on_exit`). Returns the pane and whether it is
+    /// running.
+    pub fn tool_pane(&self, index: usize, cx: &App) -> Option<(PaneId, bool)> {
+        let listed = self.workbench.tools.get(index)?;
+        let panes = self.panes(cx);
+        let held = |running: bool| {
+            panes.iter().find(|pane| {
+                pane.running == running
+                    && pane
+                        .tool
+                        .as_ref()
+                        .is_some_and(|run| run.scope == listed.scope && run.id == listed.tool.id)
+            })
+        };
+        held(true)
+            .or_else(|| held(false))
+            .map(|pane| (pane.id, pane.running))
+    }
+
+    /// Clicking a row's name, or Enter on it: a tool with a pane is brought forward and given the
+    /// keyboard; one without is run. Either way the picker closes.
+    pub fn activate_tool(&mut self, index: usize, cx: &mut Context<Self>) {
+        match self.tool_pane(index, cx) {
+            Some((pane_id, _)) => {
+                self.reveal_pane_region(cx);
+                // A no-op for a pane already on screen, which only needs the keyboard.
+                self.reattach_pane(pane_id, cx);
+                self.pending_focus = Some(pane_id);
+                self.focus_pane(pane_id, cx);
+            }
+            None => self.run_tool_at(index, cx),
+        }
+        self.dismiss_run_tool_menu(cx);
+    }
+
+    /// The Play on a row. A tool with no pane is run; one whose pane is held but stopped is run
+    /// again in a fresh pane, the spent one taken away. A running tool has no Play — its row
+    /// offers Stop and Restart — so nothing here ever starts a second copy.
+    pub fn play_tool(&mut self, index: usize, cx: &mut Context<Self>) {
+        match self.tool_pane(index, cx) {
+            Some((_, true)) => {}
+            Some((pane_id, false)) => self.restart_pane_tool(pane_id, cx),
+            None => self.run_tool_at(index, cx),
+        }
+        self.dismiss_run_tool_menu(cx);
+    }
+
+    /// The Stop on a running row: kill the process, keep the pane. The picker stays up — the row
+    /// turns to Play when the host says the process is gone.
+    pub fn stop_tool(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some((pane_id, true)) = self.tool_pane(index, cx) {
+            self.bus.send(Message::StopPane { pane_id });
+        }
+    }
+
+    /// The Restart on a running row: replace the pane with a fresh run.
+    pub fn restart_tool(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some((pane_id, _)) = self.tool_pane(index, cx) {
+            self.restart_pane_tool(pane_id, cx);
+        }
+        self.dismiss_run_tool_menu(cx);
+    }
+
+    /// Whether the project has starred the tool at one index of the listing.
+    pub fn tool_is_favorite(&self, index: usize, cx: &App) -> bool {
+        let Some(listed) = self.workbench.tools.get(index) else {
+            return false;
+        };
+        let key = listed.tool.id.to_string();
+        self.open_project(cx)
+            .is_some_and(|open| open.prefs.tool_favorites.contains(&key))
+    }
+
+    /// The star on a row. The picker stays up: starring is not choosing.
+    pub fn toggle_tool_favorite(&mut self, index: usize, cx: &mut Context<Self>) {
+        let (Some(listed), Some(project)) = (self.workbench.tools.get(index), self.project(cx))
+        else {
+            return;
+        };
+        let key = listed.tool.id.to_string();
+        if let Some(open) = self.projects.get_mut(&project) {
+            run_picker::toggle_favorite(&mut open.prefs.tool_favorites, &key);
+        }
+        self.store_prefs(project);
         cx.notify();
     }
 
     /// Run the tool at one index of `WorkbenchState::tools`, if it is one this host can run.
     ///
-    /// The one place a listed row becomes a `RunTool`: the play button and the menu both come
+    /// The one place a listed row becomes a `RunTool`: the play button and the picker both come
     /// through here, so neither can start a tool the other would refuse.
     pub fn run_tool_at(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(listed) = self.workbench.tools.get(index) else {

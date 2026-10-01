@@ -16,12 +16,14 @@ use gpui_component::Root;
 use ubiq::app::{AppState, BusHub};
 use ubiq::ext::ids;
 use ubiq::state::dock::PanelKind;
+use ubiq::state::prefs::{self, ViewPrefs};
+use ubiq::state::run_picker::{self, PickerRow, Section};
 use ubiq::state::{RailMode, WindowRegistry, WorkbenchState};
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{PaneId, ProjectId, ToolId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot, Scope};
-use ubiq_proto::tools::{ListedTool, ToolDef};
+use ubiq_proto::tools::{ListedTool, ToolDef, ToolOrigin};
 
 /// Long enough for a message to cross a channel in the same process.
 const PATIENCE: Duration = Duration::from_millis(500);
@@ -78,13 +80,14 @@ impl Fixture {
         cx.run_until_parked();
     }
 
-    /// Open the run menu and pick one of its rows — the two gestures, on the menu's own indexing.
+    /// Open the run picker and click the name of one tool in it — the two gestures, on the
+    /// listing's own indexing.
     fn pick(&self, index: usize, cx: &mut TestAppContext) {
         self.window
             .update(cx, |_, window, cx| {
                 self.state.update(cx, |state, cx| {
-                    state.open_run_tool_menu((12.0, 34.0), cx);
-                    state.pick_run_tool_menu(index, window, cx);
+                    state.open_run_tool_menu((12.0, 34.0), window, cx);
+                    state.activate_tool(index, cx);
                 });
             })
             .expect("the window is open");
@@ -124,6 +127,18 @@ fn a_tool(name: &str, applicable: bool) -> ListedTool {
             starting_folder: None,
         },
         applicable,
+        origin: ToolOrigin::Defined,
+    }
+}
+
+/// A target the host found in a runner file, as `ToolsListed.project` carries it.
+fn a_target(name: &str, runner: &str) -> ListedTool {
+    ListedTool {
+        scope: Scope::Project(ProjectId::generate()),
+        origin: ToolOrigin::Discovered {
+            runner: runner.to_string(),
+        },
+        ..a_tool(name, true)
     }
 }
 
@@ -171,6 +186,139 @@ fn the_menu_offers_the_applicable_tools_only() {
     };
 
     assert_eq!(workbench.run_tool_rows(), vec![0, 2]);
+}
+
+/// The play triangle's list is the tools the user wrote: a discovered target is reached through
+/// the picker, never run by the triangle.
+#[test]
+fn the_play_triangle_skips_discovered_targets() {
+    let workbench = WorkbenchState {
+        tools: vec![a_target("build", "make"), a_tool("Watch", true)],
+        ..Default::default()
+    };
+
+    assert_eq!(workbench.run_tool_rows(), vec![1]);
+}
+
+fn keys(tools: &[ListedTool], at: &[usize]) -> Vec<String> {
+    at.iter().map(|&i| tools[i].tool.id.to_string()).collect()
+}
+
+fn shape(rows: Vec<PickerRow>) -> Vec<(Section, usize)> {
+    rows.into_iter()
+        .map(|row| (row.section, row.index))
+        .collect()
+}
+
+/// Favourites first, then the last three runs, then the user's own tools, then the discovered
+/// targets — those run before leading — and nothing is drawn twice.
+#[test]
+fn the_picker_orders_its_sections_and_draws_nothing_twice() {
+    use Section::*;
+    let tools = vec![
+        a_tool("Build", true),     // 0 defined
+        a_tool("Watch", true),     // 1 defined, favourite
+        a_target("lint", "just"),  // 2 discovered
+        a_target("test", "make"),  // 3 discovered, run before
+        a_target("docs", "mise"),  // 4 discovered
+        a_tool("Notarise", false), // 5 not applicable here
+        a_tool("Serve", true),     // 6 defined, run before
+    ];
+    let favorites = keys(&tools, &[1]);
+    // Newest first. The favourite and the inapplicable one are in it and must not repeat or show.
+    let recents = keys(&tools, &[1, 6, 5, 3]);
+
+    let rows = shape(run_picker::rows(&tools, &favorites, &recents, ""));
+
+    assert_eq!(
+        rows,
+        vec![
+            (Favorites, 1),
+            (Recent, 6),
+            (Recent, 3),
+            (Defined, 0),
+            (Discovered, 2),
+            (Discovered, 4),
+        ]
+    );
+}
+
+/// Only the last three runs are a section; an older one falls back to where it belongs.
+#[test]
+fn the_picker_shows_three_recents() {
+    use Section::*;
+    let tools = vec![
+        a_target("a", "make"),
+        a_target("b", "make"),
+        a_target("c", "make"),
+        a_target("d", "make"),
+    ];
+    let recents = keys(&tools, &[3, 2, 1, 0]);
+
+    let rows = shape(run_picker::rows(&tools, &[], &recents, ""));
+
+    // 0 was run too, so it leads the discovered section by recency — but it is not a Recent.
+    assert_eq!(
+        rows,
+        vec![(Recent, 3), (Recent, 2), (Recent, 1), (Discovered, 0)]
+    );
+}
+
+/// The user's project tools lead the machine's, within the written section.
+#[test]
+fn the_picker_puts_project_tools_before_machine_ones() {
+    let mut project = a_tool("Local", true);
+    project.scope = Scope::Project(ProjectId::generate());
+    let tools = vec![a_tool("Machine", true), project];
+
+    let rows = shape(run_picker::rows(&tools, &[], &[], ""));
+
+    assert_eq!(rows, vec![(Section::Defined, 1), (Section::Defined, 0)]);
+}
+
+/// A filter keeps the sections and cuts inside them, by subsequence on the name.
+#[test]
+fn the_picker_filters_inside_each_section() {
+    use Section::*;
+    let tools = vec![
+        a_tool("Build all", true),
+        a_tool("Watch", true),
+        a_target("build-docs", "mise"),
+        a_target("lint", "just"),
+    ];
+    let favorites = keys(&tools, &[1, 0]);
+    let recents = keys(&tools, &[2]);
+
+    let rows = shape(run_picker::rows(&tools, &favorites, &recents, "bld"));
+
+    assert_eq!(rows, vec![(Favorites, 0), (Recent, 2)]);
+    assert!(run_picker::rows(&tools, &favorites, &recents, "zzz").is_empty());
+}
+
+/// A run is remembered newest first, once, and the list is capped.
+#[test]
+fn recents_are_newest_first_deduped_and_capped() {
+    let mut recents = Vec::new();
+    for n in 0..30 {
+        run_picker::remember(&mut recents, n.to_string());
+    }
+    run_picker::remember(&mut recents, "25".to_string());
+
+    assert_eq!(recents.len(), run_picker::RECENTS_MAX);
+    assert_eq!(recents[0], "25");
+    assert_eq!(recents.iter().filter(|key| *key == "25").count(), 1);
+}
+
+/// Stars keep the order they were given in, and a second toggle takes one away.
+#[test]
+fn favourites_keep_their_order() {
+    let mut stars = Vec::new();
+    run_picker::toggle_favorite(&mut stars, "b");
+    run_picker::toggle_favorite(&mut stars, "a");
+    run_picker::toggle_favorite(&mut stars, "b");
+    run_picker::toggle_favorite(&mut stars, "c");
+
+    assert_eq!(stars, vec!["a", "c"]);
 }
 
 /// Control and the kitchen sink are not views onto a project's folder, so a pane started from
@@ -338,5 +486,63 @@ fn restart_is_a_row_only_when_there_is_something_to_restart() {
     assert_eq!(
         ubiq::ui::tab_menu::rows(&terminal, true, true),
         vec!["Rename\u{2026}", "Restart", "Close", "Unpin"],
+    );
+}
+
+/// Running a tool from the picker is remembered in the project's preferences, and starring one is
+/// too — both ride the existing per-project blob, so a restart finds them.
+#[gpui::test]
+fn runs_and_stars_are_written_to_the_projects_preferences(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let tools = vec![a_tool("Build", true), a_tool("Watch", true)];
+    let (build, watch) = (tools[0].tool.id.to_string(), tools[1].tool.id.to_string());
+    fixture.answer_tools(tools, cx);
+    let _ = fixture.said();
+
+    fixture.pick(1, cx);
+    fixture
+        .window
+        .update(cx, |_, _, cx| {
+            fixture
+                .state
+                .update(cx, |state, cx| state.toggle_tool_favorite(0, cx));
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let last = fixture
+        .said()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::SetPreferences { value, .. } => prefs::decode::<ViewPrefs>(&value),
+            _ => None,
+        })
+        .last()
+        .expect("the preferences were written");
+    assert_eq!(last.tool_recents, vec![watch]);
+    assert_eq!(last.tool_favorites, vec![build]);
+}
+
+/// Stopping a tool that has no live pane asks for nothing.
+#[gpui::test]
+fn stop_with_nothing_running_says_nothing(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_tools(vec![a_tool("Build", true)], cx);
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, _, cx| {
+            fixture.state.update(cx, |state, cx| state.stop_tool(0, cx));
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::StopPane { .. })),
+        "a stop was sent for a tool with no pane"
     );
 }

@@ -12,6 +12,7 @@ pub mod ids;
 pub mod menu;
 pub mod rail;
 mod registry;
+pub mod runner;
 pub mod settings;
 
 pub use id::SlotId;

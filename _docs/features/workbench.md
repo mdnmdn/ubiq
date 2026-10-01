@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-09-30
+updated: 2026-10-01
 verified: 2026-09-30
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -507,11 +507,22 @@ sit with the project's settings and its web link because that is what they are �
 project rather than of a terminal — and both are drawn only with a project open, for the same
 reason the new-pane control is: a tool runs in a project's folder. The triangle runs the **first**
 tool the project offers and its tooltip names it; with no tool to run it does nothing and says so.
-The chevron opens the list of every applicable tool, machine-wide rows and the project's own
-together in the order the host listed them, each behind the same play glyph; a host with none to
-offer draws one disabled row saying so, so the control never opens onto nothing. The list is asked
-for every time the chevron opens, which is what makes a tool added in the settings runnable without
-a restart. **Starting one brings the pane region on screen**: the bottom region opens if it was put
+The triangle runs only a tool the user wrote; a target the host discovered is reached from the
+chevron. **The chevron opens the run picker, a filter field over every applicable tool** (`ui::run_tool_menu`,
+rows from `state::run_picker::rows`): *Favorites* first, then *Recent* (the last three runs, not
+starred), then the tools the user wrote — the project's before the machine's — and, past a rule, the
+targets the host found in the project's `justfile`, `Makefile` and `mise.toml`, the ones run before
+first. No tool appears twice, and typing cuts every section by a subsequence match on the name.
+Each row leads with its origin's icon — the runner's, or Ubiq's own mark for a tool the user wrote —
+and ends with a star and the controls its state allows: Play for a tool with no live pane, Stop and
+Restart plus a running dot for one that has. **A tool has one live run**: clicking its name (or
+Enter on the row) brings the live pane forward and gives it the keyboard, and only a tool with no pane
+is started. Stop keeps the picker up and the row turns to Play when the host reports the exit;
+the star adds the tool to the project's `ViewPrefs.tool_favorites` and every run is written to
+`tool_recents`. A project with none to offer draws one note saying so, so the control never opens
+onto nothing. The list is asked for every time the chevron opens, which is what makes a tool added in
+the settings, or a recipe added to a runner file, runnable without a restart; a scan that finishes
+after the picker is up replaces the rows. **Starting one brings the pane region on screen**: the bottom region opens if it was put
 away, and a window in a mode with no pane region at all — Control or the kitchen sink, neither of
 which is a view onto a project's folder — is moved to the IDE first. The rows themselves, what a
 pick sends and what a tool is are the panes-and-terminals document's.
@@ -1850,13 +1861,15 @@ drawn with, and `menus::flatten` is what an index means: invisible rows dropped,
 laid out under its parent. Reordering a menu is moving a line and removing a row is commenting one
 out; nothing reads a row list twice, so a row and the action behind it cannot drift apart.
 
-Each of the five — new-project, run-tool, new-pane, overflow and hidden-agents — keeps the same
+Each of the four — new-project, new-pane, overflow and hidden-agents — keeps the same
 three-verb shape (`AppState::open_*_menu`, `pick_*_menu`, `dismiss_*_menu`) and the same
-`MenuId` + anchor-point device: `WorkbenchState::overflow_menu`, `run_tool_menu`, `new_pane_menu`,
-`new_project_menu` and `hidden_agents_menu` each hold the point their chevron opened at. Every
+`MenuId` + anchor-point device: `WorkbenchState::overflow_menu`, `new_pane_menu`,
+`new_project_menu` and `hidden_agents_menu` each hold the point their chevron opened at. The run
+chevron shares the device (`WorkbenchState::run_tool_menu`, `MenuId::RunTool`) but is not one of the
+four: its overlay is the run picker above, a filter field and not a flat list. Every
 `pick_*_menu` is one call to `AppState::pick_menu_row`, which resolves the index against
 `menus::entries` — the very list the overlay drew — and runs what it finds; a heading, a hairline
-or an index past the end does nothing. The overlays (`ui::overflow_menu`, `ui::run_tool_menu`,
+or an index past the end does nothing. The overlays (`ui::overflow_menu`,
 `ui::new_pane_menu`, `ui::new_project_menu`, `ui::hidden_agents_menu`) are a `let Some(at)` and one
 call each, painted from the window root beside the tab menu, for the same reason: the titlebar
 draws the chevron but does not own what the menu offers.
@@ -1864,11 +1877,17 @@ draws the chevron but does not own what the menu offers.
 **A bar menu is an extension container** (`D177`, `D178`), the third after the settings nav and the
 rail. `ext::menu` holds a `MenuBlockSpec` — an id, the menu it belongs to, and an
 `fn(&AppState, &App) -> Vec<MenuEntry>`. A *block* rather than a row is the registered thing
-because a menu's rows are not a fixed list: the shells are the machine's, the tools are the
-project's, the hidden agents are whatever is running. The base registers exactly five blocks, one
+because a menu's rows are not a fixed list: the shells are the machine's, the hidden agents are
+whatever is running. The base registers exactly four blocks, one
 per menu, and a second edition inserts, reorders or removes blocks on the
 `ubiq_app::Contributions::bar_menus` registry it is handed — with every base builder in
 `ui::menus` `pub`, a replacement block that wants the base's rows minus one calls it and filters.
+
+**The run picker has a container of its own: the runner kinds** (`ext::runner`). A discovered tool
+carries the id of the runner source that found it, and a `RunnerKindSpec` per id says what the
+picker calls the kind and which icon marks its rows. The base seeds `make`, `just` and `mise`;
+a runner no kind was registered for is drawn with a generic icon, not dropped. The registry is
+`ubiq_app::Contributions::runner_kinds`, installed beside the other three before the first window.
 
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
 `size.rs`, `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/`, `teams/`

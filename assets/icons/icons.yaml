@@ -296,3 +296,19 @@ categories:
     size-text-large:
       goal: the text-ratio slider's high end — a large letterform
       keywords: [text ratio, font size, large, type, letter, glyph]
+
+  # The run-tool picker's runner kinds (T-282) — where a runnable tool was found or defined, so a
+  # tool's origin reads at a glance beside its name.
+  runner:
+    runner-make:
+      goal: the tool is a GNU Make target — a hammer, build by recipe
+      keywords: [make, makefile, hammer, build, target]
+    runner-just:
+      goal: the tool is a `just` recipe — a lowercase j leading a run chevron
+      keywords: [just, justfile, recipe, command runner, j]
+    runner-mise:
+      goal: the tool is a mise task — mise-en-place, a bowl steaming and ready
+      keywords: [mise, mise-en-place, task, bowl, pot, kitchen]
+    runner-ubiq:
+      goal: the tool was defined by the user in Ubiq itself — a prompt with a spark of our own making
+      keywords: [ubiq, custom, user, prompt, terminal, spark, own]

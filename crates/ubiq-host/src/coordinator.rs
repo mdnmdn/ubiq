@@ -4,7 +4,7 @@
 //! [`ubiq_proto::bus`]. It renders nothing and has no opinion about layout or colour — everything here
 //! is a pane ID, a pseudo-terminal and a process.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -28,7 +28,7 @@ use ubiq_proto::notifications::{Family, NotificationRequest};
 use ubiq_proto::projects::{IndexLevel, ProjectHealth, Scope};
 use ubiq_proto::settings::{SettingsLayer, SshProfile};
 use ubiq_proto::stats::{HostStats, UsageRow};
-use ubiq_proto::tools::{ListedTool, ToolDef, ToolRun};
+use ubiq_proto::tools::{ListedTool, ToolDef, ToolOrigin, ToolRun};
 use ubiq_proto::work::{Activity, AgentId, WorkAgent, WorkSession};
 
 use crate::agent::{Agents, ConverseOptions, PendingLogin};
@@ -77,6 +77,22 @@ const SUGGEST_DEADLINE: Duration = Duration::from_secs(60);
 /// reaches a window that already has the board open.
 const TASK_SYNC_EVERY: Duration = Duration::from_secs(2);
 
+/// How old a project's discovered runner targets may be before an ask for its tools starts another
+/// scan. The ask is still answered at once from what is held; this only paces the re-reads.
+const RUNNER_FRESH: Duration = Duration::from_secs(3);
+
+/// What one finished runner scan hands back to the coordinator's thread.
+struct Scanned {
+    project_id: ProjectId,
+    tools: Vec<(String, ToolDef)>,
+}
+
+/// A project's discovered runner targets and when they were read.
+struct Discovered {
+    tools: Vec<(String, ToolDef)>,
+    at: Instant,
+}
+
 /// Gather what a subject needs and compose its prompt. Off the coordinator's thread, so the
 /// repository read here is allowed to be slow.
 fn gather(
@@ -123,6 +139,7 @@ fn gather(
 /// (`D189`): it arrives seeded with the base's own providers and with whatever a second edition
 /// registered before the first window, which is the whole of how a Studio provider reaches
 /// `ListRemoteContainers`. The base binary hands in `Registry::with_defaults()`, unchanged.
+/// `runners` is the same for the runner sources a project's tools are discovered from.
 pub fn start(
     host: HostEnd,
     root: ConfigRoot,
@@ -130,12 +147,16 @@ pub fn start(
     work: Work,
     settings: Settings,
     providers: crate::tasksrc::Registry,
+    runners: crate::runners::Registry,
     pending: Vec<Reply>,
 ) {
     thread::Builder::new()
         .name("ubiq-coordinator".to_string())
         .spawn(move || {
-            Coordinator::new(host, root, projects, work, settings, providers, pending).run()
+            Coordinator::new(
+                host, root, projects, work, settings, providers, runners, pending,
+            )
+            .run()
         })
         .expect("the coordinator thread");
 }
@@ -269,6 +290,20 @@ struct Coordinator {
     /// Here rather than in a window, because a window only sees its own panes and the rule is
     /// "one run at a time" on the machine, not one per window.
     pane_tools: HashMap<PaneId, ToolId>,
+    /// The runner sources a scan asks, shared with the scan's worker thread. Handed in at boot.
+    runners: Arc<crate::runners::Registry>,
+    /// Each project's discovered runner targets, as the last finished scan read them. Never
+    /// written to a store: a target is read again, and [`Self::find_tool`] resolves a run of one
+    /// from here.
+    discovered: HashMap<ProjectId, Discovered>,
+    /// Projects with a scan in flight — one each, so a window asking in a loop starts one thread.
+    scanning: HashSet<ProjectId>,
+    /// The project each window last asked the tools of, so a scan that finishes later can say its
+    /// answer again to exactly the windows still looking at that project.
+    tool_askers: HashMap<ClientId, ProjectId>,
+    /// Where a scan's worker leaves its answer; drained by [`Self::collect_scans`] every turn of
+    /// the run loop, and woken by a voice message so it is not left until the next tick.
+    scans: (flume::Sender<Scanned>, flume::Receiver<Scanned>),
     panes: HashMap<PaneId, Pty>,
     /// Which window owns which pane, recorded when the pane is spawned. This is the whole routing
     /// table: everything a pane emits goes to its owner, and nobody else may drive it.
@@ -772,8 +807,10 @@ impl Coordinator {
         work: Work,
         settings: Settings,
         providers: crate::tasksrc::Registry,
+        runners: crate::runners::Registry,
         pending: Vec<Reply>,
     ) -> Self {
+        let runners = Arc::new(runners);
         // Shared with the MCP listener so an agent can read and write the same board a window
         // does, without asking this thread a question (`D120`).
         let work = crate::work::Handle::new(work);
@@ -1028,6 +1065,11 @@ impl Coordinator {
             pane_projects: HashMap::new(),
             pane_sessions: HashMap::new(),
             pane_tools: HashMap::new(),
+            runners,
+            discovered: HashMap::new(),
+            scanning: HashSet::new(),
+            tool_askers: HashMap::new(),
+            scans: flume::unbounded(),
             panes: HashMap::new(),
             owners: HashMap::new(),
             pane_addresses: HashMap::new(),
@@ -1123,6 +1165,7 @@ impl Coordinator {
                 Some(FromClient::Gone(client)) => self.client_gone(client),
                 None => {}
             }
+            self.collect_scans();
             self.sync_tasks_due();
             self.remember_sessions();
             self.name_conversations();
@@ -1188,6 +1231,7 @@ impl Coordinator {
     /// live harness behind.
     fn client_gone(&mut self, client: ClientId) {
         self.focused.remove(&client);
+        self.tool_askers.remove(&client);
         // Dropping a watch stops its `notify` handle and ends its debounce thread.
         let dropped: Vec<ProjectId> = self
             .watchers
@@ -1439,6 +1483,22 @@ impl Coordinator {
                 self.pane_gone(client, pane_id);
             }
 
+            // Stop the process, keep the pane: the reaper's `PaneExited` follows, and the pane then
+            // closes or waits the way its tool row says. `Pty::kill` is the same SIGHUP / terminate
+            // a close sends — it is what `CloseWorkspace` does minus the removal.
+            Message::StopPane { pane_id } => {
+                if !self.owns(client, pane_id) {
+                    return;
+                }
+                match self.panes.get_mut(&pane_id) {
+                    Some(pane) => {
+                        tracing::info!("stopping pane {pane_id}");
+                        pane.kill();
+                    }
+                    None => tracing::debug!("stop for pane {pane_id}, which holds no process"),
+                }
+            }
+
             // What can be started here, asked by the new-pane menu as it opens. Probed on every
             // ask: a shell installed since the window opened is offered without a restart.
             Message::ListStats => {
@@ -1453,14 +1513,20 @@ impl Coordinator {
                     },
                 );
             }
+            // A finished runner scan waking the loop (see `scan_runners`): `collect_scans` runs
+            // after this turn and does the whole of it.
+            Message::ListTools { .. } if client.is_host_voice() => {}
             Message::ListTools { project_id } => {
-                self.host.send(
-                    To::Client(client),
-                    Message::ToolsListed {
-                        system: self.system_tools(),
-                        project: self.project_tools(project_id),
-                    },
-                );
+                match project_id {
+                    Some(project_id) => {
+                        self.tool_askers.insert(client, project_id);
+                        self.scan_runners(project_id);
+                    }
+                    None => {
+                        self.tool_askers.remove(&client);
+                    }
+                }
+                self.send_tools(client, project_id);
             }
             Message::RunTool {
                 session_id,
@@ -5420,6 +5486,9 @@ impl Coordinator {
     /// before. A watch that will not start is logged and nothing else: the project is simply not
     /// live, and every other answer still works.
     fn watch_project(&mut self, client: ClientId, project_id: ProjectId) {
+        // Opening a project is the moment its runner targets are worth knowing, so the first ask
+        // for its tools already has them.
+        self.scan_runners(project_id);
         // A window shows one project at a time and there is no `CloseProject`, so opening the next
         // one is the only signal that the previous watch is unwanted.
         self.watchers
@@ -6013,32 +6082,128 @@ impl Coordinator {
                     scope: Scope::Interface,
                     tool,
                     applicable,
+                    origin: ToolOrigin::Defined,
                 }
             })
             .collect()
     }
 
-    /// One project's own tools, or nothing when no project was named or it is unknown.
+    /// One project's own tools, or nothing when no project was named or it is unknown: the rows
+    /// the user wrote, then the runner targets the last scan found.
     fn project_tools(&self, project_id: Option<ProjectId>) -> Vec<ListedTool> {
         let os = std::env::consts::OS;
-        project_id
-            .and_then(|id| self.projects.record(id))
-            .map(|record| {
-                record
-                    .tools
+        let Some(record) = project_id.and_then(|id| self.projects.record(id)) else {
+            return Vec::new();
+        };
+        let defined = record.tools.iter().cloned().map(|tool| {
+            let applicable = tool.applies(os);
+            ListedTool {
+                scope: Scope::Project(record.id),
+                tool,
+                applicable,
+                origin: ToolOrigin::Defined,
+            }
+        });
+        let discovered = self
+            .discovered
+            .get(&record.id)
+            .into_iter()
+            .flat_map(|found| found.tools.iter())
+            .map(|(runner, tool)| ListedTool {
+                scope: Scope::Project(record.id),
+                applicable: tool.applies(os),
+                tool: tool.clone(),
+                origin: ToolOrigin::Discovered {
+                    runner: runner.clone(),
+                },
+            });
+        defined.chain(discovered).collect()
+    }
+
+    /// Answer a window's ask for the run menu's tools, from what is held.
+    fn send_tools(&self, client: ClientId, project_id: Option<ProjectId>) {
+        self.host.send(
+            To::Client(client),
+            Message::ToolsListed {
+                system: self.system_tools(),
+                project: self.project_tools(project_id),
+            },
+        );
+    }
+
+    /// Start a scan of this project's runner files unless one is running or the last is fresh.
+    ///
+    /// The scan runs `just` or `mise` and takes however long they do, so it is a thread of its own;
+    /// it leaves its answer in [`Self::scans`] and wakes the loop with a message from the host's
+    /// voice, and [`Self::collect_scans`] takes it from there.
+    fn scan_runners(&mut self, project_id: ProjectId) {
+        if self.runners.is_empty() || self.scanning.contains(&project_id) {
+            return;
+        }
+        if self
+            .discovered
+            .get(&project_id)
+            .is_some_and(|found| found.at.elapsed() < RUNNER_FRESH)
+        {
+            return;
+        }
+        let Some(record) = self.projects.record(project_id) else {
+            return;
+        };
+        let root = PathBuf::from(&record.path);
+        let runners = self.runners.clone();
+        let done = self.scans.0.clone();
+        let voice = self.host.voice();
+        let started = thread::Builder::new()
+            .name("ubiq-runners".to_string())
+            .spawn(move || {
+                let tools = runners.discover(&root);
+                let _ = done.send(Scanned { project_id, tools });
+                voice.say(Message::ListTools {
+                    project_id: Some(project_id),
+                });
+            });
+        match started {
+            Ok(_) => {
+                self.scanning.insert(project_id);
+            }
+            Err(error) => tracing::warn!(project = %project_id, %error, "no runner scan thread"),
+        }
+    }
+
+    /// Take the finished runner scans into the cache, and say the new list again to the windows
+    /// looking at that project when it differs from the one they were last given.
+    fn collect_scans(&mut self) {
+        while let Ok(done) = self.scans.1.try_recv() {
+            self.scanning.remove(&done.project_id);
+            // A project forgotten while its scan ran leaves nothing behind.
+            if self.projects.record(done.project_id).is_none() {
+                self.discovered.remove(&done.project_id);
+                continue;
+            }
+            let changed = match self.discovered.get(&done.project_id) {
+                Some(held) => held.tools != done.tools,
+                None => !done.tools.is_empty(),
+            };
+            self.discovered.insert(
+                done.project_id,
+                Discovered {
+                    tools: done.tools,
+                    at: Instant::now(),
+                },
+            );
+            if changed {
+                let askers: Vec<ClientId> = self
+                    .tool_askers
                     .iter()
-                    .cloned()
-                    .map(|tool| {
-                        let applicable = tool.applies(os);
-                        ListedTool {
-                            scope: Scope::Project(record.id),
-                            tool,
-                            applicable,
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+                    .filter(|(_, asked)| **asked == done.project_id)
+                    .map(|(client, _)| *client)
+                    .collect();
+                for client in askers {
+                    self.send_tools(client, Some(done.project_id));
+                }
+            }
+        }
     }
 
     /// The tool a run names, from whichever list holds it.
@@ -6056,7 +6221,16 @@ impl Coordinator {
                 .map(|record| record.tools.clone())
                 .unwrap_or_default()
                 .into_iter()
-                .find(|tool| &tool.id == id),
+                .find(|tool| &tool.id == id)
+                // A discovered target is not in the record; the last scan holds it.
+                .or_else(|| {
+                    self.discovered
+                        .get(project_id)?
+                        .tools
+                        .iter()
+                        .find(|(_, tool)| &tool.id == id)
+                        .map(|(_, tool)| tool.clone())
+                }),
         }
     }
 
@@ -6100,7 +6274,14 @@ impl Coordinator {
         // One run at a time, when the row says so. The check is here rather than in the window
         // because only the host knows every pane: two windows on the same project would each
         // think theirs was the only one.
-        if tool.single_instance && self.pane_tools.values().any(|held| *held == id) {
+        // A discovered id is derived from the runner and the target alone, so `just build` in two
+        // projects share one — a project-scope run is therefore one-at-a-time per project.
+        let running = self.pane_tools.iter().any(|(pane, held)| {
+            *held == id
+                && (matches!(scope, Scope::Interface)
+                    || self.pane_projects.get(pane) == Some(&project_id))
+        });
+        if tool.single_instance && running {
             self.tool_error(
                 client,
                 Some(project_id),
@@ -6814,6 +6995,7 @@ mod tests {
             work,
             settings,
             crate::tasksrc::Registry::with_defaults(),
+            crate::runners::Registry::with_defaults(),
             pending,
         );
         let client = hub.connect();

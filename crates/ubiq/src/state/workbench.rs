@@ -375,8 +375,9 @@ pub enum MenuId {
     /// declared `Choice` field and per lane, so the set is the provider's rather than this enum's,
     /// and a variant per control would be a closed list over an open one.
     TaskSrc,
-    /// The titlebar's run chevron, beside the play triangle: every runnable tool this project
-    /// offers. Where it opened is `WorkbenchState::run_tool_menu`.
+    /// The titlebar's run chevron, beside the play triangle: the run picker, a filter field over
+    /// every runnable tool this project offers. Where it opened is
+    /// `WorkbenchState::run_tool_menu`.
     RunTool,
     /// The titlebar's overflow chevron: the rarely-used commands moved off the strip to make room
     /// for it — remote connect, web export, window capture and settings. Where it opened is
@@ -867,6 +868,10 @@ pub struct WorkbenchState {
     /// Where the titlebar's run chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::RunTool`.
     pub run_tool_menu: Option<(f32, f32)>,
+    /// What the run picker's field holds while it is up: the filter its rows are cut by.
+    pub run_tool_filter: String,
+    /// Which of the picker's rows the keyboard is on, as a position among the rows drawn.
+    pub run_tool_cursor: usize,
     /// The `+` menu, while it is down. `Some` exactly while `open_menu` is `MenuId::NewAgent`.
     pub new_agent_menu: Option<NewAgentMenu>,
     /// The Teams toolbar's split button (M15, §9), while its chevron menu is down. `Some`
@@ -1035,6 +1040,8 @@ impl Default for WorkbenchState {
             mission_kind_menu: None,
             feedback_mission: None,
             run_tool_menu: None,
+            run_tool_filter: String::new(),
+            run_tool_cursor: 0,
             new_agent_menu: None,
             teams_create_menu: None,
             conversation_menu: None,
@@ -1051,17 +1058,20 @@ impl Default for WorkbenchState {
 }
 
 impl WorkbenchState {
-    /// What the titlebar's run menu offers: every applicable tool, by its index in
-    /// [`Self::tools`].
+    /// What the titlebar's play triangle runs from: every applicable tool the user **wrote**, by
+    /// its index in [`Self::tools`]. A target the host discovered is not here — the triangle is
+    /// the first of the project's own tools, and the picker (`state::run_picker`) is where the
+    /// discovered ones are reached.
     ///
-    /// Indices rather than a row enum, because there is exactly one kind of row — a tool — and
-    /// the index *is* the row. The applicable filter is the host's own stamp: a macOS-only tool
-    /// is not offered on Windows, and the host is what knows which platform it answers for.
+    /// The applicable filter is the host's own stamp: a macOS-only tool is not offered on
+    /// Windows, and the host is what knows which platform it answers for.
     pub fn run_tool_rows(&self) -> Vec<usize> {
         self.tools
             .iter()
             .enumerate()
-            .filter(|(_, tool)| tool.applicable)
+            .filter(|(_, tool)| {
+                tool.applicable && matches!(tool.origin, ubiq_proto::tools::ToolOrigin::Defined)
+            })
             .map(|(index, _)| index)
             .collect()
     }

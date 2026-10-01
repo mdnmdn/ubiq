@@ -1202,6 +1202,9 @@ pub struct AppState {
     /// name. The destination folder is not among them — it is chosen with the platform's own
     /// dialog and never typed.
     pub clone_filter_input: Entity<InputState>,
+    /// The run picker's filter field. One field for the window, emptied and focused whenever the
+    /// picker opens.
+    pub run_tool_input: Entity<InputState>,
     pub clone_url_input: Entity<InputState>,
     pub clone_name_input: Entity<InputState>,
     /// The feedback modal's two fields: what the report is called, and what it says. Mirrored
@@ -1661,6 +1664,7 @@ pub fn install_key_bindings(cx: &mut App) {
     // says why.
     cx.bind_keys(crate::ui::file_picker::key_bindings());
     cx.bind_keys(crate::ui::navigator::key_bindings());
+    cx.bind_keys(crate::ui::run_tool_menu::key_bindings());
     cx.bind_keys(crate::ui::explorer::key_bindings());
     cx.bind_keys(crate::ui::ask::key_bindings());
     gpui_terminal::install_key_bindings(cx);

@@ -137,9 +137,9 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         None,
                         app.workbench.open_menu == Some(MenuId::RunTool),
                         "Run a tool",
-                        cx.listener(|this, event: &ClickEvent, _, cx| {
+                        cx.listener(|this, event: &ClickEvent, window, cx| {
                             let at = (f32::from(event.position().x), f32::from(event.position().y));
-                            this.open_run_tool_menu(at, cx);
+                            this.open_run_tool_menu(at, window, cx);
                         }),
                     )),
             )

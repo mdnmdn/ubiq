@@ -386,6 +386,14 @@ pub struct ViewPrefs {
     /// that survive a restart are in it.
     #[serde(default)]
     pub recents: Vec<String>,
+    /// The tools starred in the run picker, in the order they were starred, as `ToolId` text.
+    /// Text rather than an id for `chats`' reason: one this build cannot read costs a star.
+    #[serde(default)]
+    pub tool_favorites: Vec<String>,
+    /// The tools most recently run, newest first and capped at
+    /// [`crate::state::run_picker::RECENTS_MAX`], as `ToolId` text. Every run path counts.
+    #[serde(default)]
+    pub tool_recents: Vec<String>,
     /// The tasks board's columns folded to a strip — see `state::board::BoardState::shut`. `default`
     /// like every field added after the first release, so no schema bump.
     #[serde(default)]
@@ -464,6 +472,8 @@ impl Default for ViewPrefs {
             opted_in_modes: Vec::new(),
             bookmarks: Vec::new(),
             recents: Vec::new(),
+            tool_favorites: Vec::new(),
+            tool_recents: Vec::new(),
             board_shut: Vec::new(),
             board_popup: false,
             board_filter: String::new(),

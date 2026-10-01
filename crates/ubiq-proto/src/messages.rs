@@ -141,6 +141,12 @@ pub enum Message {
     CloseWorkspace {
         pane_id: PaneId,
     },
+    /// Stop the process in this pane without closing it: the host kills the child, the reaper's
+    /// [`Message::PaneExited`] follows, and the pane stays or closes the way its `wait_on_exit` /
+    /// `wait_on_error` says.
+    StopPane {
+        pane_id: PaneId,
+    },
     /// Run a configured tool in this project's folder: a pane running the tool's command with
     /// its arguments and environment, titled with the tool's name. Answered with
     /// [`Message::WorkspaceSpawned`], or [`Message::ToolError`] when the tool is unknown, not
@@ -167,6 +173,12 @@ pub enum Message {
     /// the new-pane menu offers the applicable rows of both. `applicable` is the answering
     /// host's own platform per tool — a remote host's answer names what runs *there*, which
     /// the interface cannot know, so the host stamps it.
+    ///
+    /// `project` also carries the project's discovered targets ([`ToolOrigin::Discovered`]),
+    /// answered from the host's scan cache; a stale cache is re-scanned in the background and
+    /// this is sent again when the list changed. They are never part of `ProjectRecord::tools`.
+    ///
+    /// [`ToolOrigin::Discovered`]: crate::tools::ToolOrigin::Discovered
     ToolsListed {
         system: Vec<ListedTool>,
         project: Vec<ListedTool>,

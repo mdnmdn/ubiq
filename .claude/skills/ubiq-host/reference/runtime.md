@@ -14,6 +14,7 @@ coordinator's thread is the one every pane's keystrokes pass through.
 | Index thread | `Index::start()` | The process | Hands out a read handle carrying no writer, so a search can never block indexing |
 | `ubiq-tasksrc` | `tasksrc::sync::start` in `Coordinator::new` | Until the `Sync` handle is dropped | Every tick is an HTTP round trip to a tracker; holds the **third** `work::Handle` and writes through `Work` as an MCP tool does (`D120`, `D185`). Pushes as well as pulls since `D188` |
 | One per task-source ask | `tasksrc::service::TaskSrc` | The ask | A listing, a Test, an import, a pass or a drift resolution is a round trip (`D188`). Shares one `Mutex` over every `tasksrc.toml` with `ubiq-tasksrc`, so the poll and a force button cannot overwrite each other's link table |
+| `ubiq-runners`, one per project scan | `Coordinator::scan_runners` | The scan (one in flight per project; started on project open or when the cache is over 3s old) | `just` and `mise` are CLIs, each bounded to 2s. Leaves a `Scanned` on a channel and wakes the loop with a host-voice `ListTools`; `collect_scans` caches it and resends `ToolsListed` only on a change |
 | One reader per pane | `Pty::forward_output` | Until the stream ends or nobody is listening | **A stalled reader stalls the harness** |
 | One reaper per pane | `pty::reap` | Until the child exits | Sends `PaneExited` exactly once |
 | One debounce + one `notify` watch per open project per window | `watch::start` | Until the `Watcher` handle is dropped | Pushes to its client *and* to the index directly |
@@ -51,6 +52,7 @@ TerminalResize ─► owns() ──► Pty::resize           a resize for a pane
 Focus ─────────► owns() ──► focused.insert(client, pane_id)
 
 CloseWorkspace ─► owns() ──► owners.remove, panes.remove + kill, focused clear, pane_gone
+StopPane ───────► owns() ──► Pty::kill             the pane stays; PaneExited follows from the reaper
 PaneExited ─────► (the UI closes the tab, which sends CloseWorkspace)
 pane_gone ──────► agents.retire(pane_id)   the run directory
                   login_gone(client, pane)  the only moment "did this sign-in work" exists;

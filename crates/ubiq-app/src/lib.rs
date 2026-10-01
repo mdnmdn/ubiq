@@ -186,6 +186,16 @@ pub struct Contributions {
     /// Unconditional, unlike the two below: the host half is what a `--no-default-features` build
     /// keeps, and a headless Studio syncing a board is exactly the shape that must still work.
     pub task_providers: ubiq_host::tasksrc::Registry,
+    /// The runner sources a project's tools are discovered from — `just`, `make` and `mise` out of
+    /// the box. Handed to the coordinator before it starts, and **seeded with the base's own three**.
+    ///
+    /// A host service like [`Self::task_providers`], so a `runners::Registry` and not a
+    /// `ubiq::ext::Registry<Spec>`: a source is resolved by id and never drawn. `register`
+    /// substitutes by id, `remove` drops a seeded one, and `register` is the only way in. What it
+    /// finds reaches the run menu as tools marked `ToolOrigin::Discovered`; none is stored.
+    ///
+    /// Unconditional, for the reason `task_providers` is.
+    pub runner_sources: ubiq_host::runners::Registry,
     /// The settings container, both instances — the application overlay and the project dialog
     /// (`D180`). Seeded with the base's own 15 + 8.
     #[cfg(feature = "ui")]
@@ -197,26 +207,34 @@ pub struct Contributions {
     /// nothing here costs a message.
     #[cfg(feature = "ui")]
     pub rail_modes: ubiq::ext::Registry<ubiq::ext::rail::RailModeSpec>,
-    /// The top bar's menus (`T-267`). Seeded with the base's own five blocks, one per menu —
-    /// new-project, run-tool, new-pane, overflow and hidden-agents.
+    /// The top bar's menus (`T-267`). Seeded with the base's own four blocks, one per menu —
+    /// new-project, new-pane, overflow and hidden-agents.
     ///
     /// A block contributes rows rather than being one, because a menu's rows are not a fixed
-    /// list: the shells are the machine's, the tools are the project's, the hidden agents are
-    /// whatever is running. See `ubiq::ext::menu`.
+    /// list: the shells are the machine's, the hidden agents are whatever is running. See
+    /// `ubiq::ext::menu`.
     #[cfg(feature = "ui")]
     pub bar_menus: ubiq::ext::Registry<ubiq::ext::menu::MenuBlockSpec>,
+    /// The kinds of runner the run picker draws a discovered tool by — an icon and a label per
+    /// runner source id. Seeded with the base's `make`, `just` and `mise`; a runner nothing
+    /// registered a kind for is drawn with a generic icon. See `ubiq::ext::runner`.
+    #[cfg(feature = "ui")]
+    pub runner_kinds: ubiq::ext::Registry<ubiq::ext::runner::RunnerKindSpec>,
 }
 
 impl Default for Contributions {
     fn default() -> Self {
         Contributions {
             task_providers: ubiq_host::tasksrc::Registry::with_defaults(),
+            runner_sources: ubiq_host::runners::Registry::with_defaults(),
             #[cfg(feature = "ui")]
             settings_sections: ubiq::ext::settings::base_registry(),
             #[cfg(feature = "ui")]
             rail_modes: ubiq::ext::rail::base_registry(),
             #[cfg(feature = "ui")]
             bar_menus: ubiq::ext::menu::base_registry(),
+            #[cfg(feature = "ui")]
+            runner_kinds: ubiq::ext::runner::base_registry(),
         }
     }
 }
@@ -367,6 +385,7 @@ pub fn run(boot: Boot) {
         work,
         settings,
         boot.contributions.task_providers,
+        boot.contributions.runner_sources,
         pending,
     );
 
@@ -439,6 +458,7 @@ pub fn run(boot: Boot) {
         ubiq::ext::settings::install(boot.contributions.settings_sections);
         ubiq::ext::rail::install(boot.contributions.rail_modes);
         ubiq::ext::menu::install(boot.contributions.bar_menus);
+        ubiq::ext::runner::install(boot.contributions.runner_kinds);
         window(hub, paths, listener);
     }
 }

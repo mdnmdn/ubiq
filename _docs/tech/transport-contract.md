@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-30
+updated: 2026-10-01
 verified: 2026-09-30
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
@@ -74,6 +74,7 @@ The control path. Lower volume, request-and-response.
 | `DetachFromSession` | UI → coordinator | `session_id` | — |
 | `SpawnWorkspace` | UI → coordinator | `session_id`, `project_id`, `rel_path?`, `agent_type?`, `args`, `picks` | `WorkspaceSpawned` or `ProjectError` |
 | `CloseWorkspace` | UI → coordinator | `pane_id` | — |
+| `StopPane` | UI → coordinator | `pane_id` | `PaneExited` |
 | `RunTool` | UI → coordinator | `session_id`, `project_id`, `scope`, `id` | `WorkspaceSpawned` or `ToolError` |
 | `ToolError` | coordinator → UI | `project_id?`, `error` | — |
 | `ListAgentTypes` | UI → coordinator | — | `AgentTypes` |
@@ -112,7 +113,13 @@ the fresh snapshot is broadcast so every picker marks the row from the probe tha
 `rel_path` that escapes the root is refused the same way.
 
 `CloseWorkspace` names a pane rather than a workspace ID because the two are the same ID, and the
-pane is what the user closed. It kills and reaps the harness; it is the only variant that ends one.
+pane is what the user closed. It kills and reaps the harness and removes the pane; it is the only variant
+that removes one.
+
+`StopPane` ends the process and keeps the pane. The host kills the child (`Pty::kill`, which is
+SIGHUP on unix), the reaper's `PaneExited` follows, and the pane then closes or waits the way its
+tool row's `wait_on_exit` and `wait_on_error` say. A stop for a pane the sender does not own, or one
+that holds no process, does nothing.
 
 `Status` and `Error` are unaddressed — they concern the application, not a pane. Anything that
 concerns one pane uses `PaneError`, so the UI can put the message where the user is looking.
@@ -154,7 +161,7 @@ recolour and a move on disk.
 | `ListShells` | UI → host | — | `ShellList` |
 | `ShellList` | host → UI | `shells` | — |
 | `ListTools` | UI → host | `project_id?` | `ToolsListed` |
-| `ToolsListed` | host → UI | `system[]`, `project[]` | — |
+| `ToolsListed` | host → UI | `system[]`, `project[]` | — (sent again unasked when a scan changes `project[]`) |
 | `ListStats` | UI → host | — | `Stats` |
 | `Stats` | host → UI | `stats` | — |
 
@@ -331,6 +338,19 @@ answers `ToolError`, which is a log
 line rather than a tab to close, the standing a refused spawn's `PaneError` has. The machine-wide
 rows ride `HostSettings.tools` through `SetSettings` whole, and a project's own ride
 `UpdateProject.tools`, replaced whole like its `search_excludes`.
+
+**Some of a project's rows were never written.** `ListedTool.origin` is `ToolOrigin::Defined` for a
+row the user wrote and `ToolOrigin::Discovered { runner }` for a target the host found in the
+project's `justfile`, `Makefile` or `mise.toml`; `runner` is the source's id (`just`, `make`,
+`mise`). Discovered rows ride `ToolsListed.project` beside the defined ones and are never part of
+`ProjectRecord.tools`. Their `ToolDef.id` is `ToolId::derived` from the runner and the target, an
+FNV-1a hash of the key rather than a minted ULID, so the same target is the same id on every run,
+build and host and a favourite can name it. The host answers `ListTools` at once from the targets
+its last scan read, starts another scan when that is more than three seconds old (and when the
+project opens), and says `ToolsListed` again to every window last asking about that project when
+the scan found a different list. A `RunTool` naming a discovered id resolves against the same cache.
+The id is not unique across projects, so a project-scope `single_instance` check is made per
+project. A missing `origin` on the wire reads as `Defined`.
 
 **A project's task-board lane preferences ride `UpdateProject.lanes`, whole, like `tools`.** Each
 entry is a `LanePref` — a `Status`, whether the board hides that lane, and whether the lane shuts
@@ -1680,7 +1700,8 @@ Forty-seven records travel inside payloads.
 | `AcpAuthMethodRecord` | `id`, `name`, `description?`, `default` |
 | `ToolDef` | `id`, `name`, `command`, `args`, `env`, `platforms[]`, `wait_on_exit`, `wait_on_error`, `single_instance`, `starting_folder?` |
 | `ToolRun` | `scope`, `id` |
-| `ListedTool` | `scope`, `tool`, `applicable` |
+| `ListedTool` | `scope`, `tool`, `applicable`, `origin` |
+| `ToolOrigin` | `Defined`, or `Discovered { runner }` |
 | `ProjectRecord` | `id`, `name`, `path`, `colour`, `custom_colour?`, `temporary`, `created_at`, `last_opened_at?`, `search_excludes[]`, `index?`, `mission_term?`, `tools[]`, `managed_repos[]`, `initials`, `definitions_use_global`, `definitions_allowed[]` |
 | `ProjectSnapshot` | a `ProjectRecord`, flattened, plus `health`, `open_panes`, `workarea` and `ephemeral` |
 | `DirEntry` | `name`, `rel_path`, `kind`, `size?`, `symlink` |

@@ -50,6 +50,8 @@ fn a_blob_survives_the_round_trip() {
         editor_wrap: Some(false),
         bookmarks: Vec::new(),
         recents: Vec::new(),
+        tool_favorites: vec!["01J00000000000000000000000".to_string()],
+        tool_recents: vec!["01J00000000000000000000001".to_string()],
         board_shut: Vec::new(),
         board_popup: false,
         // The board's filters travel as a set (`T-169`), and the two id-shaped ones travel as

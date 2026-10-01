@@ -79,6 +79,12 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
+        // Every run path counts as a recent, so the one place a run is asked for is the one place
+        // it is written down.
+        if let Some(open) = self.projects.get_mut(&project_id) {
+            crate::state::run_picker::remember(&mut open.prefs.tool_recents, id.to_string());
+        }
+        self.store_prefs(project_id);
         self.reveal_pane_region(cx);
         self.bus.send(Message::RunTool {
             session_id: self.session,
@@ -88,7 +94,8 @@ impl AppState {
         });
     }
 
-    /// Run a stopped tool pane's tool again, and take the spent pane away.
+    /// Run a tool pane's tool again, and take the old pane away — stopped, or still running (the
+    /// close kills it).
     ///
     /// The old pane is closed **first**, and the order matters: a `single_instance` tool would
     /// refuse the second run while the first pane is still held, and the coordinator answers
@@ -97,7 +104,7 @@ impl AppState {
     pub fn restart_pane_tool(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
         let Some(run) = self
             .pane(pane_id)
-            .and_then(|pane| (!pane.running).then(|| pane.tool.clone()).flatten())
+            .and_then(|pane| pane.tool.clone())
         else {
             return;
         };

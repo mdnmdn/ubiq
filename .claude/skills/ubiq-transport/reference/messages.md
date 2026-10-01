@@ -65,14 +65,19 @@ which one is typing.
 ### 2. Session — the control path
 
 `ListSessions`/`SessionList`, `CreateSession`/`SessionCreated`, `AttachToSession`/`SessionAttached`,
-`DetachFromSession`, `SpawnWorkspace`/`WorkspaceSpawned`, `CloseWorkspace`, `ListAgentTypes`/
-`AgentTypes`, `ListShells`/`ShellList`, `ListStats`/`Stats`, `HostInfo`, `Status`, `Error`.
+`DetachFromSession`, `SpawnWorkspace`/`WorkspaceSpawned`, `CloseWorkspace`, `StopPane`,
+`ListAgentTypes`/`AgentTypes`, `ListShells`/`ShellList`, `ListTools`/`ToolsListed`, `ListStats`/`Stats`, `HostInfo`, `Status`, `Error`.
 
 - **`SpawnWorkspace` names a project, not a folder.** `project_id` is not optional: a pane's
   working directory is the project's folder and the interface never holds the path. A spawn into a
   missing or unreadable folder is refused with `ProjectError` **before a pseudo-terminal exists**.
 - **`CloseWorkspace` names a pane** because a pane id *is* a workspace id, and the pane is what the
-  user closed. It is the only variant that ends a harness.
+  user closed. It is the only variant that removes a pane. `StopPane` ends the process and keeps the
+  pane: the host kills the child and the reaper's `PaneExited` follows.
+- **`ToolsListed` rows carry `origin`**: `Defined`, or `Discovered { runner }` for a target read from
+  a project's runner file. Discovered rows are never stored; their `ToolId` is `ToolId::derived`
+  from `runner:target`. The host answers `ListTools` from a cache and resends unasked when a scan
+  changes it (`D197`).
 - **`HostInfo` is unsolicited**, sent once to each client as it attaches — the only way the status
   bar can say the run is not writing to the usual place. The interface reads no disk.
 - **`ListShells` / `ListAgentTypes` are asked repeatedly** and answered from a fresh probe: which

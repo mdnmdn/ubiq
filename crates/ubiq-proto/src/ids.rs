@@ -258,6 +258,26 @@ ulid_id! {
     ToolId
 }
 
+impl ToolId {
+    /// The id a tool the user never wrote gets: derived from a stable key (`just:build`) rather
+    /// than minted, so the same target is the same id on every run, build and host — which is
+    /// what lets a favourite persist by id.
+    ///
+    /// 128 bits from two FNV-1a 64 passes with different offset bases. Hand-rolled because
+    /// `std`'s `DefaultHasher` promises nothing across releases, and an id that changes with the
+    /// toolchain orphans every favourite. Not a ULID in the timestamp sense; it only has the shape.
+    pub fn derived(key: &str) -> Self {
+        fn fnv1a(offset: u64, bytes: &[u8]) -> u64 {
+            bytes.iter().fold(offset, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            })
+        }
+        let high = fnv1a(0xcbf2_9ce4_8422_2325, key.as_bytes());
+        let low = fnv1a(0x8422_2325_cbf2_9ce4, key.as_bytes());
+        Self(Ulid::from((u128::from(high) << 64) | u128::from(low)))
+    }
+}
+
 ulid_id! {
     /// One SSH connection profile. Minted UI-side when the row is added, on [`HostSaveId`]'s
     /// discipline and for the same reason: a profile rides `SetSettings` whole, so the half that

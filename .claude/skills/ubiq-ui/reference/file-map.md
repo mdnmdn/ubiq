@@ -30,6 +30,7 @@ Re-exports live in `state/mod.rs`; the work's own records are **not** re-exporte
 | `orchestration.rs` | The graph's selection, session and state filters, zoom, and what the pointer has hold of |
 | `prefs.rs` | What the interface remembers between runs, and the schema it owns |
 | `remote.rs` | The "Connect to a remote host" modal's state and its pure parsing |
+| `run_picker.rs` | The run picker's rows (`rows`, `Section`), favourites and recents helpers; `RECENT_SHOWN`, `RECENTS_MAX` |
 | `scene.rs` | An Excalidraw file parsed into something a painter walks without asking a question |
 | `search.rs` | The search panel: query, options, results so far |
 | `settings.rs` | Application settings the interface owns: schema, the overlay's nav, how a blob is read |
@@ -86,6 +87,7 @@ process, a path on disk or a file descriptor.
 |---|---|
 | `shell.rs` | The skeleton: titlebar, rail, dock, status bar |
 | `titlebar.rs` | What is open, where it lives, the switches for the dock's three edge regions, and the back/forward controls (their own helper, because `icon_button` has no room for a control with nowhere to go — `text_faint()` and inert at the history's end) |
+| `run_tool_menu.rs` | The titlebar's run picker: a filter field over defined and discovered tools, with star, Play, Stop and Restart per row |
 | `rail.rs` | The activity rail: destinations, grouped, exactly one active |
 | `status_bar.rs` | The bottom strip — open file and caret, or the agents screen's column fill, or the graph's selection. Its size control is the icon-only trigger for the size popover |
 | `size.rs` | The size controls, drawn once and used twice: the preset pills, the two axis sliders, the popover the status bar opens, the preset list the Size settings section draws, and the name prompt both raise. **No number, no unit and no `px` in any of it** |

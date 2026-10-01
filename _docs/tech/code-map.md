@@ -200,7 +200,13 @@ crates/ubiq-host/src/
 │   ├── trello.rs
 │   ├── outbound.rs
 │   └── service.rs
-└── catalog.rs
+├── catalog.rs
+├── runners/
+│   ├── just.rs
+│   ├── make.rs
+│   ├── mise.rs
+│   └── mod.rs
+└── .DS_Store
 
 crates/ubiq/src/
 ├── state/
@@ -286,7 +292,8 @@ crates/ubiq/src/
 │   ├── wbs.rs
 │   ├── zoom.rs
 │   ├── tasksrc.rs
-│   └── catalog.rs
+│   ├── catalog.rs
+│   └── run_picker.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -493,14 +500,16 @@ crates/ubiq/src/
 │   ├── tasksrc.rs
 │   └── catalog.rs
 ├── version.rs
-└── ext/
-    ├── id.rs
-    ├── ids.rs
-    ├── mod.rs
-    ├── registry.rs
-    ├── settings.rs
-    ├── rail.rs
-    └── menu.rs
+├── ext/
+│   ├── id.rs
+│   ├── ids.rs
+│   ├── mod.rs
+│   ├── registry.rs
+│   ├── settings.rs
+│   ├── rail.rs
+│   ├── menu.rs
+│   └── runner.rs
+└── .DS_Store
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -642,6 +651,7 @@ the documents in its row.
 | `crates/ubiq-host/src/repos/clone.rs` | [`features/workbench.md`](../features/workbench.md), [`version-control.md`](./version-control.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq-host/src/repos/list.rs` | [`features/workbench.md`](../features/workbench.md), [`version-control.md`](./version-control.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
 | `crates/ubiq-host/src/repos/mod.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md) |
+| `crates/ubiq-host/src/runners/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq-host/src/search/hits.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/search/worker.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/drone.md`](../features/drone.md), [`architecture.md`](./architecture.md) |
@@ -756,6 +766,7 @@ the documents in its row.
 | `crates/ubiq/src/ext/mod.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/ext/rail.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/ext/registry.rs` | [`architecture.md`](./architecture.md) |
+| `crates/ubiq/src/ext/runner.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/ext/settings.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/a2ui.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md) |
@@ -802,6 +813,7 @@ the documents in its row.
 | `crates/ubiq/src/state/plan.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
 | `crates/ubiq/src/state/prefs.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/state/remote.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq/src/state/run_picker.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/scene.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/src/state/script.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md) |
 | `crates/ubiq/src/state/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
@@ -824,7 +836,7 @@ the documents in its row.
 | `crates/ubiq/src/state/when.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/windows.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/work.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`features/workbench.md`](../features/workbench.md) |
-| `crates/ubiq/src/state/workbench.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
+| `crates/ubiq/src/state/workbench.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench-agents.md`](../features/workbench-agents.md), [`features/workbench.md`](../features/workbench.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/theme.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/a2ui.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md) |
 | `crates/ubiq/src/ui/a2ui/path.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md) |
@@ -1022,6 +1034,9 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/plan/lines.rs` |
 | `crates/ubiq-host/src/plan/provenance.rs` |
 | `crates/ubiq-host/src/reply.rs` |
+| `crates/ubiq-host/src/runners/just.rs` |
+| `crates/ubiq-host/src/runners/make.rs` |
+| `crates/ubiq-host/src/runners/mise.rs` |
 | `crates/ubiq-host/src/search/ceiling.rs` |
 | `crates/ubiq-host/src/search/fallback.rs` |
 | `crates/ubiq-host/src/search/mod.rs` |

@@ -156,6 +156,7 @@ and agents stay its mocks.
 | `reply.rs` | `Reply::Asker` / `Reply::Everyone`, `message`, `is_broadcast`, `into_message` | The bus itself |
 | `gc.rs` | `orphans(root, keep)`, `collect(root, keep)` over `projects/<ulid>/` | A deletion of a directory whose name is not a ULID, or a run after a failed load |
 | `health.rs` | `probe(path) -> ProjectHealth` — one `symlink_metadata`, so a broken link is `NotADirectory` (a fact) and not `Missing` (which would invite a Locate that cannot help) | A second stat per record at boot |
+| `runners/` | `RunnerSource` (`id`, `discover(root)`), `Registry` (`with_defaults` = just, make, mise; `register` substitutes by id; `discover`), `RunnerTarget::into_tool`, `capture` bounded by `CLI_TIMEOUT` (2s, via `shells::locate`). The coordinator owns the cache (`discovered`), `scan_runners` and `collect_scans` | A store, a write to `ProjectRecord::tools`, or a call on the coordinator's thread |
 | `shells.rs` | `CANDIDATES`, `EXTRA_DIRS`, `default_program`, `available`, `is_shell`, `repair_path` | A launcher for anything on disk — the set is fixed and bounded |
 | `cli_shortcut.rs` | `handle(action)` over `Query` / `Install` / `Remove`; `MARKER = "ubiq-target:"`, `NAME` (`ubiq.cmd` on Windows) | A path parameter — nothing it exposes takes one |
 | `links.rs` | `LinkScanner::new` / `feed`, `TAIL_CAP = 4 KiB`, `SEEN_CAP = 16` | A URL parser or a VT parser |

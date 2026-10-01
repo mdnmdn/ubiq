@@ -112,6 +112,14 @@ pub enum UbiqIcon {
     RoleVerifier,
     /// a node whose role has no icon of its own — the honest fallback
     RoleWorker,
+    /// the tool is a `just` recipe — a lowercase j leading a run chevron
+    RunnerJust,
+    /// the tool is a GNU Make target — a hammer, build by recipe
+    RunnerMake,
+    /// the tool is a mise task — mise-en-place, a bowl steaming and ready
+    RunnerMise,
+    /// the tool was defined by the user in Ubiq itself — a prompt with a spark of our own making
+    RunnerUbiq,
     /// the UI-scale slider's high end — a roomy interface, fewer and larger regions
     SizeInterfaceLarge,
     /// the UI-scale slider's low end — a compact interface, tightly packed regions
@@ -212,6 +220,10 @@ impl IconNamed for UbiqIcon {
             Self::RoleManager => "icons/role-manager.svg",
             Self::RoleVerifier => "icons/role-verifier.svg",
             Self::RoleWorker => "icons/role-worker.svg",
+            Self::RunnerJust => "icons/runner-just.svg",
+            Self::RunnerMake => "icons/runner-make.svg",
+            Self::RunnerMise => "icons/runner-mise.svg",
+            Self::RunnerUbiq => "icons/runner-ubiq.svg",
             Self::SizeInterfaceLarge => "icons/size-interface-large.svg",
             Self::SizeInterfaceSmall => "icons/size-interface-small.svg",
             Self::SizeTextLarge => "icons/size-text-large.svg",
@@ -290,6 +302,10 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::RoleManager,
     UbiqIcon::RoleVerifier,
     UbiqIcon::RoleWorker,
+    UbiqIcon::RunnerJust,
+    UbiqIcon::RunnerMake,
+    UbiqIcon::RunnerMise,
+    UbiqIcon::RunnerUbiq,
     UbiqIcon::SizeInterfaceLarge,
     UbiqIcon::SizeInterfaceSmall,
     UbiqIcon::SizeTextLarge,
@@ -378,6 +394,10 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/role-manager.svg" => ours!("role-manager"),
         "icons/role-verifier.svg" => ours!("role-verifier"),
         "icons/role-worker.svg" => ours!("role-worker"),
+        "icons/runner-just.svg" => ours!("runner-just"),
+        "icons/runner-make.svg" => ours!("runner-make"),
+        "icons/runner-mise.svg" => ours!("runner-mise"),
+        "icons/runner-ubiq.svg" => ours!("runner-ubiq"),
         "icons/size-interface-large.svg" => ours!("size-interface-large"),
         "icons/size-interface-small.svg" => ours!("size-interface-small"),
         "icons/size-text-large.svg" => ours!("size-text-large"),
