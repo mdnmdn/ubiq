@@ -5,7 +5,7 @@ kind: feature
 status: current
 summary: One sink every subsystem writes its diagnostics to, and the console panel that reads it back with a subsystem selector and a level floor.
 read_when: you are adding a log event, adding or renaming a subsystem, changing what the console shows or where it sits, or chasing why something the application did left no trace
-updated: 2026-09-27
+updated: 2026-10-01
 verified: 2026-09-27
 code_anchors: [crates/ubiq-proto/src/log.rs, crates/ubiq/src/state/logs.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/state/dock.rs, crates/ubiq-app/src/lib.rs]
 depends_on: [tech-architecture, feat-panes]
@@ -34,12 +34,15 @@ never heard of Ubiq — the harness library, the emulator, the framework — is 
 terms as Ubiq's own modules.
 
 **A record's subsystem is derived, not declared.** The event's target is the emitting module's path,
-and the map from module to subsystem lives in one function. Eight subsystems: **UI** for the window,
+and the map from module to subsystem lives in one function. Nine subsystems: **UI** for the window,
 its screens, the state they draw and the emulator; **Coordinator** for the coordinator, the
 conversation bridge and the bus; **PTY** for pseudo-terminals; **Harness** for the embedded library
 and, in this crate, `ubiq_host::agent` — the seam where Ubiq composes a run, signs an account's
 config home in, and retires a run directory; **MCP** for the surface Ubiq exposes to the agents it
-hosts; **Search** for the file search worker and the project watcher; **Web** for a web panel's
+hosts; **Search** for the file search worker and the project watcher; **Database** (`Subsystem::Db`) for
+the database engine's statement log (`ubiq_db`, under the target `ubiq_db::sql`) and the host's
+sessions (`ubiq_host::db`), whose lines carry the project, connection, session, elapsed time and
+row count but never a connection string or a password; **Web** for a web panel's
 vendor bundle fetch, its loopback server, its bridge and the embedded browser; and **External** for
 everything else that logs. Nothing falls through — an unrecognised target is External, not missing.
 
@@ -58,7 +61,7 @@ the other. Clearing empties it for all of them at once.
 
 **What reaches the ring is `RUST_LOG`'s decision.** With nothing set, Ubiq's own modules and the
 harness library are collected down to debug and everything else only when it complains —
-`ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,gpui_terminal=debug,warn`.
+`ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,ubiq_db=debug,agent_manager=debug,gpui_terminal=debug,warn`.
 The same filter feeds a writer on standard error, so a run from a terminal reports without the
 console being open — and a headless `--serve` run, which opens no window at all, has that writer as
 its only report. A double-clicked run has no such report at all: `detach_console` in

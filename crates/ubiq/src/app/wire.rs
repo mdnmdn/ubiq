@@ -582,6 +582,9 @@ impl AppState {
         let Some(message) = self.receive_help(message, cx) else {
             return;
         };
+        let Some(message) = self.receive_db(host, message, cx) else {
+            return;
+        };
         // The rest are the window's own words, coming back the wrong way.
         tracing::warn!("the window was sent a message only it may send: {message:?}");
     }

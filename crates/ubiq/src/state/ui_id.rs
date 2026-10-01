@@ -247,6 +247,7 @@ pub const RAIL_MODE_TEAMS: UiId = UiId::new("rail.mode.teams");
 pub const RAIL_MODE_TEAMS_ALL: UiId = UiId::new("rail.mode.teams-all");
 pub const RAIL_MODE_TEAMS_OLD: UiId = UiId::new("rail.mode.teams-old");
 pub const RAIL_MODE_KB: UiId = UiId::new("rail.mode.kb");
+pub const RAIL_MODE_DB: UiId = UiId::new("rail.mode.db");
 pub const RAIL_MODE_TASKS: UiId = UiId::new("rail.mode.tasks");
 pub const RAIL_MODE_SINK: UiId = UiId::new("rail.mode.sink");
 /// The kitchen sink's own demo mode (`X11`, M4) — a contribution, not a base variant, so it is
@@ -302,6 +303,7 @@ pub const CATALOGUE: &[UiId] = &[
     RAIL_MODE_TEAMS_ALL,
     RAIL_MODE_TEAMS_OLD,
     RAIL_MODE_KB,
+    RAIL_MODE_DB,
     RAIL_MODE_TASKS,
     RAIL_MODE_SINK,
     RAIL_MODE_EXT_DEMO,
@@ -455,6 +457,14 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
             label: "Knowledge",
             blurb: "The project's knowledge base: the sources it was built from, and search \
                     across them.",
+        },
+    ),
+    (
+        RAIL_MODE_DB,
+        TargetInfo {
+            label: "Databases",
+            blurb: "The project's databases: saved connections, their structure, table data \
+                    and SQL editors.",
         },
     ),
     (

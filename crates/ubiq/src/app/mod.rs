@@ -327,6 +327,9 @@ pub struct OpenProject {
     /// The knowledge base's sources and the document on screen, the documents half of the tree
     /// beside `explorer`.
     pub kb: KbState,
+    /// The project's databases: its saved connections, the structure tree, and the table and SQL
+    /// tabs open over them. See [`crate::state::db`].
+    pub db: crate::state::db::DbState,
     /// The host's work for this project, as this window last heard it. Empty rather than absent
     /// until the `ListWork` is answered, so a project whose work has never arrived draws as empty
     /// rather than as a project with no work.
@@ -502,6 +505,7 @@ impl OpenProject {
             explorer: ExplorerState::empty(),
             editor: EditorPaneState::empty(),
             kb: KbState::default(),
+            db: crate::state::db::DbState::default(),
             work: WorkProjection::empty(),
             agents: AgentsView::default(),
             conversations: HashMap::new(),
@@ -1105,6 +1109,11 @@ pub struct AppState {
     /// The subscription that commits each of `kb_filter_inputs` on Enter or blur, held beside the
     /// field it answers for so the two go and come back together.
     kb_filter_subs: HashMap<KbSourceId, Subscription>,
+    /// The database explorer's filter field. Window-owned for the reason `kb_name_input` is; what
+    /// is typed lands in `DbTreeState::filter` as it changes (`AppState::retype_db_filter`). The
+    /// tabs' and the connection form's widgets need a `Window` to build and are queued on their
+    /// own state, then built in `AppState::build_db_widgets`, called from `render`.
+    pub db_filter: Entity<InputState>,
     /// What this window knows about the project's binding to a board somewhere else — the
     /// provider list, the draft binding, the facets, the Test's answer and the per-task link
     /// rows. See `crate::state::tasksrc`.
@@ -1429,6 +1438,8 @@ pub use hosts::{
     RemoteHostMeta, host_menu_rows, host_row_label, preferred_remote,
 };
 mod image_edit;
+mod db;
+pub use db::{DbPageRequest, DbQueryReply, DbQueryRequest};
 mod kb;
 mod mark;
 mod mission;
@@ -1671,6 +1682,8 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys(crate::ui::run_tool_menu::key_bindings());
     cx.bind_keys(crate::ui::explorer::key_bindings());
     cx.bind_keys(crate::ui::ask::key_bindings());
+    cx.bind_keys(crate::ui::db::keys::key_bindings());
+    cx.bind_keys(crate::ui::db::explorer::key_bindings());
     gpui_terminal::install_key_bindings(cx);
 }
 

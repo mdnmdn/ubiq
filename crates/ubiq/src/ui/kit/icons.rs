@@ -80,6 +80,8 @@ pub enum UbiqIcon {
     ModeAgents,
     /// the application's own dashboard
     ModeControl,
+    /// the project's databases — a stack of disks, the mark for a data store
+    ModeDb,
     /// the project's git state — a commit graph that branches and merges back
     ModeGit,
     /// the editor and its panels — the mode, not the terminal inside it
@@ -204,6 +206,7 @@ impl IconNamed for UbiqIcon {
             Self::Isolation => "icons/isolation.svg",
             Self::ModeAgents => "icons/mode-agents.svg",
             Self::ModeControl => "icons/mode-control.svg",
+            Self::ModeDb => "icons/mode-db.svg",
             Self::ModeGit => "icons/mode-git.svg",
             Self::ModeIde => "icons/mode-ide.svg",
             Self::ModeKb => "icons/mode-kb.svg",
@@ -286,6 +289,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::Isolation,
     UbiqIcon::ModeAgents,
     UbiqIcon::ModeControl,
+    UbiqIcon::ModeDb,
     UbiqIcon::ModeGit,
     UbiqIcon::ModeIde,
     UbiqIcon::ModeKb,
@@ -378,6 +382,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/isolation.svg" => ours!("isolation"),
         "icons/mode-agents.svg" => ours!("mode-agents"),
         "icons/mode-control.svg" => ours!("mode-control"),
+        "icons/mode-db.svg" => ours!("mode-db"),
         "icons/mode-git.svg" => ours!("mode-git"),
         "icons/mode-ide.svg" => ours!("mode-ide"),
         "icons/mode-kb.svg" => ours!("mode-kb"),

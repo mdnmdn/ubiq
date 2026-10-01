@@ -1619,6 +1619,12 @@ impl TranscriptScroll {
         !matches!(self.heights.borrow().get(&key), Some((measured, _)) if *measured == sig)
     }
 
+    /// What a row was last measured at — its signature and its height — if it ever was. Read by
+    /// the transcript's stale-height diagnostic, which compares it with a fresh measurement.
+    pub fn cached(&self, key: u64) -> Option<(u64, Pixels)> {
+        self.heights.borrow().get(&key).copied()
+    }
+
     /// Record what a row laid out to. `true` where that is not the height the row was drawn at,
     /// so the frame that measured it knows it has to be drawn again.
     pub fn measured(&self, key: u64, sig: u64, height: Pixels) -> bool {

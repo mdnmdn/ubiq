@@ -180,6 +180,34 @@ pub fn modes(reg: &mut Registry<RailModeSpec>) {
             on_enter: None,
         },
     );
+    // Directly after the IDE: registration order is rail order. Opt-in — a project draws it only
+    // once General > Modes ticks it.
+    register(
+        reg,
+        RailModeSpec {
+            id: ids::RAIL_DB,
+            group: ids::RAIL_PROJECT,
+            label: "DB",
+            note: "Browse and query the project's databases.",
+            slug: "db",
+            icon: || Icon::new(UbiqIcon::ModeDb),
+            ui_id: uid::RAIL_MODE_DB,
+            availability: Availability::OptIn,
+            has_pane_region: true,
+            needs_project: true,
+            opens_left: true,
+            opens_right: false,
+            centre: Some(|app, window, cx| crate::ui::db::centre(app, window, cx)),
+            default_layout: Some(crate::ui::dock::default_db_layout),
+            destination: Some(|_app, _project, _cx| Some(View::Db)),
+            furniture: Some(AppState::queue_db_furniture),
+            side_furniture: Some(|region| {
+                (region == Region::Left).then_some(PanelKind::DbExplorer)
+            }),
+            // The saved connections are asked for on arrival rather than on every frame.
+            on_enter: Some(AppState::ask_db_connections_on_arrival),
+        },
+    );
     register(
         reg,
         RailModeSpec {

@@ -29,6 +29,9 @@ fn every_kind() -> Vec<PanelKind> {
         PanelKind::GitDiff,
         PanelKind::KbExplorer,
         PanelKind::Kb("kb:01J0:notes.md".to_string()),
+        PanelKind::DbExplorer,
+        PanelKind::DbTable("db:01J0::main:person".to_string()),
+        PanelKind::DbSql("dbsql:01J0".to_string()),
         PanelKind::Task,
         PanelKind::AgentsExplorer,
     ]
@@ -48,6 +51,7 @@ fn an_edge_panel_lives_on_a_border_and_nowhere_else() {
     for kind in [
         PanelKind::Explorer,
         PanelKind::KbExplorer,
+        PanelKind::DbExplorer,
         PanelKind::Task,
         PanelKind::AgentsExplorer,
     ] {
@@ -77,6 +81,7 @@ fn a_free_panel_takes_any_region() {
         PanelKind::GitChanges,
         PanelKind::GitHistory,
         PanelKind::GitDiff,
+        PanelKind::DbSql("dbsql:01J0".to_string()),
     ] {
         for region in REGIONS {
             assert!(kind.class().allows(region), "{kind:?} in {region:?}");
@@ -90,6 +95,7 @@ fn a_centre_panel_takes_only_the_centre() {
         PanelKind::Centre,
         PanelKind::File("justfile".to_string()),
         PanelKind::Kb("kb:01J0:notes.md".to_string()),
+        PanelKind::DbTable("db:01J0::main:person".to_string()),
     ] {
         assert!(kind.class().allows(Region::Centre), "{kind:?}");
         for region in [Region::Left, Region::Right, Region::Bottom] {
@@ -176,6 +182,12 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
         PanelKind::Kb("kb:01J0:notes.md".to_string()).home(),
         Region::Centre
     );
+    assert_eq!(PanelKind::DbExplorer.name(), "ubiq.db.explorer");
+    assert_eq!(PanelKind::DbExplorer.home(), Region::Left);
+    assert_eq!(PanelKind::DbTable(String::new()).name(), "ubiq.db.table");
+    assert_eq!(PanelKind::DbTable(String::new()).home(), Region::Centre);
+    assert_eq!(PanelKind::DbSql(String::new()).name(), "ubiq.db.sql");
+    assert_eq!(PanelKind::DbSql(String::new()).home(), Region::Bottom);
     assert_eq!(PanelKind::Task.name(), "ubiq.task");
     assert_eq!(PanelKind::Task.home(), Region::Right);
     assert_eq!(PanelKind::AgentsExplorer.name(), "ubiq.agents.explorer");
@@ -268,7 +280,12 @@ fn a_file_panel_s_name_is_the_same_for_every_file() {
 fn every_name_but_a_terminal_a_file_and_a_chat_rebuilds() {
     for kind in every_kind() {
         match kind {
-            PanelKind::Terminal(_) | PanelKind::File(_) | PanelKind::Kb(_) | PanelKind::Chat(_) => {
+            PanelKind::Terminal(_)
+            | PanelKind::File(_)
+            | PanelKind::Kb(_)
+            | PanelKind::DbTable(_)
+            | PanelKind::DbSql(_)
+            | PanelKind::Chat(_) => {
                 assert_eq!(PanelKind::from_name(kind.name()), None, "{kind:?}")
             }
             kind => assert_eq!(PanelKind::from_name(kind.name()), Some(kind)),
@@ -296,6 +313,7 @@ fn a_pane_a_file_a_chat_tab_and_the_console_close_and_nothing_else_does() {
         ) || kind.pane().is_some()
             || kind.tab_key().is_some()
             || kind.kb_key().is_some()
+            || kind.db_key().is_some()
             || kind.chat_id().is_some();
         assert_eq!(kind.closable(), closes, "{kind:?}");
     }
@@ -488,6 +506,31 @@ fn what_is_drawn_follows_the_mode_and_the_project() {
     assert!(!PanelKind::KbExplorer.is_drawn(git));
     // The centre stays in KB mode: it is the document the explorer selects.
     assert!(PanelKind::Centre.is_drawn(kb));
+
+    // The database explorer is DB's, and its tabs are drawn only while their tab is open there.
+    let db = Visibility {
+        has_project: true,
+        rail_mode: Some(RailMode::DB),
+        ..nothing()
+    };
+    let table = PanelKind::DbTable("db:01J0::main:person".to_string());
+    let sql = PanelKind::DbSql("dbsql:01J0".to_string());
+    assert!(PanelKind::DbExplorer.is_drawn(db));
+    assert!(!PanelKind::DbExplorer.is_drawn(kb));
+    assert!(!table.is_drawn(db) && !sql.is_drawn(db), "no tab open");
+    let open = Visibility {
+        file_open: true,
+        any_file_open: true,
+        ..db
+    };
+    assert!(table.is_drawn(open) && sql.is_drawn(open));
+    assert!(!table.is_drawn(Visibility {
+        rail_mode: Some(RailMode::KB),
+        ..open
+    }));
+    // The centre page is the "no table open" page: it steps aside once a table is.
+    assert!(PanelKind::Centre.is_drawn(db));
+    assert!(!PanelKind::Centre.is_drawn(open));
 }
 
 /// A panel that belongs to a rail mode rather than to the window is never put back into another
@@ -505,6 +548,9 @@ fn a_mode_s_own_panels_say_so() {
                 | PanelKind::GitHistory
                 | PanelKind::GitDiff
                 | PanelKind::KbExplorer
+                | PanelKind::DbExplorer
+                | PanelKind::DbTable(_)
+                | PanelKind::DbSql(_)
                 | PanelKind::Task
                 | PanelKind::AgentsExplorer
         );

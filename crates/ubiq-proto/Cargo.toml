@@ -9,7 +9,10 @@ publish = false
 # Nothing here draws and nothing here touches disk. Both halves depend on this crate, so anything
 # that arrives in this list becomes a dependency of the interface and the host alike.
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+# The database model the contract's records are made of (`db.rs` re-exports it). Default features
+# only: no driver and no async runtime enter the interface's graph through here.
+ubiq-db = { path = "../ubiq-db" }
+serde ={ version = "1.0", features = ["derive"] }
 # ULID behind the contract's id newtypes: sorts by creation time, 26 characters
 ulid = { version = "3", features = ["serde"] }
 flume = "0.12"

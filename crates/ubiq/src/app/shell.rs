@@ -916,6 +916,18 @@ impl AppState {
         [
             (Layer::ProjectSettings, w.project_settings.is_some()),
             (Layer::KbSource, w.kb_source.is_some()),
+            (
+                Layer::DbForm,
+                self.active_seen
+                    .and_then(|id| self.projects.get(&id))
+                    .is_some_and(|open| open.db.form.is_some()),
+            ),
+            (
+                Layer::DbPassword,
+                self.active_seen
+                    .and_then(|id| self.projects.get(&id))
+                    .is_some_and(|open| open.db.password_prompt.is_some()),
+            ),
             (Layer::Settings, s.open),
             (Layer::Login, s.login.is_some()),
             (Layer::NewAgent, w.new_agent.is_some()),
@@ -1205,6 +1217,12 @@ impl AppState {
             self.close_harness_login(cx);
         } else if settings.open {
             self.close_settings(cx);
+        } else if self.db(cx).is_some_and(|db| db.password_prompt.is_some()) {
+            // The database family's two modals, in reverse paint order: the password question is
+            // painted over the connection form, which is painted over the settings page.
+            self.cancel_db_password(cx);
+        } else if self.db(cx).is_some_and(|db| db.form.is_some()) {
+            self.close_db_form(cx);
         } else if self.workbench.kb_source.is_some() {
             // Painted over the project settings page that raised it, so it is peeled before that
             // page — dropping the page and leaving the question over nothing is the one order
@@ -1253,6 +1271,7 @@ impl AppState {
         self.sink.settings.menu = None;
         self.drop_explorer_menu(cx);
         self.drop_kb_menu(cx);
+        self.drop_db_menu(cx);
         cx.notify();
     }
 
@@ -1619,6 +1638,7 @@ impl Render for AppState {
         self.take_focus(window, cx);
         self.attach_arrived_files(window, cx);
         self.attach_kb_docs(window, cx);
+        self.build_db_widgets(window, cx);
         // Which document the annotation surface is pointed at follows the editor's active tab, so
         // it is settled before the buffer that document is read into.
         self.settle_annotation_document(cx);

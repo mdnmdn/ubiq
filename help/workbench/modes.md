@@ -7,21 +7,27 @@ context: [rail.ide, rail.control, rail.tasks]
 targets: [ui.rail.mode.ide, ui.rail.mode.tasks, ui.rail.mode.control]
 order: 10
 status: current
-related: [workbench-panels, workbench-rail, git-overview, kb-overview, agents-starting]
+related: [workbench-panels, workbench-rail, git-overview, kb-overview, db-overview, agents-starting]
 ---
 
 ## The rail selects what the centre is for
 
 The rail on the left switches between destinations, grouped in two: application-level modes
 (**Control**, and the kitchen sink used to test Ubiq against itself) and project modes (**IDE**,
-**Git**, **Agents**, Teams, the knowledge base and **Tasks**). Exactly one is active at a time, and a
-project mode with no folder open simply says so.
+**Git**, **Agents**, Teams, the knowledge base and **Tasks**, plus **DB** once a project turns it
+on). Exactly one is active at a time, and a project mode with no folder open simply says so.
 
 ## IDE
 
 **IDE** is the default: it fills the centre with the files you have open, one panel per file, and
 steps aside entirely while any is open. The [explorer](workbench-explorer) and the
 [editor](workbench-editor) both belong to it.
+
+## DB
+
+**DB** is the one mode a project has to switch on (project settings > General > Modes). It puts the
+project's [databases](db-overview) in an explorer on the left, table data in the centre and SQL
+editors along the bottom.
 
 ## Tasks
 

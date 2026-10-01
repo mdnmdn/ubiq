@@ -35,6 +35,7 @@ Re-exports live in `state/mod.rs`; the work's own records are **not** re-exporte
 | `search.rs` | The search panel: query, options, results so far |
 | `settings.rs` | Application settings the interface owns: schema, the overlay's nav, how a blob is read |
 | `sink.rs` | The kitchen sink — the app's own test bench and its fixtures |
+| `db/` | DB mode's state on the open project — `mod.rs` (`DbState`: connections, keystore, tabs, the password prompt), `tree.rs` (explorer nodes, filter, `db_menu_entries`), `table.rs`, `pending.rs` (the pure edit buffer), `sql.rs` (a SQL tab, `pick`), `form.rs` (the connection form's model). Links `ubiq-db`'s pure half only |
 | `stats.rs` | Which Control tab is up, and the last reading the host answered with |
 | `viewport.rs` | How a picture sits in its panel: a zoom and a pan |
 | `vim/` | Modal editing — `mod.rs` (mode, half-typed command, effects), `motion.rs`, `object.rs`, `search.rs`, `step.rs` (one keystroke in, a list of effects out) |
@@ -67,6 +68,7 @@ this far: a pane is an ID, a title, and an emulator reading one end of the bus.
 | `chat.rs`, `panels.rs` | Chat tabs, and the dock's panels |
 | `editor.rs`, `explorer.rs`, `picker.rs`, `nav.rs` | Files: open/save, the tree, the picker, navigation and bookmarks |
 | `git.rs` | The Git screen |
+| `db/` | DB mode's behaviour — `mod.rs` (every `Db*` request has one sender here; `receive_db` is called from `wire.rs`), `explorer.rs`, `table.rs`, `sql.rs`, `settings.rs` (the connection form, Test, New database) |
 | `graph.rs`, `board.rs` | Orchestration and the tasks board |
 | `settings.rs` | Application and project settings, connectors, accounts, AI providers |
 | `size.rs` | The two size axes as the window acts on them: the active preset, the saved list, the name prompt, and `sync_size_sliders` |
@@ -105,6 +107,7 @@ process, a path on disk or a file descriptor.
 | `board/` | `mod.rs` the cards in columns, `detail.rs` the panel beside them, `form.rs` its editable half |
 | `orchestration/` | `graph.rs` cards on a dotted ground joined to whoever spawned them, `inspector.rs` the panel beside it, `tasks.rs` the drawer under it (and the inspector's second tab) |
 | `git/` | `mod.rs`, `refs.rs` the ref sidebar, `history.rs` the log and its lanes, `changes.rs` what the selected row is about, `diff.rs` what the selected path changed |
+| `db/` | DB mode — `mod.rs` (the empty centre page), `explorer.rs` (the tree panel and password prompt), `table.rs` with `grid.rs`, `cell_input.rs`, `json.rs`; `sql.rs` with `results.rs`, `plan.rs`; `conn_form.rs`, `settings.rs` (the Databases section body), `keys.rs` (actions and bindings in the `DbTable`/`DbSql` contexts) |
 | `stats.rs` | The Control screen |
 | `sink/` | The kitchen sink — `style.rs` is **the style reference: every token, surface, control and field on one page**, and where every new kit primitive gets its specimen. Also `docs.rs`, `files.rs`, `project.rs`, `settings.rs`, `messages.rs` |
 | `settings.rs` | Application settings over the window: a nav, a column of rows, a fixed-size panel. The largest UI module |

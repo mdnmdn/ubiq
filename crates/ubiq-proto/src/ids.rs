@@ -348,3 +348,33 @@ ulid_id! {
     /// a request the record no longer holds is discarded.
     SpawnId
 }
+
+ulid_id! {
+    /// One saved database connection of a project. Minted **host-side** on the first save, on
+    /// [`AiProviderId`]'s discipline: a connection exists only once it is on disk — an abandoned
+    /// form leaves no id behind. Stable across a rename and across an edit of the host or the file:
+    /// the name and the address are the user's, this is what a session, a stored password and a
+    /// tab's payload reference.
+    DbConnId
+}
+
+ulid_id! {
+    /// One database session — one table tab or one SQL tab, and the worker thread that holds its
+    /// connection. Minted by the **interface**, so a reply naming a tab the user has closed is
+    /// discarded by id rather than drawn, [`SearchId`]'s discipline.
+    DbSessionId
+}
+
+ulid_id! {
+    /// One run in a database session — a table page, a SQL run, a batch of edits. Minted by the
+    /// **interface** per run, [`SearchId`]'s discipline: a reply for a run the tab has moved past
+    /// is discarded by id, and it is the handle `DbCancel` stops a statement by.
+    DbQueryId
+}
+
+ulid_id! {
+    /// One connection Test, from `TestDbConnection` to the single `DbTested` that ends it. Minted
+    /// by the **interface**, [`ConnectId`]'s discipline: an answer for a form the user has closed
+    /// is discarded rather than drawn into the next one.
+    DbProbeId
+}

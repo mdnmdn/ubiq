@@ -16,7 +16,7 @@ review_cycle: quarterly
 
 ## The workspace
 
-One Cargo workspace, five crates of Ubiq's own, the harness-management library they embed, one
+One Cargo workspace, six crates of Ubiq's own, the harness-management library they embed, one
 vendored third-party crate, and everything else is documentation or tooling.
 
 ```
@@ -29,6 +29,7 @@ ubiq/
 ├── crates/
 │   ├── ubiq-proto/      the contract, the bus, the log sink
 │   ├── ubiq-host/       the headless host: processes, pseudo-terminals, projects, the work
+│   ├── ubiq-db/         the database engine: model, SQL analysis, edit rendering, drivers behind a feature
 │   ├── ubiq/            the desktop interface (GPUI)
 │   ├── ubiq-app/        the binary, the only thing that names both halves
 │   ├── ubiq-drone/      the windowless binary that serves one machine over a byte stream
@@ -80,6 +81,7 @@ project's own folder — `D30` — with one exception the person creating a proj
         │   ├── tasks.toml         that project's tasks, the user's data
         │   └── archive/           the archive pages, a hundred tasks each
         ├── kb.toml                that project's knowledge-base roots, the user's data
+        ├── db.toml                that project's database connections — never a password
         ├── plans/                 one markdown plan per task that carries a level, and its sidecar
         ├── missions/<task ulid>/  one mission: mission.toml, docs/, journal.jsonl
         ├── wiki/                  knowledge-base pages the user wrote here
@@ -88,6 +90,7 @@ project's own folder — `D30` — with one exception the person creating a proj
             ├── view.toml          that project's view blob, opaque to the host
             ├── ui/                the interface's workarea — the host makes it and never looks in
             ├── index/             the host's file index, deleted rather than repaired
+            ├── db-secrets.toml    that project's sealed database passwords, this machine's key
             └── kb/<root ulid>/    a cloned knowledge-base repository, re-fetchable
 ```
 
@@ -119,6 +122,11 @@ accumulates and is unbounded — `D78`, and
 knowledge-base root cloned from a repository lands there and never inside the project's own folder,
 on `D30`. Losing it costs a re-clone, which is what puts it under `local/` while `kb.toml` — the
 list of roots, the user's data — stays on the shared side.
+
+`local/db-secrets.toml` is `db.toml`'s counterpart for what must not be shared: the database
+passwords, each sealed under a key that lives in this machine's keychain, so the file is useless
+anywhere else and sits under the config root whatever the project's storage mode (`D201`). Forget
+removes it with the project's directory.
 
 A `projects/<ulid>/` with no record in the catalogue is collected at the next successful load, which
 is what makes forgetting a project complete even after a crash halfway through it. The `local/ui/`
@@ -181,7 +189,7 @@ The order is the design:
 
 1. **Copy** every entry of `project_dir::FOLLOWS` to the destination. That is the shared half that
    actually resolves through `ProjectDirs` today — `project.toml`, `tasks/`, `tasksrc.toml`,
-   `studio.toml`. The rest of the shared half (`plans/`, `missions/`, `kb.toml`,
+   `studio.toml`, `db.toml`. The rest of the shared half (`plans/`, `missions/`, `kb.toml`,
    `agent-definitions/`) is still composed under the config root by its own store (`G355`), so
    moving it would take it away from the only code that reads it. An allow-list is the side that
    fails safely, and it is what `G355` shortens to nothing.
@@ -300,7 +308,7 @@ headless build `operations.md` describes, with no script page and no interpreter
 interpreter still syntax-checks a buffer and still compiles TypeScript to JavaScript. `D127` is the
 interpreter and its cost, `D128` the front end in front of it.
 
-## Inside Ubiq's five crates
+## Inside Ubiq's six crates
 
 Module by module, and what must never appear in each. The generated tree, with every file, is in
 [`code-map.md`](./code-map.md). Which crate a module sits in is itself the first rule: the
@@ -322,6 +330,8 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/remote.rs` | The listener that lets a UI on another machine attach: an accept thread, a thread per connection, a token handshake over HTTP, then raw `wire` frames onto an ordinary `Hub::connect()` client | A special case for any message family, TLS, or a second kind of client |
 | `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
 | `ubiq-host/src/repos/` | Listing a remote's repositories, and cloning one into a folder, on a thread of its own per clone | A read of an existing repository — that is `git/` — or a write into one |
+| `ubiq-db/src/` | The database engine: `model.rs`/`plan.rs` (the types the wire carries), `conn.rs`, `value.rs`, `sql.rs`, `edit.rs`, and, behind the `drivers` feature, `driver/` — the four engines | A GPUI type, an Ubiq crate, or a driver outside `driver/` |
+| `ubiq-host/src/db/` | A project's databases, host side: `mod.rs`'s `Db` service, `store.rs` (`db.toml`), `secrets.rs` (the sealed passwords), `session.rs` (a worker thread per tab) and `jobs.rs` (each message as a job, the read-only layers), behind the `db` feature | A call on the coordinator's thread, a decrypted password sent to the interface |
 | `ubiq-host/src/kb/` | A project's knowledge-base roots: `mod.rs`'s `Kb` holds the list (one TOML file per project, in `store.rs`) and derives each root's state; `sync.rs` fetches or refreshes a git root on a thread of its own, behind `git`. Listing and reading still run on `files/`'s worker | A project's own tree — that is `files/` — or a second implementation of the glob `KbRoot::admits` is |
 | `ubiq-host/src/files/browse.rs` | Listing one absolute directory on the host's own filesystem before any project exists — the host browse family's worker logic, with its own 2,000-entry ceiling independent of the file family's | A project-relative path, or the containment `path.rs` enforces once a project's root is known |
 | `ubiq-host/src/host_path.rs` | Absolute host paths as they cross the wire: stripping the verbatim prefix for display and normalising separators before a filesystem call, on every platform by doing nothing elsewhere | A project-relative path, or any knowledge of what the path is for |
@@ -341,6 +351,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq/src/state/remote.rs` | The "Connect to a remote host" modal's state and steps, the `AttemptId` a stale dial result is checked against, and the pure `parse_connection_string` / `with_default_port` a test pins down with no socket | A socket, a thread, or any blocking call |
 | `ubiq/src/app/remote_connect.rs` | The client half of the remote-attach transport: dial, the `GET /attach` handshake, and the two pump threads that drive a dialled `TcpStream` through `bus::detached()` onto a `Client` the modal registers | A special case for any message family, or a GPUI type |
 | `ubiq/src/ui/remote_connect.rs` | The modal itself: its four steps drawn as the body and footer change | A socket call, or parsing of a connection string |
+| `ubiq/src/{state,app,ui}/db/` | DB mode, one folder per layer: the state on the open project, the handlers that are the only senders and receivers of the database family, and the explorer, table tab, SQL tab and connection form | A `ubiq_db::driver` name — the interface links the pure half only — or a decrypted password |
 | `ubiq/src/web_export/` | The on-demand local HTTP server that serves a project's own files read-only, for browsing in a web browser — its own project-root reads, its own `tiny_http` thread, no bus traffic | A proto message, a call into `ubiq-host` |
 | `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, settings overlay, `chat/`, `agents/`, `orchestration/`, `board/` | Anything that names the host |
 | `ubiq/src/ui/agents/` | The Agents screen: the sidebar of every agent the host reports, and one column per conversation — its tabs, its thread and its composer | Anything that ends an agent; a close that means more than benching one |

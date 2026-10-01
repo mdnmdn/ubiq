@@ -46,7 +46,7 @@ impl AppState {
             self.set_rail_mode(mode, cx);
         }
         match &dest.view {
-            View::Control | View::Kb | View::Git => {}
+            View::Control | View::Kb | View::Git | View::Db => {}
             View::Ide { key } => self.reveal_ide(key, dest.locus.as_ref(), cx),
             View::Explorer { path } => self.reveal_explorer(path.clone(), cx),
             View::Terminal { pane } => {
@@ -277,6 +277,7 @@ pub fn rail_of(view: &View, from: RailMode) -> Option<RailMode> {
         View::Control => RailMode::CONTROL,
         View::Kb => RailMode::KB,
         View::Git => RailMode::GIT,
+        View::Db => RailMode::DB,
         View::Ide { .. } | View::Explorer { .. } => RailMode::IDE,
         View::Graph { .. } => RailMode::TEAMS_OLD,
         // A teams link names the project of what it points at, but the span is not part of the

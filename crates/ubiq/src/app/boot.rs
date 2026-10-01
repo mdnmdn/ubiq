@@ -224,6 +224,7 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("What the source is called"));
         let kb_url_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("https://github.com/org/wiki.git"));
+        let db_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter loaded nodes"));
 
         // The kitchen sink's fixtures become buffers here, where there is a window to build one
         // with. They are constants, so this is the whole of their lifecycle: nothing arrives late,
@@ -1540,9 +1541,23 @@ impl AppState {
             },
         ));
 
+        // The database explorer's filter narrows the loaded nodes as it is typed; it fetches
+        // nothing, so there is nothing to debounce.
+        subscriptions.push(cx.subscribe_in(
+            &db_filter,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let value = input.read(cx).value().to_string();
+                    this.retype_db_filter(value, cx);
+                }
+            },
+        ));
+
         // A field's underline is drawn by the parent, so a focus change has to redraw the window
         // rather than only the library widget.
         for handle in [
+            db_filter.read(cx).focus_handle(cx),
             sink_input.read(cx).focus_handle(cx),
             sink_textarea.read(cx).focus_handle(cx),
             sink_modal_input.read(cx).focus_handle(cx),
@@ -1694,9 +1709,10 @@ impl AppState {
         // conversation — a cached height that `needs_measure` had no signal to invalidate (T-194).
         // Resizing the panel always fixes it, because the width change forces every row's
         // signature to move; this is the same forced pass asked for on a timer instead, one per
-        // composer slot, so a transcript nobody is resizing straightens itself out too. Bounded:
-        // a pass that moves nothing means the transcript is settled, and the loop for that slot
-        // ends rather than polling forever.
+        // composer slot, so a transcript nobody is resizing straightens itself out too. Not
+        // bounded: a settled transcript is not one that stays settled — the next long message can
+        // leave a stale height behind — and stopping on the first quiet pass ended the loop within
+        // seconds of boot. A pass re-measures only the rows on screen, which is cheap (T-284).
         for slot in 0..COMPOSER_SLOTS {
             cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
                 loop {
@@ -1720,13 +1736,8 @@ impl AppState {
                             .get(slot)
                             .and_then(TranscriptScroll::take_force_result)
                     });
-                    match result {
-                        // Nothing moved: this slot's transcript is settled, so stop asking.
-                        Ok(Some(false)) => break,
-                        // Something moved, or nothing answered because the slot was not on
-                        // screen to run the pass — either way, ask again after the next wait.
-                        Ok(_) => {}
-                        Err(_) => break,
+                    if result.is_err() {
+                        break;
                     }
                 }
             })
@@ -1852,6 +1863,7 @@ impl AppState {
             kb_url_input,
             kb_filter_inputs: HashMap::new(),
             kb_filter_subs: HashMap::new(),
+            db_filter,
             tasksrc: crate::state::tasksrc::TaskSrcState::default(),
             tasksrc_subs: HashMap::new(),
             sink_buffers,

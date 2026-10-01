@@ -53,6 +53,15 @@ fn events_are_classified_filtered_and_read_back() {
         "both halves of a web panel log as Web: {web:?}"
     );
 
+    // The engine and the host's sessions are one subsystem; `ubiq_db` must not fall to the bare
+    // `ubiq` catch-all, which it also starts with.
+    logs().clear();
+    tracing::info!(target: "ubiq_db::sql", "select 1");
+    tracing::info!(target: "ubiq_host::db::session", "connected");
+    let db = logs().snapshot(everything);
+    assert_eq!(db.len(), 2);
+    assert!(db.iter().all(|record| record.subsystem == Subsystem::Db));
+
     // The bus is the coordinator's, and it now lives in this crate rather than beside it.
     logs().clear();
     tracing::info!(target: "ubiq_proto::bus", "a client attached");

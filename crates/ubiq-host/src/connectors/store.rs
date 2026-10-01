@@ -1,9 +1,10 @@
 //! Where a connection's token lives, and what it says about itself.
 //!
-//! Four kinds of secret are filed here, in four namespaces that cannot collide: a connection's
+//! Five kinds of secret are filed here, in five namespaces that cannot collide: a connection's
 //! token ([`key`]), the client secret of an OAuth registration Ubiq authenticates *as*
-//! ([`app_key`]), an API provider's key ([`ai_key`]), and the passphrase or password an SSH
-//! profile authenticates with ([`ssh_key`]). One store rather than four, because
+//! ([`app_key`]), an API provider's key ([`ai_key`]), the passphrase or password an SSH
+//! profile authenticates with ([`ssh_key`]), and the key that seals saved database passwords
+//! ([`db_key`]). One store rather than five, because
 //! whether the platform's keychain works at all is one fact and [`Store::usable`] answers it once —
 //! and because a second [`OsSecretStore`] over the same directory would be a second answer to it.
 //!
@@ -199,6 +200,24 @@ impl Store {
             .is_some_and(|blobs| !blobs.is_empty())
     }
 
+    /// File the install's database-password key. Text, because the blob is what a keychain item
+    /// holds and a key of raw bytes is the kind of value a platform store mangles; the caller
+    /// encodes it.
+    pub fn set_db_key(&self, key: &str) -> Result<(), String> {
+        self.inner
+            .set(&db_key(), &[blob(key.as_bytes().to_vec())])
+            .map_err(|error| error.to_string())
+    }
+
+    /// The install's database-password key, if one is filed. An unreadable store is an `Err`, a
+    /// store with nothing in it `Ok(None)`: the two are different problems for the caller.
+    pub fn db_key_value(&self) -> Result<Option<String>, String> {
+        let blobs = self.inner.get(&db_key()).map_err(|error| error.to_string())?;
+        Ok(blobs
+            .and_then(|blobs| blobs.into_iter().next())
+            .and_then(|blob| String::from_utf8(blob.bytes).ok()))
+    }
+
     pub fn set_app_secret(&self, app: OauthAppId, secret: &str) -> Result<(), String> {
         self.inner
             .set(&app_key(app), &[blob(secret.as_bytes().to_vec())])
@@ -242,6 +261,16 @@ pub fn ssh_key(profile: SshProfileId) -> CredentialId {
     CredentialId {
         harness: "ssh".to_string(),
         name: profile.to_string(),
+    }
+}
+
+/// Where the install's database-password key is filed — a fifth namespace, and the only one with
+/// no id: one key per install, not per project or connection (`D201`). It opens nothing by itself;
+/// the sealed passwords live in each project's `db-secrets.toml`.
+pub fn db_key() -> CredentialId {
+    CredentialId {
+        harness: "db".to_string(),
+        name: "secrets-key".to_string(),
     }
 }
 

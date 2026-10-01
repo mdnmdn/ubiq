@@ -243,9 +243,11 @@ signature — content, width, the conversation family's body size — explains o
 resizing the panel always fixes it, because the width change forces every row to re-measure whether
 or not its signature moved. `TranscriptScroll::force_relayout` asks the next frame to do exactly
 that unconditionally, and `AppState::new` (`app/boot.rs`) runs one such pass per composer slot every
-four seconds, reading back through `TranscriptScroll::take_force_result` whether anything actually
-moved: a pass that changes nothing ends that slot's loop, one that does keeps it going. This is a
-mitigation for an unexplained symptom, not a fix for a known cause — `backlog.md`'s `G372`.
+four seconds for as long as the window lives — a quiet pass does not end the loop, because the next
+long message can leave a stale height behind. A row the pass finds at a different height under an
+unchanged signature is logged as a warning on `ubiq::ui::conversation` (its kind, its length, the
+height it was cached at and the one it measured), which is the diagnostic for finding the cause.
+This is a mitigation, not a fix — `backlog.md`'s `G372`.
 
 **Two things in the transcript fold, and their rules differ.** A run of same-kind tool calls needs
 three before folding pays and keeps its last card out; a run of reasoning folds unconditionally into

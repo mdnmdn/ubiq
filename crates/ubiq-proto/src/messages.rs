@@ -27,10 +27,14 @@ use crate::files::{
 use crate::git::{
     self, GitChangedPath, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview,
 };
+use crate::db::{
+    ConnectionConfig, DbConnState, DbConnection, DbEditFailure, DbFailure, DbKeystore, DbListing,
+    DbNode, DbOutcome, DbPage, DbRun, DbRunOptions, RowEdit, SecretEdit, TableRef,
+};
 use crate::help::HelpCatalog;
 use crate::ids::{
-    AiProviderId, AnnotationId, AskId, BlockId, CloneId, ConnectId, ConnectionId, KbSourceId,
-    NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
+    AiProviderId, AnnotationId, AskId, BlockId, CloneId, ConnectId, ConnectionId, DbConnId,
+    DbProbeId, DbQueryId, DbSessionId, KbSourceId, NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
     SshProfileId, StepId, SuggestId, TaskId, TaskSrcQueryId, ToolId,
 };
 use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
@@ -1865,6 +1869,181 @@ pub enum Message {
         path: String,
     },
 
+    // ── Database family: UI → host ──────────────────────────────────
+    // A project's saved connections and what is behind them. Every variant carries `project_id` —
+    // the knowledge-base family's discipline — and none carries a pane: the objects are named by
+    // `DbConnId`, `DbSessionId` and `DbQueryId`. A table or SQL write travels as a structure
+    // (`TableRef` plus fragments, `RowEdit`s) and never as rendered SQL, so the host is
+    // authoritative; only the SQL editor sends text, because the text is the user's input.
+    /// What this project's connections are. Answered with [`Message::DbConnectionsListed`].
+    DbConnections {
+        project_id: ProjectId,
+    },
+    /// Create (`id` absent — the host mints one) or edit a connection. `config.password` is always
+    /// `None`; the password rides `password`. `remember: false` keeps a typed password in the
+    /// host's memory for the run. Answered with [`Message::DbConnectionsListed`].
+    SaveDbConnection {
+        project_id: ProjectId,
+        id: Option<DbConnId>,
+        config: Box<ConnectionConfig>,
+        password: SecretEdit,
+        remember: bool,
+    },
+    /// Remove a connection; its sessions close and its sealed password goes. Answered with
+    /// [`Message::DbConnectionsListed`].
+    DeleteDbConnection {
+        project_id: ProjectId,
+        id: DbConnId,
+    },
+    /// Try a configuration without saving it. `id` and `Keep` mean the saved password, used
+    /// host-side. Answered with [`Message::DbTested`].
+    TestDbConnection {
+        project_id: ProjectId,
+        probe: DbProbeId,
+        id: Option<DbConnId>,
+        config: Box<ConnectionConfig>,
+        password: SecretEdit,
+    },
+    /// The password for a connection that answered [`DbConnState::NeedsPassword`]. Answered with
+    /// [`Message::DbConnectionState`].
+    DbPassword {
+        project_id: ProjectId,
+        conn: DbConnId,
+        password: Secret,
+        remember: bool,
+    },
+    /// The children of one node of a connection's structure tree. Answered with
+    /// [`Message::DbTreeListing`].
+    DbTree {
+        project_id: ProjectId,
+        conn: DbConnId,
+        node: DbNode,
+    },
+    /// One page of a table. `filter` and `order_by` are the WHERE and ORDER BY fragments, validated
+    /// host-side. `count` also asks for the exact row count. Answered with
+    /// [`Message::DbTablePageResult`].
+    DbTablePage {
+        project_id: ProjectId,
+        conn: DbConnId,
+        session: DbSessionId,
+        query: DbQueryId,
+        table: Box<TableRef>,
+        filter: String,
+        order_by: String,
+        limit: u32,
+        offset: u64,
+        count: bool,
+        read_only: bool,
+    },
+    /// Run SQL. `statements` are already split; `database` selects the session's current database
+    /// first. Answered with one [`Message::DbQueryResult`] per statement.
+    DbQuery {
+        project_id: ProjectId,
+        conn: DbConnId,
+        session: DbSessionId,
+        query: DbQueryId,
+        database: Option<String>,
+        statements: Vec<String>,
+        run: DbRun,
+        opts: DbRunOptions,
+    },
+    /// Apply a batch of row edits in one transaction. Answered with [`Message::DbEditsApplied`].
+    DbApplyEdits {
+        project_id: ProjectId,
+        conn: DbConnId,
+        session: DbSessionId,
+        query: DbQueryId,
+        table: Box<TableRef>,
+        edits: Vec<RowEdit>,
+    },
+    /// Stop a running statement. Answers nothing: the running reply ends `Cancelled`.
+    DbCancel {
+        project_id: ProjectId,
+        session: DbSessionId,
+        query: DbQueryId,
+    },
+    /// Close a table or SQL tab's session. Answers nothing.
+    DbCloseSession {
+        project_id: ProjectId,
+        session: DbSessionId,
+    },
+    /// Drop every session of a connection. Answered with [`Message::DbConnectionState`].
+    DbDisconnect {
+        project_id: ProjectId,
+        conn: DbConnId,
+    },
+    /// Create an empty SQLite database at a host path the host-browse picker chose. Answered with
+    /// [`Message::DbFileCreated`] or [`Message::DbFileError`].
+    CreateDbFile {
+        project_id: ProjectId,
+        path: String,
+    },
+
+    // ── Database family: host → UI ──────────────────────────────────
+    /// The connections, and whether this install can seal a password. Sent to every window of the
+    /// project, as [`Message::KbSourcesListed`] is, so a settings form and an explorer agree.
+    DbConnectionsListed {
+        project_id: ProjectId,
+        connections: Vec<DbConnection>,
+        keystore: DbKeystore,
+    },
+    /// Answer to [`Message::TestDbConnection`]: the server's version string, or why not.
+    DbTested {
+        project_id: ProjectId,
+        probe: DbProbeId,
+        result: Result<String, DbFailure>,
+    },
+    /// Where a connection stands. Sent to every window of the project.
+    DbConnectionState {
+        project_id: ProjectId,
+        conn: DbConnId,
+        state: DbConnState,
+    },
+    /// Answer to [`Message::DbTree`]; `node` is echoed so the interface files it where it asked.
+    DbTreeListing {
+        project_id: ProjectId,
+        conn: DbConnId,
+        node: DbNode,
+        result: Result<DbListing, DbFailure>,
+    },
+    /// Answer to [`Message::DbTablePage`].
+    DbTablePageResult {
+        project_id: ProjectId,
+        session: DbSessionId,
+        query: DbQueryId,
+        result: Result<Box<DbPage>, DbFailure>,
+        elapsed_ms: u64,
+    },
+    /// Answer to one statement of [`Message::DbQuery`]. `index` is its place in `statements`;
+    /// `last` marks the final reply of the run (a failure ends the run early and is `last`).
+    DbQueryResult {
+        project_id: ProjectId,
+        session: DbSessionId,
+        query: DbQueryId,
+        index: u32,
+        last: bool,
+        result: Result<Box<DbOutcome>, DbFailure>,
+        elapsed_ms: u64,
+    },
+    /// Answer to [`Message::DbApplyEdits`]: the rows changed, or the statement that rolled the batch
+    /// back.
+    DbEditsApplied {
+        project_id: ProjectId,
+        session: DbSessionId,
+        query: DbQueryId,
+        result: Result<u64, DbEditFailure>,
+    },
+    /// Answer to [`Message::CreateDbFile`].
+    DbFileCreated {
+        project_id: ProjectId,
+        path: String,
+    },
+    DbFileError {
+        project_id: ProjectId,
+        path: String,
+        message: String,
+    },
+
     // ── Work family: UI → host ──────────────────────────────────────
     // Every variant here is addressed by `project_id`, because the work belongs to a project: its
     // tasks are written down under that project's own directory, and its sessions and agents are
@@ -3206,6 +3385,28 @@ impl Message {
             | Message::KbFileError { project_id, .. }
             | Message::KbChanged { project_id, .. }
             | Message::KbPath { project_id, .. }
+            | Message::DbConnections { project_id, .. }
+            | Message::SaveDbConnection { project_id, .. }
+            | Message::DeleteDbConnection { project_id, .. }
+            | Message::TestDbConnection { project_id, .. }
+            | Message::DbPassword { project_id, .. }
+            | Message::DbTree { project_id, .. }
+            | Message::DbTablePage { project_id, .. }
+            | Message::DbQuery { project_id, .. }
+            | Message::DbApplyEdits { project_id, .. }
+            | Message::DbCancel { project_id, .. }
+            | Message::DbCloseSession { project_id, .. }
+            | Message::DbDisconnect { project_id, .. }
+            | Message::CreateDbFile { project_id, .. }
+            | Message::DbConnectionsListed { project_id, .. }
+            | Message::DbTested { project_id, .. }
+            | Message::DbConnectionState { project_id, .. }
+            | Message::DbTreeListing { project_id, .. }
+            | Message::DbTablePageResult { project_id, .. }
+            | Message::DbQueryResult { project_id, .. }
+            | Message::DbEditsApplied { project_id, .. }
+            | Message::DbFileCreated { project_id, .. }
+            | Message::DbFileError { project_id, .. }
             | Message::ProjectFilesChanged { project_id, .. }
             | Message::ProjectGit { project_id, .. }
             | Message::RefreshProjectGit { project_id, .. }

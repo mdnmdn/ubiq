@@ -16,6 +16,8 @@
 //!   to split a document identically and neither half may depend on the other
 //! - `catalog`: the skills and MCP servers a user keeps in a catalog, and the sources to find more
 //! - `connectors`: an authenticated identity at an external service, and the providers there are
+//! - `db`: a project's databases — the model re-exported from `ubiq-db`, and the records the
+//!   database family adds to it
 //! - `drone`: resolving and hash-pinning a cross-built `ubiq-drone` binary for deployment —
 //!   shared because `crates/ubiq` dials, probes and now deploys a drone directly, never through
 //!   `crates/ubiq-host`
@@ -50,6 +52,7 @@ pub mod carrier;
 pub mod catalog;
 pub mod connectors;
 pub mod conversation;
+pub mod db;
 pub mod drone;
 pub mod feedback;
 pub mod files;

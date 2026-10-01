@@ -37,6 +37,7 @@ The test, in the order it is applied:
 | A **connection** at an external service, or a flow authenticating one | connector |
 | A **remote repository** — listing or cloning one | repository |
 | A **subject Ubiq wants a sentence for**, carrying no prompt | assist |
+| A project **and a database connection**, or a session against one | database |
 | An **account** a harness runs as | account |
 | A **saved setup** for a conversation | profile |
 | Nothing in Ubiq at all, asking about the machine | command-line |
@@ -285,6 +286,19 @@ concatenated is the final message's text (`D87`). **`Suggest` is the one variant
 inside its payload's payload** — `Message::project_id()` has a dedicated arm reaching through the
 subject.
 
+### 16. Database — connections, structure, tables and SQL
+
+`DbConnections`/`DbConnectionsListed`, `SaveDbConnection`, `DeleteDbConnection`,
+`TestDbConnection`/`DbTested`, `DbPassword`, `DbDisconnect`/`DbConnectionState`,
+`DbTree`/`DbTreeListing`, `DbTablePage`/`DbTablePageResult`, `DbQuery`/`DbQueryResult`,
+`DbApplyEdits`/`DbEditsApplied`, `DbCancel`, `DbCloseSession`, `CreateDbFile`/`DbFileCreated`/
+`DbFileError`. **Every variant names a project and none names a pane**, as the knowledge-base
+family. The model is `ubiq-db`'s, re-exported by `ubiq-proto/src/db.rs`. **A table page and a
+batch of edits travel as structure, never as rendered SQL**; only `DbQuery` carries text. **No
+variant towards the interface carries a decrypted password** (`SecretEdit`, `PasswordState`), and
+one towards the host carries it in a `Secret`. `DbQuery` answers once per statement; `DbCancel`
+answers nothing and the running reply ends `Cancelled`.
+
 ## The records
 
 Thirty-five records travel inside payloads; the transport contract lists every field. The
@@ -316,6 +330,8 @@ Fifteen kinds, each a `#[serde(transparent)]` newtype over a `Ulid`, all minted 
 | `TaskId`, `StepId`, `CommentId` | host | Written down, so they survive a restart |
 | `ProjectId` | host | Stable across rename, recolour and a move on disk |
 | `SearchId`, `ConnectId`, `CloneId`, `RepoQueryId`, `SuggestId` | interface | Stale-answer discipline: a reply naming an id nobody holds is discarded |
+| `DbSessionId`, `DbQueryId`, `DbProbeId` | interface | One per table or SQL tab, per run (also what Stop cancels by), per Test — same discipline |
+| `DbConnId` | host | Minted on the first save; stable across a rename |
 | `ConnectionId`, `OauthAppId`, `AiProviderId` | host | Exist only once something is written — an abandoned flow leaves no id |
 
 **Why newtypes**: a pane id and a session id are both 128 bits, and nothing but care would stop
@@ -349,9 +365,9 @@ second call is a no-op by design.
 - **`CAPACITY` is 5 000**, and the count of what fell off the front is kept and reported: *a
   console that silently loses its beginning is a console that lies.*
 - **`DEFAULT_FILTER`** when `RUST_LOG` says nothing:
-  `ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,gpui_terminal=debug,warn`.
+  `ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,ubiq_db=debug,agent_manager=debug,gpui_terminal=debug,warn`.
 - **`Subsystem` is derived from the emitting module's target, not declared.** `Subsystem::ALL` has
-  **seven**: `Ui`, `Coordinator`, `Pty`, `Harness`, `Mcp`, `Search`, `External`. The mapping is
+  **nine**: `Ui`, `Coordinator`, `Pty`, `Harness`, `Mcp`, `Search`, `Db`, `Web`, `External`. The mapping is
   `Subsystem::of` — more specific prefixes first, because `ubiq_host::pty` is also `ubiq_host`,
   and the bare `ubiq` arm is last because every crate here starts with it. `ubiq_proto::bus` maps
   to `Coordinator`. Nothing falls through: an unrecognised target is `External`.

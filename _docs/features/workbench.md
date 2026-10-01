@@ -3,7 +3,7 @@ id: feat-workbench
 title: The workbench
 kind: feature
 status: draft
-summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
+summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
 updated: 2026-10-01
 verified: 2026-09-30
@@ -23,10 +23,12 @@ seen through, and it is built against [`../design/ubiq-layout.png`](../design/ub
 
 ## Behaviour
 
-**The rail selects what the middle of the window is for.** Nine destinations in two groups, less
+**The rail selects what the middle of the window is for.** Ten destinations in two groups, less
 whichever ones the project has hidden in project settings:
-`Control` and `Sink` under `APP`, and `IDE`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB` and `Tasks`
-under `PROJECT`. `Teams` and `[Teams]` sit side by side, sharing an icon: `Teams` is the mode
+`Control` and `Sink` under `APP`, and `IDE`, `DB`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB` and
+`Tasks` under `PROJECT`. `DB` is the one destination a project has to ask for: it is absent until
+General > Modes lights it, and then sits directly after `IDE`
+([DB mode](./workbench-db.md)). `Teams` and `[Teams]` sit side by side, sharing an icon: `Teams` is the mode
 being built, `[Teams]` the established graph screen kept beside it, unrenamed and undisturbed,
 until the newer one replaces it. Exactly one
 is active, and the active one is shown by the accent colour on both its icon and its label. The
@@ -45,29 +47,32 @@ never moves**: badges stay in the order the window holds them, whichever of them
 leave out. The switch is Appearance settings, on by default. **`cmd-1`..`cmd-9` jump straight to the
 Nth badge**, in that same order, including the least-recently-opened trim — a badge the rail had no
 room for is a digit that does nothing. **`ctrl-1`..`ctrl-9` jump to the Nth mode in the `PROJECT`
-group** — `IDE`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB`, `Tasks`, counting only the ones the
-project has not hidden — never the `APP` group above it. Either chord is a no-op past the last
+group** — `IDE`, `DB`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB`, `Tasks`, counting only the ones
+the project has not hidden and has opted into — never the `APP` group above it. Either chord is a no-op past the last
 badge or the last enabled mode.
 
 **The rail is a container, and a mode is a registration in it** (`D184`). Its icon, its label, its
 note, its `UiId`, the screen it draws, the arrangement it opens on and the panels it calls
 furniture are all fields on one `RailModeSpec`, and the two groups below are the container's
 declared order rather than a split written into the enum. A mode is offered `Always` — on the rail
-unless the project hid it, which all ten of the base's own are — or by `OptIn`, where the project
-has to ask for it first, or by a `When` predicate the contribution owns. The predicate is answered
-from interface state, so a contributed mode costs no message. The kitchen sink's own demo mode
-(`ubiq.rail.ext-demo`, M4, `X11`) is the eleventh registration and the first that is not `Always` —
-`When`, gated by a switch its own demo settings section draws — proving invariant 9's rule that a
+unless the project hid it, which ten of the base's own eleven are — or by `OptIn`, where the project
+has to ask for it first (`DB`, the base's one, ticked in General > Modes and kept in
+`ViewPrefs::opted_in_modes`), or by a `When` predicate the contribution owns. The predicate is
+answered from interface state, so a contributed mode costs no message. The kitchen sink's own demo
+mode (`ubiq.rail.ext-demo`, M4, `X11`) is the twelfth registration and the first `When` —
+gated by a switch its own demo settings section draws — proving invariant 9's rule that a
 container with no contributor is silently dead. Finding that first `When` in the wild also found a
 real bug: `AppState::toggle_mode`'s "the last visible mode survives" guard counted *every*
-registered mode as potentially on screen, which only the base's own `Always` ten made true by
+registered mode as potentially on screen, which only the base's `Always` modes made true by
 accident; it counts how many are actually enabled instead (`D186`).
 
 **Every mode is built.** What the rail selects between is the centre. Git fills it with the
 repository, Agents with the parallel columns, Teams and `[Teams]` each with a graph, Tasks with the
 board, Sink with the kitchen sink, Control with the stats screen, and the centre panel's tab is
 named for the mode. IDE fills it with the open files, one panel each, and the centre panel steps
-aside for as long as any is open. KB fills it with the one document its explorer selected.
+aside for as long as any is open. KB fills it with the one document its explorer selected. DB fills
+it with the table tabs its explorer opened, and with a page pointing at the explorer while none is
+open; its SQL tabs live in the bottom region ([DB mode](./workbench-db.md)).
 
 **KB is the documents counterpart of IDE, and its explorer has several sources.** A source is a
 folder the user pointed at, a repository the host clones for them, or a wiki Ubiq keeps itself, each
@@ -132,8 +137,9 @@ comes back with the chat tab it was left with, and the same tab rather than a fr
 **A side panel defaults to the dock, and only a panel meaningful in exactly one mode stays out of
 it.** `PanelKind` (`state/dock.rs`) is the shared, draggable, per-window arrangement — `Terminal`,
 `Logs`, `Explorer`, `Chat`, `File`, `Search`, `Outline`, the Git family, `KbExplorer`, `Kb` (one open
-knowledge-base document, the same `OpenFile` a `File` panel draws — `wip/kb.md`), `AgentsExplorer`
-and the board's own `Task` panel all live there, so any of them can be dragged
+knowledge-base document, the same `OpenFile` a `File` panel draws — `wip/kb.md`), `AgentsExplorer`,
+the database trio `DbExplorer`, `DbTable(key)` and `DbSql(key)` (the last two rebuilt from their
+payload, as `Kb` is) and the board's own `Task` panel all live there, so any of them can be dragged
 wherever the window is arranged that day; the board's popup flag only swaps that panel's *shape*,
 docked or modal, never whether the dock owns it. A screen that wants a panel with no meaning outside
 its own mode brings its own instead of asking for a `PanelKind`: `[Teams]`'s inspector and tasks
@@ -193,7 +199,9 @@ style reference, the file picker in each shape a screen can ask for, the two set
 live conversation beside its bus traffic, the A2UI surface, the script scratchpad and the teamsim
 testbed.
 
-**Control** is the Stats screen, and **KB** is the documents counterpart of IDE described above.
+**Control** is the Stats screen, **KB** is the documents counterpart of IDE described above, and
+**DB** has a document of its own — its Databases section sits in project settings beside the
+knowledge base's.
 
 **A project is a colour.** Each project owns one of the theme's swatches, and wears it in four
 places at once: its dot in the picker, the fill behind its name in the titlebar, the mark above the
@@ -1592,6 +1600,7 @@ saying no file is open, because the files are panels of their own:
 | Script page | `ui/sink/script.rs` | The kitchen sink, on its last page | Fills it; the settings panel discloses under the chrome, the console scrolls under the two editors, and the right half switches between the reference and the declared panel | `script_buffer` and `script_prelude` on `AppState`, and `SinkState::script` — the last `ScriptOutcome`, the `OxcOptions`, and the `Live` a declared panel draws into |
 | New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `definition_form` — one `NewAgentForm` either way |
 | Add KB source form | `ui/kb/source_form.rs` | A modal over the whole window, above the project settings overlay that raises it | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::kb_source`, one `KbSourceForm` |
+| Database connection form | `ui/db/conn_form.rs` | A modal over the whole window, above the project settings overlay that raises it, under its own `Layer::DbForm` dismissal guard | `MODAL_WIDTH`; its body scrolls inside it | `DbState::form`, one `DbConnForm` |
 | Plan editor | `ui/plan.rs` over `ui/document.rs` | A surface over the whole window, raised from a mission's task panel — **a dialog by decision**, and the one frame of the shared annotation surface that is one | `MINIMAP_WIDTH` + `DOC_WIDTH` + `RAIL_WIDTH` by `DOC_HEIGHT`; the minimap, the document and the thread rail each scroll (or, for the minimap, position marks) inside it, arranged left-to-right by `UiSettings::md_minimap_side` | `WorkbenchState::plan`, one `DocumentEditor`, over the window's `plan_editor` buffer; the minimap's own show/hide is `UiSettings::md_minimap` |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
@@ -1617,7 +1626,7 @@ note, slug, icon and `UiId`, its `Availability`, whether it needs a project, whi
 first visit opens, and `fn` pointers for the centre screen, the default layout, the destination,
 the furniture and the on-arrival ask. What used to be "an arm in `ui::dock`'s `centre()`, and for a
 mode under `APP` an arm that answers before the no-project case" is now two fields, `centre` and
-`needs_project`. The base's own ten are registered in `ui::rail::modes`; a second edition's are
+`needs_project`. The base's own eleven are registered in `ui::rail::modes`; a second edition's are
 registered on `Boot.contributions.rail_modes`, which arrives seeded with the base's.
 
 ## What a window owns
@@ -2225,6 +2234,7 @@ field's, instead of landing in the middle of the centred row and covering the te
 ## Related docs
 
 - [`workbench-ide.md`](./workbench-ide.md) — IDE mode: the explorer, the editor tabs and the viewers
+- [`workbench-db.md`](./workbench-db.md) — DB mode: connections, the explorer, table and SQL tabs
 - [`workbench-git.md`](./workbench-git.md) — Git mode: refs, history, changes and the diff
 - [`workbench-agents.md`](./workbench-agents.md) — Agents mode: the columns, the bench and the New agent form
 - [`workbench-teams.md`](./workbench-teams.md) — `Teams` and `[Teams]`: the graph, its arrangements and the tasks drawer

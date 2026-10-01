@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-10-01
 verified: 2026-09-30
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -841,6 +841,90 @@ host runs on** — `open -R` on macOS, `explorer` on Windows (a folder as itself
 Linux — and answers nothing on success, on `Message::WriteProjectGit`'s own reasoning that
 a mutation answers with the state it produced rather than an echo; a full refresh here is
 `KbChanged` naming the parent directory that changed.
+
+## The database family
+
+A project's saved database connections, the structure behind them, and the tables and SQL run
+against them. Like the knowledge-base family it is scoped by `project_id` on **every** variant, and
+`Message::project_id()` lists every one; architecture rule 4 (a pane ID on every message) governs the
+pane family, and this family has no pane — it names its objects with ids. The model (a connection's
+configuration, a typed `Value`, a `ResultSet`, a `TableRef`, a `RowEdit`, a `Plan`) is defined in
+`crates/ubiq-db` and re-exported by `crates/ubiq-proto/src/db.rs`, which adds only the records
+below.
+
+Four ids, in `ids.rs`: `DbConnId` — minted by the **host** on the first save, on `AiProviderId`'s
+discipline, stable across a rename; `DbSessionId` — minted by the **interface**, one per table or SQL
+tab, so a reply for a closed tab is discarded by id; `DbQueryId` — minted by the interface per run,
+`SearchId`'s discipline, and the handle `DbCancel` stops a statement by; `DbProbeId` — one Test.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `DbConnections` | UI → host | `project_id` | `DbConnectionsListed` |
+| `SaveDbConnection` | UI → host | `project_id`, `id?`, `config` (password `None`), `password` (`SecretEdit`), `remember` | `DbConnectionsListed` |
+| `DeleteDbConnection` | UI → host | `project_id`, `id` | `DbConnectionsListed`; its sessions close and its sealed password goes |
+| `TestDbConnection` | UI → host | `project_id`, `probe`, `id?`, `config`, `password` (`Keep` = the saved one) | `DbTested` |
+| `DbPassword` | UI → host | `project_id`, `conn`, `password` (`Secret`), `remember` | `DbConnectionState` |
+| `DbTree` | UI → host | `project_id`, `conn`, `node` (`DbNode`) | `DbTreeListing` |
+| `DbTablePage` | UI → host | `project_id`, `conn`, `session`, `query`, `table` (`TableRef`), `filter`, `order_by`, `limit`, `offset`, `count`, `read_only` | `DbTablePageResult` |
+| `DbQuery` | UI → host | `project_id`, `conn`, `session`, `query`, `database?`, `statements[]`, `run` (`DbRun`), `opts` (`DbRunOptions`) | one `DbQueryResult` per statement |
+| `DbApplyEdits` | UI → host | `project_id`, `conn`, `session`, `query`, `table`, `edits[]` (`RowEdit`) | `DbEditsApplied` |
+| `DbCancel` | UI → host | `project_id`, `session`, `query` | nothing — the running reply ends `Cancelled` |
+| `DbCloseSession` | UI → host | `project_id`, `session` | nothing |
+| `DbDisconnect` | UI → host | `project_id`, `conn` | `DbConnectionState` |
+| `CreateDbFile` | UI → host | `project_id`, `path` (a host path from the host-browse picker) | `DbFileCreated` or `DbFileError` |
+| `DbConnectionsListed` | host → UI | `project_id`, `connections[]` (`DbConnection`), `keystore` (`DbKeystore`) | — |
+| `DbTested` | host → UI | `project_id`, `probe`, `result` (`Result<String /* server version */, DbFailure>`) | — |
+| `DbConnectionState` | host → UI | `project_id`, `conn`, `state` (`DbConnState`) | — |
+| `DbTreeListing` | host → UI | `project_id`, `conn`, `node`, `result` (`Result<DbListing, DbFailure>`) | — |
+| `DbTablePageResult` | host → UI | `project_id`, `session`, `query`, `result` (`Result<DbPage, DbFailure>`), `elapsed_ms` | — |
+| `DbQueryResult` | host → UI | `project_id`, `session`, `query`, `index`, `last`, `result` (`Result<DbOutcome, DbFailure>`), `elapsed_ms` | — |
+| `DbEditsApplied` | host → UI | `project_id`, `session`, `query`, `result` (`Result<u64, DbEditFailure>`) | — |
+| `DbFileCreated` | host → UI | `project_id`, `path` | — |
+| `DbFileError` | host → UI | `project_id`, `path`, `message` | — |
+
+`DbConnectionsListed` and `DbConnectionState` go to every window of the project, as
+`KbSourcesListed` does, so a settings form and an explorer agree by construction. Every other reply
+goes to the asker only.
+
+| Record | Shape |
+|---|---|
+| `DbConnection` | `id`, `config` (`ConnectionConfig`, `password` always `None`), `password` (`PasswordState`) |
+| `PasswordState` | `None` · `Saved` · `Missing` (filed, cannot be opened) · `Session` (in the host's memory only) |
+| `SecretEdit` | `Keep` · `Set(Secret)` · `Clear` |
+| `DbKeystore` | `Ready` · `Unavailable(reason)` |
+| `DbNode` | `Databases` · `Schemas { database }` · `Objects { database, schema? }` · `Columns { table }` |
+| `DbListing` | `Names[]` · `Objects[]` (`DbObject`) · `Columns[]` (`ColumnMeta`) |
+| `DbRun` | `Query` · `Explain { analyze }` |
+| `DbRunOptions` | `read_only`, `timeout_ms?`, `row_limit?` |
+| `DbOutcome` | `Rows(ResultSet)` · `Affected(u64)` · `Plan(Plan)` |
+| `DbPage` | `columns[]` (the table's own, key and defaults filled), `rows` (`ResultSet`), `exact_count?` |
+| `DbFailure` | `kind` (`DbFailureKind`), `message`, `position?` |
+| `DbFailureKind` | `Config` · `Connect` · `Query` · `ReadOnly` · `Cancelled` · `Timeout` · `NeedsPassword` · `NotFound` · `Disconnected` · `Unsupported` · `Unavailable` |
+| `DbEditFailure` | `index`, `statement`, `failure` — the statement that rolled the batch back |
+| `DbConnState` | `Idle` · `Connecting` · `Connected { server }` · `NeedsPassword` · `Failed(DbFailure)` |
+
+**A password crosses only towards the host, and only in a `Secret`.** `SecretEdit::Set` and
+`DbPassword.password` carry `Secret`, so `Debug` redacts them and the tape and the log sink cannot
+print one. Nothing towards the interface carries a decrypted password: a listing says
+`PasswordState`, and `config.password` is `None` on every record the host sends.
+
+**Structured, not SQL, where the host must be authoritative.** A table page and a batch of row edits
+travel as a `TableRef` plus fragments and as `RowEdit`s, never as rendered SQL: the host renders
+them with the same `ubiq_db::edit` functions the interface used for its preview, so the statement
+that runs is the statement the preview showed. Only `DbQuery` carries text, because the text is the
+user's input.
+
+**A run answers per statement.** `DbQuery` carries the statements already split; each gets one
+`DbQueryResult` with its `index`, and `last` marks the final reply — a failing statement ends the run
+there, so it is the `last` one. `DbCancel` answers nothing: the statement being run replies
+`DbFailureKind::Cancelled`. `row_limit` is capped by the host and a cut result sets
+`ResultSet::truncated`, so no reply nears `MAX_FRAME`.
+
+**A missing password is a prompt, never an error.** A connection that needs one answers
+`DbConnState::NeedsPassword`; the interface asks, and `DbPassword` answers it. A host built without
+the `db` feature — the drone — answers every request with `DbFailureKind::Unavailable`, the
+connection list with `DbKeystore::Unavailable`, and says nothing to `DbCancel` and
+`DbCloseSession`. `DbFailure::position` is a field the host never fills.
 
 ## The work family
 
@@ -3129,6 +3213,8 @@ ever dropped.
    does not exist yet — the repository family. If it names a **subject Ubiq wants a sentence for**
    and carries no prompt, or configures the provider that would write it, the assist family.
    If it names **nothing in Ubiq and reports that something happened**, the notification family.
+   If it names a **project and a database connection, or a session against one**, the database
+   family.
    If it says something about **Ubiq itself, addressed to a destination outside the user's own
    world**, the feedback family.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no

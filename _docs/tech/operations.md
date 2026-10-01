@@ -122,7 +122,7 @@ everything else only when it complains. What the console does with the records i
 |---|---|
 | `just am <args>` | Run the `am` CLI — `just am claude --print-config` provisions a run and prints what it would launch, without launching it |
 | `just host` | Build the host and prove no drawing crate reaches its dependency tree |
-| `just ui` | Build the interface and prove it never names the host, and never names a size of its own — a literal `text_size(px(N))` or a literal icon size (`with_size(px(N))`, `Size::Size(px(N))`) outside `theme.rs` fails it |
+| `just ui` | Build the interface and prove it never names the host, and never names a size of its own — a literal `text_size(px(N))` or a literal icon size (`with_size(px(N))`, `Size::Size(px(N))`) outside `theme.rs` fails it, and so does a database driver crate (`rusqlite`, `mysql`, `tiberius`, `sqlx-core`) anywhere in `-p ubiq`'s dependency tree (`D199`) |
 | `just core` | Build the library the way Ubiq consumes it, with default features off. **This is the check that matters** — it fails the moment a CLI or terminal type leaks into the core |
 | `just relay` | Build `ubiq-host` with `--no-default-features` — the lean core a headless drone links: `pty`, `files`, `browse`, `watch`, `search`, `projects`, `health`, `config`, `store` minus the usage meter, `host_meta`, `links`, `environment` — and prove none of `git`, `index`, `harness`, `listener` or `desktop` reached its tree by grepping `cargo tree` for the crates each one gates: `git2`, `tantivy`, `rusqlite`, `agent-manager`, `isol8`, `notify-rust`, `trash`, `ureq`, `rustls`, `tiny_http`, `gpui` |
 
@@ -159,6 +159,11 @@ sentence naming `just drone-build`, which is what a machine with no cross toolch
 and an interactive stdin makes them hang rather than fail, which is the worse of the two outcomes.
 The application's own tests drive the coordinator over the bus and start real processes in
 pseudo-terminals for the same reason; they need no display.
+
+`crates/ubiq-db`'s tests run in `just test` against SQLite files. The three that need a server are
+`#[ignore]`d and read their URL from the environment — `DBX_TEST_PG_URL`, `DBX_TEST_MYSQL_URL`,
+`DBX_TEST_MSSQL_URL` — so `cargo test -p ubiq-db --features drivers -- --ignored` runs them against
+a server you point it at; each creates and drops its own objects.
 
 `assist-apple` is off in `ubiq-app`'s `default`, so `check`, `clippy`, `test` and `verify` build the
 host's stub assist backend and never touch `foundation-models` or its Swift bridge. `just assist`

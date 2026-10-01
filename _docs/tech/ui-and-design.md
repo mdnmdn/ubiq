@@ -89,6 +89,7 @@ a palette swap changes every surface consistently.
 | Status | `danger`, `success`, `warning`, `info`, each with a `_soft` variant | Agent and process states, and the fills behind them — a diff line, a status chip, a state dot's ring |
 | Provenance | `edit_human`, `edit_agent`, `edit_origin(is_human)` | Who last rewrote a line of an annotated document — the underline under a changed run in the plan editor, and the legend for it in that editor's footer. Two hues nothing else on that surface uses, because the annotated passages under the same text take `info_soft` and `success_soft` |
 | Ribbon | `ribbon_alpha`, `ribbon_beta`, `ribbon_ink`, `ribbon_experimental`, `ribbon_experimental_ink` | The build-channel ribbon in the window's bottom-left corner, and the Git screen's experimental ribbon in its top-left — the same values in every palette, because they mark the build or the screen rather than the mood |
+| Database | `db_row_edited`, `db_row_inserted`, `db_row_deleted`, `db_statement_active`, `db_read_only`, `db_read_only_soft`, `db_plan_hot` | DB mode: the three fills a pending edit tints its grid row with (solid, because the grid paints them under the cells), the ground behind the statement the cursor is in, the ink and soft ground of anything that cannot write, and the plan node that cost the most |
 | Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(...)`, `mark_dark(...)` | The identity of one project, wherever it appears |
 
 The `_soft` variants are declared with their own alpha in `theme.rs` rather than computed at a call
@@ -355,7 +356,7 @@ registry, and using the accessor — unless it is an accent-hued one, which is a
 `with_accent` instead, since a hue written out per palette is the thing the accent axis removed. It
 does **not** mean a row in `EDITABLE_TOKENS`: what a theme author may write is grounds and ink, and
 a new status or terminal token inherits from the fork like the rest of its group (`D152`).
-Adding a group means a role none of the seven covers, which is rare enough to be worth
+Adding a group means a role none of those in the table covers, which is rare enough to be worth
 arguing about in [`decisions.md`](./decisions.md) — `Project` carries `D19`, and `Terminal` is the
 selection and link colours a pane's emulator paints.
 

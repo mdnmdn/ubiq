@@ -498,6 +498,22 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
     add(
         ids::SETTINGS_PROJECT_CONTENT,
         SettingsSectionSpec {
+            gate: SectionGate::WithRecord,
+            // The connections come from the host, so arriving at the page is when they are asked
+            // for — a project that has not opted into the DB mode has not asked before.
+            on_show: Some(AppState::on_show_project_db),
+            ..section(
+                ids::PROJECT_DB,
+                "Databases",
+                // The rail's own DB mark, for `Kb`'s reason.
+                || Icon::new(UbiqIcon::ModeDb),
+                |ctx, window, cx| crate::ui::db::settings::render(ctx.app, ctx.form, window, cx),
+            )
+        },
+    );
+    add(
+        ids::SETTINGS_PROJECT_CONTENT,
+        SettingsSectionSpec {
             gate: SectionGate::SinkOnly,
             count: Some(|_, _| Some(4)),
             ..section(

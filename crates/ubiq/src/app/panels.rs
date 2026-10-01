@@ -341,6 +341,14 @@ impl AppState {
             .push(PanelEdit::Open(PanelKind::KbExplorer));
     }
 
+    /// Queue the DB screen's own panel into its home region — the left-edge explorer, for
+    /// [`Self::queue_kb_furniture`]'s reason. The table and SQL tabs are not furniture: they are
+    /// opened from the explorer.
+    pub(crate) fn queue_db_furniture(&mut self) {
+        self.pending_panels
+            .push(PanelEdit::Open(PanelKind::DbExplorer));
+    }
+
     /// The same for the three other screens with a side panel of their own: the IDE's file
     /// explorer on the left, the board's task on the right, and the agents list on the left. One
     /// kind each, for [`Self::queue_kb_furniture`]'s reason — a first visit to the mode has no
@@ -417,6 +425,32 @@ impl AppState {
         }
         for key in docs {
             let kind = PanelKind::Kb(key);
+            if !self.panels.contains_key(&kind) {
+                self.pending_panels.push(PanelEdit::Open(kind));
+            }
+        }
+
+        // The database tabs, the same bargain: a project coming back asks for its open tabs. The
+        // other direction is not squared here — a saved leaf naming a tab this process no longer
+        // holds is hidden, not removed (`PanelKind::is_drawn`), and the table package decides
+        // whether a restored table re-queries.
+        let db_keys: Vec<(String, bool)> = self
+            .projects
+            .get(&project)
+            .map(|open| {
+                open.db
+                    .tables
+                    .iter()
+                    .map(|tab| (tab.key.clone(), true))
+                    .chain(open.db.sqls.iter().map(|tab| (tab.key(), false)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (key, is_table) in db_keys {
+            let kind = match is_table {
+                true => PanelKind::DbTable(key),
+                false => PanelKind::DbSql(key),
+            };
             if !self.panels.contains_key(&kind) {
                 self.pending_panels.push(PanelEdit::Open(kind));
             }
@@ -850,17 +884,29 @@ impl AppState {
             })
             .unwrap_or_default();
         files.extend(docs);
+        // The database tabs are in a key space of their own and have no view layout; `file_open`
+        // answers for them from the project's `DbState`. In DB mode the open *tables* are what the
+        // centre page steps aside for, so `any_file_open` is answered from them alone there.
+        let db = self.open_project(cx).map(|open| &open.db);
+        let any_table = db.is_some_and(|db| db.any_table_open());
 
         let mut changed = false;
         for (kind, panel) in &self.panels {
             let key = kind.tab_key().or_else(|| kind.kb_key());
+            let db_tab = kind.db_key();
             let at = Visibility {
                 is_ide,
                 has_project,
                 rail_mode,
                 pane_on_screen: kind.pane().is_some_and(|id| on_screen.contains(&id)),
-                file_open: key.is_some_and(|key| files.contains_key(key)),
-                any_file_open: !files.is_empty(),
+                file_open: match db_tab {
+                    Some(key) => db.is_some_and(|db| db.holds_tab(key)),
+                    None => key.is_some_and(|key| files.contains_key(key)),
+                },
+                any_file_open: match rail_mode {
+                    Some(RailMode::DB) => any_table,
+                    _ => !files.is_empty(),
+                },
             };
             let drawn = kind.is_drawn(at);
             let layout = key

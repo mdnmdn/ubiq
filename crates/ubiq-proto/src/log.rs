@@ -29,8 +29,8 @@ pub const CAPACITY: usize = 5_000;
 
 /// What is collected when `RUST_LOG` says nothing: Ubiq's own subsystems and the harness library
 /// down to debug, everything else only when it complains.
-pub const DEFAULT_FILTER: &str = "ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,agent_manager=debug,\
-     gpui_terminal=debug,warn";
+pub const DEFAULT_FILTER: &str = "ubiq=debug,ubiq_app=debug,ubiq_host=debug,ubiq_proto=debug,ubiq_db=debug,\
+     agent_manager=debug,gpui_terminal=debug,warn";
 
 // ── What a record says ──────────────────────────────────────────────
 
@@ -50,6 +50,8 @@ pub enum Subsystem {
     Mcp,
     /// The file search worker and the project watcher.
     Search,
+    /// The database explorer: the engine's statement log (`ubiq_db`) and the host's sessions.
+    Db,
     /// Web panels: the vendor bundle fetch, the loopback server that serves it, the bridge and
     /// the embedded browser. One name for both halves of a feature that spans them.
     Web,
@@ -59,13 +61,14 @@ pub enum Subsystem {
 
 impl Subsystem {
     /// Every subsystem, in the order the selector lists them.
-    pub const ALL: [Subsystem; 8] = [
+    pub const ALL: [Subsystem; 9] = [
         Subsystem::Ui,
         Subsystem::Coordinator,
         Subsystem::Pty,
         Subsystem::Harness,
         Subsystem::Mcp,
         Subsystem::Search,
+        Subsystem::Db,
         Subsystem::Web,
         Subsystem::External,
     ];
@@ -78,6 +81,7 @@ impl Subsystem {
             Subsystem::Harness => "Harness",
             Subsystem::Mcp => "MCP",
             Subsystem::Search => "Search",
+            Subsystem::Db => "Database",
             Subsystem::Web => "Web",
             Subsystem::External => "External",
         }
@@ -101,6 +105,8 @@ impl Subsystem {
         } else if target.starts_with("ubiq_host::search") || target.starts_with("ubiq_host::watch")
         {
             Subsystem::Search
+        } else if target.starts_with("ubiq_db") || target.starts_with("ubiq_host::db") {
+            Subsystem::Db
         } else if target.starts_with("ubiq_host::web_assets")
             || target.starts_with("ubiq::web_export")
             || target.starts_with("ubiq::app::web_panel")

@@ -329,8 +329,8 @@ than redeclaring its modules, so the tree is compiled once. All real logic sits 
 **A window is one `AppState`.** Several may be open, each holding its own projects and pointed at
 one of them. They share the palette, the window registry and the bus's hub, all of which are
 process-wide, and nothing else — so any state that ought to be global needs a home outside
-`AppState` before it can be shared. Which project a window points at is what eight of the nine rail
-modes are about; the ninth, Teams, is scoped by a span of its own and may read across every project
+`AppState` before it can be shared. Which project a window points at is what nine of the ten rail
+modes are about; the tenth, Teams, is scoped by a span of its own and may read across every project
 the window holds (`D154`).
 
 **There is one host per process**, started by the binary before the first window and outliving every

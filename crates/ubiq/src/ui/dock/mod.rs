@@ -51,7 +51,7 @@ use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, editor, empty, explorer, git, help, kb, logs, mission, outline, rail,
+    agents, board, chat, db, editor, empty, explorer, git, help, kb, logs, mission, outline, rail,
     search, terminal,
 };
 
@@ -382,6 +382,14 @@ impl WorkbenchPanel {
                     ..TabInfo::default()
                 },
             },
+            PanelKind::DbExplorer => TabInfo {
+                label: "Databases".into(),
+                ..TabInfo::default()
+            },
+            // The two database tabs report themselves, as a file's tab does: their label, their
+            // dirty dot and their running pulse are the panel packages' to say.
+            PanelKind::DbTable(key) => db::table::tab(app, key, cx),
+            PanelKind::DbSql(key) => db::sql::tab(app, key),
             // One slot, two things in it: the tab says which, the way a file's tab says what it is
             // looking at.
             PanelKind::Task => TabInfo {
@@ -452,6 +460,7 @@ fn centre_title(mode: RailMode) -> &'static str {
         RailMode::IDE => "Editor",
         // The centre is one document, not the mode, so the tab says what it holds.
         RailMode::KB => "Document",
+        RailMode::DB => "Table",
         RailMode::SINK => "Kitchen sink",
         other => other.label(),
     }
@@ -600,6 +609,7 @@ impl BasePanel for WorkbenchPanel {
         if kind.pane().is_none()
             && kind.tab_key().is_none()
             && kind.kb_key().is_none()
+            && kind.db_key().is_none()
             && kind.chat_id().is_none()
         {
             return;
@@ -641,6 +651,7 @@ impl BasePanel for WorkbenchPanel {
                 }
                 PanelKind::File(key) => app.closed_file_panel(key, cx),
                 PanelKind::Kb(key) => app.closed_kb_panel(key, cx),
+                PanelKind::DbTable(_) | PanelKind::DbSql(_) => app.closed_db_panel(&kind, cx),
                 PanelKind::Chat(id) => {
                     // The agent has to be read before the tab goes: `closed_chat_tab` takes the
                     // tab out of the project, and the attachment goes with it.
@@ -668,7 +679,12 @@ impl BasePanel for WorkbenchPanel {
     /// will send again.
     fn dump(&self, _: &App) -> PanelState {
         let mut state = PanelState::new(self.kind.name());
-        if let Some(key) = self.kind.tab_key().or_else(|| self.kind.kb_key()) {
+        if let Some(key) = self
+            .kind
+            .tab_key()
+            .or_else(|| self.kind.kb_key())
+            .or_else(|| self.kind.db_key())
+        {
             state.info = PanelInfo::panel(file_payload(key));
         }
         if let Some(pane_id) = self.kind.pane() {
@@ -754,6 +770,9 @@ fn body(
         PanelKind::GitDiff => git::diff::render(app, cx).into_any_element(),
         PanelKind::KbExplorer => kb::render(app, cx),
         PanelKind::Kb(key) => drop_target(kb::render_doc(app, key, cx), cx),
+        PanelKind::DbExplorer => db::explorer::render(app, cx),
+        PanelKind::DbTable(key) => db::table::render(app, key, cx),
+        PanelKind::DbSql(key) => db::sql::render(app, key, cx),
         PanelKind::Task => board::panel(app, window, cx),
         PanelKind::AgentsExplorer => agents::sidebar::render(app, cx).into_any_element(),
         PanelKind::Mission(task_id) => mission::render(app, *task_id, window, cx),
@@ -968,6 +987,58 @@ pub(crate) fn default_kb_layout(
 ) {
     let (Some(explorer), Some(centre)) = (
         panel(PanelKind::KbExplorer, cx),
+        panel(PanelKind::Centre, cx),
+    ) else {
+        return;
+    };
+    let explorer = WorkbenchPanel::handle(&explorer);
+    let centre = WorkbenchPanel::handle(&centre);
+
+    dock.update(cx, |dock, cx| {
+        dock.set_center(DockLayout::tabs().panel_view(centre, cx), window, cx);
+        install(
+            dock,
+            Region::Left,
+            DockLayout::tabs().panel_view(explorer, cx),
+            px(theme::explorer_width()),
+            window,
+            cx,
+        );
+        install(
+            dock,
+            Region::Right,
+            DockLayout::tabs(),
+            px(theme::chat_width()),
+            window,
+            cx,
+        );
+        install(
+            dock,
+            Region::Bottom,
+            DockLayout::tabs(),
+            px(theme::dock_height()),
+            window,
+            cx,
+        );
+        for region in [Region::Right, Region::Bottom] {
+            if dock.is_dock_open(placement_of(region)) {
+                dock.toggle_dock(placement_of(region), window, cx);
+            }
+        }
+    });
+}
+
+/// Default layout for DB mode: the databases explorer on the left, the "no table open" page in the
+/// centre until a table opens, an empty right, and an empty bottom the first SQL tab lands in.
+/// Both start shut, as KB's do.
+pub(crate) fn default_db_layout(
+    dock: &Entity<DockArea>,
+    panel: &mut dyn FnMut(PanelKind, &mut App) -> Option<Entity<WorkbenchPanel>>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let (Some(explorer), Some(centre)) = (
+        panel(PanelKind::DbExplorer, cx),
         panel(PanelKind::Centre, cx),
     ) else {
         return;
@@ -1406,7 +1477,12 @@ fn leaf(state: &PanelState) -> Option<PanelKind> {
     }
     let is_file = state.panel_name == PanelKind::File(String::new()).name();
     let is_doc = state.panel_name == PanelKind::Kb(String::new()).name();
-    if !is_file && !is_doc {
+    // The two database tabs write the same payload under names of their own, and rebuild from the
+    // key alone: a restored table re-queries its first page, a restored SQL tab gets its text back
+    // from `ViewPrefs::db_sql_drafts`.
+    let is_table = state.panel_name == PanelKind::DB_TABLE;
+    let is_sql = state.panel_name == PanelKind::DB_SQL;
+    if !is_file && !is_doc && !is_table && !is_sql {
         return PanelKind::from_name(&state.panel_name);
     }
     let PanelInfo::Panel(payload) = &state.info else {
@@ -1417,9 +1493,12 @@ fn leaf(state: &PanelState) -> Option<PanelKind> {
     let kind = file_from_payload(payload)?;
     // A knowledge-base document writes the same payload under its own panel name, so what the
     // key rebuilds into is the name's answer rather than the payload's.
-    match is_doc {
-        true => Some(PanelKind::Kb(kind.tab_key()?.to_string())),
-        false => Some(kind),
+    let key = || kind.tab_key().map(str::to_string);
+    match (is_doc, is_table, is_sql) {
+        (true, _, _) => Some(PanelKind::Kb(key()?)),
+        (_, true, _) => Some(PanelKind::DbTable(key()?)),
+        (_, _, true) => Some(PanelKind::DbSql(key()?)),
+        _ => Some(kind),
     }
 }
 

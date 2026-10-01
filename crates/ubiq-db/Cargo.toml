@@ -1,0 +1,43 @@
+[package]
+name = "ubiq-db"
+version = "0.1.0"
+edition = "2024"
+description = "The database engine: connection configs, typed values, SQL analysis, edit rendering and, behind `drivers`, the four engines. A leaf — no Ubiq crate, no GPUI."
+publish = false
+
+[features]
+default = []
+# The four engines and the `driver` module: the host only. The interface builds without it, so it
+# cannot open a connection.
+drivers = [
+    "dep:rusqlite",
+    "dep:mysql",
+    "dep:tiberius",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:futures-util",
+    "dep:chrono",
+    "dep:sqlx-core",
+    "dep:sqlx-postgres",
+]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+sqlparser = { version = "=0.63.0", default-features = false, features = ["std", "visitor"] }
+
+# ---- `drivers` ----
+rusqlite = { version = "0.37", optional = true, features = ["bundled", "column_decltype"] }
+mysql = { version = "28", optional = true, default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
+tiberius = { version = "0.13", optional = true, default-features = false, features = ["tds73", "rustls", "sql-browser-tokio"] }
+# `sync`: the SQL Server cancel signal (`Notify`); no new crate.
+tokio = { version = "1", optional = true, default-features = false, features = ["rt", "net", "time", "sync"] }
+tokio-util = { version = "0.7", optional = true, features = ["compat"] }
+futures-util = { version = "0.3", optional = true, default-features = false, features = ["std"] }
+chrono = { version = "0.4", optional = true, default-features = false, features = ["std"] }
+# PostgreSQL: sqlx-postgres directly (never the `sqlx` facade: sqlx-sqlite would add a second libsqlite3).
+# 0.8.6 only: 0.9 pulls crates the base lock lacks.
+sqlx-core = { version = "=0.8.6", optional = true, default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-native-roots"] }
+sqlx-postgres = { version = "=0.8.6", optional = true, default-features = false }

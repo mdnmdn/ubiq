@@ -109,7 +109,7 @@ value is the verbatim sample — and still bound by the length band. L9's exempt
   progress, Unclassified), each row `[title](link) | summary | verified`. `INDEX.md` itself and
   everything in `inbox/` are excluded, which is why an `inbox/` document must still be linked from
   INDEX's prose or tables to satisfy L7.
-- **`code-map.md` `tree`** — the source tree of Ubiq's four crates (`agent-manager` draws its own).
+- **`code-map.md` `tree`** — the source tree of Ubiq's own crates (`agent-manager` draws its own).
   Regeneration **re-reads the existing block** for its hand-written per-entry descriptions and its
   entry order, both of which are unrecoverable from the filesystem, so an unchanged tree produces
   no diff. Keep the two-space-separated description column when you edit it by hand.

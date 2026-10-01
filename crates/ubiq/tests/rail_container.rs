@@ -38,6 +38,7 @@ fn the_rail_draws_the_same_ten_modes_in_the_same_order() {
             "Extensions demo",
             // PROJECT
             "IDE",
+            "DB",
             "Git",
             "Agents",
             "Teams",
@@ -61,7 +62,9 @@ fn the_two_groups_hold_what_they_always_held() {
     let project: Vec<&str> = groups[1].1.iter().map(|m| m.label()).collect();
     assert_eq!(
         project,
-        ["IDE", "Git", "Agents", "Teams", "[Teams]", "KB", "Tasks"]
+        [
+            "IDE", "DB", "Git", "Agents", "Teams", "[Teams]", "KB", "Tasks"
+        ]
     );
     let slots: Vec<&str> = RailMode::project_modes().map(|m| m.label()).collect();
     assert_eq!(slots, project, "`ctrl-1` is still IDE");
@@ -75,8 +78,8 @@ fn every_slug_is_the_one_a_help_page_already_claims() {
     assert_eq!(
         slugs,
         [
-            "control", "teamsall", "sink", "ext-demo", "ide", "git", "agents", "teams", "teamsold",
-            "kb", "tasks",
+            "control", "teamsall", "sink", "ext-demo", "ide", "db", "git", "agents", "teams",
+            "teamsold", "kb", "tasks",
         ]
     );
 }
@@ -96,6 +99,7 @@ fn a_first_visit_opens_the_same_regions() {
     );
     assert_eq!(regions(RailMode::IDE), (true, false, false));
     assert_eq!(regions(RailMode::KB), (true, false, false));
+    assert_eq!(regions(RailMode::DB), (true, false, false));
     assert_eq!(regions(RailMode::AGENTS), (true, false, false));
     assert_eq!(regions(RailMode::TASKS), (false, false, true));
     for mode in [
@@ -163,6 +167,15 @@ fn every_base_mode_is_always_available() {
             assert!(
                 matches!(spec.availability, Availability::When(_)),
                 "the demo mode is `When`"
+            );
+            continue;
+        }
+        // The database explorer is the base's one opt-in mode: off until a project ticks it in
+        // General > Modes, so a project that has never heard of it does not draw it.
+        if spec.id == ids::RAIL_DB {
+            assert!(
+                matches!(spec.availability, Availability::OptIn),
+                "DB is `OptIn`"
             );
             continue;
         }
@@ -261,9 +274,9 @@ fn a_schema_five_blob_reads_its_modes_under_the_old_names() {
 
     // Every one of the ten, so no mode loses its arrangement at the schema step. The kitchen
     // sink's own demo mode (M4) is excluded on purpose: it never had a schema-5 variant name,
-    // being a contribution rather than a conversion.
+    // being a contribution rather than a conversion — and so is DB, which post-dates the schema.
     for spec in rail::modes() {
-        if spec.id == ids::EXT_DEMO_RAIL {
+        if spec.id == ids::EXT_DEMO_RAIL || spec.id == ids::RAIL_DB {
             continue;
         }
         let legacy = format!("{{\"schema\":5,\"rail_mode\":{:?}}}", legacy_name(spec.id));

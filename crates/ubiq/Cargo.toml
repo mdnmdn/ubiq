@@ -15,6 +15,12 @@ quickjs = ["dep:rquickjs"]
 # The contract, the bus and the log sink. The interface names this and never the host.
 ubiq-proto = { path = "../ubiq-proto" }
 
+# The database engine's pure half — connection-string parsing, SQL analysis, `validate_fragment`,
+# `render_batch` — for the explorer's diagnostics, SQL preview and cell validation. Default
+# features only: the `drivers` feature is the host's alone, and `just ui` checks that no engine
+# crate reaches this tree.
+ubiq-db = { path = "../ubiq-db" }
+
 # QuickJS, the interpreter behind the sink's script page (`state/script.rs`). A small C engine
 # compiled into the process — no runtime, no window, no subprocess, and no network — which is what
 # lets a script be run synchronously on a background thread of the interface's own. Optional

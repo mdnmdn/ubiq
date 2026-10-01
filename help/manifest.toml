@@ -11,6 +11,7 @@ order = [
     "workbench/",
     "git/",
     "kb/",
+    "db/",
     "troubleshooting.md",
 ]
 

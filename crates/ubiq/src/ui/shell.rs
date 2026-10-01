@@ -189,6 +189,18 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::kb::source_form::render(app, window, cx)),
         )
+        // The database family's two modals, in `Layer`'s order: the connection form (raised from
+        // the Databases section or the explorer's +), and over it the password a connection asked
+        // for.
+        .children(
+            app.db_form_open(cx)
+                .then(|| crate::ui::db::settings::conn_form::render(app, window, cx)),
+        )
+        .children(
+            app.db(cx)
+                .is_some_and(|db| db.password_prompt.is_some())
+                .then(|| crate::ui::db::explorer::password_prompt(app, window, cx)),
+        )
         // Application settings is a page with a nav, not the kit's one-question modal, so it is
         // painted here — over the window — the same way project settings is.
         .children(

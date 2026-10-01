@@ -3,7 +3,9 @@
 `crates/ubiq-host/src/lib.rs` is the index — its `//!` header lists every module with one line
 each. This file covers the ones this skill owns. `agent.rs` and `conversation.rs` belong to
 **ubiq-agents**; `remote.rs` to the hub/communication skill; `files/`, `search/`, `index/`,
-`connectors/`, `git/`, `repos/` and `assist/` to their own.
+`connectors/`, `git/`, `repos/` and `assist/` to their own. `db/` (behind the `db` feature) is the
+database service: `mod.rs` `Db`, `store.rs`, `secrets.rs`, `session.rs`, `jobs.rs` — see
+`_docs/features/workbench-db.md`.
 
 ## `coordinator.rs` — the run loop (~3600 lines, the centre)
 
@@ -26,6 +28,7 @@ each. This file covers the ones this skill owns. `agent.rs` and `conversation.rs
 | `root: ConfigRoot` | The resolved config root and which of the four answers produced it |
 | `projects`, `work`, `settings` | The catalogue, a project's tasks, the two settings layers (`Arc`, because flow threads write the same record) |
 | `connectors`, `repos`, `agents`, `ai_providers`, `assist` | The service objects; each does its slow work on a thread of its own |
+| `db: Db` | The database service (`db` feature): a session thread per table or SQL tab, an admin thread for the connection list; the family's messages go to `Db::handle`, `client_gone` drops a window's sessions |
 | `catalogue: Arc<FileHarnessCache>` | The on-disk model/reasoning cache, keyed on the harness binary's version string (`D60`) |
 | `files`, `git`, `search`, `index` | Four worker threads, `start()`ed in `new()` and alive for the process |
 | `panes: HashMap<PaneId, Pty>` | The pseudo-terminals |

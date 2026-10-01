@@ -96,6 +96,15 @@ rustls-pemfile = { version = "2", optional = true }
 # blocking HTTP server small enough to have no runtime and no view layer. Behind `listener`.
 tiny_http = { version = "0.12", optional = true }
 
+# The database explorer's engine, with its four drivers: the host opens every connection, the
+# interface never does (`D199`). Behind `db`.
+ubiq-db = { path = "../ubiq-db", features = ["drivers"], optional = true }
+# Sealing a saved database password: AES-256-GCM, a fresh nonce per write, the connection's identity
+# as associated data (`D201`). Already in the build graph through `rustls`. Behind `db`.
+ring = { version = "0.17", optional = true }
+# The sealed password and the key that opens it are TOML strings, so they are base64. Behind `db`.
+base64 = { version = "0.22", optional = true }
+
 # The usage meter's storage. A counter that survives a restart is a database, and this is the one
 # every machine already has. `bundled` compiles SQLite into the binary on purpose: the OS's own
 # libsqlite3 varies by platform and by decade, and which SQL is understood — `WITHOUT ROWID`, the
@@ -153,9 +162,20 @@ listener = [
 ]
 # Talking to the desktop directly: `notifications`, deleting to its trash, and `shell_integration`.
 desktop = ["dep:notify-rust", "dep:trash", "dep:winreg"]
+# The database explorer: `db/`. It files its key through `connectors::store::Store`, which is why
+# it names the `harness` + `listener` pair that module needs — `db` alone would not compile.
+# `rustls` is the process-default provider the drivers need installed (`D200`).
+db = [
+    "dep:ubiq-db",
+    "dep:ring",
+    "dep:base64",
+    "dep:rustls",
+    "harness",
+    "listener",
+]
 # Everything above, together — what the coordinator needs, and what `default` turns on. Not a
 # lean embedder's feature; it exists so `coordinator` has one name to gate on instead of five.
-full = ["git", "index", "harness", "listener", "desktop"]
+full = ["git", "index", "harness", "listener", "desktop", "db"]
 # The on-device assist backend. Off, `assist::select` answers with the stub backend, which reports
 # assistance unavailable — a complete build, and the only one possible on a machine without a
 # Swift toolchain and the macOS 26 SDK. Not a default here: `ubiq-app` turns it on, so switching it

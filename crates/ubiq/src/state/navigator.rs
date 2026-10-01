@@ -271,6 +271,7 @@ fn kind_of(view: &View) -> &'static str {
         View::Control => "Control",
         View::Kb => "Knowledge",
         View::Git => "Git",
+        View::Db => "Databases",
         View::Logs => "Logs",
         View::Ide { .. } => "File",
         View::Explorer { .. } => "Folder",

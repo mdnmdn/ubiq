@@ -653,6 +653,9 @@ impl Relay {
                 }
             }
 
+            // A stop or a close of something that never started: nothing to answer.
+            Message::DbCancel { .. } | Message::DbCloseSession { .. } => {}
+
             // Everything else. A refusal the asker can act on, or — where the family has no error
             // variant to carry one — a log line, which is the only honest alternative.
             other => match refusal(&other) {
@@ -907,6 +910,11 @@ fn record_for(root: &Root) -> ProjectRecord {
     }
 }
 
+/// The failure every database request is refused with: this build has no drivers.
+fn unavailable(why: &str) -> ubiq_proto::db::DbFailure {
+    ubiq_proto::db::DbFailure::new(ubiq_proto::db::DbFailureKind::Unavailable, why)
+}
+
 /// What to say about a message a drone will not serve.
 ///
 /// One arm per family, answering with that family's own error so the asker learns where the
@@ -1095,6 +1103,88 @@ fn refusal(message: &Message) -> Option<Message> {
         SetSshSecret { .. } | ClearSshSecret { .. } => SettingsError {
             layer: ubiq_proto::settings::SettingsLayer::Host,
             error: NOT_HERE.to_string(),
+        },
+
+        // ── a project's databases ──
+        // The drone is built without the drivers, so every request is `Unavailable`. Stopping or
+        // closing something that never started has nothing to answer, and is not logged either.
+        DbConnections { project_id }
+        | SaveDbConnection { project_id, .. }
+        | DeleteDbConnection { project_id, .. } => DbConnectionsListed {
+            project_id: *project_id,
+            connections: Vec::new(),
+            keystore: ubiq_proto::db::DbKeystore::Unavailable(NOT_HERE.to_string()),
+        },
+        TestDbConnection {
+            project_id, probe, ..
+        } => DbTested {
+            project_id: *project_id,
+            probe: *probe,
+            result: Err(unavailable(NOT_HERE)),
+        },
+        DbPassword {
+            project_id, conn, ..
+        }
+        | DbDisconnect { project_id, conn } => DbConnectionState {
+            project_id: *project_id,
+            conn: *conn,
+            state: ubiq_proto::db::DbConnState::Failed(unavailable(NOT_HERE)),
+        },
+        DbTree {
+            project_id,
+            conn,
+            node,
+        } => DbTreeListing {
+            project_id: *project_id,
+            conn: *conn,
+            node: node.clone(),
+            result: Err(unavailable(NOT_HERE)),
+        },
+        DbTablePage {
+            project_id,
+            session,
+            query,
+            ..
+        } => DbTablePageResult {
+            project_id: *project_id,
+            session: *session,
+            query: *query,
+            result: Err(unavailable(NOT_HERE)),
+            elapsed_ms: 0,
+        },
+        DbQuery {
+            project_id,
+            session,
+            query,
+            ..
+        } => DbQueryResult {
+            project_id: *project_id,
+            session: *session,
+            query: *query,
+            index: 0,
+            last: true,
+            result: Err(unavailable(NOT_HERE)),
+            elapsed_ms: 0,
+        },
+        DbApplyEdits {
+            project_id,
+            session,
+            query,
+            ..
+        } => DbEditsApplied {
+            project_id: *project_id,
+            session: *session,
+            query: *query,
+            result: Err(ubiq_proto::db::DbEditFailure {
+                index: 0,
+                statement: String::new(),
+                failure: unavailable(NOT_HERE),
+            }),
+        },
+        CreateDbFile { project_id, path } => DbFileError {
+            project_id: *project_id,
+            path: path.clone(),
+            message: NOT_HERE.to_string(),
         },
 
         // Everything left is either something only a host says — an answer arriving at the wrong

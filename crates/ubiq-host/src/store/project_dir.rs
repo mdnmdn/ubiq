@@ -51,6 +51,9 @@ pub const TASKS: &str = "tasks";
 /// an obvious side.
 pub const LOCAL: &str = "local";
 
+/// The project's database connection list: committed, and never holding a password.
+pub const DB_CONNECTIONS: &str = "db.toml";
+
 /// The file under the config root that names where a project's data actually went. Absent for a
 /// Ubiq-managed project, which is every project that never asked for anything else.
 pub const POINTER: &str = "storage.toml";
@@ -69,8 +72,8 @@ pub const GITIGNORE: &str = "\
 # Ubiq keeps this project's own data here.
 #
 # Committed, and meant to be: everything not listed below — project.toml,
-# tasks/, kb.toml, plans/, missions/, wiki/, agent-definitions/, catalog/, studio.toml and
-# tasksrc.toml. The project's settings, tasks and configuration, shared with
+# tasks/, kb.toml, db.toml, plans/, missions/, wiki/, agent-definitions/, catalog/,
+# studio.toml and tasksrc.toml. The project's settings, tasks and configuration, shared with
 # whoever clones it. An edition's own sidecar file (studio.toml) and a sync
 # provider's binding (tasksrc.toml) pass the same test as everything else here —
 # a teammate's clone needs them to work — and neither ever holds credential
@@ -109,6 +112,7 @@ pub const FOLLOWS: &[&str] = &[
     TASKS,
     crate::tasksrc::store::TASKSRC_FILE,
     "studio.toml",
+    DB_CONNECTIONS,
 ];
 
 /// Move a project's data between the two trees, and leave the pointer telling the truth
@@ -382,6 +386,12 @@ impl ProjectData {
     /// The knowledge base's roots — the user's list, not the clones it names.
     pub fn kb_sources(&self) -> PathBuf {
         self.dir.join("kb.toml")
+    }
+
+    /// The saved database connections — definitions only; the passwords are sealed under
+    /// [`Self::local`].
+    pub fn db_connections(&self) -> PathBuf {
+        self.dir.join(DB_CONNECTIONS)
     }
 
     /// One markdown plan per task that carries a level, and its sidecar.

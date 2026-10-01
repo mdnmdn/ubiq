@@ -26,6 +26,7 @@ fn views() -> Vec<View> {
         View::Control,
         View::Kb,
         View::Git,
+        View::Db,
         View::Logs,
         View::Ide {
             key: "crates/ubiq/src/app/nav.rs".into(),

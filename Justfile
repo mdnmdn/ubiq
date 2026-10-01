@@ -79,6 +79,11 @@ ui:
     cargo build -p ubiq --all-targets
     @! cargo tree -p ubiq -e no-dev --prefix none | grep -q '^ubiq-host' \
         || { echo "the interface names the host"; exit 1; }
+    # The interface opens no connection: `ubiq-db`'s `drivers` feature is the host's alone, so no
+    # engine crate may reach `-p ubiq`'s tree.
+    @! cargo tree -p ubiq -e no-dev --prefix none | awk '{print $1}' \
+        | grep -qxE 'rusqlite|mysql|tiberius|sqlx-core' \
+        || { echo "the interface links a database driver"; exit 1; }
     # `theme.rs` is the one file allowed to name a size. `text_size(px(font))`, where the size is
     # computed from the project's zoom, is legitimate — hence the digit.
     @! grep -rqE 'text_size\(px\([0-9]' crates/ubiq/src \

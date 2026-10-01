@@ -6,7 +6,7 @@ keywords: [rail, mark, modes, project badges, switch project]
 targets: [ui.rail, ui.rail.mark, ui.rail.modes, ui.rail.projects, ui.rail.mode.teams, ui.rail.mode.teams-old, ui.rail.mode.sink]
 order: 5
 status: current
-related: [workbench-modes, workbench-panels, git-overview, agents-starting, kb-overview]
+related: [workbench-modes, workbench-panels, git-overview, agents-starting, kb-overview, db-overview]
 ---
 
 ## Three parts, stacked
@@ -39,6 +39,8 @@ bottom.
 **Project modes** — inert, and say so, until a project is open:
 
 - [**IDE**](workbench-modes#ide) — the files, the editor and the terminal panes.
+- [**DB**](db-overview) — the project's databases: connections, table data and SQL. Off until the
+  project turns it on in settings > General > Modes, and then it sits right after IDE.
 - [**Git**](git-overview) — status, diffs, history and refs for the project's repository.
 - [**Agents**](agents-starting) — every conversation in the project, one column each.
 - **Teams** — groups of agents working a shared brief, split across lanes. An earlier **Teams

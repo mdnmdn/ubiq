@@ -145,6 +145,7 @@ fn every_rail_mode_has_a_catalogued_name() {
         RailMode::TEAMS_ALL,
         RailMode::TEAMS_OLD,
         RailMode::KB,
+        RailMode::DB,
         RailMode::TASKS,
         RailMode::SINK,
     ] {

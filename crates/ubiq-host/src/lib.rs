@@ -96,6 +96,8 @@ pub mod conversation;
 pub mod conversation_record;
 #[cfg(feature = "full")]
 pub mod coordinator;
+#[cfg(feature = "db")]
+pub mod db;
 #[cfg(feature = "listener")]
 pub mod drone;
 pub mod environment;

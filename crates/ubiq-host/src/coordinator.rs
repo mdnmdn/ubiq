@@ -231,6 +231,10 @@ struct Coordinator {
     /// the `Syncing`/`Failed` overrides live in memory, so a second `Kb` would answer a state this
     /// one has never heard of.
     kb: Arc<Kb>,
+    /// A project's databases: the saved connections, their sealed passwords, and the sessions that
+    /// run SQL. Every driver call blocks, so none runs here — a tab's work is on that tab's own
+    /// thread, and this only hands the message over with the addresses to answer to.
+    db: crate::db::Db,
     /// The thread that reads a project's repository. A status walk is seconds on a large tree, and
     /// seconds here would stall every pane behind it.
     git: Git,
@@ -1000,6 +1004,7 @@ impl Coordinator {
         // Taken before the root is moved into the struct: the quota worker probes from a thread of
         // its own and everything it needs is a path.
         let quota_root = root.path.clone();
+        let db = crate::db::Db::new(root.path.clone());
         let pending_conversations = conversation_record::all(&root.path.join("sessions"))
             .into_iter()
             .filter(|(_, row)| row.persistent)
@@ -1050,6 +1055,7 @@ impl Coordinator {
             catalogue,
             files: Files::start(),
             kb,
+            db,
             git: Git::start(),
             quota: crate::quota::Quota::start(quota_root),
             quotas: crate::quota::Quotas::new(),
@@ -1289,6 +1295,8 @@ impl Coordinator {
         // waiting on the same one, and the bytes are worth having whoever wanted them. This only
         // stops it being told.
         self.web_assets.client_gone(client);
+        // Its database sessions close, and what they were running is stopped.
+        self.db.client_gone(client);
     }
 
     /// A project has moved to another window: everything running in it is now that window's.
@@ -3390,6 +3398,37 @@ impl Coordinator {
                     cancel.store(true, Ordering::Relaxed);
                     tracing::info!(search = %search_id, project = %project_id, "search cancelled");
                 }
+            }
+
+            // ── the database family ─────────────────────────────────
+            // Every driver call blocks, so none is made here: `Db` queues each on a session thread
+            // of its own and answers through the mailboxes handed over with it.
+            message @ (Message::DbConnections { .. }
+            | Message::SaveDbConnection { .. }
+            | Message::DeleteDbConnection { .. }
+            | Message::TestDbConnection { .. }
+            | Message::DbPassword { .. }
+            | Message::DbTree { .. }
+            | Message::DbTablePage { .. }
+            | Message::DbQuery { .. }
+            | Message::DbApplyEdits { .. }
+            | Message::DbCancel { .. }
+            | Message::DbCloseSession { .. }
+            | Message::DbDisconnect { .. }
+            | Message::CreateDbFile { .. }) => {
+                let project_path = message
+                    .project_id()
+                    .map(|project_id| self.kb_project_path(project_id))
+                    .unwrap_or_default();
+                self.db.handle(
+                    crate::db::Ctx {
+                        client,
+                        asker: self.host.mailbox(To::Client(client)),
+                        everyone: self.host.mailbox(To::Everyone),
+                        project_path,
+                    },
+                    message,
+                );
             }
 
             // Response-direction variants are never received here. Dropping one silently would

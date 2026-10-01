@@ -4965,6 +4965,78 @@ process exits. A multi-selection starts one process per item, and when no applic
 those processes race for the handoff, so two can each become an application. The section is
 registered only in a window running on Windows; another platform's file manager is not joined.
 
+### D199 — The database engine is a leaf crate, `ubiq-db`, whose drivers sit behind a feature and whose model types are the wire's
+
+The database explorer needs one engine in two roles: the host opens connections, and the interface
+validates a cell, previews the SQL a batch of edits will run and flags a write in a read-only tab.
+`crates/ubiq-db` is that engine, built from a proof of the explorer. It names no Ubiq crate and
+draws nothing, the way `crates/agent-manager` names none. By default it carries the model
+(`DbError`, `TableRef`, `DbObject`, `ColumnMeta`, `ResultSet`, `Plan`) and the pure engine (`conn`,
+`value`, `sql`, `edit`) with `serde`, `serde_json`, `thiserror`, `tracing` and `sqlparser`, and no
+driver and no async runtime. The `drivers` feature adds the `driver` module, the four engines
+(`rusqlite`, `mysql`, `tiberius`, `sqlx-core`/`sqlx-postgres`) and the runtime crates they need;
+only the host enables it. `just ui` builds `-p ubiq` without it and greps its tree for the driver
+crates, so "the interface opens no connection" is enforced by the dependency graph and not by
+review.
+
+**The model types derive `Serialize` and `Deserialize`, and `ubiq-proto` re-exports them rather than
+defining its own.** A wire copy of `ColumnMeta` would drift from the engine's the first time a
+field is added. The statement log is `tracing` under the target `ubiq_db::sql`, so the base's log
+sink collects it.
+
+**Cost:** a contract change to a model type is a change in `ubiq-db`, and `ubiq-proto` takes a
+dependency on a crate it does not own. The base lock resolves the whole driver graph, and
+the workspace root's `Cargo.lock` follows it: `whoami`, `io-enum` and `derive_utils` are pinned to
+`1.5.2`, `1.2.1` and `0.15.1` with `cargo update --precise`, because the fresh resolution picks
+versions the root's other crates have not been built against. `lock-agrees` is the check that the
+pins hold.
+
+### D200 — Both TLS providers are compiled in, and `ring` is installed as the process default
+
+`tiberius`'s `rustls` feature takes `tokio-rustls` with its default features, which enables rustls's
+`aws_lc_rs`. So `aws-lc-rs`, `aws-lc-sys` (a C build), `cmake` and `fs_extra` enter the base's
+graph beside `ring`, and two crypto providers are compiled into one binary. The alternative, a
+`tiberius` fork or a patch that turns the default features off, would be a second thing to carry
+across every `tiberius` bump.
+
+`mysql` 28 calls `ClientConfig::builder()`, which panics when two providers are compiled in and none
+is installed. The host therefore installs `ring` as the process default once, when the database
+service starts (`CryptoProvider::install_default`, the error for a default installed earlier ignored). Every other
+rustls site in the base names its provider explicitly (`connectors::tls::provider`,
+`remote::tls_provider`), so none changes behaviour, and `tiberius` honours an installed default, so
+the whole database stack runs on `ring`.
+
+**Cost:** `aws-lc-sys` needs a C toolchain and `cmake` on every shipped target, and the Windows
+bundle (`just bundle-win`) is the one unproven to build it (`G395`). A binary carries a crypto provider
+that nothing selects. And the guarantee that nothing panics rests on the host installing the default
+before the first handshake, not on the type system.
+
+### D201 — A saved database password is sealed with AES-256-GCM under one per-install key held in the OS keychain
+
+A connection list is shared (`db.toml` follows the project's storage mode, `D173`), so it never holds
+a password: the store clears `password` and drops `password`, `pwd`, `sslpassword` and `sslkey`
+from `params` before writing. The password is sealed into `local/db-secrets.toml` under the config
+root (never in a project folder) with AES-256-GCM through `ring`, a fresh 96-bit nonce per write and
+the associated data `ubiq-db:v1:<project id>:<connection id>`, so a ciphertext copied onto another
+entry does not open. The key is 32 random bytes, made on the first password ever saved and filed as
+the connector store's fifth namespace (`db` / `secrets-key`) — the host's `OsSecretStore`, not the
+`keyring` crate the interface declares, so `Store::usable` stays the one answer to whether the
+platform's store works.
+
+**Per install, not per project:** the same user, keychain and process open every project's key, so
+a key each buys no isolation and costs a keychain item — on macOS an access prompt — per project;
+the associated data keeps one project's ciphertext out of another's entries. **A missing
+password is a prompt, never an error:** a lost key or a ciphertext that does not open lists
+`PasswordState::Missing`; with an unusable keychain nothing is written and a typed password is held
+in memory for the run (`PasswordState::Session`). The interface never receives a decrypted
+password; plaintext crosses the bus only towards the host.
+
+**Cost:** a reset keychain or a copied config root costs one prompt per connection, and a lost key
+cannot be recovered. Entries sealed by a lost key are dropped when a fresh key is made, in the
+project that makes it; another project's stale entries read `Missing` until re-entered. The
+sealed file is only as strong as the keychain item, and a process running as the user can ask the
+keychain for it.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

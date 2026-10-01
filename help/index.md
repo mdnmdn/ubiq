@@ -23,6 +23,7 @@ keep the arrangement when you come back tomorrow.
 - [Starting an agent](agents-starting) — what a session and a workspace are
 - [The Git screen](git-overview) — reviewing changes, history and refs without leaving the window
 - [The knowledge base](kb-overview) — a project's documents, read from wherever they live
+- [Databases](db-overview) — browse, edit and query a project's databases
 
 ## If something looks unbuilt
 

@@ -277,6 +277,24 @@ pub struct Scratch {
     pub text: String,
 }
 
+/// What a SQL tab keeps across a restart: which connection and database it was on, and the text.
+/// Never a result — a restored tab comes back with an empty results area. Keyed by the tab's panel
+/// key (`dbsql:<session>`), so the dock's saved layout and this agree on which tab is which.
+///
+/// The connection is its id's text, the rule `bookmarks` and `chats` follow: an id this build can no
+/// longer parse costs one draft rather than the whole blob.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct DbSqlDraft {
+    pub key: String,
+    pub conn: String,
+    #[serde(default)]
+    pub database: Option<String>,
+    pub text: String,
+}
+
+/// The most text of one draft that is kept: past this the tail is dropped.
+pub const DB_SQL_DRAFT_MAX: usize = 64 * 1024;
+
 /// What belongs to one project: how its window was arranged, and what it was looking at.
 ///
 /// Every field added after the first release is `#[serde(default)]`, so a blob written by an
@@ -442,6 +460,10 @@ pub struct ViewPrefs {
     /// to one session is a thing a reader does *now*.
     #[serde(default)]
     pub teams_hide_done: bool,
+    /// The SQL tabs open in the DB mode, one draft each — see [`DbSqlDraft`]. `default` like every
+    /// field added after the first release, so no schema bump.
+    #[serde(default)]
+    pub db_sql_drafts: Vec<DbSqlDraft>,
     /// Every key in the blob this build does not know, kept as it was found and written back out.
     ///
     /// Serde drops what a struct does not name, so without this a blob carrying more than this
@@ -482,6 +504,7 @@ impl Default for ViewPrefs {
             board_ready_only: false,
             board_mission: None,
             teams_hide_done: false,
+            db_sql_drafts: Vec::new(),
             rest: Default::default(),
         }
     }

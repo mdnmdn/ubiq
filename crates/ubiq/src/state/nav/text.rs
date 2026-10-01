@@ -46,6 +46,7 @@ impl View {
             View::Control => "control",
             View::Kb => "kb",
             View::Git => "git",
+            View::Db => "db",
             View::Logs => "logs",
             View::Ide { .. } => "ide",
             View::Explorer { .. } => "explorer",
@@ -69,7 +70,7 @@ impl fmt::Display for Destination {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{SCHEME}{}/{}", self.project, self.view.slug())?;
         match &self.view {
-            View::Control | View::Kb | View::Git | View::Logs => {}
+            View::Control | View::Kb | View::Git | View::Db | View::Logs => {}
             View::Ide { key } => write!(f, "/{}", encode(key))?,
             View::Explorer { path } => write!(f, "/{}", encode(path))?,
             View::Terminal { pane } => write!(f, "/{pane}")?,
@@ -173,6 +174,7 @@ fn parse_view(slug: &str, item: Option<&str>) -> Result<View, NotALink> {
         "control" => none(View::Control),
         "kb" => none(View::Kb),
         "git" => none(View::Git),
+        "db" => none(View::Db),
         "logs" => none(View::Logs),
         // Everything up to the fragment, however many segments that is.
         "ide" => {

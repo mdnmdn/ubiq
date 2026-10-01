@@ -825,6 +825,23 @@ fn hiding_modes_never_empties_the_rail(cx: &mut TestAppContext) {
     cx.run_until_parked();
 }
 
+/// DB is the base's one opt-in mode: no project draws it until it is ticked, and ticking it is the
+/// allow-list, not the deny-list the others are.
+#[gpui::test]
+fn the_db_mode_is_off_until_a_project_opts_in(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let state = fixture.state.clone();
+
+    state.update(cx, |state, cx| {
+        assert!(!state.mode_enabled(RailMode::DB, cx), "off by default");
+        state.toggle_mode(RailMode::DB, cx);
+        assert!(state.mode_enabled(RailMode::DB, cx), "ticked in");
+        state.toggle_mode(RailMode::DB, cx);
+        assert!(!state.mode_enabled(RailMode::DB, cx), "and off again");
+    });
+    cx.run_until_parked();
+}
+
 /// T-196: a document open in the IDE — which file is active and what layout its viewer is in — is
 /// exactly the kind of state a mode switch must not disturb.
 ///

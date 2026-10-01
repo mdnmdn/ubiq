@@ -72,6 +72,7 @@ impl Destination {
             View::Control => "Control".into(),
             View::Kb => "Knowledge".into(),
             View::Git => "Git".into(),
+            View::Db => "Databases".into(),
             View::Logs => "Logs".into(),
             View::Ide { key } => crate::state::editor::from_tab_key(key).0,
             View::Explorer { path } => path.clone(),
@@ -95,6 +96,8 @@ pub enum View {
     Control,
     Kb,
     Git,
+    /// The database explorer mode. Names no connection: a table tab is a panel, not a place.
+    Db,
     Logs,
     Ide {
         key: String,

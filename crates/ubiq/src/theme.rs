@@ -631,6 +631,19 @@ pub struct StatusColors {
     /// screen, not the mood.
     pub ribbon_experimental: Rgba,
     pub ribbon_experimental_ink: Rgba,
+    /// The database explorer's seven (`ui/db/`). The three `db_row_*` are the fills a pending
+    /// edit tints its grid row with — changed, new, to be removed — and are solid, not
+    /// translucent: the grid paints them under the cells. `db_statement_active` is the editor's
+    /// ground behind the statement the cursor is in, `db_read_only` the badge and lock ink of a
+    /// connection or tab that cannot write with `db_read_only_soft` behind it, and `db_plan_hot`
+    /// the fill of the plan node that cost the most.
+    pub db_row_edited: Rgba,
+    pub db_row_inserted: Rgba,
+    pub db_row_deleted: Rgba,
+    pub db_statement_active: Rgba,
+    pub db_read_only: Rgba,
+    pub db_read_only_soft: Rgba,
+    pub db_plan_hot: Rgba,
 }
 
 /// Colours the terminal emulator paints that are not ANSI — selection and links.
@@ -1810,6 +1823,41 @@ pub fn edit_agent() -> Rgba {
     Theme::current().palette.status.edit_agent
 }
 
+/// A grid row with a pending edit to one of its cells.
+pub fn db_row_edited() -> Rgba {
+    Theme::current().palette.status.db_row_edited
+}
+
+/// A grid row that is new and not yet inserted.
+pub fn db_row_inserted() -> Rgba {
+    Theme::current().palette.status.db_row_inserted
+}
+
+/// A grid row marked for deletion.
+pub fn db_row_deleted() -> Rgba {
+    Theme::current().palette.status.db_row_deleted
+}
+
+/// The SQL editor's ground behind the statement the cursor is in.
+pub fn db_statement_active() -> Rgba {
+    Theme::current().palette.status.db_statement_active
+}
+
+/// The read-only badge and lock ink.
+pub fn db_read_only() -> Rgba {
+    Theme::current().palette.status.db_read_only
+}
+
+/// The ground behind [`db_read_only`].
+pub fn db_read_only_soft() -> Rgba {
+    Theme::current().palette.status.db_read_only_soft
+}
+
+/// The plan node that cost the most.
+pub fn db_plan_hot() -> Rgba {
+    Theme::current().palette.status.db_plan_hot
+}
+
 /// The colour of one edit's provenance, so the underline in the buffer and the legend in the
 /// footer can never disagree about which hue means whom.
 pub fn edit_origin(human: bool) -> Rgba {
@@ -2003,6 +2051,13 @@ const DARK: Palette = Palette {
         info_soft: rgba_hex_a(0x4a9eff, 0.16),
         edit_human: rgba_hex(0xc77dd6),
         edit_agent: rgba_hex(0x3fbfa8),
+        db_row_edited: rgba_hex(0x38301c),
+        db_row_inserted: rgba_hex(0x1f3626),
+        db_row_deleted: rgba_hex(0x3d2226),
+        db_statement_active: rgba_hex(0x252d3f),
+        db_read_only: rgba_hex(0xe0b060),
+        db_read_only_soft: rgba_hex(0x33291a),
+        db_plan_hot: rgba_hex(0x472826),
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
         ribbon_ink: rgba_hex(0x1b1b1b),
@@ -2079,6 +2134,13 @@ const LIGHT: Palette = Palette {
         info_soft: rgba_hex_a(0x0066ff, 0.10),
         edit_human: rgba_hex(0x9333a8),
         edit_agent: rgba_hex(0x0e8a76),
+        db_row_edited: rgba_hex(0xf8ecc8),
+        db_row_inserted: rgba_hex(0xd9eedd),
+        db_row_deleted: rgba_hex(0xf4d9d4),
+        db_statement_active: rgba_hex(0xe8eefa),
+        db_read_only: rgba_hex(0x8a5a00),
+        db_read_only_soft: rgba_hex(0xf6ecd4),
+        db_plan_hot: rgba_hex(0xf8dcd6),
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
         ribbon_ink: rgba_hex(0x1b1b1b),
@@ -2213,6 +2275,13 @@ const EMBER_DARK: Palette = Palette {
         info_soft: rgba_hex_a(0x86a6bf, 0.16),
         edit_human: rgba_hex(0xbf8fb5),
         edit_agent: rgba_hex(0x6fae9f),
+        db_row_edited: rgba_hex(0x3a3220),
+        db_row_inserted: rgba_hex(0x28351f),
+        db_row_deleted: rgba_hex(0x3f2623),
+        db_statement_active: rgba_hex(0x30291f),
+        db_read_only: rgba_hex(0xe0b060),
+        db_read_only_soft: rgba_hex(0x352a1a),
+        db_plan_hot: rgba_hex(0x4a2b25),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2269,6 +2338,13 @@ const EMBER_LIGHT: Palette = Palette {
         info_soft: rgba_hex_a(0x3d7594, 0.10),
         edit_human: rgba_hex(0x8e4a80),
         edit_agent: rgba_hex(0x2f7a68),
+        db_row_edited: rgba_hex(0xf3e6c4),
+        db_row_inserted: rgba_hex(0xdfe9d0),
+        db_row_deleted: rgba_hex(0xf2d8d2),
+        db_statement_active: rgba_hex(0xf0e6d6),
+        db_read_only: rgba_hex(0x8a5a00),
+        db_read_only_soft: rgba_hex(0xf3e8d0),
+        db_plan_hot: rgba_hex(0xf5d9d0),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2328,6 +2404,13 @@ const CONTRAST_DARK: Palette = Palette {
         info_soft: rgba_hex_a(0x6cb6ff, 0.22),
         edit_human: rgba_hex(0xff7ae0),
         edit_agent: rgba_hex(0x2ee6cf),
+        db_row_edited: rgba_hex(0x4d3f00),
+        db_row_inserted: rgba_hex(0x0d4a1c),
+        db_row_deleted: rgba_hex(0x5c1414),
+        db_statement_active: rgba_hex(0x1a2f5c),
+        db_read_only: rgba_hex(0xffd400),
+        db_read_only_soft: rgba_hex(0x3d3200),
+        db_plan_hot: rgba_hex(0x661a1a),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2385,6 +2468,13 @@ const CONTRAST_LIGHT: Palette = Palette {
         info_soft: rgba_hex_a(0x0040c0, 0.16),
         edit_human: rgba_hex(0x8a0080),
         edit_agent: rgba_hex(0x005f57),
+        db_row_edited: rgba_hex(0xfff0b3),
+        db_row_inserted: rgba_hex(0xc6f0cf),
+        db_row_deleted: rgba_hex(0xffcfcf),
+        db_statement_active: rgba_hex(0xd0defc),
+        db_read_only: rgba_hex(0x5c3d00),
+        db_read_only_soft: rgba_hex(0xffe9b0),
+        db_plan_hot: rgba_hex(0xffc8c0),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2442,6 +2532,13 @@ const NAVY_DARK: Palette = Palette {
         info_soft: rgba_hex_a(0x4a9eff, 0.16),
         edit_human: rgba_hex(0xc77dd6),
         edit_agent: rgba_hex(0x3fbfa8),
+        db_row_edited: rgba_hex(0x38301c),
+        db_row_inserted: rgba_hex(0x1f3626),
+        db_row_deleted: rgba_hex(0x3d2226),
+        db_statement_active: rgba_hex(0x252d3f),
+        db_read_only: rgba_hex(0xe0b060),
+        db_read_only_soft: rgba_hex(0x33291a),
+        db_plan_hot: rgba_hex(0x472826),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2498,6 +2595,13 @@ const NAVY_LIGHT: Palette = Palette {
         info_soft: rgba_hex_a(0x0066ff, 0.10),
         edit_human: rgba_hex(0x9333a8),
         edit_agent: rgba_hex(0x0e8a76),
+        db_row_edited: rgba_hex(0xf8ecc8),
+        db_row_inserted: rgba_hex(0xd9eedd),
+        db_row_deleted: rgba_hex(0xf4d9d4),
+        db_statement_active: rgba_hex(0xe8eefa),
+        db_read_only: rgba_hex(0x8a5a00),
+        db_read_only_soft: rgba_hex(0xf6ecd4),
+        db_plan_hot: rgba_hex(0xf8dcd6),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2555,6 +2659,13 @@ const VIOLET_DARK: Palette = Palette {
         info_soft: rgba_hex_a(0x82a8e8, 0.16),
         edit_human: rgba_hex(0xe07ab0),
         edit_agent: rgba_hex(0x3fbfa8),
+        db_row_edited: rgba_hex(0x38301c),
+        db_row_inserted: rgba_hex(0x1f3626),
+        db_row_deleted: rgba_hex(0x3d2226),
+        db_statement_active: rgba_hex(0x252d3f),
+        db_read_only: rgba_hex(0xe0b060),
+        db_read_only_soft: rgba_hex(0x33291a),
+        db_plan_hot: rgba_hex(0x472826),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,
@@ -2611,6 +2722,13 @@ const VIOLET_LIGHT: Palette = Palette {
         info_soft: rgba_hex_a(0x3d5fb0, 0.10),
         edit_human: rgba_hex(0xa8347a),
         edit_agent: rgba_hex(0x0e8a76),
+        db_row_edited: rgba_hex(0xf8ecc8),
+        db_row_inserted: rgba_hex(0xd9eedd),
+        db_row_deleted: rgba_hex(0xf4d9d4),
+        db_statement_active: rgba_hex(0xe8eefa),
+        db_read_only: rgba_hex(0x8a5a00),
+        db_read_only_soft: rgba_hex(0xf6ecd4),
+        db_plan_hot: rgba_hex(0xf8dcd6),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
         ribbon_ink: RIBBON_INK,

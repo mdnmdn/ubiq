@@ -198,6 +198,9 @@ categories:
     mode-agents:
       goal: the columns of agent conversations, no harness named
       keywords: [agents, conversations, columns, chat]
+    mode-db:
+      goal: the project's databases — a stack of disks, the mark for a data store
+      keywords: [database, db, sql, data, tables, query]
     mode-tasks:
       goal: work items that leave the board once done — a square whose corner is open and a tick
         on its way out through it

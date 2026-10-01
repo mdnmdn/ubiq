@@ -28,6 +28,11 @@ pub enum Layer {
     ProjectSettings,
     /// The knowledge base's "Add source" question, over that page.
     KbSource,
+    /// The database explorer's connection form, over the project settings page that raised it
+    /// (or over the explorer, when its + did).
+    DbForm,
+    /// The password a database connection asked for.
+    DbPassword,
     /// The application settings page.
     Settings,
     /// The harness login modal, over the settings page.

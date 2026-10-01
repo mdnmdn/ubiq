@@ -184,6 +184,15 @@ pub enum PanelKind {
     /// The same [`TaskId`] may be open as both shapes at once; they read one
     /// `state::mission::MissionView`, so the two are the same view twice rather than two views.
     MissionView(TaskId),
+    /// The database explorer: connections and their structure tree. DB mode's side panel — the
+    /// centre is the table tabs it opens.
+    DbExplorer,
+    /// One open table, named by its tab key — `state/db`'s `db_table_key`,
+    /// `db:<conn>:<database>:<schema>:<name>`. An editor-like centre tab, several at once.
+    DbTable(String),
+    /// One SQL editor tab, named by its session — `dbsql:<session id>`. A bottom-dock tab, several
+    /// at once.
+    DbSql(String),
     /// Ubiq's own documentation. **Not mode-owned**: the reader opens it to understand the screen
     /// they are looking at, so it has to survive the rail-mode change that takes them there.
     Help,
@@ -208,6 +217,13 @@ impl PanelKind {
     /// anchor task travels in the same payload.
     pub const MISSION_VIEW: &'static str = "ubiq.mission.view";
 
+    /// The name every table tab answers. A constant for [`Self::CHAT`]'s reason: the tab key
+    /// travels in the payload, so a saved leaf is recognised before there is a key to build with.
+    pub const DB_TABLE: &'static str = "ubiq.db.table";
+
+    /// The name every SQL tab answers, on [`Self::DB_TABLE`]'s terms.
+    pub const DB_SQL: &'static str = "ubiq.db.sql";
+
     /// Where this kind may sit. One function, consulted in one place.
     pub fn class(&self) -> PanelClass {
         match self {
@@ -221,14 +237,17 @@ impl PanelKind {
             | PanelKind::GitChanges
             | PanelKind::GitHistory
             | PanelKind::GitDiff
+            | PanelKind::DbSql(_)
             | PanelKind::Help => PanelClass::Free,
             PanelKind::Explorer
             | PanelKind::KbExplorer
+            | PanelKind::DbExplorer
             | PanelKind::Task
             | PanelKind::AgentsExplorer => PanelClass::Edge,
             PanelKind::Centre
             | PanelKind::File(_)
             | PanelKind::Kb(_)
+            | PanelKind::DbTable(_)
             | PanelKind::MissionView(_) => PanelClass::Centre,
         }
     }
@@ -237,10 +256,13 @@ impl PanelKind {
     /// back. Every kind's home satisfies its own class.
     pub fn home(&self) -> Region {
         match self {
-            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => Region::Bottom,
+            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search | PanelKind::DbSql(_) => {
+                Region::Bottom
+            }
             PanelKind::Explorer
             | PanelKind::Outline
             | PanelKind::KbExplorer
+            | PanelKind::DbExplorer
             | PanelKind::AgentsExplorer => Region::Left,
             PanelKind::Chat(_) | PanelKind::Task | PanelKind::Mission(_) | PanelKind::Help => {
                 Region::Right
@@ -248,6 +270,7 @@ impl PanelKind {
             PanelKind::Centre
             | PanelKind::File(_)
             | PanelKind::Kb(_)
+            | PanelKind::DbTable(_)
             | PanelKind::MissionView(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
             PanelKind::GitRefs => Region::Left,
@@ -304,6 +327,9 @@ impl PanelKind {
             PanelKind::GitDiff => "ubiq.git.diff",
             PanelKind::KbExplorer => "ubiq.kb.explorer",
             PanelKind::Kb(_) => "ubiq.kb.doc",
+            PanelKind::DbExplorer => "ubiq.db.explorer",
+            PanelKind::DbTable(_) => Self::DB_TABLE,
+            PanelKind::DbSql(_) => Self::DB_SQL,
             PanelKind::Task => "ubiq.task",
             PanelKind::AgentsExplorer => "ubiq.agents.explorer",
             PanelKind::Help => "ubiq.help",
@@ -332,6 +358,7 @@ impl PanelKind {
             "ubiq.git.history" => Some(PanelKind::GitHistory),
             "ubiq.git.diff" => Some(PanelKind::GitDiff),
             "ubiq.kb.explorer" => Some(PanelKind::KbExplorer),
+            "ubiq.db.explorer" => Some(PanelKind::DbExplorer),
             "ubiq.task" => Some(PanelKind::Task),
             "ubiq.agents.explorer" => Some(PanelKind::AgentsExplorer),
             "ubiq.help" => Some(PanelKind::Help),
@@ -365,6 +392,16 @@ impl PanelKind {
     pub fn kb_key(&self) -> Option<&str> {
         match self {
             PanelKind::Kb(key) => Some(key.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The database tab this panel is, if it is one — a table's key or a SQL tab's. Kept out of
+    /// [`Self::tab_key`] and [`Self::kb_key`] for their reason: each of those is a lookup into a
+    /// list a database tab is not in.
+    pub fn db_key(&self) -> Option<&str> {
+        match self {
+            PanelKind::DbTable(key) | PanelKind::DbSql(key) => Some(key.as_str()),
             _ => None,
         }
     }
@@ -425,6 +462,10 @@ impl PanelKind {
             PanelKind::Centre => {
                 if matches!(at.rail_mode, Some(RailMode::GIT)) && at.has_project {
                     false
+                } else if matches!(at.rail_mode, Some(RailMode::DB)) && at.has_project {
+                    // In DB the open tables are the centre; `any_file_open` is answered for that
+                    // mode from the tables alone (`AppState::settle_visibility`).
+                    !at.any_file_open
                 } else {
                     !at.is_ide || !at.any_file_open
                 }
@@ -447,6 +488,12 @@ impl PanelKind {
             // The same rule one mode along: the knowledge base's explorer is KB's own furniture,
             // and a project is what it lists.
             PanelKind::KbExplorer => at.has_project && matches!(at.rail_mode, Some(RailMode::KB)),
+            // The database explorer is DB's furniture; the two tab kinds are drawn while their tab
+            // is open (`file_open` carries that, as it does for a document) and only in DB mode.
+            PanelKind::DbExplorer => at.has_project && matches!(at.rail_mode, Some(RailMode::DB)),
+            PanelKind::DbTable(_) | PanelKind::DbSql(_) => {
+                at.has_project && matches!(at.rail_mode, Some(RailMode::DB)) && at.file_open
+            }
             // And again for the two screens that gained a side panel of their own: the board's
             // task and the agents list are their mode's furniture, and a project is what either
             // is about.
@@ -496,6 +543,9 @@ impl PanelKind {
                 self,
                 PanelKind::Explorer
                     | PanelKind::KbExplorer
+                    | PanelKind::DbExplorer
+                    | PanelKind::DbTable(_)
+                    | PanelKind::DbSql(_)
                     | PanelKind::Task
                     | PanelKind::AgentsExplorer
             )
@@ -511,6 +561,8 @@ impl PanelKind {
             PanelKind::Terminal(_)
                 | PanelKind::File(_)
                 | PanelKind::Kb(_)
+                | PanelKind::DbTable(_)
+                | PanelKind::DbSql(_)
                 | PanelKind::Logs
                 | PanelKind::Search
                 | PanelKind::Outline

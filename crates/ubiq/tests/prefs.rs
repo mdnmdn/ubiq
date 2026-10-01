@@ -63,6 +63,7 @@ fn a_blob_survives_the_round_trip() {
         board_ready_only: true,
         board_mission: Some(TaskId::generate().to_string()),
         teams_hide_done: true,
+        db_sql_drafts: Vec::new(),
         rest: Default::default(),
     };
 

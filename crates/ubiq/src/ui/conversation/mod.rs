@@ -1065,6 +1065,35 @@ fn plan_rows(
     rows
 }
 
+/// What the stale-height diagnostic says about a row: what it draws, and how much of it — a body's
+/// length in bytes (the size markdown parsing is gated on), or a call's content entries plus the
+/// prompts drawn under it.
+fn row_reading(
+    conversation: &Conversation,
+    row: &Row,
+    attached: &HashMap<usize, Vec<&Pending>>,
+) -> (&'static str, usize) {
+    match &row.kind {
+        RowKind::Block(ix) => match conversation.blocks.get(*ix) {
+            Some(ConvBlock::User { text, .. }) => ("user", text.len()),
+            Some(ConvBlock::Agent { body, .. }) => ("agent", body.len()),
+            Some(ConvBlock::Thought { body, .. }) => ("thought", body.len()),
+            Some(ConvBlock::Tool { call, .. }) => (
+                "tool",
+                call.content.len() + attached.get(ix).map_or(0, Vec::len),
+            ),
+            Some(ConvBlock::Compacted) => ("compacted", 0),
+            None => ("missing", 0),
+        },
+        RowKind::Group { hidden, .. } => ("group", *hidden),
+        RowKind::Thinking { blocks, .. } => ("thinking", blocks.len()),
+        RowKind::Adrift(at) => ("adrift", *at),
+        RowKind::Ask(at) => ("ask", *at),
+        RowKind::Empty => ("empty", 0),
+        RowKind::Writing => ("writing", 0),
+    }
+}
+
 /// One row, drawn — and wrapped in the padding and the text style the transcript reads in.
 #[allow(clippy::too_many_arguments)]
 fn build_row(
@@ -1424,6 +1453,7 @@ fn transcript(
                     && width > px(0.)
                     && (forced || scroll.needs_measure(row.key, row.sig))
                 {
+                    let before = scroll.cached(row.key);
                     let measured = element.layout_as_root(
                         gpui::size(
                             gpui::AvailableSpace::Definite(width),
@@ -1433,6 +1463,25 @@ fn transcript(
                         cx,
                     );
                     again |= scroll.measured(row.key, row.sig, measured.height);
+                    // The diagnostic for a transcript that cannot reach its own end: a row whose
+                    // signature never moved but whose height did is a height the cache had no way
+                    // to invalidate. Only a forced pass re-measures such a row, so only a forced
+                    // pass can see one.
+                    if let Some((sig, was)) = before
+                        && sig == row.sig
+                        && (measured.height - was).abs() > px(0.5)
+                    {
+                        let (kind, len) = row_reading(conversation, row, &attached);
+                        tracing::warn!(
+                            target: "ubiq::ui::conversation",
+                            row = at,
+                            kind,
+                            len,
+                            was = f32::from(was),
+                            now = f32::from(measured.height),
+                            "a transcript row's cached height was stale under an unchanged signature"
+                        );
+                    }
                 }
                 built.push(element);
             }

@@ -72,6 +72,8 @@ impl RailMode {
     pub const TEAMS_ALL: RailMode = RailMode(ids::RAIL_TEAMS_ALL);
     pub const TEAMS_OLD: RailMode = RailMode(ids::RAIL_TEAMS_OLD);
     pub const KB: RailMode = RailMode(ids::RAIL_KB);
+    /// The database explorer: opt-in, after the IDE in the PROJECT group.
+    pub const DB: RailMode = RailMode(ids::RAIL_DB);
     pub const TASKS: RailMode = RailMode(ids::RAIL_TASKS);
     /// The kitchen sink: the application's own test bench. The one mode with no project behind it
     /// at all — see [`super::sink`].
@@ -360,6 +362,12 @@ pub enum MenuId {
     /// The KB explorer's right-click menu. Which row is on `KbState::menu`. Its own id rather than
     /// `Explorer` reused, because the two panels can both be on screen and only one menu is open.
     Kb,
+    /// The database explorer's right-click menu. Which row is on `DbState::menu`. Its own id for
+    /// `Kb`'s reason: another explorer can be on screen and only one menu is open.
+    Db,
+    /// A SQL tab's connection or database picker. Which tab and which picker is on its
+    /// `DbSqlTab`, on `AgentBench`'s precedent.
+    DbSql,
     /// The status bar's size popover: the presets, the two axis sliders, and Save/Reset. An
     /// anchored panel rather than a modal — it is a menu, peeled by the same Escape and the same
     /// outside click every other menu is, and it carries no number anywhere.

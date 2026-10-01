@@ -62,6 +62,7 @@ fn the_project_dialog_draws_the_same_rows_in_the_same_order() {
             "Remote",
             "Task sync",
             "Knowledge base",
+            "Databases",
             "Documentation",
             "Integrations",
         ]
@@ -112,6 +113,7 @@ fn the_live_dialog_offers_general_always_and_the_record_backed_only_with_a_recor
         ids::PROJECT_TASKS,
         ids::PROJECT_REMOTE,
         ids::PROJECT_KB,
+        ids::PROJECT_DB,
     ];
     let sink_only = [ids::PROJECT_DOCUMENTATION, ids::PROJECT_INTEGRATIONS];
 

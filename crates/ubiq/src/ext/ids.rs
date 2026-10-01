@@ -73,6 +73,7 @@ pub const PROJECT_MCP_SERVERS: SlotId = SlotId::new("ubiq.project.mcp-servers");
 pub const PROJECT_TASKS: SlotId = SlotId::new("ubiq.project.tasks");
 pub const PROJECT_REMOTE: SlotId = SlotId::new("ubiq.project.remote");
 pub const PROJECT_KB: SlotId = SlotId::new("ubiq.project.kb");
+pub const PROJECT_DB: SlotId = SlotId::new("ubiq.project.db");
 pub const PROJECT_DOCUMENTATION: SlotId = SlotId::new("ubiq.project.documentation");
 pub const PROJECT_INTEGRATIONS: SlotId = SlotId::new("ubiq.project.integrations");
 /// Task sync (`D187`): the provider, the board, the **rendered** `ConfigField` filter and the
@@ -105,6 +106,7 @@ pub const RAIL_TEAMS: SlotId = SlotId::new("ubiq.rail.teams");
 pub const RAIL_TEAMS_ALL: SlotId = SlotId::new("ubiq.rail.teams-all");
 pub const RAIL_TEAMS_OLD: SlotId = SlotId::new("ubiq.rail.teams-old");
 pub const RAIL_KB: SlotId = SlotId::new("ubiq.rail.kb");
+pub const RAIL_DB: SlotId = SlotId::new("ubiq.rail.db");
 pub const RAIL_TASKS: SlotId = SlotId::new("ubiq.rail.tasks");
 pub const RAIL_SINK: SlotId = SlotId::new("ubiq.rail.sink");
 
