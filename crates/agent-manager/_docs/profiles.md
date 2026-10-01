@@ -314,10 +314,22 @@ first-use sentinel every `dotnet` command writes before doing anything else),
 NuGet's config, package and cache roots, the template engine, `dev-certs` and
 `user-secrets` stores, and `/etc/dotnet`'s install-location marker — plus a
 `filter = { os = ["windows"] }` policy over the `%USERPROFILE%`, `%APPDATA%` and
-`%LOCALAPPDATA%` spellings of the same, a per-user SDK install and MSBuild's node
-state. The SDK tree itself needs nothing: `base` grants `/usr`,
-`macos/system-runtime` grants `/opt`, `windows/system-runtime` grants
-`%PROGRAMFILES%`.
+`%LOCALAPPDATA%` spellings of the same, a per-user SDK install, MSBuild's node
+state, `%APPDATA%\Microsoft\UserSecrets` and both `ASP.NET` roots. The SDK tree
+itself needs nothing: `base` grants `/usr`, `macos/system-runtime` grants `/opt`,
+`windows/system-runtime` grants `%PROGRAMFILES%`.
+
+**MSBuild's nodes are the layer's other job.** On Windows they reach the build over
+`\\.\pipe\MSBuild<pid>`, and isol8's hook denies a pipe like any path it was not
+given: every node starts, none connects, and `dotnet build` hangs until it times
+out. The Windows policy grants `\\.\pipe\MSBuild` as a `prefix` — MSBuild's pipes,
+no one else's. The layer's `[env]` then keeps a confined build on nodes it started
+itself, on every platform: `MSBUILDDISABLENODEREUSE=1` leaves none behind,
+`MSBUILDNODEHANDSHAKESALT` fails the handshake with a node an unconfined build left
+behind, and `DOTNET_CLI_USE_MSBUILD_SERVER=0`, `UseSharedCompilation=false` and
+`UseRazorBuildServer=false` run the MSBuild, Roslyn and Razor servers in-process —
+the environment spelling of `-nodeReuse:false --disable-build-servers`. They are
+layer defaults, so a value the run sets itself still wins.
 
 This is not a duplicate of `DEV_RW_HOME_ROOTS` below but its other half. Those
 grants are joined absolutely against the **real** home, and nothing grants a
@@ -356,7 +368,13 @@ covering the effective one; the list is deliberately
 `ENV_PASS` widens isol8's deny-by-default env (`HOME PATH SHELL TMPDIR USER
 LOGNAME PWD`) to the terminal (`TERM_PROGRAM`, `TERM_PROGRAM_VERSION`), the locale
 (`LANG`, `LC_ALL`, `LC_CTYPE`), proxy in both cases, CA trust, and the toolchain
-relocation roots (`CARGO_HOME`, `GOROOT`, `JAVA_HOME`, …). `GIT_*` and `XDG_*` are
+relocation roots (`CARGO_HOME`, `GOROOT`, `JAVA_HOME`, …). On Windows
+`WINDOWS_ENV_PASS` adds the machine's session variables, which isol8's allowlist
+leaves out and a process cannot rebuild — `SystemDrive`, `windir`, `ProgramData`,
+`ALLUSERSPROFILE`, the `ProgramFiles` and `CommonProgramFiles` families, `PUBLIC`,
+`COMPUTERNAME`, `USERDOMAIN`, `OS`, `PROCESSOR_ARCHITECTURE`,
+`NUMBER_OF_PROCESSORS`, `PATHEXT` and `ComSpec`. Without `ProgramData` a confined
+`dotnet restore` dies on `Value cannot be null. (Parameter 'path1')`. `GIT_*` and `XDG_*` are
 left out on purpose: an inherited `GIT_DIR` would retarget the agent's own git at
 the wrong repository, and a relocated `XDG_*` points every lookup away from the
 `~/.config` paths the layers grant.

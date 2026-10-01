@@ -68,6 +68,8 @@
 //! - `catalog`: the skill and MCP catalog — one library `FsRegistry` layer per scope, overlaid at
 //!   launch, and the conversions to the wire (behind `harness`)
 //! - `cli_shortcut`: behind `harness`
+//! - `shell_integration`: *Open in Ubiq* in the desktop's file-manager context menu — Explorer's,
+//!   through per-user registry keys; unsupported elsewhere (behind `desktop`)
 //!
 //! `git`, `index`, `harness`, `listener` and `desktop` are the features a lean embedder (a
 //! headless drone with no window, no account, no network surface) can each leave off; `full`,
@@ -130,6 +132,8 @@ pub mod repos;
 pub mod runners;
 pub mod search;
 pub mod settings;
+#[cfg(feature = "desktop")]
+pub mod shell_integration;
 pub mod shells;
 pub mod store;
 pub mod tasksrc;

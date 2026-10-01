@@ -3,7 +3,8 @@ use super::ssh_connect::{self, DroneState, HostCheck};
 use super::*;
 use crate::state::file_picker::PickerRequest;
 use crate::state::new_agent::{NewAgentForm, Purpose};
-use crate::state::settings::DroneStopConfirm;
+use crate::state::settings::{DroneStopConfirm, ShellIntegration};
+use ubiq_proto::messages::ShellIntegrationAction;
 use ubiq_proto::tools::{ToolDef, parse_env};
 
 /// What a kept agent home is called when the choice is made before a name is typed. A home with
@@ -434,6 +435,28 @@ impl AppState {
 
     pub(super) fn apply_cli_shortcut(&mut self, cli: CliShortcut, cx: &mut Context<Self>) {
         self.workbench.settings.cli = Some(cli);
+        cx.notify();
+    }
+
+    /// Asked on arrival for the command line's reason: the entries can be removed by hand or
+    /// rewritten by another build while the window is open, and the answer costs a few registry
+    /// reads.
+    pub(crate) fn on_show_shell_integration(&mut self, _cx: &mut Context<Self>) {
+        self.ask_shell_integration(ShellIntegrationAction::Query);
+    }
+
+    /// Ask after, write or delete the *Open in Ubiq* entries. All three answer the same way, so
+    /// one sender serves the section and `apply_shell_integration` is the only thing that draws.
+    pub fn ask_shell_integration(&mut self, action: ShellIntegrationAction) {
+        self.bus.send(Message::ShellIntegration { action });
+    }
+
+    pub(super) fn apply_shell_integration(
+        &mut self,
+        shell: ShellIntegration,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.shell = Some(shell);
         cx.notify();
     }
 

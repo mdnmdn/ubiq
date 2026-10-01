@@ -104,6 +104,7 @@ pub fn menu_entries(
             match readable {
                 true => vec![
                     entry(ExplorerAction::Copy),
+                    entry(ExplorerAction::Cut),
                     paste,
                     entry(ExplorerAction::Duplicate),
                 ],

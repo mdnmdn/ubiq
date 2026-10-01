@@ -52,6 +52,7 @@ use crate::reply::Reply;
 use crate::repos::Repos;
 use crate::search::{self, Search};
 use crate::settings::Settings;
+use crate::shell_integration;
 use crate::shells;
 use crate::store::harness::{CachedModel, FileHarnessCache};
 use crate::store::usage::Usage;
@@ -2135,6 +2136,15 @@ impl Coordinator {
                 self.answer(client, vec![reply]);
             }
 
+            // *Open in Ubiq* in the file manager's context menu, on CliShortcut's terms: every key
+            // and path is the host's, the interface names one of three actions, and the answer is
+            // read back from the machine rather than remembered. A handful of registry calls on
+            // Windows, nothing at all elsewhere — inline, like the shortcut's directory listing.
+            Message::ShellIntegration { action } => {
+                let reply = Reply::Asker(shell_integration::handle(action));
+                self.answer(client, vec![reply]);
+            }
+
             // ── the assist family ───────────────────────────────────
             // Whether a model is there is a fact about this machine, answered from the backend
             // already held — no device is asked twice and no window learns a vendor's words.
@@ -2348,6 +2358,19 @@ impl Coordinator {
                     rel_path: rel_path.clone(),
                 };
                 self.file_job(client, project_id, &rel_path, request);
+            }
+            Message::ImportIntoProject {
+                project_id,
+                into,
+                sources,
+                mode,
+            } => {
+                let request = files::Request::Import {
+                    into: into.clone(),
+                    sources,
+                    mode,
+                };
+                self.file_job(client, project_id, &into, request);
             }
 
             // ── the knowledge-base family ────────────────────────────

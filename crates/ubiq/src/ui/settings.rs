@@ -18,7 +18,9 @@ use ubiq_proto::connectors::{
     TrustedCert, origin,
 };
 use ubiq_proto::ids::{PaneId, ProjectId};
-use ubiq_proto::messages::{AccountInfo, AgentDefinition, CliShortcutAction, LoginStatus};
+use ubiq_proto::messages::{
+    AccountInfo, AgentDefinition, CliShortcutAction, LoginStatus, ShellIntegrationAction,
+};
 use ubiq_proto::projects::IndexLevel;
 use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
 
@@ -163,7 +165,8 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
         .collect()
 }
 
-/// The overlay's own fifteen sections, registered into the settings container (`D180`).
+/// The overlay's own seventeen sections — eighteen on Windows, where Shell integration joins the
+/// System group — registered into the settings container (`D180`).
 ///
 /// This is the base's side of `X4`: the container's first commit is also the commit that converts
 /// the base's own use of it, so there is never a container with no contributor. The order here is
@@ -360,6 +363,24 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             )
         },
     );
+    // Only where the window runs on Windows: Explorer's menu is the one context menu Ubiq knows
+    // how to join, and a section that could only ever say "not supported" is not worth a nav row.
+    // The host still answers for itself — a window on Windows attached to another platform's host
+    // is told `supported: false` and says so.
+    if cfg!(windows) {
+        add(
+            ids::SETTINGS_APP_SYSTEM,
+            SettingsSectionSpec {
+                on_show: Some(AppState::on_show_shell_integration),
+                ..section(
+                    ids::SHELL_INTEGRATION,
+                    "Shell integration",
+                    || IconName::FolderOpen.into(),
+                    |ctx, _, cx| shell_integration(ctx.app, cx),
+                )
+            },
+        );
+    }
 }
 
 /// One overlay section, with the fields the overlay never varies already filled in: it is always
@@ -1906,6 +1927,87 @@ const COMMAND_LINE_NOTE: (&str, &str) = (
     "Command line",
     "A small script Ubiq writes into a directory on your PATH. Removing it removes only that \
      script \u{2014} never a `ubiq` you put there yourself.",
+);
+
+/// *Open in Ubiq* on Explorer's right-click menu.
+///
+/// On [`command_line`]'s terms: everything drawn is the host's answer, the interface touches no
+/// registry key and names no executable, and `app/settings.rs` sends one of three actions whose
+/// answer redraws this section.
+fn shell_integration(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(shell) = app.workbench.settings.shell.clone() else {
+        return column(vec![
+            heading(SHELL_INTEGRATION_NOTE.0, SHELL_INTEGRATION_NOTE.1),
+            note("Looking\u{2026}", theme::text_faint()),
+        ]);
+    };
+    if !shell.supported {
+        return column(vec![
+            heading(SHELL_INTEGRATION_NOTE.0, SHELL_INTEGRATION_NOTE.1),
+            note(
+                "This host has no file-manager menu Ubiq can join.",
+                theme::text_faint(),
+            ),
+        ]);
+    }
+
+    let (verb, action) = match (shell.installed, shell.stale) {
+        (true, true) => ("Update", ShellIntegrationAction::Install),
+        (true, false) => ("Remove", ShellIntegrationAction::Remove),
+        (false, _) => ("Install", ShellIntegrationAction::Install),
+    };
+    let status = match (shell.installed, shell.stale) {
+        (true, true) => (
+            "Installed \u{2014} launches another build of Ubiq",
+            theme::danger(),
+        ),
+        (true, false) => (
+            "Installed \u{b7} on the right-click menu",
+            theme::text_muted(),
+        ),
+        (false, _) => ("Not installed", theme::text_faint()),
+    };
+
+    let mut rows = vec![
+        heading(SHELL_INTEGRATION_NOTE.0, SHELL_INTEGRATION_NOTE.1),
+        setting_row(
+            "Open in Ubiq",
+            "Right-click a file, a folder, or the empty space inside an open folder and pick Open \
+             in Ubiq: the path opens in the window that is already up.",
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    primary_button(
+                        "app-settings-shell-action",
+                        Some(IconName::FolderOpen),
+                        verb,
+                        cx.listener(move |this, _, _, cx| {
+                            this.ask_shell_integration(action);
+                            cx.notify();
+                        }),
+                    )
+                    .when(shell.command.is_none(), |button| button.opacity(0.5)),
+                )
+                .child(note(status.0, status.1))
+                .into_any_element(),
+        ),
+    ];
+    if let Some(command) = &shell.command {
+        rows.push(note(&format!("Runs {command}"), theme::text_faint()));
+    }
+    if let Some(error) = shell.error.clone() {
+        rows.push(error_banner(&error, cx));
+    }
+    column(rows)
+}
+
+/// The section's own heading, named once because the "looking" state draws it too.
+const SHELL_INTEGRATION_NOTE: (&str, &str) = (
+    "Shell integration",
+    "Adds Open in Ubiq to the Explorer right-click menu for files, folders and folder \
+     backgrounds, for the current user only. Removing it removes only the entries Ubiq wrote.",
 );
 
 /// Every directory considered, in the order the host considered them, so a machine that has none

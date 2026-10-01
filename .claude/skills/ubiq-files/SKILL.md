@@ -77,6 +77,7 @@ Your change updates the documents it touched, in the same commit. `just docs-tou
 | Click a file | `ReadProjectFile { max_bytes: 2 MiB }` | `ProjectFileContents` | `pending_files` → `OpenFile::attach` |
 | `⌘S` | `WriteProjectFile { bytes, expected }` | `ProjectFileWritten { version }` | `OpenFile::saved`, then `RefreshProjectGit` |
 | New / rename / copy / trash / delete / drag | `EditProjectPath { rel_path, to?, op }` | `ProjectPathEdited` (echoes the op) | `path_edited` — retargets or closes tabs |
+| Drop from the OS / paste files copied elsewhere | `ImportIntoProject { into, sources[] (absolute), mode }` — local host only | `ProjectPathsImported { imported[], failed[] }` | `paths_imported` — re-lists `into`, cursor on the first |
 | Open a diff tab, or pick a Git-screen path | `DiffProjectFile { base }` | `ProjectFileDiffed { diff }` | the diff tab *or* `git_view.diff` |
 | Nobody asked | — | `ProjectFilesChanged { changed[], truncated, repository }` | re-list + re-read + git refresh |
 | Search | `SearchProject { search_id, query, scope, filter }` | `SearchMatches` ×n, `SearchProgress`, `SearchFinished` / `SearchError` | `SearchState` |
@@ -156,6 +157,10 @@ about disk.
 - **`to` on `EditProjectPath` is refused where it does not belong**, never ignored — a field the
   host silently drops is a wiring mistake the interface cannot see. Every op refuses a destination
   that already exists; `Move` and `Copy` also refuse a destination inside their own source.
+- **`ImportIntoProject` is the one file-family message carrying absolute paths** — its `sources`
+  are this machine's, from a drop or the system clipboard — so the window sends it only when the
+  project's host is `HostRef::Local`. Its free names come from `ubiq_proto::files::copy_name`, the
+  same function `free_name` uses, and the host decides them against the disk.
 - **`Trash` and `Delete` are two ops because they are two promises**, and the confirmation says
   which. The Shift modifier is read *at the click*, not while the menu is open.
 - **`free_name` is best-effort by construction** — it can only see folders the host has listed, so

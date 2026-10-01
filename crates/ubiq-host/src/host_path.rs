@@ -51,9 +51,48 @@ pub fn wire_string(path: &Path) -> String {
     }
 }
 
+/// The spelling Windows' shell accepts for a path: no verbatim prefix, backslashes only, and no
+/// trailing backslash except on a drive root (`C:\`).
+///
+/// Pure text, so it reads the same on every platform; only Windows callers have a use for it.
+/// `explorer.exe` cannot parse `\\?\C:\x` or `C:\x/y` and answers either by opening the Desktop.
+pub fn shell_path(path: &str) -> String {
+    let plain = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        path.to_string()
+    };
+    let mut native = plain.replace('/', "\\");
+    let bytes = native.as_bytes();
+    let drive_root = bytes.len() == 3 && bytes[0].is_ascii_alphabetic() && &bytes[1..] == b":\\";
+    if !drive_root {
+        while native.len() > 1 && native.ends_with('\\') {
+            native.pop();
+        }
+    }
+    native
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shell_path_is_plain_and_backslashed() {
+        assert_eq!(shell_path(r"\\?\C:\works\ubiq"), r"C:\works\ubiq");
+        assert_eq!(shell_path(r"\\?\UNC\srv\share/x"), r"\\srv\share\x");
+        assert_eq!(shell_path("C:/works/ubiq/src"), r"C:\works\ubiq\src");
+        assert_eq!(shell_path(r"C:\works\ubiq\"), r"C:\works\ubiq");
+    }
+
+    #[test]
+    fn shell_path_keeps_a_drive_root_whole() {
+        assert_eq!(shell_path(r"C:\"), r"C:\");
+        assert_eq!(shell_path("C:/"), r"C:\");
+        assert_eq!(shell_path(r"\\?\C:\"), r"C:\");
+    }
 
     #[test]
     fn mixed_separators_become_a_single_usable_path() {

@@ -11155,6 +11155,7 @@ dependencies = [
  "ureq",
  "webpki-roots 0.26.11",
  "windows-capture",
+ "windows-sys 0.61.2",
  "zed-scap",
 ]
 
@@ -11235,6 +11236,7 @@ dependencies = [
  "ubiq-proto",
  "ureq",
  "webpki-roots 0.26.11",
+ "winreg 0.55.0",
  "x509-parser",
 ]
 

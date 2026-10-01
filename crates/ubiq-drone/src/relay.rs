@@ -611,6 +611,22 @@ impl Relay {
                 };
                 self.file_job(host, client, project_id, &rel_path, request);
             }
+            // The sources are paths on the drone's own disk. The interface sends none to a remote
+            // — what the user dropped is on their machine — so this is served for the contract's
+            // sake rather than for any gesture that reaches it today.
+            Message::ImportIntoProject {
+                project_id,
+                into,
+                sources,
+                mode,
+            } => {
+                let request = files::Request::Import {
+                    into: into.clone(),
+                    sources,
+                    mode,
+                };
+                self.file_job(host, client, project_id, &into, request);
+            }
 
             // ── the search family ────────────────────────────────────
             // The lean host carries `ubiq_host::search`'s own walk, but a drone shells out

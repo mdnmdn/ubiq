@@ -8,8 +8,9 @@
 //!
 //! The families a drone refuses and that have **no error variant to refuse with** are not covered
 //! here because there is nothing to assert: `ListStats`, `ListNotifications` and the rest of the
-//! notification family, `CliShortcut`, and every host→UI answer that arrives at the wrong end of
-//! the wire. Those are logged and dropped — see the catch-all in `relay::dispatch`.
+//! notification family, `CliShortcut`, `ShellIntegration`, and every host→UI answer that arrives at
+//! the wrong end of the wire. Those are logged and dropped — see the catch-all in
+//! `relay::dispatch`.
 
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};

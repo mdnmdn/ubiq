@@ -447,9 +447,18 @@ impl AppState {
             self.project_snapshot(cx)
                 .is_some_and(|snap| snap.record.search_excludes.iter().any(|p| p == path))
         });
+        // The board is the window's to read, not the tree's: files another application copied
+        // are the other thing a Paste can bring in, so they light the row as well.
+        let foreign = match self.project(cx) {
+            Some(project) => self.foreign_clipboard_paths(project, cx).is_some(),
+            None => false,
+        };
         if let Some(open) = self.open_project_mut(cx) {
             open.explorer
                 .open_menu(path.as_deref(), is_excluded, at.0, at.1);
+            if foreign && let Some(menu) = open.explorer.menu.as_mut() {
+                menu.can_paste = true;
+            }
         }
         cx.notify();
     }
@@ -517,10 +526,7 @@ impl AppState {
                 if let Some(rel) = path
                     && let Some(snap) = self.project_snapshot(cx)
                 {
-                    let full = std::path::Path::new(&snap.record.path)
-                        .join(&rel)
-                        .to_string_lossy()
-                        .to_string();
+                    let full = absolute_path(&snap.record.path, &rel);
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
                 }
                 cx.notify();
@@ -529,10 +535,7 @@ impl AppState {
                 if let Some(rel) = path
                     && let Some(snap) = self.project_snapshot(cx)
                 {
-                    let full = std::path::Path::new(&snap.record.path)
-                        .join(&rel)
-                        .to_string_lossy()
-                        .to_string();
+                    let full = absolute_path(&snap.record.path, &rel);
                     let _ = open_in_system(&full);
                 }
                 cx.notify();
@@ -622,9 +625,9 @@ impl AppState {
                     self.ask_remove(path, dir, trash, cx);
                 }
             }
-            ExplorerAction::Copy => {
-                if let Some(open) = self.open_project_mut(cx) {
-                    open.explorer.copied = path;
+            ExplorerAction::Copy | ExplorerAction::Cut => {
+                if let Some(path) = path {
+                    self.copy_explorer_path(path, entry.action == ExplorerAction::Cut, cx);
                 }
                 cx.notify();
             }
@@ -633,10 +636,7 @@ impl AppState {
                     .explorer(cx)
                     .map(|explorer| explorer.target_dir(path.as_deref().unwrap_or_default()))
                     .unwrap_or_default();
-                let source = self.explorer(cx).and_then(|e| e.copied.clone());
-                if let Some(source) = source {
-                    self.copy_path_into(source, target, cx);
-                }
+                self.paste_into_explorer(target, cx);
             }
             // Never picked: a separator is drawn disabled and the guard above has already
             // returned. The arm is here because the set is closed.
@@ -687,6 +687,174 @@ impl AppState {
             carry_related: false,
         });
         cx.notify();
+    }
+
+    /// Remember a row for a later Paste — as a cut when `cut` — and, where the project's host is
+    /// local, put its file on the platform's clipboard too, so it pastes into the file manager.
+    ///
+    /// A remote host's absolute path names a file on another machine, which no file manager here
+    /// could paste, so the board is left alone there and only the explorer remembers.
+    pub fn copy_explorer_path(&mut self, path: String, cut: bool, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let full = match self.project_host(project) {
+            HostRef::Local => self
+                .project_snapshot(cx)
+                .map(|snap| PathBuf::from(absolute_path(&snap.record.path, &path))),
+            HostRef::Remote(_) => None,
+        };
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.explorer.copied = Some(path);
+            open.explorer.cut = cut;
+        }
+        self.explorer_clipboard = match full {
+            Some(full) => {
+                let paths = vec![full];
+                clipboard::write_paths(&paths, cut, cx);
+                paths
+            }
+            None => Vec::new(),
+        };
+        cx.notify();
+    }
+
+    /// Paste into the folder `target`.
+    ///
+    /// Files another application put on the platform's clipboard win, and are imported — that is
+    /// the newer gesture whenever the board holds files this window did not put there. Otherwise
+    /// it is whatever the explorer remembered: a copy under a free name, or, after a Cut, a move
+    /// that uses the cut up. A cut pasted where it already is changes nothing and is kept.
+    ///
+    /// Answers whether there was anything to paste, so a key with nothing behind it can go back to
+    /// whoever else binds it.
+    pub fn paste_into_explorer(&mut self, target: String, cx: &mut Context<Self>) -> bool {
+        let Some(project) = self.project(cx) else {
+            return false;
+        };
+        if let Some(sources) = self.foreign_clipboard_paths(project, cx) {
+            self.import_into_explorer(target, sources, cx);
+            return true;
+        }
+        let Some(open) = self.projects.get_mut(&project) else {
+            return false;
+        };
+        let Some(source) = open.explorer.copied.clone() else {
+            return false;
+        };
+        if !open.explorer.cut {
+            self.copy_path_into(source, target, cx);
+            return true;
+        }
+        if can_move_into(&source, &target) {
+            open.explorer.copied = None;
+            open.explorer.cut = false;
+            self.send_move(source, target, cx);
+        }
+        cx.notify();
+        true
+    }
+
+    /// The files on the platform's clipboard a Paste would import into `project`: files another
+    /// application copied, never the ones this window's own Copy or Cut put there.
+    ///
+    /// `None` for a remote host — the board names paths on this machine, and the host that would
+    /// read them is not on it — and for a board with no files, or only this window's own.
+    fn foreign_clipboard_paths(&self, project: ProjectId, cx: &App) -> Option<Vec<String>> {
+        if self.project_host(project) != HostRef::Local {
+            return None;
+        }
+        let paths = clipboard::clipboard_paths(cx)?;
+        if paths == self.explorer_clipboard {
+            return None;
+        }
+        Some(
+            paths
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+        )
+    }
+
+    /// Bring files from outside the project into its folder `into`, as copies.
+    ///
+    /// Only a local host is asked: the paths are this machine's, as the platform handed them over,
+    /// and a remote host would look for them on its own disk. The answer is
+    /// `Message::ProjectPathsImported`, settled in `app/wire.rs`.
+    pub fn import_into_explorer(
+        &mut self,
+        into: String,
+        sources: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        if sources.is_empty() {
+            return;
+        }
+        if self.project_host(project) != HostRef::Local {
+            tracing::warn!(
+                "{} path(s) from this machine were not imported: the project's host is remote",
+                sources.len()
+            );
+            cx.notify();
+            return;
+        }
+        self.bus.send(Message::ImportIntoProject {
+            project_id: project,
+            into,
+            sources,
+            mode: ubiq_proto::files::ImportMode::Copy,
+        });
+        cx.notify();
+    }
+
+    /// Files dropped from outside the app onto the explorer: copied into `into`, which is the
+    /// folder the drop landed on, the folder holding the file row it landed on, or the root.
+    pub fn drop_external_paths_on(
+        &mut self,
+        paths: &[PathBuf],
+        into: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.explorer.drop_onto = None;
+        }
+        let sources = paths
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        self.import_into_explorer(into, sources, cx);
+        cx.notify();
+    }
+
+    /// ⌘C and ⌘X on the tree: the row the keyboard is on, taken the way the menu's Copy and Cut
+    /// take a clicked one. `false` hands the key back when the keyboard is on no row, or on the
+    /// project's own.
+    pub fn copy_explorer_cursor(&mut self, cut: bool, cx: &mut Context<Self>) -> bool {
+        let Some(path) = self
+            .explorer(cx)
+            .and_then(|tree| tree.cursor().map(str::to_string))
+        else {
+            return false;
+        };
+        if path.is_empty() {
+            return false;
+        }
+        self.copy_explorer_path(path, cut, cx);
+        true
+    }
+
+    /// ⌘V on the tree: paste into the folder the keyboard is on, or the one holding its row.
+    /// `false` hands the key back when there is nothing to paste, so the window's own paste — a
+    /// picture becoming a tab — still answers it.
+    pub fn paste_explorer_cursor(&mut self, cx: &mut Context<Self>) -> bool {
+        let target = self
+            .explorer(cx)
+            .map(|tree| tree.target_dir(tree.cursor().unwrap_or_default()))
+            .unwrap_or_default();
+        self.paste_into_explorer(target, cx)
     }
 
     /// Put a file question up, with the field seeded and holding the keyboard.
@@ -1230,11 +1398,9 @@ impl AppState {
                 .collect()
         };
         roots.sort_by_key(|(_, root)| std::cmp::Reverse(root.len()));
-        roots.into_iter().find_map(|(id, root)| {
-            path.strip_prefix(&root)
-                .ok()
-                .map(|rel| (id, rel.to_string_lossy().into_owned()))
-        })
+        roots
+            .into_iter()
+            .find_map(|(id, root)| relative_to_root(path, &root).map(|rel| (id, rel)))
     }
 
     /// A drop from outside the app: a folder becomes a project (temporary, until kept from the
@@ -1359,6 +1525,51 @@ pub(super) fn child_path(parent: &str, leaf: &str) -> String {
 /// here is what stops the gesture asking about a move that could never happen.
 pub(super) fn can_move_into(path: &str, into: &str) -> bool {
     path != into && parent_dir(path) != into && !into.starts_with(&format!("{path}/"))
+}
+
+/// What `path` is called from a project's `root`, in the interface's one spelling: parts joined
+/// with `/`, whatever the platform's own separator is. `None` when `path` is not under `root`.
+///
+/// Every project-relative path the interface holds is `/`-separated — tree selection, tab keys,
+/// the host's listings — so a path taken in from outside has to be spelled the same way before it
+/// can match any of them. On Windows the match ignores case and a `\\?\` prefix on either side,
+/// since the drive letter's case and the prefix are artefacts of where the path came from.
+pub fn relative_to_root(path: &Path, root: &str) -> Option<String> {
+    use std::path::Component;
+
+    fn plain(text: &str) -> std::borrow::Cow<'_, str> {
+        if cfg!(windows) {
+            strip_verbatim(text)
+        } else {
+            std::borrow::Cow::Borrowed(text)
+        }
+    }
+    fn same(a: Component<'_>, b: Component<'_>) -> bool {
+        if cfg!(windows) {
+            a.as_os_str().to_string_lossy().to_lowercase()
+                == b.as_os_str().to_string_lossy().to_lowercase()
+        } else {
+            a == b
+        }
+    }
+
+    let path = path.to_string_lossy();
+    let (path, root) = (plain(&path), plain(root));
+    let mut rest = Path::new(&*path).components();
+    for want in Path::new(&*root).components() {
+        if !same(rest.next()?, want) {
+            return None;
+        }
+    }
+    let mut parts = Vec::new();
+    for part in rest {
+        match part {
+            Component::Normal(name) => parts.push(name.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    Some(parts.join("/"))
 }
 
 /// The shortest query worth walking the cache for. One or two letters match nearly every file in a

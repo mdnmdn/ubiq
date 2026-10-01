@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-09-26
-verified: 2026-09-27
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+updated: 2026-10-01
+verified: 2026-10-01
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -48,6 +48,13 @@ the terminal it was started in, reports through the same log writer on standard 
 `just dev` uses, and runs until it is stopped. It also takes no part in the one-application-per-root
 handoff — handing its arguments to a window running elsewhere would leave nothing listening — so a
 headless host and a local window can share a machine, though not usefully a config root.
+
+**The handoff runs on every platform.** A second plain launch of the same executable under the same
+config root hands its paths to the running application and exits (`crates/ubiq-app/src/handoff.rs`).
+On Unix the door is a `ubiq-<hash>.sock` socket in the config root; on Windows it is a loopback port
+on `127.0.0.1`, named with a random token in `ubiq-<hash>.port` beside where the socket would be, and
+a launch counts its paths delivered only once the owner acknowledges them. A file left by a crash
+names a port nobody answers on, and the next launch replaces it and becomes the application.
 
 **On Windows a plain launch leaves its console behind — and destroys it, not just hides it.** `ubiq`
 with no serve flag detaches through `detach_console` in `crates/ubiq-app/src/lib.rs`, so a launch
@@ -323,6 +330,7 @@ The wording says which half of the problem it is, and they have opposite fixes.
 | `operation not permitted`, from the shell or from `ls` | The policy denied the path. The binary is there and the run cannot reach it | `environment.toml`, below |
 | `command not found` | Nothing was denied — the name is not on the run's `PATH` | `PATH` in `environment.toml`, or `agent_commands` in Settings for a harness binary |
 | `cannot find GOROOT`, `DOTNET_CLI_HOME not set`, `.. is not a directory` | The tool ran and could not find its own root. A variable is missing, not a grant | The `[env]` table |
+| On Windows, `dotnet restore` fails with `Value cannot be null. (Parameter 'path1')`, or `dotnet build` hangs with every MSBuild node idle | A session variable isol8 does not pass (`ProgramData`, `SystemDrive`, …), or MSBuild's `\\.\pipe\MSBuild<pid>` pipes denied | `WINDOWS_ENV_PASS` and the generated `toolchains/dotnet` layer in `crates/agent-manager/src/isolate.rs`; restart Ubiq |
 | The harness hangs on its splash screen, with no error | A denied lookup the harness blocks on, not a path | `DEV_LAYERS` in `crates/agent-manager/src/isolate.rs` |
 | A confined `swift` or `xcodebuild` is denied | isol8's `integrations/xcode` layer is in `BROKEN_LAYERS`, so the SDK and toolchain paths are named by hand | `APPLE_SDK_RO_ROOTS` / `APPLE_RW_HOME_ROOTS` in `crates/agent-manager/src/isolate.rs` |
 | `framework 'FoundationModels' not found`, or `unable to load standard library`, from a build pulling in `foundation-models` (`assist-apple`) — `just dev`, `just verbose`, `just build`, `just bundle`, `just bundle-win`, `just apple` or `just assist` | The Swift/clang module cache or SwiftPM's home symlinks are denied, so `swiftc` cannot load the SDK's frameworks | `~/.cache/clang` and `~/.swiftpm` are in `APPLE_RW_HOME_ROOTS`; re-restart Ubiq |

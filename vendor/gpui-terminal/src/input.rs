@@ -349,14 +349,37 @@ pub fn paste_bytes(text: &str, mode: TermMode) -> Vec<u8> {
 }
 
 /// Quote a dropped OS path for a shell when it contains whitespace or metacharacters.
+///
+/// POSIX shells get single quotes. Windows shells (PowerShell and cmd) get double quotes, the one
+/// quoting both read: `"C:\Program Files\x"`. A plain path is left as it is on both.
 pub fn quote_path(path: &str) -> String {
-    let safe = path
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | ':' | '\\' | '-'));
-    if safe {
+    if cfg!(windows) {
+        quote_path_windows(path)
+    } else {
+        quote_path_posix(path)
+    }
+}
+
+/// Whether a path needs no quoting in any shell.
+fn is_plain_path(path: &str) -> bool {
+    path.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | ':' | '\\' | '-'))
+}
+
+fn quote_path_posix(path: &str) -> String {
+    if is_plain_path(path) {
         path.to_string()
     } else {
         format!("'{}'", path.replace('\'', "'\\''"))
+    }
+}
+
+fn quote_path_windows(path: &str) -> String {
+    if is_plain_path(path) {
+        path.to_string()
+    } else {
+        // A Windows path cannot contain `"`, so wrapping needs no escape.
+        format!("\"{path}\"")
     }
 }
 
@@ -643,6 +666,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn quote_path_leaves_safe_paths() {
         assert_eq!(
             quote_path("/Users/mdn/src/main.rs"),
@@ -651,10 +675,36 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn quote_path_quotes_spaces() {
         assert_eq!(
             quote_path("/Users/mdn/My File.rs"),
             "'/Users/mdn/My File.rs'"
         );
+    }
+
+    #[test]
+    fn posix_quoting_uses_single_quotes_and_escapes_them() {
+        assert_eq!(quote_path_posix("/a/b.rs"), "/a/b.rs");
+        assert_eq!(quote_path_posix("/a/My File.rs"), "'/a/My File.rs'");
+        assert_eq!(quote_path_posix("/a/it's"), "'/a/it'\\''s'");
+    }
+
+    #[test]
+    fn windows_quoting_uses_double_quotes_for_spaces_and_specials() {
+        assert_eq!(quote_path_windows(r"C:\src\main.rs"), r"C:\src\main.rs");
+        assert_eq!(
+            quote_path_windows(r"C:\Program Files\x"),
+            r#""C:\Program Files\x""#
+        );
+        assert_eq!(quote_path_windows(r"C:\a&b\x"), r#""C:\a&b\x""#);
+        assert_eq!(quote_path_windows(r"C:\O'Brien\x"), r#""C:\O'Brien\x""#);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn quote_path_follows_the_platform_on_windows() {
+        assert_eq!(quote_path(r"C:\My Dir\x"), r#""C:\My Dir\x""#);
+        assert_eq!(quote_path(r"C:\src\x"), r"C:\src\x");
     }
 }

@@ -424,6 +424,19 @@ paths = [
   { path = "/private/etc/dotnet", access = "ro" },
 ]
 
+# Defaults, not overrides: a value the run sets itself still wins.
+[env]
+# A reused node outlives the run, and the next build to find it — confined or
+# not — hands it work: no node is left behind, and none left by an unconfined
+# build is joined, since the handshake fails on a different salt.
+MSBUILDDISABLENODEREUSE = "1"
+MSBUILDNODEHANDSHAKESALT = "agent-manager-isolate"
+# The build servers are long-lived for the same reason: the MSBuild server,
+# the Roslyn compiler server and Razor's run in-process instead.
+DOTNET_CLI_USE_MSBUILD_SERVER = "0"
+UseSharedCompilation = "false"
+UseRazorBuildServer = "false"
+
 [[policies]]
 filter = { os = ["windows"] }
 paths = [
@@ -439,6 +452,16 @@ paths = [
   { path = "%LOCALAPPDATA%\\Microsoft\\dotnet", access = "rw" },
   { path = "%LOCALAPPDATA%\\Microsoft\\MSBuild", access = "rw" },
   { path = "%LOCALAPPDATA%\\Microsoft", access = "metadata", match = "literal" },
+  # `dotnet user-secrets`, and ASP.NET Core's dev-certs and data-protection keys.
+  { path = "%APPDATA%\\Microsoft\\UserSecrets", access = "rw" },
+  { path = "%APPDATA%\\Microsoft", access = "metadata", match = "literal" },
+  { path = "%APPDATA%\\ASP.NET", access = "rw" },
+  { path = "%LOCALAPPDATA%\\ASP.NET", access = "rw" },
+  # MSBuild's worker nodes, which the build reaches over \\.\pipe\MSBuild<pid>.
+  # The hook denies a pipe like any other path, and a denied node never
+  # connects: `dotnet build` hangs with every node idle. A prefix, so only
+  # MSBuild's own pipes open.
+  { path = "\\\\.\\pipe\\MSBuild", access = "rw", match = "prefix" },
   # Machine-wide SDK tree and NuGet fallback folders.
   { path = "%PROGRAMFILES%\\dotnet", access = "ro" },
   { path = "%ALLUSERSPROFILE%\\NuGet", access = "ro" },
@@ -732,6 +755,43 @@ pub const ENV_PASS: &[&str] = &[
     "PUB_CACHE",
 ];
 
+/// The variables Windows sets for every session, passed on Windows only.
+///
+/// isol8's Windows allowlist carries the home half — `USERPROFILE`, `APPDATA`,
+/// `LOCALAPPDATA`, `SYSTEMROOT`, `TEMP` — and none of the machine's, and a
+/// process started without them has no way to learn them: they are not in the
+/// registry, the session manager computes them at logon. What breaks is
+/// anything that resolves a machine path through one. A confined `dotnet
+/// restore` dies on `Value cannot be null. (Parameter 'path1')`, NuGet looking
+/// for its machine-wide config under `ProgramData`, and a tool that expands
+/// `%SystemDrive%` itself writes a literal `%SystemDrive%\ProgramData\…` tree
+/// into the working directory.
+///
+/// Names are matched case-insensitively on Windows, so the spelling is the one
+/// `set` prints. Kept apart from [`ENV_PASS`] because elsewhere `OS` or `PUBLIC`
+/// can be anything at all.
+pub const WINDOWS_ENV_PASS: &[&str] = &[
+    "SystemDrive",
+    "windir",
+    "ProgramData",
+    "ALLUSERSPROFILE",
+    "ProgramFiles",
+    "ProgramW6432",
+    "ProgramFiles(x86)",
+    "CommonProgramFiles",
+    "CommonProgramFiles(x86)",
+    "CommonProgramW6432",
+    "PUBLIC",
+    "COMPUTERNAME",
+    "USERDOMAIN",
+    "OS",
+    "PROCESSOR_ARCHITECTURE",
+    "NUMBER_OF_PROCESSORS",
+    // How a bare command name resolves, and which shell `cmd /c` means.
+    "PATHEXT",
+    "ComSpec",
+];
+
 /// Resolve `launch` into the policy it runs under, or `None` when the run is
 /// not isolated.
 ///
@@ -757,7 +817,12 @@ pub fn plan(
     base.add_dirs_rw = read_write_grants(dir, run, options);
     base.add_dirs_ro = read_only_grants(run, options);
     base.set_env = launch.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-    base.env_pass = ENV_PASS.iter().map(|name| (*name).to_string()).collect();
+    let windows_env: &[&str] = if on_windows() { WINDOWS_ENV_PASS } else { &[] };
+    base.env_pass = ENV_PASS
+        .iter()
+        .chain(windows_env)
+        .map(|name| (*name).to_string())
+        .collect();
     match &options.home {
         // isol8 spells "the real home" as neither field set: `ephemeral_home
         // = false` is the absence of a statement, not a statement.
@@ -1763,6 +1828,87 @@ mod tests {
         for rel in DEV_RW_HOME_ROOTS {
             let want = real_home().join(rel).display().to_string();
             assert!(rw.contains(&want), "{want} missing from {rw:?}");
+        }
+    }
+
+    // isol8's Windows allowlist carries the home variables and nothing of the
+    // machine's, and a confined `dotnet restore` without `ProgramData` dies on
+    // `Value cannot be null. (Parameter 'path1')` — NuGet looking for its
+    // machine-wide config. Asserted on the names passed, since the values are
+    // the host's and a test cannot rely on them.
+    #[test]
+    fn the_windows_base_variables_reach_a_confined_run_on_windows_only() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let cfg_dir = TempDir::new().expect("config dir");
+        let run = sandboxed_run(cwd.path(), "");
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
+            .expect("plan")
+            .expect("sandboxed run must produce a policy");
+
+        let passed = &confined.spec.env_pass;
+        for name in [
+            "SystemDrive",
+            "windir",
+            "ProgramData",
+            "ProgramFiles(x86)",
+            "PATHEXT",
+        ] {
+            assert_eq!(
+                passed.contains(&name.to_string()),
+                on_windows(),
+                "{name} must be passed on Windows and only there: {passed:?}"
+            );
+        }
+    }
+
+    // MSBuild's worker nodes talk to the build over named pipes, and isol8's
+    // hook denies a pipe like any unnamed path: the nodes start and never
+    // connect, and `dotnet build` hangs until it times out. The layer grants
+    // MSBuild's own pipes and nothing else, and its environment keeps a confined
+    // build off nodes it did not start — a reused node is unconfined if an
+    // unconfined build left it behind.
+    #[test]
+    fn the_dotnet_layer_keeps_msbuild_on_its_own_nodes() {
+        let state = TempDir::new().expect("state dir");
+        let cwd = TempDir::new().expect("cwd");
+        let cfg_dir = TempDir::new().expect("config dir");
+        let run = sandboxed_run(cwd.path(), "");
+        let options = IsolateOptions::new(state.path().to_path_buf());
+
+        let confined = plan(&Launch::default(), &run, cfg_dir.path(), &options)
+            .expect("plan")
+            .expect("sandboxed run must produce a policy");
+        let resolved = describe(&confined).expect("the dotnet layer must resolve");
+
+        let env = &resolved.profile.env;
+        for (name, value) in [
+            ("MSBUILDDISABLENODEREUSE", "1"),
+            ("DOTNET_CLI_USE_MSBUILD_SERVER", "0"),
+            ("UseSharedCompilation", "false"),
+        ] {
+            assert_eq!(env.get(name).map(String::as_str), Some(value), "{env:?}");
+        }
+        assert!(
+            env.contains_key("MSBUILDNODEHANDSHAKESALT"),
+            "a confined build must not handshake with an unconfined node: {env:?}"
+        );
+
+        let paths = &resolved.profile.paths;
+        let pipe = paths.iter().find(|g| g.path == r"\\.\pipe\MSBuild");
+        let secrets = paths
+            .iter()
+            .find(|g| g.path.ends_with(r"Microsoft\UserSecrets"));
+        if on_windows() {
+            let pipe = pipe.expect("MSBuild's pipes must be granted on Windows");
+            assert_eq!(pipe.access, isol8::Access::Rw);
+            assert_eq!(pipe.r#match, isol8::MatchKind::Prefix);
+            let secrets = secrets.expect("`dotnet user-secrets` writes under roaming AppData");
+            assert_eq!(secrets.access, isol8::Access::Rw);
+        } else {
+            assert!(pipe.is_none() && secrets.is_none(), "{paths:?}");
         }
     }
 

@@ -147,6 +147,10 @@ five echoing replies, `ProjectFileError`, and `ProjectFilesChanged`.
 - **`EditProjectPath` is one message with a `PathOp`** — `Create`, `Move`, `Copy`, `Trash`,
   `Delete` — and the reply echoes the op, because what the interface does next depends on which
   gesture finished. `Trash` and `Delete` are two ops because they are two promises.
+- **`ImportIntoProject` is the one message here with absolute paths** — files from outside every
+  root, dropped or pasted, copied into the folder `into` under free `copy_name` names — and is sent
+  only for a local host. `ProjectPathsImported` answers it whole: `imported[]` and
+  `failed[(source, reason)]`.
 - **`ProjectFilesChanged` is the one unasked message here**, naming paths and never contents.
 
 ### 6. Git — a project's repository
@@ -238,6 +242,10 @@ outranks a profile inside the library's `resolve`.
 `CliShortcut { action }` → `CliShortcutState`. **The request carries no directory**: which
 directory belongs on `PATH` is a fact about the machine, and the host is the half allowed to look,
 so every path travels host → UI. One answer serves `Query`, `Install` and `Remove`.
+
+`ShellIntegration { action }` → `ShellIntegrationState { supported, installed, stale, command?,
+error? }` is the same shape for *Open in Ubiq* in Explorer's context menu — no key and no
+executable in the request, `supported: false` off Windows, the answer read back from the registry.
 
 ### 13. Connector — identities at external services
 

@@ -31,7 +31,7 @@ pub const SETTINGS_APP_INTERFACE: SlotId = SlotId::new("settings/app/interface")
 pub const SETTINGS_APP_AGENTS: SlotId = SlotId::new("settings/app/agents");
 /// Connectors, Hosts, SSH profiles, Drones.
 pub const SETTINGS_APP_CONNECTIVITY: SlotId = SlotId::new("settings/app/connectivity");
-/// Tools, Command line.
+/// Tools, Command line, and Shell integration on Windows.
 pub const SETTINGS_APP_SYSTEM: SlotId = SlotId::new("settings/app/system");
 
 // ── The project dialog's groups, in drawn order ─────────────────────
@@ -60,6 +60,8 @@ pub const SSH: SlotId = SlotId::new("ubiq.settings.ssh");
 pub const DRONES: SlotId = SlotId::new("ubiq.settings.drones");
 pub const TOOLS: SlotId = SlotId::new("ubiq.settings.tools");
 pub const COMMAND_LINE: SlotId = SlotId::new("ubiq.settings.command-line");
+/// Registered on Windows only — the one platform whose context menu Ubiq knows how to join.
+pub const SHELL_INTEGRATION: SlotId = SlotId::new("ubiq.settings.shell-integration");
 
 // ── The project dialog's own sections ───────────────────────────────
 

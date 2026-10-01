@@ -232,7 +232,9 @@ mouse reporting owns clicks, drags and the wheel. When reporting is off, a click
 text (double-click a word, triple-click a line), release copies the selection, and a click with no
 drag on an OSC 8 or `http(s)://` URL opens it. The wheel in the alternate screen becomes arrows; in
 the normal screen it moves the pane through scrollback. An OS file drop always pastes quoted
-absolute paths as bracketed paste, including while mouse reporting is on.
+absolute paths as bracketed paste, including while mouse reporting is on; the vendored
+terminal's path quoting uses single quotes on Unix and double quotes on Windows
+(`"C:\Program Files\x"`), and leaves a plain path bare.
 
 **A defocus chord releases the keyboard without sending `Focus`.** The pane keeps drawing and its
 tab stays; `blur_panes()` clears pending focus and the emulator's focus handle is blurred. Clicking

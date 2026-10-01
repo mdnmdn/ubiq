@@ -1941,6 +1941,7 @@ impl AppState {
                 gpui::px(crate::ui::document::PLAN_OVERDRAW),
             ),
             explorer_filter_gen: 0,
+            explorer_clipboard: Vec::new(),
             md_reflow: 0,
             md_reflow_gen: 0,
             metrics_gen: 0,

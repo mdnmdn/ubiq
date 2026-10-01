@@ -78,6 +78,20 @@ pub struct CliShortcut {
     pub error: Option<String>,
 }
 
+/// What the host last said about the *Open in Ubiq* entries in the file manager's context menu.
+///
+/// On [`CliShortcut`]'s footing: every field is the host's answer, the interface draws what it was
+/// told and sends one of three actions back, and `None` on the state means nothing has answered
+/// yet.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShellIntegration {
+    pub supported: bool,
+    pub installed: bool,
+    pub stale: bool,
+    pub command: Option<String>,
+    pub error: Option<String>,
+}
+
 /// What the host last said about assistance: whether it can run, and what is running.
 ///
 /// Every field is the host's answer, `detail` included — the interface renders a reason and a
@@ -739,6 +753,9 @@ pub struct SettingsState {
     pub connection_status: HashMap<ConnectionId, LoginStatus>,
     /// The `ubiq` command's shortcut, as the host last reported it. Absent until it answers.
     pub cli: Option<CliShortcut>,
+    /// The file manager's *Open in Ubiq* entries, as the host last reported them. Absent until it
+    /// answers.
+    pub shell: Option<ShellIntegration>,
     /// What the host last said about assistance. Absent until it answers — see [`AssistInfo`].
     pub assist: Option<AssistInfo>,
     /// The configured API providers, as the host last said, each with whether a key is filed
@@ -1061,6 +1078,7 @@ impl Default for SettingsState {
             statuses: HashMap::new(),
             connection_status: HashMap::new(),
             cli: None,
+            shell: None,
             assist: None,
             ai_providers: Vec::new(),
             ai_models: HashMap::new(),

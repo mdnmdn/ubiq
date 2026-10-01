@@ -22,7 +22,7 @@ use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
-    HostPathError, PathOp, RelatedFile,
+    HostPathError, ImportMode, PathOp, RelatedFile,
 };
 use crate::git::{
     self, GitChangedPath, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview,
@@ -1283,6 +1283,35 @@ pub enum Message {
         error: Option<String>,
     },
 
+    // ── The shell integration ───────────────────────────────────────
+    /// Ask after, write or delete the *Open in Ubiq* entries in the desktop's file-manager context
+    /// menu — on Windows, Explorer's right-click menu for files, folders and folder backgrounds,
+    /// for the current user only. The host owns every key and every path in this exchange; the
+    /// interface only says which of the three things to do. Answered with
+    /// [`Message::ShellIntegrationState`].
+    ShellIntegration {
+        action: ShellIntegrationAction,
+    },
+
+    // ── The shell integration: host → UI ────────────────────────────
+    /// Whether the entries are there and which build they launch. Sent in answer to every
+    /// [`Message::ShellIntegration`], whichever action it carried, so one path in the interface
+    /// draws the section.
+    ShellIntegrationState {
+        /// This host's platform has a context menu Ubiq knows how to join. When false, nothing else
+        /// here means anything and no action changes anything.
+        supported: bool,
+        /// The entries are there, written by Ubiq.
+        installed: bool,
+        /// They are there, but they launch a different build than the one running.
+        stale: bool,
+        /// The command the entries run, or would run once installed. Absent when unsupported, or
+        /// when the running executable cannot be found.
+        command: Option<String>,
+        /// Why the last write or delete did not happen. A sentence, never a stack trace.
+        error: Option<String>,
+    },
+
     // ── The host browse family: UI → host ───────────────────────────
     /// List one absolute directory on the host's own filesystem, with no project in scope yet.
     ///
@@ -1434,6 +1463,24 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
     },
+    /// Bring files and folders from outside the project into one of its folders — a drop from the
+    /// platform's file manager, or a paste of files it copied.
+    ///
+    /// **The one message in this family that names absolute host paths**, because what is being
+    /// brought in is by definition outside every root: `sources` are paths on the machine the
+    /// host runs on, as the platform handed them to the interface. Only a window whose host is
+    /// local sends one — a remote's disk is not the disk the user dropped from.
+    ///
+    /// `into` is a project-relative folder, empty for the root, and every source lands directly
+    /// inside it under its own leaf name — or the first free `name copy`, `name copy 2` when that
+    /// is taken, on [`crate::files::copy_name`]'s rule. Never an overwrite. Each source succeeds
+    /// or fails on its own, so one locked file does not cost the rest of the drop.
+    ImportIntoProject {
+        project_id: ProjectId,
+        into: String,
+        sources: Vec<String>,
+        mode: ImportMode,
+    },
 
     // ── File family: host → UI ──────────────────────────────────────
     /// `rel_path` first, then every directory listed below it. Both paths are echoed, because an
@@ -1484,6 +1531,21 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
         related: Vec<RelatedFile>,
+    },
+    /// The answer to [`Message::ImportIntoProject`], whole: `into` and `mode` echoed, every
+    /// source that landed as the project-relative path it landed at (in the order asked, so the
+    /// first is the one to select), and every one that did not as `(source, reason)`.
+    ///
+    /// One answer rather than a [`Message::ProjectFileError`] per failure: a failed source is an
+    /// absolute path outside the project and has no row to be marked on. A refusal of the whole
+    /// request — `into` outside the root, no such project — is still a `ProjectFileError` on
+    /// `into`, on that variant's own reasoning.
+    ProjectPathsImported {
+        project_id: ProjectId,
+        into: String,
+        mode: ImportMode,
+        imported: Vec<String>,
+        failed: Vec<(String, String)>,
     },
     /// Something went wrong for one path in one project.
     ///
@@ -3117,6 +3179,8 @@ impl Message {
             | Message::DiffProjectFile { project_id, .. }
             | Message::EditProjectPath { project_id, .. }
             | Message::RelatedProjectFiles { project_id, .. }
+            | Message::ImportIntoProject { project_id, .. }
+            | Message::ProjectPathsImported { project_id, .. }
             | Message::ProjectTreeListing { project_id, .. }
             | Message::ProjectFileContents { project_id, .. }
             | Message::ProjectFileWritten { project_id, .. }
@@ -3611,6 +3675,20 @@ pub enum CliShortcutAction {
     /// Write the shortcut, replacing one this application wrote before.
     Install,
     /// Delete it. A file this application did not write is left alone.
+    Remove,
+}
+
+/// The three things the interface can ask about the *Open in Ubiq* context-menu entries.
+///
+/// `Install` names no key and no executable: both are facts about the host's machine and the build
+/// running on it, and the host is the half that may look at them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShellIntegrationAction {
+    /// Look, change nothing.
+    Query,
+    /// Write the entries, replacing ones this application wrote before.
+    Install,
+    /// Delete them. An entry this application did not write is left alone.
     Remove,
 }
 

@@ -970,9 +970,11 @@ rather than mysterious.
 **Cost:** the script is generated text on the user's `PATH` rather than a link the filesystem keeps
 correct, so a moved application leaves a shortcut pointing at where it was; that is the `stale` case
 the settings section draws and the *Update* button rewrites. And off a macOS bundle there is no
-`open -a` to use: the script execs the binary and a second application starts with a catalogue of
-its own. A single-instance handoff is the upgrade path and is unbuilt, and the backlog
-carries it.
+`open -a` to use: the script starts the binary itself, and what keeps that from becoming a second
+application is the single-instance handoff in `crates/ubiq-app/src/handoff.rs` — a socket beside
+the config root on Unix, and on Windows a loopback port named in a file there, guarded by a random
+token and an acknowledgement. The handoff is per executable, so it only reaches a running window
+launched from the same build the script names.
 
 ### D57 — One message with an op enum carries every edit to a path, and Trash is a separate op from Delete
 
@@ -4929,6 +4931,39 @@ nothing watches the file. Two projects' `just build` share one id, so the id alo
 which project a run belongs to and the host checks `single_instance` per project. `StopPane` is a
 hangup, not a graceful terminate, until `Pty` exposes a pid. A hung runner CLI costs two seconds of
 staleness and no more, and a CLI that is not installed is an empty list with no message saying so.
+
+### D198 — *Open in Ubiq* is three per-user registry verbs, each marked with the executable it launches, and the machine is the record
+
+On Windows the Shell integration section writes three keys under
+`HKEY_CURRENT_USER\Software\Classes` — `*\shell\Ubiq`, `Directory\shell\Ubiq` and
+`Directory\Background\shell\Ubiq` — each with the label as its default value, the running
+executable as its `Icon`, a `UbiqTarget` value naming that executable, and a `command` subkey
+running `"<exe>" "%1"` (`"%V"` for a folder's background). The host writes them,
+`crates/ubiq-host/src/shell_integration.rs`; the interface sends `Query`, `Install` or `Remove` and
+draws the answer. Per-user keys need no elevation and touch no other account; the machine-wide
+`HKEY_LOCAL_MACHINE` or `HKEY_CLASSES_ROOT` alternative would turn a button into a UAC prompt. A
+shell extension DLL, or the Windows 11 `IExplorerCommand` top-level menu, was rejected for the same
+reason the `ubiq` command is a script (`D56`): a COM server or a signed package is a second build
+artefact for one menu row.
+
+**The marker does both of the section's jobs, and nothing is stored.** Its presence proves Ubiq
+wrote a key, so *Remove* deletes only marked keys and never a `Ubiq` verb of the user's own; its
+value, compared against the running executable without case, is how entries left by a moved or
+replaced build read as `stale`. A missing entry among the three reads as stale too, because
+*Update* is what restores it. There is no settings flag saying the integration is on: every answer
+reads the registry back, so a key removed by hand or written by another build is drawn as it is,
+and there is no second copy to disagree with the first. The path reaches the window through the
+single-instance handoff in `crates/ubiq-app/src/handoff.rs`, which on Windows is a loopback port
+plus a token file beside the config root.
+
+**Cost.** The entries name an executable path, so moving the application leaves them launching
+nothing until *Update* is pressed — the `stale` case drawn rather than repaired silently. On Windows
+11 the verbs sit under *Show more options*, the classic menu, because the top-level menu admits only
+packaged `IExplorerCommand` handlers. The binary is console-subsystem (`detach_console` in
+`crates/ubiq-app/src/lib.rs`), so a pick from Explorer flashes a console once before the handoff
+process exits. A multi-selection starts one process per item, and when no application is running
+those processes race for the handoff, so two can each become an application. The section is
+registered only in a window running on Windows; another platform's file manager is not joined.
 
 ## Related docs
 
