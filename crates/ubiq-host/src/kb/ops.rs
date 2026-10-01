@@ -152,31 +152,51 @@ pub fn absolute(base: &Path, _source: &KbSource, rel_path: &str) -> Result<PathB
 /// distinction every platform's own tool draws differently, so each branch says it its own way
 /// rather than one command line trying to mean all three.
 pub fn reveal(path: &Path) -> std::io::Result<()> {
-    if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
-            .arg("-R")
-            .arg(path)
-            .spawn()
-            .map(|_| ())
-    } else if cfg!(target_os = "windows") {
-        let mut arg = std::ffi::OsString::from("/select,");
-        arg.push(path.as_os_str());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // `raw_arg`: Explorer parses its own command line, and `/select,"<file>"` is one token
+        // whose quoting `Command::arg` would escape into something else.
         std::process::Command::new("explorer")
-            .arg(arg)
+            .raw_arg(explorer_args(&path.to_string_lossy(), !path.is_dir()))
             .spawn()
             .map(|_| ())
-    } else {
-        // `xdg-open` has no notion of "select this one inside its folder" the way Finder and
-        // Explorer do, so the containing directory is the most it can promise.
-        let dir = if path.is_dir() {
-            path
+    }
+    #[cfg(not(windows))]
+    {
+        if cfg!(target_os = "macos") {
+            std::process::Command::new("open")
+                .arg("-R")
+                .arg(path)
+                .spawn()
+                .map(|_| ())
         } else {
-            path.parent().unwrap_or(path)
-        };
-        std::process::Command::new("xdg-open")
-            .arg(dir)
-            .spawn()
-            .map(|_| ())
+            // `xdg-open` has no notion of "select this one inside its folder" the way Finder and
+            // Explorer do, so the containing directory is the most it can promise.
+            let dir = if path.is_dir() {
+                path
+            } else {
+                path.parent().unwrap_or(path)
+            };
+            std::process::Command::new("xdg-open")
+                .arg(dir)
+                .spawn()
+                .map(|_| ())
+        }
+    }
+}
+
+/// The raw command-line tail handed to `explorer.exe`: a folder is quoted and opens itself, a
+/// file is `/select,"<file>"` and is shown selected in its parent. The path is the canonical one
+/// (`\\?\C:\…`), which Explorer cannot parse, so it goes through [`crate::host_path::shell_path`]
+/// first. Whether the path is a file is the caller's to say, so this stays pure.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn explorer_args(path: &str, is_file: bool) -> String {
+    let native = crate::host_path::shell_path(path);
+    if is_file {
+        format!("/select,\"{native}\"")
+    } else {
+        format!("\"{native}\"")
     }
 }
 
@@ -206,6 +226,26 @@ mod tests {
             filter: String::new(),
             access,
         }
+    }
+
+    #[test]
+    fn a_folder_opens_itself_from_a_canonical_path() {
+        assert_eq!(
+            explorer_args(r"\\?\C:\my docs\kb", false),
+            r#""C:\my docs\kb""#
+        );
+    }
+
+    #[test]
+    fn a_file_is_selected_as_one_quoted_token() {
+        assert_eq!(
+            explorer_args(r"\\?\C:\my docs\kb\a.md", true),
+            r#"/select,"C:\my docs\kb\a.md""#
+        );
+        assert_eq!(
+            explorer_args("C:/kb/sub/a.md", true),
+            r#"/select,"C:\kb\sub\a.md""#
+        );
     }
 
     #[test]

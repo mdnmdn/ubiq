@@ -17,6 +17,7 @@ impl ExplorerState {
             menu: None,
             menu_epoch: 0,
             copied: None,
+            cut: false,
             drop_onto: None,
             cache_asked: HashSet::new(),
             filter_hits: None,

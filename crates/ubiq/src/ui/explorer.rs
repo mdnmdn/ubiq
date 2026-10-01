@@ -6,7 +6,7 @@
 //! right-click menu. The picker ticks and confirms; this panel opens and decorates.
 
 use gpui::{
-    AnyElement, App, AppContext as _, ClickEvent, Context, DragMoveEvent, Focusable,
+    AnyElement, App, AppContext as _, ClickEvent, Context, DragMoveEvent, ExternalPaths, Focusable,
     InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
     Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point,
     prelude::FluentBuilder, px,
@@ -61,8 +61,8 @@ fn icon_colour(status: Option<GitStatus>, readable: bool) -> Rgba {
 /// The row under the pointer during a drag. It carries the path alone: where a drop would put it
 /// is the folder's answer, not the drag's.
 ///
-/// Its own payload type, so the external-file drop the centre panel already takes
-/// (`on_drop::<ExternalPaths>`) is untouched by any of this.
+/// Its own payload type, so a row dragged inside the tree (a move) and files dragged in from the
+/// platform's file manager (`ExternalPaths`, an import) never answer each other's drop.
 #[derive(Clone)]
 struct DraggedPath(String);
 
@@ -101,9 +101,20 @@ gpui::actions!(
         ExplorerDelete,
         ExplorerDismiss,
         ExplorerFocusTree,
-        ExplorerFocusFilter
+        ExplorerFocusFilter,
+        ExplorerCopy,
+        ExplorerCut,
+        ExplorerPaste
     ]
 );
+
+/// Copy, cut and paste on the tree: the platform's own chord for each, `⌘` on macOS and `Ctrl`
+/// elsewhere, as its file manager has them.
+const CLIPBOARD_KEYS: [&str; 3] = if cfg!(target_os = "macos") {
+    ["cmd-c", "cmd-x", "cmd-v"]
+} else {
+    ["ctrl-c", "ctrl-x", "ctrl-v"]
+};
 
 /// The key that removes the row the keyboard is on.
 ///
@@ -158,6 +169,14 @@ pub fn key_bindings() -> Vec<KeyBinding> {
     // query is corrected, and a tree that removed a file because the field had run out of letters
     // to delete would be indefensible.
     binds.extend(DELETE_KEYS.map(|key| panel(key, ExplorerDelete)));
+    // The clipboard chords are the panel's alone too, on the same reasoning: in the field they
+    // copy, cut and paste its text, which the component library binds deeper and keeps. On the
+    // tree they are deeper than the window's own paste (a picture becoming a tab), which gets the
+    // key back whenever the tree has nothing to paste.
+    let [copy, cut, paste] = CLIPBOARD_KEYS;
+    binds.push(panel(copy, ExplorerCopy));
+    binds.push(panel(cut, ExplorerCut));
+    binds.push(panel(paste, ExplorerPaste));
     binds
 }
 
@@ -195,7 +214,9 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     let menu = explorer.menu.clone();
     let menu_open = app.workbench.open_menu == Some(MenuId::Explorer);
     // Which folder a drop would land in, which is the only answer the user gets before letting go.
-    let drop_onto = explorer.drop_onto.clone();
+    // Only while something is being dragged: a drag that ended anywhere but on the tree — or left
+    // the window — never told it so, and must not leave a row lit.
+    let drop_onto = explorer.drop_onto.clone().filter(|_| cx.has_active_drag());
 
     // Whether the tree itself holds the keyboard, which is what deepens the cursor bar.
     let on_tree = app.explorer_focus.is_focused(window);
@@ -254,6 +275,21 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
         }))
         .on_action(cx.listener(|this, _: &ExplorerFocusFilter, window, cx| {
             this.focus_explorer_filter(window, cx)
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerCopy, _, cx| {
+            if !this.copy_explorer_cursor(false, cx) {
+                cx.propagate();
+            }
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerCut, _, cx| {
+            if !this.copy_explorer_cursor(true, cx) {
+                cx.propagate();
+            }
+        }))
+        .on_action(cx.listener(|this, _: &ExplorerPaste, _, cx| {
+            if !this.paste_explorer_cursor(cx) {
+                cx.propagate();
+            }
         }))
         .border_r_1()
         .border_color(theme::border())
@@ -350,6 +386,19 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
                 .on_drop(cx.listener(|this, dragged: &DraggedPath, _, cx| {
                     this.drop_path_on(dragged.0.clone(), String::new(), cx);
                 }))
+                // Files from the platform's file manager are copied in: onto empty space they
+                // land at the top level, and a row claims them before this sees them. Leaving the
+                // panel puts the light out, since nothing else in the window would.
+                .on_drag_move(
+                    cx.listener(|this, event: &DragMoveEvent<ExternalPaths>, _, cx| {
+                        let over = event.bounds.contains(&event.event.position);
+                        this.drag_path_over(over.then(String::new), cx);
+                    }),
+                )
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    cx.stop_propagation();
+                    this.drop_external_paths_on(paths.paths(), String::new(), cx);
+                }))
                 .children(filtered_out.then(|| empty_panel("Nothing matches")))
                 .children(rows),
         );
@@ -426,6 +475,30 @@ fn line(
             .on_drop(cx.listener(move |this, dragged: &DraggedPath, _, cx| {
                 cx.stop_propagation();
                 this.drop_path_on(dragged.0.clone(), dropped.clone(), cx);
+            }));
+    }
+
+    // Files from the platform's file manager land in the folder the row is — or, for a file row,
+    // the folder holding it, which is the row that lights. The project's own row is a folder and
+    // takes them at the top level.
+    if readable {
+        let into = match row.is_dir {
+            true => row.path.clone(),
+            false => parent_of(&row.path),
+        };
+        let lit_into = into.clone();
+        line = line
+            .on_drag_move(
+                cx.listener(move |this, event: &DragMoveEvent<ExternalPaths>, _, cx| {
+                    if event.bounds.contains(&event.event.position) {
+                        cx.stop_propagation();
+                        this.drag_path_over(Some(lit_into.clone()), cx);
+                    }
+                }),
+            )
+            .on_drop(cx.listener(move |this, paths: &ExternalPaths, _, cx| {
+                cx.stop_propagation();
+                this.drop_external_paths_on(paths.paths(), into.clone(), cx);
             }));
     }
 
@@ -569,6 +642,13 @@ fn line(
         this.double_click_explorer_row(double_path.clone(), cx);
     }))
     .into_any_element()
+}
+
+/// The folder holding a project-relative path. Empty is the project's root.
+fn parent_of(path: &str) -> String {
+    path.rsplit_once('/')
+        .map(|(parent, _)| parent.to_string())
+        .unwrap_or_default()
 }
 
 /// The follow button: a small square that says whether the tree tracks the active editor.

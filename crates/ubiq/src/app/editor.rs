@@ -936,10 +936,7 @@ impl AppState {
             // A guest tab's key is already an absolute path, and `Path::join` with an absolute
             // argument replaces the base rather than concatenating with it — so this resolves a
             // guest file correctly without a special case here.
-            let full = std::path::Path::new(&snap.record.path)
-                .join(&rel)
-                .to_string_lossy()
-                .to_string();
+            let full = absolute_path(&snap.record.path, &rel);
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
         }
     }
@@ -965,10 +962,7 @@ impl AppState {
         if let Some(snap) = self.project_snapshot(cx) {
             // See `copy_full_path_for_tab`: `join` with an absolute `rel` replaces the base, so a
             // guest file's absolute key resolves to itself here too.
-            let full = std::path::Path::new(&snap.record.path)
-                .join(&rel)
-                .to_string_lossy()
-                .to_string();
+            let full = absolute_path(&snap.record.path, &rel);
             let _ = open_in_system(&full);
         }
     }

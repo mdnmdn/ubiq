@@ -718,6 +718,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
             A::NewDrawio,
             A::Separator,
             A::Copy,
+            A::Cut,
             A::Paste,
             A::Duplicate,
             A::Separator,
@@ -750,6 +751,7 @@ fn a_right_click_offers_every_gesture_in_groups_and_disables_paste_with_no_clipb
             A::NewDrawio,
             A::Separator,
             A::Copy,
+            A::Cut,
             A::Paste,
             A::Duplicate,
             A::Separator,
@@ -837,6 +839,30 @@ fn the_menu_remembers_the_clipboard_it_opened_with() {
         after
             .iter()
             .any(|e| e.action == ExplorerAction::Paste && e.enabled)
+    );
+}
+
+/// A cut is remembered the way a copy is, and lights Paste the same way: what differs is what the
+/// Paste does with it, which is the window's to decide.
+#[test]
+fn a_cut_lights_paste_like_a_copy() {
+    let mut tree = listed();
+    assert!(!tree.cut, "nothing is cut until something is");
+
+    tree.copied = Some("justfile".to_string());
+    tree.cut = true;
+    tree.open_menu(Some("src"), false, 0.0, 0.0);
+    let entries = tree.menu.as_ref().expect("a menu is up").entries();
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.action == ExplorerAction::Paste && e.enabled)
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.action == ExplorerAction::Cut && e.enabled),
+        "Cut sits beside Copy on every readable row"
     );
 }
 

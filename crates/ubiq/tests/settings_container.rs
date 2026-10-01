@@ -11,34 +11,36 @@ use ubiq::ui::sink::project::Form;
 
 #[test]
 fn the_overlay_draws_the_same_rows_in_the_same_order() {
-    // M4 appends the kitchen sink's own demo section (`X11`) after the base's original fifteen —
+    // M4 appends the kitchen sink's own demo section (`X11`) after the base's own seventeen —
     // the container's first genuine contribution, not a conversion, registered through
     // `ext::settings::register` with nothing here touched to add it. Skills and MCP servers
-    // follow Agent definitions: the catalog an agent definition ticks from.
+    // follow Agent definitions: the catalog an agent definition ticks from. On Windows the base
+    // has eighteen: Shell integration closes the System group, ahead of the demo.
     let rows: Vec<&str> = app_sections().iter().map(|spec| spec.label).collect();
-    assert_eq!(
-        rows,
-        [
-            "Appearance",
-            "Size",
-            "File explorer",
-            "Editor",
-            "Search",
-            "Harnesses",
-            "Agent definitions",
-            "Skills",
-            "MCP servers",
-            "Isolation",
-            "Assistance",
-            "Connectors",
-            "Hosts",
-            "SSH profiles",
-            "Drones",
-            "Tools",
-            "Command line",
-            "Extensions demo",
-        ]
-    );
+    let mut expected = vec![
+        "Appearance",
+        "Size",
+        "File explorer",
+        "Editor",
+        "Search",
+        "Harnesses",
+        "Agent definitions",
+        "Skills",
+        "MCP servers",
+        "Isolation",
+        "Assistance",
+        "Connectors",
+        "Hosts",
+        "SSH profiles",
+        "Drones",
+        "Tools",
+        "Command line",
+    ];
+    if cfg!(windows) {
+        expected.push("Shell integration");
+    }
+    expected.push("Extensions demo");
+    assert_eq!(rows, expected);
 }
 
 #[test]
@@ -145,7 +147,8 @@ fn the_live_dialog_offers_general_always_and_the_record_backed_only_with_a_recor
     }
 }
 
-/// The sections that ask the host something on arrival, and only those. The chain of
+/// The sections that ask the host something on arrival, and only those — seven, and eight on
+/// Windows, where Shell integration asks the same way Command line does. The chain of
 /// `if nav == …` this replaced is what a contributed section could not have joined.
 #[test]
 fn seven_overlay_sections_ask_something_on_arrival() {
@@ -154,18 +157,19 @@ fn seven_overlay_sections_ask_something_on_arrival() {
         .filter(|spec| spec.on_show.is_some())
         .map(|spec| spec.id.0)
         .collect();
-    assert_eq!(
-        asking,
-        [
-            ids::HARNESSES.0,
-            ids::SKILLS.0,
-            ids::MCP_SERVERS.0,
-            ids::ASSIST.0,
-            ids::CONNECTORS.0,
-            ids::TOOLS.0,
-            ids::COMMAND_LINE.0,
-        ]
-    );
+    let mut expected = vec![
+        ids::HARNESSES.0,
+        ids::SKILLS.0,
+        ids::MCP_SERVERS.0,
+        ids::ASSIST.0,
+        ids::CONNECTORS.0,
+        ids::TOOLS.0,
+        ids::COMMAND_LINE.0,
+    ];
+    if cfg!(windows) {
+        expected.push(ids::SHELL_INTEGRATION.0);
+    }
+    assert_eq!(asking, expected);
 }
 
 /// The nav prints a count beside exactly four rows, all in the project dialog.

@@ -34,7 +34,8 @@ never blocked by a slow window".
 | `MAX_DEPTH` | `3` | How deep one request may walk |
 | `MAX_READ_BYTES` | `2 * 1024 * 1024` | A read, unless the caller asks for less |
 | `SNIFF_BYTES` | `8 * 1024` | How far in a NUL is looked for |
-| `MAX_COPY_ENTRIES` | `20_000` | A recursive copy — the one op whose cost is not bounded by the path it names |
+| `MAX_COPY_ENTRIES` | `20_000` | A recursive copy — the one op whose cost is not bounded by the path it names; one budget for a whole `import` |
+| `MAX_COPY_NAMES` | `1_000` | How many `copy_name` candidates an import tries for one source before `Conflict` |
 
 `from_io` is the one mapping: `NotFound` → `Missing`, `PermissionDenied` → `Denied`, everything
 else → `Failed`.
@@ -231,11 +232,13 @@ Owner: `_docs/tech/transport-contract.md`. Types: `crates/ubiq-proto/src/files.r
 | `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?` |
 | `DiffProjectFile` | UI → host | `project_id`, `rel_path`, `base` |
 | `EditProjectPath` | UI → host | `project_id`, `rel_path`, `to?`, `op` |
+| `ImportIntoProject` | UI → host | `project_id`, `into`, `sources[]` (absolute host paths), `mode` |
 | `ProjectTreeListing` | host → UI | `project_id`, `rel_path`, `listings[]` |
 | `ProjectFileContents` | host → UI | `project_id`, `rel_path`, `contents` |
 | `ProjectFileWritten` | host → UI | `project_id`, `rel_path`, `version` |
 | `ProjectFileDiffed` | host → UI | `project_id`, `rel_path`, `diff` |
 | `ProjectPathEdited` | host → UI | `project_id`, `rel_path`, `to?`, `op` |
+| `ProjectPathsImported` | host → UI | `project_id`, `into`, `mode`, `imported[]`, `failed[(source, reason)]` |
 | `ProjectFileError` | host → UI | `project_id`, `rel_path`, `error` |
 | `ProjectFilesChanged` | host → UI | `project_id`, `changed[]`, `truncated`, `repository` |
 

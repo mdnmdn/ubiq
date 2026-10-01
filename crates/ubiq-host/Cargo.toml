@@ -151,8 +151,8 @@ listener = [
     "dep:ureq",
     "dep:rand",
 ]
-# Talking to the desktop directly: `notifications`, and deleting to its trash.
-desktop = ["dep:notify-rust", "dep:trash"]
+# Talking to the desktop directly: `notifications`, deleting to its trash, and `shell_integration`.
+desktop = ["dep:notify-rust", "dep:trash", "dep:winreg"]
 # Everything above, together — what the coordinator needs, and what `default` turns on. Not a
 # lean embedder's feature; it exists so `coordinator` has one name to gate on instead of five.
 full = ["git", "index", "harness", "listener", "desktop"]
@@ -257,3 +257,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # macOS 26 SDK at build time, and why it sits behind a feature. It draws nothing; `just host`
 # stays green.
 foundation-models = { version = "0.11", features = ["macos_26_0"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# The per-user registry keys `shell_integration` writes for Explorer's *Open in Ubiq* entries. Already
+# in the lockfile through `embed-resource`, so this pulls nothing new. Named by `desktop` on every
+# platform and resolving to nothing off Windows, on `foundation-models`' pattern above. Draws
+# nothing; `just host` stays green.
+winreg = { version = "0.55", optional = true }

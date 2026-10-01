@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-09-27
+updated: 2026-10-01
 verified: 2026-09-27
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
@@ -262,7 +262,7 @@ never on `crates/ubiq`, and [`../features/drone.md`](../features/drone.md) is wh
 | `index` | `index/`, and the `Job.index` field in `search/` and `watch/` | `tantivy` |
 | `harness` | `agent`, `conversation`, `conversation_record`, `gc`, `quota`, `mcp`, `assist`, `cli_shortcut`, `work`, `store/usage.rs`, `plan::service` (`Plans`, `Handle`, `Target`, `Saver` — checks a task's level through `work`) | `agent-manager`, `rusqlite` |
 | `listener` | `remote`, `connectors`, `web_assets` | `rustls` and its certificate crates, `tiny_http`, `ureq`, `rand` |
-| `desktop` | `notifications`, and deleting to the platform's trash | `notify-rust`, `trash` |
+| `desktop` | `notifications`, `shell_integration` (beside `cli_shortcut`: *Open in Ubiq* on Explorer's right-click menu, through per-user registry keys), and deleting to the platform's trash | `notify-rust`, `trash`, `winreg` (Windows only) |
 
 **`harness` and `listener` are not independently buildable, whatever the table above suggests**
 (T-235). Each gate is *written* as if its feature stood alone, but the lib does not compile with

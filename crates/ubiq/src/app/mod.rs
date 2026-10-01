@@ -1340,6 +1340,10 @@ pub struct AppState {
     /// Incremented on every filter keystroke so a debounce that lost the race does not start a
     /// walk for a query the user has already left.
     explorer_filter_gen: u64,
+    /// The absolute paths the explorer's last Copy or Cut put on the platform's clipboard, so a
+    /// Paste can tell the board it filled itself apart from files another application copied.
+    /// Only those others are imported; the window's own are pasted from the explorer's memory.
+    explorer_clipboard: Vec<PathBuf>,
     /// Bumped once the point size has settled, and part of every Markdown preview's element id.
     /// The text view caches the height it measured each block at and only reconsiders when its
     /// width changes, so a zoom reflows nothing until the preview is keyed anew.
@@ -1405,7 +1409,7 @@ mod editor;
 mod explorer;
 mod feedback;
 pub use catalog::CatalogInputs;
-pub use explorer::MIN_QUERY;
+pub use explorer::{MIN_QUERY, relative_to_root};
 pub use projects::Holds;
 pub use size::size_name_valid;
 mod git;
@@ -1931,30 +1935,113 @@ fn index_of_key(editor: &EditorPaneState, key: &str) -> Option<usize> {
     editor.open.iter().position(|file| file.key() == key)
 }
 
-/// Reveal a resolved absolute path in the system's file manager. The path is a file or folder;
-/// a file is revealed by opening its parent directory.
+/// Reveal a resolved absolute path in the system's file manager. The path is a file or folder.
+///
+/// On Windows a folder opens as itself and a file is revealed selected inside its parent; on
+/// macOS and Linux the parent directory of a file is what is shown.
 fn open_in_system(path: &str) -> std::io::Result<()> {
-    let target = std::path::Path::new(path);
-    let dir = if target.is_dir() {
-        target.to_path_buf()
-    } else {
-        target
-            .parent()
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| target.to_path_buf())
-    };
-    let (cmd, arg) = if cfg!(target_os = "macos") {
-        ("open", "-R")
-    } else if cfg!(target_os = "windows") {
-        ("explorer", "/select,")
-    } else {
-        ("xdg-open", "")
-    };
-    let mut command = std::process::Command::new(cmd);
-    if !arg.is_empty() {
-        command.arg(arg);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        let is_file = !std::path::Path::new(&windows_native_path(path)).is_dir();
+        // `raw_arg`: Explorer parses its own command line, and `/select,"<file>"` is one token
+        // whose quoting `Command::arg` would escape into something else.
+        std::process::Command::new("explorer")
+            .raw_arg(windows_explorer_args(path, is_file))
+            .spawn()
+            .map(|_| ())
     }
-    command.arg(dir).spawn().map(|_| ())
+    #[cfg(not(windows))]
+    {
+        let target = std::path::Path::new(path);
+        let dir = if target.is_dir() {
+            target.to_path_buf()
+        } else {
+            target
+                .parent()
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| target.to_path_buf())
+        };
+        let (cmd, arg) = if cfg!(target_os = "macos") {
+            ("open", "-R")
+        } else {
+            ("xdg-open", "")
+        };
+        let mut command = std::process::Command::new(cmd);
+        if !arg.is_empty() {
+            command.arg(arg);
+        }
+        command.arg(dir).spawn().map(|_| ())
+    }
+}
+
+/// A path without Windows' verbatim prefix: `\\?\C:\x` becomes `C:\x` and `\\?\UNC\srv\share`
+/// becomes `\\srv\share`. Anything else comes back unchanged.
+fn strip_verbatim(path: &str) -> std::borrow::Cow<'_, str> {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        std::borrow::Cow::Owned(format!(r"\\{rest}"))
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        std::borrow::Cow::Borrowed(rest)
+    } else {
+        std::borrow::Cow::Borrowed(path)
+    }
+}
+
+/// The spelling Windows' shell accepts for a path: no verbatim prefix, backslashes only, and no
+/// trailing backslash except on a drive root (`C:\`).
+///
+/// Project-relative paths are `/`-separated, so a root joined with one is `D:\ubiq\crates/ubiq`,
+/// which Explorer cannot parse and answers by opening the Desktop.
+fn windows_native_path(path: &str) -> String {
+    let mut native = strip_verbatim(path).replace('/', "\\");
+    while native.len() > 1 && native.ends_with('\\') && !is_drive_root(&native) {
+        native.pop();
+    }
+    native
+}
+
+/// Whether a path is spelled the Windows way: a drive letter (`C:`) or a UNC / verbatim prefix
+/// (`\\`).
+fn is_windows_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    let drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    path.starts_with(r"\\") || drive
+}
+
+/// Whether a backslash-separated path is exactly `X:\`.
+fn is_drive_root(native: &str) -> bool {
+    let bytes = native.as_bytes();
+    bytes.len() == 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\'
+}
+
+/// The raw command-line tail handed to `explorer.exe`: a folder is quoted and opens itself, a
+/// file is `/select,"<file>"` and is shown selected in its parent. Whether the path is a file is
+/// the caller's to say, so this stays pure.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_explorer_args(path: &str, is_file: bool) -> String {
+    let native = windows_native_path(path);
+    if is_file {
+        format!("/select,\"{native}\"")
+    } else {
+        format!("\"{native}\"")
+    }
+}
+
+/// The absolute path of a project-relative `rel` under `root`, in the platform's own spelling.
+///
+/// An absolute `rel` (a guest file's key) replaces the root, as `Path::join` does. On Windows the
+/// result is backslash-separated with no verbatim prefix, which is what a clipboard path shows;
+/// a root that is not a Windows path (a project on a Unix host) keeps its own separators.
+fn absolute_path(root: &str, rel: &str) -> String {
+    let joined = std::path::Path::new(root)
+        .join(rel)
+        .to_string_lossy()
+        .into_owned();
+    if cfg!(windows) && is_windows_path(&joined) {
+        windows_native_path(&joined)
+    } else {
+        joined
+    }
 }
 
 /// Open a URL in the system's default browser.
@@ -1986,4 +2073,88 @@ fn open_url(url: &str) -> std::io::Result<()> {
         command
     };
     command.spawn().map(|_| ())
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    use super::*;
+
+    #[test]
+    fn a_verbatim_prefix_is_stripped() {
+        assert_eq!(strip_verbatim(r"\\?\C:\works"), r"C:\works");
+        assert_eq!(strip_verbatim(r"\\?\UNC\srv\share\x"), r"\\srv\share\x");
+        assert_eq!(strip_verbatim(r"C:\works"), r"C:\works");
+    }
+
+    #[test]
+    fn forward_slashes_become_backslashes() {
+        assert_eq!(
+            windows_native_path(r"D:\ubiq\crates/ubiq"),
+            r"D:\ubiq\crates\ubiq"
+        );
+    }
+
+    #[test]
+    fn a_verbatim_path_is_made_plain() {
+        assert_eq!(
+            windows_native_path(r"\\?\D:\ubiq\crates/ubiq"),
+            r"D:\ubiq\crates\ubiq"
+        );
+        assert_eq!(
+            windows_native_path(r"\\?\UNC\srv\share/x"),
+            r"\\srv\share\x"
+        );
+    }
+
+    #[test]
+    fn a_trailing_backslash_goes_except_on_a_drive_root() {
+        assert_eq!(windows_native_path(r"D:\ubiq\"), r"D:\ubiq");
+        assert_eq!(windows_native_path("D:/"), r"D:\");
+        assert_eq!(windows_native_path(r"D:\"), r"D:\");
+        assert_eq!(windows_native_path(r"\\?\D:\"), r"D:\");
+    }
+
+    #[test]
+    fn a_folder_opens_itself_quoted() {
+        assert_eq!(
+            windows_explorer_args(r"D:\my projects/src", false),
+            r#""D:\my projects\src""#
+        );
+        assert_eq!(windows_explorer_args(r"D:/", false), r#""D:\""#);
+    }
+
+    #[test]
+    fn a_file_is_selected_as_one_quoted_token() {
+        assert_eq!(
+            windows_explorer_args(r"\\?\D:\my projects/src/main.rs", true),
+            r#"/select,"D:\my projects\src\main.rs""#
+        );
+    }
+
+    #[test]
+    fn only_windows_spellings_are_recognised() {
+        assert!(is_windows_path(r"D:\ubiq"));
+        assert!(is_windows_path("d:/ubiq"));
+        assert!(is_windows_path(r"\\srv\share"));
+        assert!(!is_windows_path("/home/me/ubiq"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn the_absolute_path_of_a_relative_one_is_backslashed() {
+        assert_eq!(
+            absolute_path(r"D:\ubiq", "crates/ubiq/x.rs"),
+            r"D:\ubiq\crates\ubiq\x.rs"
+        );
+        assert_eq!(absolute_path(r"D:\ubiq", ""), r"D:\ubiq");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn the_absolute_path_keeps_its_separators() {
+        assert_eq!(
+            absolute_path("/home/me/ubiq", "crates/ubiq/x.rs"),
+            "/home/me/ubiq/crates/ubiq/x.rs"
+        );
+    }
 }

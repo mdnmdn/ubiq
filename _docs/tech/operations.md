@@ -7,7 +7,7 @@ summary: Prerequisites, the complete command reference, what a first build costs
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-10-01
 verified: 2026-10-01
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -48,6 +48,13 @@ the terminal it was started in, reports through the same log writer on standard 
 `just dev` uses, and runs until it is stopped. It also takes no part in the one-application-per-root
 handoff — handing its arguments to a window running elsewhere would leave nothing listening — so a
 headless host and a local window can share a machine, though not usefully a config root.
+
+**The handoff runs on every platform.** A second plain launch of the same executable under the same
+config root hands its paths to the running application and exits (`crates/ubiq-app/src/handoff.rs`).
+On Unix the door is a `ubiq-<hash>.sock` socket in the config root; on Windows it is a loopback port
+on `127.0.0.1`, named with a random token in `ubiq-<hash>.port` beside where the socket would be, and
+a launch counts its paths delivered only once the owner acknowledges them. A file left by a crash
+names a port nobody answers on, and the next launch replaces it and becomes the application.
 
 **On Windows a plain launch leaves its console behind — and destroys it, not just hides it.** `ubiq`
 with no serve flag detaches through `detach_console` in `crates/ubiq-app/src/lib.rs`, so a launch

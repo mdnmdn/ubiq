@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the nine modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-09-30
+updated: 2026-10-01
 verified: 2026-09-30
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -991,7 +991,8 @@ configured here — each with its key typed once, its models picked from what th
 a test that streams a real answer back), **Tools** (the runnable tools
 every project inherits, edited at machine scope),
 **Command line** (the `ubiq`
-command on the shell's `PATH`), and **Extensions demo** — the kitchen sink's own contribution
+command on the shell's `PATH`), **Shell integration** on Windows only (*Open in Ubiq* on
+Explorer's right-click menu), and **Extensions demo** — the kitchen sink's own contribution
 (`X11`, `D186`), registered through `ext::settings::register` with nothing in this list's own
 module touched to add it, and the switch that gates the rail's own demo mode below. The kitchen
 sink still draws the larger
@@ -1277,8 +1278,9 @@ section is where it is put there and taken away.** `ubiq .` opens a folder as a 
 `ubiq README.md` opens a file, in the window that already holds it when there is one. It is a
 script rather than a symbolic link because that is the only shape that reaches the running
 application: on a macOS bundle the script runs `open -a Ubiq.app`, so LaunchServices hands the path
-to the window that is already up. Off a bundle it execs the binary, and a second application starts
-with a catalogue of its own — the section says so rather than pretending otherwise, and `D56`
+to the window that is already up. Off a bundle it starts the binary, and the single-instance
+handoff in `ubiq-app` hands the path to the application running under the same config
+root — a socket on Unix, a loopback port on Windows — so the new process exits at once; `D56`
 records why. What the window then does with the path is what a drop on the window does — a folder
 opens as a temporary project, a file outside every project opens as a guest tab (`D54`).
 
@@ -1311,6 +1313,18 @@ host refused surfaces as a banner over the section, in the same shape the harnes
 accounts: a shortcut can be moved, deleted or left behind by another build while the window is open,
 and the answer costs a directory listing. Until the host answers, the section says it is looking —
 which is a different thing from saying no shortcut is installed.
+
+**On Windows, Shell integration puts *Open in Ubiq* on Explorer's right-click menu**, for a file, a
+folder, and the empty space inside an open folder, for the current user only — no elevation, and no
+other account's menu changes. Picking it launches `ubiq <path>`, which the handoff delivers to the
+window that is up, where it lands exactly as `ubiq <path>` from a shell does. The section is the
+Command line section's shape: one row with **Install**, **Remove** or **Update**, a status line —
+*Not installed*, *Installed · on the right-click menu*, or *Installed — launches another build of
+Ubiq* in the danger tint — the command line the entries run beneath it, and the same banner for a
+write the host refused. *Stale* also covers one of the three entries gone missing, since **Update**
+is what puts it back. **Remove** deletes only the entries Ubiq wrote, recognised by the marker each
+carries (`D197`). The section asks every time it is opened, and appears only in a window running on
+Windows; a host on another platform answers that it is not supported, and the section says so.
 
 **The status bar's right holds the size popover, an icon-only trigger whose tooltip names the
 active preset — `Size — <preset>` or `Size — Custom`.** Clicking it opens `ui::size::panel`, an
@@ -1499,7 +1513,10 @@ host setting uses. The repository family is in the transport contract with the r
 `Query`, `Install` or `Remove`, and `CliShortcutState` comes back to every one of them — where a
 shortcut is, whether it launches this build, where one would go, and the directories considered. The
 interface names no directory in either direction, because which one the shell would find is a fact
-about the machine's `PATH` and the host is the half allowed to look.
+about the machine's `PATH` and the host is the half allowed to look. Shell integration is the same
+shape: `ShellIntegration` carries one of the three actions, and `ShellIntegrationState` answers
+each with whether the platform is supported, whether the entries are there, whether they are stale,
+and the command line they run.
 
 Every chat tab speaks the conversation family, the same as a column does, which is
 [`chat.md`](./chat.md)'s. The terminals have a family of their own, in
@@ -1964,7 +1981,13 @@ half that knows anything about a path is the host's `crates/ubiq-host/src/cli_sh
 launcher, `marked_target()` reads the marker line, and `state()` is the answer all three actions
 share. Its tests cover the three things that would be silent if they broke — the script is written
 marked and executable, a bundle is launched through `open -a` where a bare binary is exec'd, and
-remove takes Ubiq's own file and leaves a foreign `ubiq` alone. Shared primitives are in `ui/kit/`;
+remove takes Ubiq's own file and leaves a foreign `ubiq` alone. Shell integration mirrors it: the
+section is `shell_integration()` in `ui/settings.rs`, registered under `ids::SHELL_INTEGRATION`
+only when `cfg!(windows)`; `ask_shell_integration()` and `apply_shell_integration()` in
+`app/settings.rs` are the traffic, `SettingsState::shell` holds the answer, and the host half is
+`crates/ubiq-host/src/shell_integration.rs` (behind `desktop`) — `install()`, `remove()`, `marked()`
+and `state()` over a caller-supplied `Software\Classes` key, so its tests write under a throwaway
+key rather than the user's real menu. Shared primitives are in `ui/kit/`;
 the conventions behind that split are `tech/ui-and-design.md`'s.
 
 The providers under the Assistance row are `ai_providers()`, one `ai_provider_row()` each: the name

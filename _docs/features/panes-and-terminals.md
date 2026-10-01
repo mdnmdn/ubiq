@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-09-29
+updated: 2026-10-01
 verified: 2026-09-29
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs]
 depends_on: [tech-transport]
@@ -232,7 +232,9 @@ mouse reporting owns clicks, drags and the wheel. When reporting is off, a click
 text (double-click a word, triple-click a line), release copies the selection, and a click with no
 drag on an OSC 8 or `http(s)://` URL opens it. The wheel in the alternate screen becomes arrows; in
 the normal screen it moves the pane through scrollback. An OS file drop always pastes quoted
-absolute paths as bracketed paste, including while mouse reporting is on.
+absolute paths as bracketed paste, including while mouse reporting is on; the vendored
+terminal's path quoting uses single quotes on Unix and double quotes on Windows
+(`"C:\Program Files\x"`), and leaves a plain path bare.
 
 **A defocus chord releases the keyboard without sending `Focus`.** The pane keeps drawing and its
 tab stays; `blur_panes()` clears pending focus and the emulator's focus handle is blurred. Clicking

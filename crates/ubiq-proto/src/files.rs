@@ -216,6 +216,38 @@ pub enum PathOp {
     Delete,
 }
 
+/// How [`crate::messages::Message::ImportIntoProject`] brings a path in from outside the project.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImportMode {
+    /// The source stays where it was. What a drop from the platform's file manager and a paste
+    /// of files it copied both mean.
+    Copy,
+    /// The source goes: a rename where it can be one, and a copy then a removal across volumes.
+    Move,
+}
+
+/// The name the `n`th copy of `leaf` takes in a folder that already holds it: `n == 0` is the
+/// name itself, then `notes copy.md`, `notes copy 2.md`, and so on.
+///
+/// **Shared, so the explorer's guess and the host's answer agree.** The interface names a free
+/// name for a Duplicate or a Paste from the folders it has listed (`ExplorerState::free_name`);
+/// the host picks one for an import against what is actually on disk. Both count with this.
+/// The extension stays on the end, because that is what says how to open the copy; a leading dot
+/// is part of the stem, so `.env` becomes `.env copy` rather than ` copy.env`.
+pub fn copy_name(leaf: &str, n: usize) -> String {
+    if n == 0 {
+        return leaf.to_string();
+    }
+    let (stem, ext) = match leaf.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
+        _ => (leaf, String::new()),
+    };
+    match n {
+        1 => format!("{stem} copy{ext}"),
+        n => format!("{stem} copy {n}{ext}"),
+    }
+}
+
 /// What a diff is taken against.
 ///
 /// The working-tree bases compare what is on disk right now; [`DiffBase::Staged`] and
@@ -334,5 +366,20 @@ impl std::fmt::Display for FileError {
             FileError::Conflict => write!(f, "it changed since it was read"),
             FileError::Failed(reason) => write!(f, "{reason}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_name;
+
+    #[test]
+    fn a_copy_name_keeps_the_extension_on_the_end() {
+        assert_eq!(copy_name("notes.md", 0), "notes.md");
+        assert_eq!(copy_name("notes.md", 1), "notes copy.md");
+        assert_eq!(copy_name("notes.md", 2), "notes copy 2.md");
+        assert_eq!(copy_name("plain", 1), "plain copy");
+        assert_eq!(copy_name(".env", 1), ".env copy");
+        assert_eq!(copy_name("archive.tar.gz", 1), "archive.tar copy.gz");
     }
 }

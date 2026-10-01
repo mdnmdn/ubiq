@@ -12,7 +12,7 @@ use tempfile::TempDir;
 use ubiq_host::files::{self, path};
 #[cfg(unix)]
 use ubiq_proto::files::EntryKind;
-use ubiq_proto::files::{FileError, FileVersion, PathOp};
+use ubiq_proto::files::{FileError, FileVersion, ImportMode, PathOp};
 
 /// A project holding a file and a folder with a file in it.
 fn project() -> TempDir {
@@ -1020,4 +1020,134 @@ fn a_host_write_keeps_the_file_executable() {
         mode, 0o755,
         "the rename replaced the inode and lost the mode"
     );
+}
+
+// ── importing from outside the project ──────────────────────────────
+
+/// Somewhere outside the project: a file and a folder with a file in it.
+fn outside() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("dropped.txt"), b"dropped\n").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+    fs::write(dir.path().join("folder/leaf.txt"), b"leaf\n").unwrap();
+    dir
+}
+
+fn host_path(dir: &TempDir, name: &str) -> String {
+    dir.path().join(name).to_string_lossy().into_owned()
+}
+
+#[test]
+fn an_import_copies_files_and_folders_in_under_their_own_names() {
+    let dir = project();
+    let from = outside();
+    let sources = [host_path(&from, "dropped.txt"), host_path(&from, "folder")];
+
+    let (imported, failed) = files::import(dir.path(), "sub", &sources, ImportMode::Copy).unwrap();
+
+    assert_eq!(imported, ["sub/dropped.txt", "sub/folder"]);
+    assert!(failed.is_empty(), "{failed:?}");
+    assert_eq!(
+        fs::read(dir.path().join("sub/dropped.txt")).unwrap(),
+        b"dropped\n"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("sub/folder/leaf.txt")).unwrap(),
+        b"leaf\n"
+    );
+    // A copy leaves the originals where they were.
+    assert!(from.path().join("dropped.txt").exists());
+    assert!(from.path().join("folder/leaf.txt").exists());
+}
+
+#[test]
+fn an_import_never_overwrites_and_counts_copies_like_the_explorer() {
+    let dir = project();
+    let from = TempDir::new().unwrap();
+    fs::write(from.path().join("top.txt"), b"theirs\n").unwrap();
+    let sources = [host_path(&from, "top.txt")];
+
+    let (first, _) = files::import(dir.path(), "", &sources, ImportMode::Copy).unwrap();
+    let (second, _) = files::import(dir.path(), "", &sources, ImportMode::Copy).unwrap();
+
+    assert_eq!(first, ["top copy.txt"]);
+    assert_eq!(second, ["top copy 2.txt"]);
+    assert_eq!(fs::read(dir.path().join("top.txt")).unwrap(), b"top\n");
+    assert_eq!(
+        fs::read(dir.path().join("top copy.txt")).unwrap(),
+        b"theirs\n"
+    );
+}
+
+#[test]
+fn an_import_by_move_takes_the_source_away() {
+    let dir = project();
+    let from = outside();
+    let sources = [host_path(&from, "dropped.txt"), host_path(&from, "folder")];
+
+    let (imported, failed) = files::import(dir.path(), "", &sources, ImportMode::Move).unwrap();
+
+    assert_eq!(imported, ["dropped.txt", "folder"]);
+    assert!(failed.is_empty(), "{failed:?}");
+    assert!(!from.path().join("dropped.txt").exists());
+    assert!(!from.path().join("folder").exists());
+    assert_eq!(
+        fs::read(dir.path().join("folder/leaf.txt")).unwrap(),
+        b"leaf\n"
+    );
+}
+
+#[test]
+fn one_failed_source_does_not_cost_the_rest() {
+    let dir = project();
+    let from = outside();
+    let gone = host_path(&from, "not-there.txt");
+    let sources = [
+        gone.clone(),
+        "relative/path.txt".to_string(),
+        host_path(&from, "dropped.txt"),
+    ];
+
+    let (imported, failed) = files::import(dir.path(), "sub", &sources, ImportMode::Copy).unwrap();
+
+    assert_eq!(imported, ["sub/dropped.txt"]);
+    assert_eq!(failed.len(), 2, "{failed:?}");
+    assert_eq!(failed[0].0, gone);
+    assert_eq!(failed[1].0, "relative/path.txt");
+}
+
+#[test]
+fn an_import_refuses_a_folder_brought_inside_itself() {
+    let dir = project();
+    // The project's own folder, dropped onto one of its children.
+    let sources = [dir.path().to_string_lossy().into_owned()];
+
+    let (imported, failed) = files::import(dir.path(), "sub", &sources, ImportMode::Copy).unwrap();
+
+    assert!(imported.is_empty());
+    assert_eq!(failed.len(), 1);
+    assert!(
+        !dir.path()
+            .join("sub")
+            .join(dir.path().file_name().unwrap())
+            .exists(),
+        "nothing was copied into the project"
+    );
+}
+
+#[test]
+fn an_import_into_somewhere_that_is_not_a_project_folder_is_refused_whole() {
+    let dir = project();
+    let from = outside();
+    let sources = [host_path(&from, "dropped.txt")];
+
+    let escaped = files::import(dir.path(), "../elsewhere", &sources, ImportMode::Copy);
+    assert!(matches!(escaped, Err(FileError::Refused(_))), "{escaped:?}");
+
+    let a_file = files::import(dir.path(), "top.txt", &sources, ImportMode::Copy);
+    assert_eq!(a_file.unwrap_err(), FileError::WrongKind);
+
+    let missing = files::import(dir.path(), "nowhere", &sources, ImportMode::Copy);
+    assert_eq!(missing.unwrap_err(), FileError::Missing);
+    assert!(from.path().join("dropped.txt").exists());
 }

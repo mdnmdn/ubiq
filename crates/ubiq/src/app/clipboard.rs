@@ -9,6 +9,12 @@
 //! The composer reads the same board by a different rule — [`clipboard_attachment`] — because a
 //! paste into a field is a different question from `⌘N`: a copied file arrives with its own path
 //! *and* a string beside it, and the interesting half is the path.
+//!
+//! The explorer's Copy and Cut also *write* files to the board — [`write_paths`] — so a path
+//! copied in Ubiq pastes into the platform's file manager. GPUI drops an `ExternalPaths` entry on
+//! every platform's write, so on Windows the board is filled here instead (`CF_HDROP` plus
+//! `Preferred DropEffect`); elsewhere the explorer remembers the path and the board is left alone
+//! (`G103`).
 
 use std::path::PathBuf;
 
@@ -92,6 +98,162 @@ pub fn clipboard_attachment(cx: &App) -> Option<PastedAttachment> {
         }
         _ => None,
     })
+}
+
+/// The files on the board, when it holds any — what a Finder or Windows Explorer copy puts there.
+///
+/// Unlike [`clipboard_attachment`] every path is kept: a paste into the explorer brings all of
+/// them in at once. `None` for a board with no files on it, or an empty list.
+pub fn clipboard_paths(cx: &App) -> Option<Vec<PathBuf>> {
+    let item = cx.read_from_clipboard()?;
+    item.entries().iter().find_map(|entry| match entry {
+        ClipboardEntry::ExternalPaths(paths) if !paths.paths().is_empty() => {
+            Some(paths.paths().to_vec())
+        }
+        _ => None,
+    })
+}
+
+/// Put files on the board the way the platform's own file manager does, so a path copied or cut
+/// in the explorer pastes into Windows Explorer as a copy or a move.
+///
+/// **GPUI writes no `ExternalPaths` entry on any platform**, so on Windows the entry is handed to
+/// GPUI first and the board read back: a platform that kept it (the test platform does) is done,
+/// and the real one — which emptied the board and wrote nothing — is filled by [`native`]. That
+/// read-back is also what keeps a test run from touching the developer's own clipboard. On every
+/// other platform nothing is written and the board is left as it was (`G103`).
+pub fn write_paths(paths: &[PathBuf], cut: bool, cx: &App) {
+    #[cfg(windows)]
+    {
+        cx.write_to_clipboard(ClipboardItem {
+            entries: vec![ClipboardEntry::ExternalPaths(gpui::ExternalPaths(
+                paths.iter().cloned().collect(),
+            ))],
+        });
+        if clipboard_paths(cx).as_deref() != Some(paths)
+            && let Err(error) = native::write_files(paths, cut)
+        {
+            tracing::warn!("the files could not be put on the clipboard: {error}");
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (paths, cut, cx);
+    }
+}
+
+/// `DROPEFFECT_COPY` and `DROPEFFECT_MOVE`: what the `Preferred DropEffect` format tells a file
+/// manager to do with the files when they are pasted.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn drop_effect(cut: bool) -> u32 {
+    match cut {
+        true => 2,
+        false => 1,
+    }
+}
+
+/// A `CF_HDROP` payload: a `DROPFILES` header with `fWide` set, then every path as UTF-16 with
+/// backslash separators and its own NUL, then one more NUL to end the list.
+///
+/// Built by hand rather than through the `DROPFILES` struct, because the layout is five 32-bit
+/// fields and the struct would cost the whole `Win32_UI_Shell` binding for one `size_of`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn drop_files(paths: &[PathBuf]) -> Vec<u8> {
+    /// `pFiles`: where the list starts, which is right after the header.
+    const HEADER: u32 = 20;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&HEADER.to_le_bytes());
+    // `pt.x`, `pt.y` and `fNC`: no drop point, because this is a paste rather than a drop.
+    for _ in 0..3 {
+        bytes.extend_from_slice(&0i32.to_le_bytes());
+    }
+    // `fWide`: the names are UTF-16.
+    bytes.extend_from_slice(&1i32.to_le_bytes());
+    for path in paths {
+        let text = path.to_string_lossy().replace('/', "\\");
+        for unit in text.encode_utf16().chain(Some(0)) {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+    }
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+    bytes
+}
+
+/// The Win32 half of [`write_paths`]: open the board, empty it, and set the two formats.
+#[cfg(windows)]
+mod native {
+    use std::path::PathBuf;
+
+    use windows_sys::Win32::Foundation::GlobalFree;
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{
+        GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock,
+    };
+
+    /// The standard format number, fixed by the platform.
+    const CF_HDROP: u32 = 15;
+
+    pub fn write_files(paths: &[PathBuf], cut: bool) -> Result<(), String> {
+        let files = super::drop_files(paths);
+        let effect = super::drop_effect(cut).to_le_bytes();
+        let name: Vec<u16> = "Preferred DropEffect"
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        // SAFETY: `name` is NUL-terminated and outlives the call.
+        let effect_format = unsafe { RegisterClipboardFormatW(name.as_ptr()) };
+
+        // SAFETY: a null owner is the current task, which is what GPUI's own writes use.
+        if unsafe { OpenClipboard(std::ptr::null_mut()) } == 0 {
+            return Err(format!("open: {}", std::io::Error::last_os_error()));
+        }
+        let written = fill(&files, effect_format, &effect);
+        // SAFETY: opened above, and closed exactly once.
+        unsafe { CloseClipboard() };
+        written
+    }
+
+    /// Everything done with the clipboard open, so the caller closes it whatever happens here.
+    fn fill(files: &[u8], effect_format: u32, effect: &[u8]) -> Result<(), String> {
+        // SAFETY: the caller has the clipboard open on this thread.
+        if unsafe { EmptyClipboard() } == 0 {
+            return Err(format!("empty: {}", std::io::Error::last_os_error()));
+        }
+        set(CF_HDROP, files)?;
+        // A registration that failed leaves the paste a copy, which is the safe reading.
+        if effect_format != 0 {
+            set(effect_format, effect)?;
+        }
+        Ok(())
+    }
+
+    /// Copy `bytes` into a movable global block and hand it to the open clipboard, which owns it
+    /// from then on. A block the clipboard refused is freed here instead.
+    fn set(format: u32, bytes: &[u8]) -> Result<(), String> {
+        // SAFETY: plain allocation, checked for null before use.
+        let global = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes.len()) };
+        if global.is_null() {
+            return Err(format!("alloc: {}", std::io::Error::last_os_error()));
+        }
+        // SAFETY: `global` is a live movable block of `bytes.len()` bytes; it is locked for the
+        // copy and unlocked before the clipboard takes it.
+        unsafe {
+            let at = GlobalLock(global);
+            if at.is_null() {
+                GlobalFree(global);
+                return Err(format!("lock: {}", std::io::Error::last_os_error()));
+            }
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), at.cast::<u8>(), bytes.len());
+            GlobalUnlock(global);
+            if SetClipboardData(format, global).is_null() {
+                GlobalFree(global);
+                return Err(format!("set: {}", std::io::Error::last_os_error()));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Where a pasted picture is written inside the project: `.ubiq/pasted/`.
@@ -321,6 +483,31 @@ mod tests {
         assert_eq!(format, ImageFormat::Tiff);
         assert_eq!(bytes, junk);
         assert!(pasted_image_path(format, 1).ends_with(".tiff"));
+    }
+
+    /// A `CF_HDROP` block is the five-field header with `fWide` set, then each path as
+    /// backslashed UTF-16 with its own NUL, then one more NUL.
+    #[test]
+    fn a_drop_files_block_is_wide_and_double_terminated() {
+        let bytes = drop_files(&[PathBuf::from("C:/a/b.txt"), PathBuf::from("D:\\c")]);
+        let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        assert_eq!(word(0), 20, "the list starts right after the header");
+        assert_eq!((word(4), word(8), word(12)), (0, 0, 0));
+        assert_eq!(word(16), 1, "the names are UTF-16");
+
+        let units: Vec<u16> = bytes[20..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        let expected: Vec<u16> = "C:\\a\\b.txt\0D:\\c\0\0".encode_utf16().collect();
+        assert_eq!(units, expected);
+    }
+
+    /// A cut asks the file manager to move, a copy to copy.
+    #[test]
+    fn a_cut_prefers_a_move() {
+        assert_eq!(drop_effect(false), 1);
+        assert_eq!(drop_effect(true), 2);
     }
 
     /// The numbering skips what is already open, the way the untitled text names do.

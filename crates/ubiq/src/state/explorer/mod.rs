@@ -303,9 +303,14 @@ pub enum ExplorerAction {
     /// A new file seeded as `diagram.drawio` and locked to that extension, under the same rule
     /// as [`ExplorerAction::NewExcalidraw`].
     NewDrawio,
-    /// Remember the row, so a later Paste knows what to copy. Nothing crosses the bus for it.
+    /// Remember the row, so a later Paste knows what to copy. Nothing crosses the bus for it; on
+    /// a local host the file goes on the platform's clipboard too, to paste into its file manager.
     Copy,
-    /// Copy whatever [`ExplorerAction::Copy`] remembered into this folder.
+    /// [`ExplorerAction::Copy`], remembered as a cut: the Paste that uses it is a move, and
+    /// forgets it.
+    Cut,
+    /// Bring in the files another application put on the platform's clipboard, or else copy (or
+    /// move, after a Cut) whatever the explorer remembered, into this folder.
     Paste,
     /// Copy the row beside itself, under a free name.
     Duplicate,
@@ -338,6 +343,7 @@ impl ExplorerAction {
             ExplorerAction::NewExcalidraw => "New Excalidraw",
             ExplorerAction::NewDrawio => "New draw.io",
             ExplorerAction::Copy => "Copy",
+            ExplorerAction::Cut => "Cut",
             ExplorerAction::Paste => "Paste",
             ExplorerAction::Duplicate => "Duplicate",
             ExplorerAction::Rename => "Rename",
@@ -397,7 +403,9 @@ pub struct ExplorerMenu {
     pub is_dir: bool,
     pub readable: bool,
     pub expanded: bool,
-    /// Whether anything was remembered by a Copy when this menu opened. Held here so `entries()`
+    /// Whether there was anything to paste when this menu opened — a path a Copy or Cut
+    /// remembered, or files another application put on the platform's clipboard (the window
+    /// sets that half, since the board is not the tree's to read). Held here so `entries()`
     /// stays a pure function of the remembered menu, which is what keeps the pick — an index into
     /// this list — pointing at the row that was drawn.
     pub can_paste: bool,
@@ -562,9 +570,12 @@ pub struct ExplorerState {
     /// right-click on a second row raises a new menu *and* fires the old one's outside-click for
     /// the same event, and an unconditional close would shut the menu that was just opened.
     menu_epoch: u64,
-    /// What a Copy remembered, until a Paste uses it or an edit takes the path away. One path
-    /// rather than a list: the menu copies the row that was clicked.
+    /// What a Copy or a Cut remembered, until an edit takes the path away — or, after a Cut, until
+    /// the Paste that moves it. One path rather than a list: the menu copies the row that was
+    /// clicked.
     pub copied: Option<String>,
+    /// Whether `copied` was cut rather than copied, which turns its Paste into a move.
+    pub cut: bool,
     /// The folder a drag is currently over, which is the only answer the user gets before letting
     /// go. Empty is the project's root — the scroll container itself is a drop target.
     pub drop_onto: Option<String>,

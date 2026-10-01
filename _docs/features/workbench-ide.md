@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-09-26
+updated: 2026-10-01
 verified: 2026-09-29
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs]
 depends_on: [feat-workbench, tech-ui]
@@ -109,15 +109,16 @@ down, so a window opens with it off.
 
 **A right-click on a row raises a menu at the pointer.** A file offers Open, Open diff vs HEAD, Copy
 path, Copy full path, Copy link, Open in Finder, Open in Web, New file, New folder, New Excalidraw,
-New draw.io, Copy, Paste, Duplicate, Rename and Delete; a folder offers Expand or Collapse, New file,
-New folder, New Excalidraw, New draw.io, Copy path, Copy full path, Copy link, Open in Finder, Open
-in Web, Refresh, Copy, Paste, Duplicate, Rename and Delete; a click on the
+New draw.io, Copy, Cut, Paste, Duplicate, Rename and Delete; a folder offers Expand or Collapse, New
+file, New folder, New Excalidraw, New draw.io, Copy path, Copy full path, Copy link, Open in Finder,
+Open in Web, Refresh, Copy, Cut, Paste, Duplicate, Rename and Delete; a click on the
 empty panel offers New file, New folder, New Excalidraw, New draw.io, Paste and Collapse all, because
 that is where the actions that need no row live. **New file, New folder, New Excalidraw, New draw.io
 and Paste land in the folder the row is in**, which is
 the row itself when it is a folder and the one holding it when it is a file — so a file row offers
 them rather than making the user find its folder first. Only Paste is ever disabled, and only while
-nothing has been copied.
+nothing has been copied or cut and the system clipboard holds no files another application put
+there.
 
 **The rows are grouped by what they are for**, with a hairline between groups: opening, then making,
 then the clipboard, then the ways of naming a path, then Refresh, then renaming and removing. A
@@ -125,8 +126,12 @@ group with nothing in it takes its separator with it, so an unreadable row's men
 no lines. **A separator holds a position in the menu's list as well as on screen**, because a pick
 comes back as an index and rows drawn without matching entries behind them would silently shift
 every action below one. There is no Expand or Collapse row: the twisty and a click on the row
-already do it, and a third way to say the same thing is a row that earns nothing. `Open in Finder` — Explorer or File Manager on other platforms — reveals
-the file or its folder in the system's file manager. `Open in Web` starts the local web-export server
+already do it, and a third way to say the same thing is a row that earns nothing. `Open in Finder` — Explorer or File Manager on other platforms — shows
+the row in the system's file manager: on Windows a folder opens as itself and a file is revealed
+selected in its folder (`open_in_system` in `crates/ubiq/src/app/mod.rs`), and on macOS and Linux the
+file's folder is what opens. On Windows the path reaches Explorer, and Copy full path the clipboard,
+with backslashes and no `\\?\` prefix, since Explorer cannot parse a `/`-joined path and opens the
+Desktop instead. `Open in Web` starts the local web-export server
 if it is not already running and opens that file or folder in the system browser — see the titlebar's
 browser button below; unlike every other row here it needs nothing from the host, since the interface
 already reads the project's own files for it (`D55`). `Refresh` asks the host to list that folder
@@ -178,13 +183,36 @@ again afterwards, and there is nothing about it worth persisting. A drop that ch
 onto the row itself, and a drop of a folder into its own child are all refused in the panel without
 a round trip, so no confirmation is raised for a move that could never happen.
 
-**Copy, Paste and Duplicate work off one remembered path, and never the system clipboard.** Copy
-remembers the row and asks the host nothing; Paste copies it into the folder that was right-clicked,
-or into the root from the empty panel; Duplicate is a paste into the path's own folder. A name
-already taken is stepped past — `notes.txt` becomes `notes copy.txt`, then `notes copy 2.txt` — which is
-what makes Duplicate work at all, since there a collision is certain. That stepping reads the
-children the host has already named, so it is best-effort by construction: a collision it cannot see
-comes back from the host as a refusal on the row. There is no Cut, because a move is a drag.
+**Copy, Cut, Paste and Duplicate work off one remembered path, and the system clipboard beside
+it.** Copy remembers the row and asks the host nothing; Cut remembers it as a cut. Paste copies a
+copied row into the folder that was right-clicked, or into the root from the empty panel, and moves a
+cut one there — carrying its sidecar, as a drag does — after which the cut is used up; a cut pasted
+where it already is changes nothing and stays remembered. Duplicate is a copy into the path's own
+folder. A name already taken is stepped past — `notes.txt` becomes `notes copy.txt`, then
+`notes copy 2.txt` — which is what makes Duplicate work at all, since there a collision is certain.
+That stepping reads the children the host has already named, so it is best-effort by construction:
+a collision it cannot see comes back from the host as a refusal on the row. With the tree holding
+the keyboard, `Ctrl+C`, `Ctrl+X` and `Ctrl+V` (`⌘C`, `⌘X`, `⌘V` on macOS) are the same three
+gestures on the row the cursor is on; in the filter field they keep editing its text, and a `⌘V`
+with nothing to paste goes on to the window's own paste.
+
+**The system clipboard works both ways, on a local host.** On Windows a Copy or Cut also puts the
+file on the system clipboard as Windows Explorer does — a file list, preferring a copy or a move —
+so it pastes into Explorer as a copy or a move. In the other direction, files copied in Windows
+Explorer or Finder are what a Paste brings in when they are on the board, imported into the folder
+as copies under the same stepped names; that wins over the remembered row because it is the newer
+gesture. Files the explorer itself just put there are recognised and pasted from the remembered row
+instead, so a copy inside one project never round-trips through its own absolute path. A project on
+a remote host does neither: an absolute path names a file on one machine, and the host is on
+another. On macOS and Linux nothing is written to the board (`G103`); reading it works everywhere.
+
+**Files dropped on the explorer from the system's file manager are copied in.** A drop on a folder
+row lands in that folder, a drop on a file row in the folder holding it, and a drop on the panel's
+background at the project's root; the folder that would take it lights up while the drag is over
+it. Every file and folder lands under its own name, or the first free stepped one — never over
+anything already there — and a folder dropped inside itself is refused. When the host answers, that
+folder is listed again and the keyboard lands on the first file that arrived. A file that could not
+be brought in is reported in the log, since it has no row to be marked on.
 
 **A path the host moved or removed takes its tabs with it.** A rename or a drag retargets every open
 tab at or under the old path; a delete closes them. The explorer's remembered copy is forgotten if it
@@ -194,9 +222,11 @@ was the path that went.
 nowhere, a socket, a device, a pipe: the row appears, faint, and takes no click. Drawing it is the
 point — a tree with rows missing is a tree that lies about what is in the folder.
 
-**The explorer holds project-relative paths and nothing else.** No absolute path reaches the
-interface, for the same reason no file descriptor does: the folder the tree describes is the host's,
-and the two need not be on one machine.
+**The explorer holds project-relative paths and nothing else.** No absolute path is kept in the
+tree, for the same reason no file descriptor is: the folder the tree describes is the host's, and
+the two need not be on one machine. An absolute path is formed only at the moment one leaves for
+this machine's own clipboard or file manager, or arrives from them — and the clipboard and the drop
+are only used when the project's host is local.
 
 **A change on disk reaches the window without being asked for.** The host watches the folder of the
 project a window has open and reports what changed; the explorer re-lists the parent of each changed
@@ -253,8 +283,8 @@ overwrite of a file that already exists, on the same version it was read at. A f
 inside an open project opens normally through the host instead, with its git badge. A folder dropped
 anywhere else becomes a temporary project instead of a guest tab, above.
 
-**The drop target is the editor centre and the file tabs, and nothing else yet.** The explorer and
-the chat panel deliberately do nothing with an external drop; the terminal pane keeps its existing
+**An external drop opens a file on the editor centre and the file tabs, and imports it on the
+explorer.** The chat panel deliberately does nothing with one; the terminal pane keeps its existing
 behaviour of quoting the path into the pseudo-terminal.
 
 **Each open file owns its buffer.** Switching tabs and switching projects both leave a buffer exactly
@@ -753,6 +783,20 @@ in the merged map. `apply_git()` also keeps `repos: Vec<GitNested>` in a `git_re
 each nested repository's project-relative root, cleared by `clear_git()`; `ui/explorer.rs` reads it
 to draw the branch label after a folder's name, and `state::git::head_label` — also what
 `ui/status_bar.rs` calls for the project's own branch — turns a `GitHead` into that same string.
+
+The clipboard gestures are `app/explorer.rs`'s: `copy_explorer_path()` sets `ExplorerState::copied`
+and `cut` and, on a local host, hands the absolute path to `clipboard::write_paths()`, remembering
+it as `AppState::explorer_clipboard`; `paste_into_explorer()` asks `foreign_clipboard_paths()` first
+— the board's files, unless they are exactly that remembered list — and sends `ImportIntoProject`
+for them, or falls back to `copy_path_into()` / `send_move()`. `app/clipboard.rs` writes `CF_HDROP`
+and `Preferred DropEffect` through `windows-sys` in its `native` module, after handing GPUI the
+`ExternalPaths` entry and reading the board back, which is what leaves the test platform's
+clipboard — and not the developer's — holding a test's copy. `ui/explorer.rs` binds
+`ExplorerCopy`/`ExplorerCut`/`ExplorerPaste` at the panel's context only, and its rows and
+background take `ExternalPaths` drops into `drop_external_paths_on()`; `drop_onto` is drawn only
+while `has_active_drag()`, so a drag that left the window leaves nothing lit. The reply lands in
+`app/wire.rs`'s `paths_imported()`. The free names both sides count are `ubiq_proto::files::copy_name`,
+which `ExplorerState::free_name` and the host's `files::import` share.
 
 `state/editor.rs` names the component library, unlike its neighbours, because a file's buffer *is*
 its state: `FileBody` is either `Loading`, the `Text` of a buffer with the bytes the host sent beside

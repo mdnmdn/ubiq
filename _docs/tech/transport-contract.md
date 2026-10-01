@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-09-30
+updated: 2026-10-01
 verified: 2026-09-30
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
@@ -485,11 +485,13 @@ answer arrives after the click that asked for it and the window may have changed
 | `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?`, `overwrite` | `ProjectFileWritten` or `ProjectFileError` |
 | `DiffProjectFile` | UI → host | `project_id`, `rel_path`, `base` | `ProjectFileDiffed` or `ProjectFileError` |
 | `EditProjectPath` | UI → host | `project_id`, `rel_path`, `to?`, `op` | `ProjectPathEdited` or `ProjectFileError` |
+| `ImportIntoProject` | UI → host | `project_id`, `into`, `sources[]`, `mode` | `ProjectPathsImported` or `ProjectFileError` |
 | `ProjectTreeListing` | host → UI | `project_id`, `rel_path`, `listings[]` | — |
 | `ProjectFileContents` | host → UI | `project_id`, `rel_path`, `contents` | — |
 | `ProjectFileWritten` | host → UI | `project_id`, `rel_path`, `version` | — |
 | `ProjectFileDiffed` | host → UI | `project_id`, `rel_path`, `diff` | — |
 | `ProjectPathEdited` | host → UI | `project_id`, `rel_path`, `to?`, `op` | — |
+| `ProjectPathsImported` | host → UI | `project_id`, `into`, `mode`, `imported[]`, `failed[(source, reason)]` | — |
 | `ProjectFileError` | host → UI | `project_id`, `rel_path`, `error` | — |
 | `ProjectFilesChanged` | host → UI | `project_id`, `changed[]`, `truncated`, `repository` | — |
 
@@ -586,6 +588,24 @@ goes with everything under it. Which one the interface is about to do is somethi
 asks, so the difference is never left for the user to infer — and keeping them apart on the wire is
 what lets it. Neither is a `WriteProjectFile` with no bytes: a write creates and a removal destroys,
 and the version guard that makes a write safe has nothing to say about either.
+
+**An import is the one message here that names absolute host paths.** `ImportIntoProject` brings
+files and folders from outside every root into the project folder `into` — a drop from the
+platform's file manager onto the explorer, or a paste of files another application copied — so its
+`sources` are paths on the host's machine as the platform handed them over, and nothing about them
+is project-relative. Only a window whose project is served by the local host sends one: what the
+user dropped is on their disk, not a remote's. `mode` is an `ImportMode`, `Copy` (what both gestures
+send) or `Move` (a rename, falling back to a copy and a removal across volumes). Each source lands
+directly in `into` under its own leaf name, or the first free `name copy`, `name copy 2` counted by
+`files::copy_name` — the same function the explorer's own free-name guess uses, so the two agree —
+and never over anything already there. A source that contains `into` is refused, as a `Move` into
+its own child is. One `MAX_COPY_ENTRIES` budget covers the whole request.
+
+`ProjectPathsImported` answers it whole rather than per path: `imported` is every project-relative
+path that landed, in the order asked, and `failed` is every `(source, reason)` that did not — a
+failed source is outside the project and has no row a `ProjectFileError` could mark. Only a request
+that cannot land anywhere (`into` missing, not a folder, or outside the root) is a
+`ProjectFileError` on `into`.
 
 **`ProjectFileError` is per path**, not per project, for the reason `PaneError` is per pane: the
 interface can only mark the row or the tab the user is looking at if the message says which one. Its
@@ -796,8 +816,9 @@ caller with no bus in reach (the `ubiq-kb` MCP server, `_docs/wip/kb.md` names) 
 containment and writability rules the coordinator does. Every mutating one refuses a source that is
 not writable before it touches disk; `reveal` and `absolute` do not, since reading a path costs a
 read-only source nothing. `RevealKbPath` opens the platform's file manager **on the machine the
-host runs on** — `open -R` on macOS, `explorer /select,` on Windows, `xdg-open` on the containing
-folder on Linux — and answers nothing on success, on `Message::WriteProjectGit`'s own reasoning that
+host runs on** — `open -R` on macOS, `explorer` on Windows (a folder as itself, a file as
+`/select,"<file>"`, the path stripped of its `\\?\` prefix), `xdg-open` on the containing folder on
+Linux — and answers nothing on success, on `Message::WriteProjectGit`'s own reasoning that
 a mutation answers with the state it produced rather than an echo; a full refresh here is
 `KbChanged` naming the parent directory that changed.
 
@@ -1912,7 +1933,8 @@ which picker draws an option and must never change what an id means.
 `CliShortcutAction` — `Query`, `Install` or `Remove` — is the whole of what the interface may ask
 about the `ubiq` command, and a `CliDir` is one directory the host considered, with whether it
 exists and whether the shell would find a command in it. A directory that does not exist is still
-offered: the first candidate is created on install.
+offered: the first candidate is created on install. `ShellIntegrationAction` is the same three
+verbs about the *Open in Ubiq* context-menu entries.
 
 `DiffBase` is `Head` or `Index`, and `DiffRowKind` is `Context`, `Added` or `Removed` — the marker a
 textual diff puts at the front of a line, kept as a thing to draw rather than a character to strip.
@@ -2288,14 +2310,17 @@ and are answered when done; a source that fails is a line in `problems`, not a `
 
 ## The command-line family
 
-The tenth family by position, and the smallest: one request and one answer, about the `ubiq` script on the
-shell's `PATH`. It names no project, no pane and no account, because what it is about is the
-machine.
+The tenth family by position, and the smallest: two requests and their two answers, one pair about
+the `ubiq` script on the shell's `PATH` and one about the *Open in Ubiq* entries in the file
+manager's context menu. It names no project, no pane and no account, because what it is about is
+the machine.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `CliShortcut` | UI → host | `action` | `CliShortcutState` |
 | `CliShortcutState` | host → UI | `installed?`, `stale`, `target?`, `candidates[]`, `error?` | — |
+| `ShellIntegration` | UI → host | `action` | `ShellIntegrationState` |
+| `ShellIntegrationState` | host → UI | `supported`, `installed`, `stale`, `command?`, `error?` | — |
 
 **The request carries no directory.** `CliShortcutAction` is `Query`, `Install` or `Remove`, and
 nothing else rides with it. Which directory the shortcut belongs in is a fact about the machine's
@@ -2316,6 +2341,15 @@ it is not Ubiq's to name or to delete.
 `target`, which is what the interface draws its disabled button from. `candidates` is every
 directory considered, in the order it was considered, each a `CliDir` — so a machine that fits none
 of them shows why.
+
+**The shell-integration pair is the same exchange over registry keys.** `ShellIntegrationAction` is
+`Query`, `Install` or `Remove`, it names no key and no executable, and one `ShellIntegrationState`
+answers all three. `supported` is false on a host whose platform has no menu Ubiq knows how to join
+— every platform but Windows — and then nothing else in the answer means anything. `installed` is
+whether any entry carries Ubiq's marker; `stale` says one of them launches another build, or one of
+the three is missing. `command` is the command line the entries run, or would run once installed,
+and its absence is the disabled button's reason. The answer is read back from the machine every
+time; nothing about it is stored.
 
 ## The connector family
 

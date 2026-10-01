@@ -390,20 +390,9 @@ impl ExplorerState {
                 _ => Vec::new(),
             },
         };
-        if !taken.contains(&leaf) {
-            return leaf.to_string();
-        }
-
-        // The extension is kept on the end, because that is what says how to open the copy.
-        let (stem, ext) = match leaf.rsplit_once('.') {
-            Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
-            _ => (leaf, String::new()),
-        };
-        for n in 1.. {
-            let candidate = match n {
-                1 => format!("{stem} copy{ext}"),
-                n => format!("{stem} copy {n}{ext}"),
-            };
+        // The host counts an import's names with the same rule, so the two cannot disagree.
+        for n in 0.. {
+            let candidate = ubiq_proto::files::copy_name(leaf, n);
             if !taken.contains(&candidate.as_str()) {
                 return candidate;
             }

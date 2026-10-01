@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::settings::ShellIntegration;
 // A pane's write half is an `io::Write`; the key handler's image paste is the one caller here.
 use std::io::Write as _;
 
@@ -704,9 +705,9 @@ impl AppState {
                     // A file dropped with no project open named this folder's leaf as what to
                     // show once the project it became was actually open.
                     if let Some(dropped) = self.adding_select.take()
-                        && let Ok(rel) = Path::new(&dropped).strip_prefix(&root)
+                        && let Some(rel) = relative_to_root(Path::new(&dropped), &root)
                     {
-                        self.select_file(rel.to_string_lossy().into_owned(), cx);
+                        self.select_file(rel, cx);
                     }
                 }
                 cx.notify();
@@ -763,6 +764,23 @@ impl AppState {
                     stale,
                     target,
                     candidates,
+                    error,
+                },
+                cx,
+            ),
+
+            Message::ShellIntegrationState {
+                supported,
+                installed,
+                stale,
+                command,
+                error,
+            } => self.apply_shell_integration(
+                ShellIntegration {
+                    supported,
+                    installed,
+                    stale,
+                    command,
                     error,
                 },
                 cx,
@@ -930,6 +948,14 @@ impl AppState {
                 }
                 cx.notify();
             }
+
+            Message::ProjectPathsImported {
+                project_id,
+                into,
+                mode: _,
+                imported,
+                failed,
+            } => self.paths_imported(project_id, into, imported, failed, cx),
 
             Message::ProjectFileError {
                 project_id,
@@ -3235,6 +3261,48 @@ impl AppState {
 
         // An edit changes the working tree, the same as a save does.
         self.request_git_refresh(project_id);
+        cx.notify();
+    }
+
+    /// Files from outside the project landed in `into` — a drop or a paste of files another
+    /// application copied.
+    ///
+    /// The folder is re-listed so the new rows are there before the watch would bring them, and
+    /// the keyboard goes to the first one that landed, which is what makes the gesture read as
+    /// finished. A source that did not land has no row to be marked on, so it is said in the log.
+    fn paths_imported(
+        &mut self,
+        project_id: ProjectId,
+        into: String,
+        imported: Vec<String>,
+        failed: Vec<(String, String)>,
+        cx: &mut Context<Self>,
+    ) {
+        for (source, reason) in &failed {
+            tracing::warn!("{source} was not brought into {into:?}: {reason}");
+        }
+        let listed = self
+            .projects
+            .get(&project_id)
+            .is_some_and(|open| open.explorer.is_folder_listed(&into));
+        if listed {
+            if let Some(open) = self.projects.get_mut(&project_id) {
+                open.explorer.set_loading(&into, true);
+            }
+            self.bus.send(Message::ProjectTree {
+                project_id,
+                rel_path: into,
+                depth: EXPAND_DEPTH,
+            });
+        }
+        if let Some(first) = imported.first()
+            && let Some(open) = self.projects.get_mut(&project_id)
+        {
+            open.explorer.set_cursor(first);
+        }
+        if !imported.is_empty() {
+            self.request_git_refresh(project_id);
+        }
         cx.notify();
     }
 

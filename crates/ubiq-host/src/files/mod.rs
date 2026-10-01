@@ -27,8 +27,8 @@ use std::thread;
 
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::files::{
-    DiffBase, DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion, LIST_HIDE,
-    PathOp, WALK_SKIP,
+    DiffBase, DirEntry, DirListing, EntryKind, FileContents, FileError, FileVersion, ImportMode,
+    LIST_HIDE, PathOp, WALK_SKIP, copy_name,
 };
 use ubiq_proto::ids::{KbSourceId, ProjectId};
 use ubiq_proto::kb::KbSource;
@@ -537,6 +537,138 @@ fn carry(root: &Path, rel_path: &str, to: Option<&str>, op: PathOp) {
     }
 }
 
+/// How many free names an import tries for one source before it gives up on it.
+///
+/// `name copy 999` in one folder is a folder nobody is going to read; a bound is what keeps a
+/// crafted folder from turning one source into an unbounded run of stats.
+const MAX_COPY_NAMES: usize = 1_000;
+
+/// What [`import`] did: every project-relative path that landed, in the order asked, and every
+/// `(source, reason)` that did not — the two halves of [`Message::ProjectPathsImported`].
+pub type Imported = (Vec<String>, Vec<(String, String)>);
+
+/// Bring paths from outside the project into its folder `into` — the worker half of
+/// [`Message::ImportIntoProject`].
+///
+/// `into` must be a folder inside the root; anything wrong with it refuses the whole request,
+/// because every source would land in the same wrong place. After that each source is its own
+/// outcome: the project-relative path it landed at, or the reason it did not, in the order asked.
+/// One [`MAX_COPY_ENTRIES`] budget covers the whole request, so a drop of many folders is bounded
+/// the way one folder copy is.
+pub fn import(
+    root: &Path,
+    into: &str,
+    sources: &[String],
+    mode: ImportMode,
+) -> Result<Imported, FileError> {
+    let folder = path::resolve(root, into)?;
+    if !fs::metadata(&folder).map_err(from_io)?.is_dir() {
+        return Err(FileError::WrongKind);
+    }
+
+    let mut budget = MAX_COPY_ENTRIES;
+    let mut imported = Vec::new();
+    let mut failed = Vec::new();
+    for source in sources {
+        match import_one(root, into, &folder, source, mode, &mut budget) {
+            Ok(rel_path) => imported.push(rel_path),
+            Err(error) => {
+                tracing::debug!("import of {source:?} into {into:?} failed: {error}");
+                failed.push((source.clone(), error.to_string()));
+            }
+        }
+    }
+    Ok((imported, failed))
+}
+
+/// One source of [`import`]: an absolute host path, landed in `folder` (the canonical form of
+/// `into`) under the first name [`copy_name`] counts to that is free on disk.
+fn import_one(
+    root: &Path,
+    into: &str,
+    folder: &Path,
+    source: &str,
+    mode: ImportMode,
+    budget: &mut usize,
+) -> Result<String, FileError> {
+    let source_path = crate::host_path::request_path(source);
+    if !source_path.is_absolute() {
+        return Err(FileError::Refused(
+            "an import names an absolute path on the host".to_string(),
+        ));
+    }
+    let Some(leaf) = source_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+    else {
+        return Err(FileError::Refused(
+            "a volume's own root cannot be brought in".to_string(),
+        ));
+    };
+    let stat = fs::metadata(&source_path).map_err(from_io)?;
+    // Whole components on two canonical paths: a folder brought into itself or into its own child
+    // would copy forever, and a project brought into itself is the same mistake.
+    let canonical_source = fs::canonicalize(&source_path).map_err(from_io)?;
+    if folder.starts_with(&canonical_source) {
+        return Err(FileError::Refused(
+            "a folder cannot go inside itself".to_string(),
+        ));
+    }
+
+    // The free name is decided against the disk, not against a listing, so a collision the
+    // interface could not see is still never an overwrite. `symlink_metadata` so a dangling link
+    // counts as taken rather than as room.
+    let Some(name) = (0..MAX_COPY_NAMES)
+        .map(|n| copy_name(&leaf, n))
+        .find(|name| fs::symlink_metadata(folder.join(name)).is_err())
+    else {
+        return Err(FileError::Conflict);
+    };
+    // Through the boundary all the same, so the write is held to the rule every other one is.
+    let rel_path = path::child(into, &name);
+    let target = path::resolve_for_write(root, &rel_path)?;
+
+    if *budget == 0 {
+        return Err(FileError::Failed(format!(
+            "an import stops at {MAX_COPY_ENTRIES} entries"
+        )));
+    }
+    *budget -= 1;
+
+    match mode {
+        ImportMode::Copy => copy_in(&source_path, &target, stat.is_dir(), budget)?,
+        ImportMode::Move => match fs::rename(&source_path, &target) {
+            Ok(()) => {}
+            // A rename cannot cross a volume; a copy then a removal can. The removal is best
+            // effort once the copy has landed: the import happened, and a source left behind is
+            // logged rather than turned into a failure of something that is already on disk.
+            Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+                copy_in(&source_path, &target, stat.is_dir(), budget)?;
+                let removed = match stat.is_dir() {
+                    true => fs::remove_dir_all(&source_path),
+                    false => fs::remove_file(&source_path),
+                };
+                if let Err(error) = removed {
+                    tracing::warn!(
+                        "moved {source:?} by copying, and it could not be removed: {error}"
+                    );
+                }
+            }
+            Err(error) => return Err(from_io(error)),
+        },
+    }
+    Ok(rel_path)
+}
+
+/// Copy one file, or one folder with everything under it, to a target that is not there yet.
+fn copy_in(source: &Path, target: &Path, dir: bool, budget: &mut usize) -> Result<(), FileError> {
+    if dir {
+        copy_tree(source, target, budget)
+    } else {
+        fs::copy(source, target).map(|_| ()).map_err(from_io)
+    }
+}
+
 /// The platform's own trash service answers this, so its refusal is not one of ours.
 #[cfg(feature = "desktop")]
 fn trash_delete(target: &Path) -> Result<(), FileError> {
@@ -643,6 +775,12 @@ pub enum Request {
     },
     Related {
         rel_path: String,
+    },
+    /// See [`import`]. `into` stands where every other request's `rel_path` does.
+    Import {
+        into: String,
+        sources: Vec<String>,
+        mode: ImportMode,
     },
 }
 
@@ -824,6 +962,20 @@ fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message
             rel_path: rel_path.clone(),
             related: related::related(root, rel_path),
         },
+        Request::Import {
+            into,
+            sources,
+            mode,
+        } => match import(root, into, sources, *mode) {
+            Ok((imported, failed)) => Message::ProjectPathsImported {
+                project_id,
+                into: into.clone(),
+                mode: *mode,
+                imported,
+                failed,
+            },
+            Err(error) => file_error(project_id, into, error),
+        },
     }
 }
 
@@ -868,8 +1020,8 @@ fn diff_answer(
 /// Do one knowledge-base job and say what the window is told.
 ///
 /// Only a tree listing and a read make sense against a source read-only by [`KbSource::is_writable`];
-/// the other four [`Request`] arms reach here only if the coordinator is ever wired wrongly, and
-/// are refused rather than silently dropped, on [`Message::EditProjectPath`]'s own reasoning for a
+/// every other [`Request`] arm reaches here only if the coordinator is ever wired wrongly, and
+/// is refused rather than silently dropped, on [`Message::EditProjectPath`]'s own reasoning for a
 /// destination in the wrong place.
 fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Request) -> Message {
     match request {
@@ -908,7 +1060,8 @@ fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Re
         Request::Write { rel_path, .. }
         | Request::Diff { rel_path, .. }
         | Request::Edit { rel_path, .. }
-        | Request::Related { rel_path, .. } => kb_error(
+        | Request::Related { rel_path, .. }
+        | Request::Import { into: rel_path, .. } => kb_error(
             project_id,
             source.id,
             rel_path,

@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it.
 read_when: you changed a file and need to know which documents owe an update, or you are looking for where something lives
-updated: 2026-09-26
+updated: 2026-10-01
 verified: 2026-09-23
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -117,6 +117,7 @@ crates/ubiq-host/src/
 ├── watch/
 │   └── mod.rs
 ├── cli_shortcut.rs
+├── shell_integration.rs
 ├── links.rs
 ├── connectors/
 │   ├── app.rs
@@ -564,6 +565,7 @@ the documents in its row.
 | `crates/ubiq-app/Cargo.toml` | [`project-structure.md`](./project-structure.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq-app/build.rs` | [`operations.md`](./operations.md) |
 | `crates/ubiq-app/res/ubiq-app.rc` | [`operations.md`](./operations.md) |
+| `crates/ubiq-app/src/handoff.rs` | [`operations.md`](./operations.md) |
 | `crates/ubiq-app/src/lib.rs` | [`features/drone.md`](../features/drone.md), [`features/logs.md`](../features/logs.md), [`agent-manager.md`](./agent-manager.md), [`architecture.md`](./architecture.md), [`operations.md`](./operations.md) |
 | `crates/ubiq-app/src/main.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq-drone/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
@@ -645,6 +647,7 @@ the documents in its row.
 | `crates/ubiq-host/src/search/hits.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/search/worker.rs` | [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/settings.rs` | [`features/connectors.md`](../features/connectors.md), [`features/drone.md`](../features/drone.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq-host/src/shell_integration.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq-host/src/shells.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
 | `crates/ubiq-host/src/store/file.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq-host/src/store/harness.rs` | [`wip/agent-vocabulary.md`](../wip/agent-vocabulary.md) |
@@ -1004,7 +1007,6 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 
 | File |
 |---|
-| `crates/ubiq-app/src/handoff.rs` |
 | `crates/ubiq-host/src/assist/apple.rs` |
 | `crates/ubiq-host/src/atomic.rs` |
 | `crates/ubiq-host/src/config.rs` |

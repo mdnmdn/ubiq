@@ -204,6 +204,13 @@ zed-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b00
 # Named here only to constrain the resolver — no code uses it directly.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-capture = "=1.4.4"
+# The explorer's Copy and Cut fill the clipboard with `CF_HDROP` themselves (`app::clipboard`),
+# because GPUI's Windows clipboard writes no file list. Raw bindings at a version already locked.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+] }
 
 # An integration test that drives the interpreter is a target of the feature that compiles it in,
 # not of the crate: without this, `cargo test` on a build with `quickjs` off would try to run a

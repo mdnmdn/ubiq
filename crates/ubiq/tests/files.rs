@@ -7,17 +7,21 @@
 //! state and the field they type into is the window's entity.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use chrono::Utc;
-use gpui::{AppContext as _, Entity, TestAppContext, WindowHandle};
+use gpui::{
+    AppContext as _, ClipboardEntry, ClipboardItem, Entity, ExternalPaths, TestAppContext,
+    WindowHandle,
+};
 use gpui_component::Root;
 use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub, CloseEditor};
 use ubiq::state::{FileDialog, WindowRegistry};
 use ubiq_proto::bus::{self, FromClient, To};
-use ubiq_proto::files::{DirEntry, DirListing, EntryKind, PathOp, RelatedFile};
+use ubiq_proto::files::{DirEntry, DirListing, EntryKind, ImportMode, PathOp, RelatedFile};
 use ubiq_proto::git::{GitHead, GitNested};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
@@ -554,6 +558,170 @@ fn paste_and_duplicate_copy_under_a_free_name(cx: &mut TestAppContext) {
             PathOp::Copy
         )],
         "in place, the collision is certain and does not need a refusal to discover"
+    );
+}
+
+/// Every `ImportIntoProject` the window said: where to, from where, and how.
+fn imports(said: &[Message]) -> Vec<(String, Vec<String>, ImportMode)> {
+    said.iter()
+        .filter_map(|message| match message {
+            Message::ImportIntoProject {
+                into,
+                sources,
+                mode,
+                ..
+            } => Some((into.clone(), sources.clone(), *mode)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Put files on the board the way another application's copy would.
+fn copy_elsewhere(paths: &[&str], cx: &mut TestAppContext) {
+    let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    cx.update(|cx| {
+        cx.write_to_clipboard(ClipboardItem {
+            entries: vec![ClipboardEntry::ExternalPaths(ExternalPaths(paths.into()))],
+        })
+    });
+}
+
+/// A Cut pastes as a move, carrying its sidecar like a drag does, and is used up by it.
+#[gpui::test]
+fn a_cut_pastes_as_a_move_and_is_used_up(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.pick(Some("src/main.rs"), "Cut", cx);
+    fixture.pick(Some("docs"), "Paste", cx);
+    let said = fixture.said();
+    assert_eq!(
+        edits(&said),
+        vec![(
+            "src/main.rs".to_string(),
+            Some("docs/main.rs".to_string()),
+            PathOp::Move
+        )]
+    );
+    assert!(
+        imports(&said).is_empty(),
+        "the window's own cut is not an import"
+    );
+    assert_eq!(
+        fixture.with(cx, |state, _, cx| state
+            .explorer(cx)
+            .map(|e| (e.copied.clone(), e.cut))),
+        Some((None, false)),
+        "a cut is pasted once"
+    );
+}
+
+/// Files another application copied are imported on Paste — and light the row with nothing of
+/// the explorer's own remembered.
+#[gpui::test]
+fn files_copied_elsewhere_are_imported_on_paste(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    copy_elsewhere(&["/elsewhere/a.txt", "/elsewhere/folder"], cx);
+    fixture.pick(Some("src/main.rs"), "Paste", cx);
+    let said = fixture.said();
+    assert_eq!(
+        imports(&said),
+        vec![(
+            "src".to_string(),
+            vec![
+                "/elsewhere/a.txt".to_string(),
+                "/elsewhere/folder".to_string()
+            ],
+            ImportMode::Copy
+        )],
+        "a file row hands the paste to the folder holding it"
+    );
+    assert!(edits(&said).is_empty());
+}
+
+/// What the window's own Copy put on the board is not somebody else's files: the Paste after it
+/// copies inside the project rather than importing the same file from its absolute path.
+#[gpui::test]
+fn the_windows_own_copy_is_not_imported_back(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.pick(Some("src/main.rs"), "Copy", cx);
+    fixture.pick(Some("docs"), "Paste", cx);
+    let said = fixture.said();
+    assert!(imports(&said).is_empty(), "{said:?}");
+    assert_eq!(
+        edits(&said),
+        vec![(
+            "src/main.rs".to_string(),
+            Some("docs/main.rs".to_string()),
+            PathOp::Copy
+        )]
+    );
+
+    // Something copied elsewhere afterwards is newer, and wins.
+    copy_elsewhere(&["/elsewhere/b.txt"], cx);
+    fixture.pick(Some("docs"), "Paste", cx);
+    assert_eq!(
+        imports(&fixture.said()),
+        vec![(
+            "docs".to_string(),
+            vec!["/elsewhere/b.txt".to_string()],
+            ImportMode::Copy
+        )]
+    );
+}
+
+/// A drop from the file manager is an import into the folder it landed on.
+#[gpui::test]
+fn files_dropped_on_a_folder_are_imported_into_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, _, cx| {
+        state.drop_external_paths_on(&[PathBuf::from("/elsewhere/c.txt")], "src".to_string(), cx)
+    });
+    assert_eq!(
+        imports(&fixture.said()),
+        vec![(
+            "src".to_string(),
+            vec!["/elsewhere/c.txt".to_string()],
+            ImportMode::Copy
+        )]
+    );
+}
+
+/// The answer re-lists the folder the files landed in and puts the keyboard on the first of them.
+#[gpui::test]
+fn an_import_answer_relists_and_lands_the_cursor(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    fixture.deliver(
+        Message::ProjectPathsImported {
+            project_id: fixture.project,
+            into: "src".to_string(),
+            mode: ImportMode::Copy,
+            imported: vec!["src/c.txt".to_string(), "src/d".to_string()],
+            failed: vec![("/elsewhere/e".to_string(), "it is not there".to_string())],
+        },
+        cx,
+    );
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|message| matches!(
+            message,
+            Message::ProjectTree { rel_path, .. } if rel_path == "src"
+        )),
+        "{said:?}"
+    );
+    assert_eq!(
+        fixture.with(cx, |state, _, cx| state
+            .explorer(cx)
+            .and_then(|e| e.cursor().map(str::to_string))),
+        Some("src/c.txt".to_string())
     );
 }
 
@@ -1328,4 +1496,65 @@ fn a_guest_tab_saves_over_write_host_file(cx: &mut TestAppContext) {
         let tab = open.editor.find_mut(&abs).expect("still open");
         assert_eq!(tab.version(), Some(version));
     });
+}
+
+/// A path taken in from outside is named from the project root with `/` separators, the one
+/// spelling tree selection and tab keys use.
+#[test]
+fn a_path_under_a_root_is_named_with_forward_slashes() {
+    use std::path::Path;
+    use ubiq::app::relative_to_root;
+
+    let root = if cfg!(windows) {
+        r"C:\works\ubiq"
+    } else {
+        "/works/ubiq"
+    };
+    let file = Path::new(root).join("crates").join("ubiq").join("x.rs");
+
+    assert_eq!(
+        relative_to_root(&file, root).as_deref(),
+        Some("crates/ubiq/x.rs")
+    );
+    assert_eq!(relative_to_root(Path::new(root), root).as_deref(), Some(""));
+    assert_eq!(relative_to_root(&file, "/elsewhere"), None);
+    // A sibling that merely shares the root's leading letters is not inside it.
+    assert_eq!(
+        relative_to_root(&Path::new(root).with_file_name("ubiq2").join("x.rs"), root),
+        None
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn a_windows_path_matches_its_root_whatever_the_case_or_prefix() {
+    use std::path::Path;
+    use ubiq::app::relative_to_root;
+
+    let want = Some("crates/ubiq/x.rs");
+    let file = Path::new(r"C:\Works\Ubiq\crates\ubiq\x.rs");
+
+    assert_eq!(relative_to_root(file, r"c:\works\ubiq").as_deref(), want);
+    assert_eq!(relative_to_root(file, r"C:/works/ubiq/").as_deref(), want);
+    assert_eq!(
+        relative_to_root(file, r"\\?\C:\works\ubiq").as_deref(),
+        want
+    );
+    assert_eq!(
+        relative_to_root(
+            Path::new(r"\\?\C:\works\ubiq\crates\ubiq\x.rs"),
+            r"C:\works\ubiq"
+        )
+        .as_deref(),
+        want
+    );
+    assert_eq!(
+        relative_to_root(
+            Path::new(r"\\?\UNC\srv\share\ubiq\a.rs"),
+            r"\\srv\share\ubiq"
+        )
+        .as_deref(),
+        Some("a.rs")
+    );
+    assert_eq!(relative_to_root(file, r"D:\works\ubiq"), None);
 }

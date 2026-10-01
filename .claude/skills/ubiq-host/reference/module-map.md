@@ -158,6 +158,7 @@ and agents stay its mocks.
 | `health.rs` | `probe(path) -> ProjectHealth` — one `symlink_metadata`, so a broken link is `NotADirectory` (a fact) and not `Missing` (which would invite a Locate that cannot help) | A second stat per record at boot |
 | `shells.rs` | `CANDIDATES`, `EXTRA_DIRS`, `default_program`, `available`, `is_shell`, `repair_path` | A launcher for anything on disk — the set is fixed and bounded |
 | `cli_shortcut.rs` | `handle(action)` over `Query` / `Install` / `Remove`; `MARKER = "ubiq-target:"`, `NAME` (`ubiq.cmd` on Windows) | A path parameter — nothing it exposes takes one |
+| `shell_integration.rs` | `handle(action)` on `cli_shortcut`'s shape, behind `desktop`; on Windows three HKCU `Software\Classes` verbs marked `UbiqTarget`, elsewhere `supported: false` (`D197`) | A stored flag — the registry is read back every time |
 | `links.rs` | `LinkScanner::new` / `feed`, `TAIL_CAP = 4 KiB`, `SEEN_CAP = 16` | A URL parser or a VT parser |
 | `watch/mod.rs` | `Job { project_id, root, excludes, index, reply_to }`, `Watcher`, `start(job)`, `QUIET = 150ms`, `BOUND = 64` | An absolute path on the wire, or an opinion about what a reader redraws |
 | `mcp/` | One loopback listener (`D102`), the catalogue (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`), the registry, and task tools that share `work::Handle` (`D120`) | A round trip through the coordinator |
