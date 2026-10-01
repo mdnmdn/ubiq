@@ -12,9 +12,9 @@
 //!
 //! The explorer's Copy and Cut also *write* files to the board — [`write_paths`] — so a path
 //! copied in Ubiq pastes into the platform's file manager. GPUI drops an `ExternalPaths` entry on
-//! every platform's write, so on Windows the board is filled here instead (`CF_HDROP` plus
-//! `Preferred DropEffect`); elsewhere the explorer remembers the path and the board is left alone
-//! (`G103`).
+//! every platform's write, so on Windows (`CF_HDROP` plus `Preferred DropEffect`) and macOS (file
+//! URLs on the general pasteboard) the board is filled here instead; on Linux the explorer
+//! remembers the path and the board is left alone (`G103`).
 
 use std::path::PathBuf;
 
@@ -115,15 +115,16 @@ pub fn clipboard_paths(cx: &App) -> Option<Vec<PathBuf>> {
 }
 
 /// Put files on the board the way the platform's own file manager does, so a path copied or cut
-/// in the explorer pastes into Windows Explorer as a copy or a move.
+/// in the explorer pastes into Windows Explorer as a copy or a move, and into Finder as a copy.
 ///
-/// **GPUI writes no `ExternalPaths` entry on any platform**, so on Windows the entry is handed to
-/// GPUI first and the board read back: a platform that kept it (the test platform does) is done,
-/// and the real one — which emptied the board and wrote nothing — is filled by [`native`]. That
-/// read-back is also what keeps a test run from touching the developer's own clipboard. On every
-/// other platform nothing is written and the board is left as it was (`G103`).
+/// **GPUI writes no `ExternalPaths` entry on any platform**, so on Windows and macOS the entry is
+/// handed to GPUI first and the board read back: a platform that kept it (the test platform does)
+/// is done, and the real one — which wrote nothing — is filled by [`native`]. That read-back is
+/// also what keeps a test run from touching the developer's own clipboard. Finder has no cut on
+/// the board, so on macOS a Cut is written as a copy. On Linux nothing is written and the board is
+/// left as it was (`G103`).
 pub fn write_paths(paths: &[PathBuf], cut: bool, cx: &App) {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         cx.write_to_clipboard(ClipboardItem {
             entries: vec![ClipboardEntry::ExternalPaths(gpui::ExternalPaths(
@@ -136,9 +137,37 @@ pub fn write_paths(paths: &[PathBuf], cut: bool, cx: &App) {
             tracing::warn!("the files could not be put on the clipboard: {error}");
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (paths, cut, cx);
+    }
+}
+
+/// The AppKit half of [`write_paths`]: clear the general pasteboard and write one file URL per
+/// path, which is what a Finder copy puts there. `cut` has no counterpart on the board.
+#[cfg(target_os = "macos")]
+mod native {
+    use std::path::PathBuf;
+
+    use objc2::runtime::ProtocolObject;
+    use objc2_app_kit::{NSPasteboard, NSPasteboardWriting};
+    use objc2_foundation::{NSArray, NSString, NSURL};
+
+    pub fn write_files(paths: &[PathBuf], _cut: bool) -> Result<(), String> {
+        let urls: Vec<_> = paths
+            .iter()
+            .map(|path| NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy())))
+            .collect();
+        let objects: Vec<&ProtocolObject<dyn NSPasteboardWriting>> = urls
+            .iter()
+            .map(|url| ProtocolObject::from_ref(&**url))
+            .collect();
+        let board = NSPasteboard::generalPasteboard();
+        board.clearContents();
+        match board.writeObjects(&NSArray::from_slice(&objects)) {
+            true => Ok(()),
+            false => Err("the pasteboard refused the file URLs".into()),
+        }
     }
 }
 

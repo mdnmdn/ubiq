@@ -198,13 +198,15 @@ with nothing to paste goes on to the window's own paste.
 
 **The system clipboard works both ways, on a local host.** On Windows a Copy or Cut also puts the
 file on the system clipboard as Windows Explorer does — a file list, preferring a copy or a move —
-so it pastes into Explorer as a copy or a move. In the other direction, files copied in Windows
+so it pastes into Explorer as a copy or a move; on macOS it puts file URLs on the general
+pasteboard, so it pastes into Finder — as a copy even after a Cut, since Finder keeps no cut on the
+board. In the other direction, files copied in Windows
 Explorer or Finder are what a Paste brings in when they are on the board, imported into the folder
 as copies under the same stepped names; that wins over the remembered row because it is the newer
 gesture. Files the explorer itself just put there are recognised and pasted from the remembered row
 instead, so a copy inside one project never round-trips through its own absolute path. A project on
 a remote host does neither: an absolute path names a file on one machine, and the host is on
-another. On macOS and Linux nothing is written to the board (`G103`); reading it works everywhere.
+another. On Linux nothing is written to the board (`G103`); reading it works everywhere.
 
 **Files dropped on the explorer from the system's file manager are copied in.** A drop on a folder
 row lands in that folder, a drop on a file row in the folder holding it, and a drop on the panel's
@@ -789,7 +791,8 @@ and `cut` and, on a local host, hands the absolute path to `clipboard::write_pat
 it as `AppState::explorer_clipboard`; `paste_into_explorer()` asks `foreign_clipboard_paths()` first
 — the board's files, unless they are exactly that remembered list — and sends `ImportIntoProject`
 for them, or falls back to `copy_path_into()` / `send_move()`. `app/clipboard.rs` writes `CF_HDROP`
-and `Preferred DropEffect` through `windows-sys` in its `native` module, after handing GPUI the
+and `Preferred DropEffect` through `windows-sys`, or file URLs through `objc2-app-kit` on macOS, in
+its `native` module, after handing GPUI the
 `ExternalPaths` entry and reading the board back, which is what leaves the test platform's
 clipboard — and not the developer's — holding a test's copy. `ui/explorer.rs` binds
 `ExplorerCopy`/`ExplorerCut`/`ExplorerPaste` at the panel's context only, and its rows and

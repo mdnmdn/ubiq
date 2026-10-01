@@ -183,9 +183,10 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = [
     "NSApplication",
     "NSImage",
+    "NSPasteboard",
     "NSResponder",
 ] }
-objc2-foundation = { version = "0.3", features = ["NSData"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
 # The frame type behind gpui's `ScreenCaptureFrame` on macOS is a `CVImageBuffer`, and this
 # is what reads its pixels. Already in the graph behind gpui — named here because
 # `app/capture.rs` decodes a frame itself.
