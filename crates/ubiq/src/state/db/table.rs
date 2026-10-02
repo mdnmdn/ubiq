@@ -388,7 +388,10 @@ mod tests {
         assert!(!tab.form_visible(false));
         tab.selected = Some(1);
         tab.edit_mode = EditMode::Inline;
-        assert!(tab.form_visible(true), "a read-only tab shows the inspector");
+        assert!(
+            tab.form_visible(true),
+            "a read-only tab shows the inspector"
+        );
         tab.show_form = false;
         assert!(!tab.form_visible(true));
     }
@@ -426,7 +429,10 @@ mod tests {
         let refused = DbFailure::new(DbFailureKind::ReadOnly, "UPDATE is a write");
         tab.accept_page(query, 1, Err(refused));
         let note = tab.note.unwrap();
-        assert!(note.text.starts_with("Read-only: nothing was written."), "{note:?}");
+        assert!(
+            note.text.starts_with("Read-only: nothing was written."),
+            "{note:?}"
+        );
     }
 
     #[test]

@@ -959,7 +959,8 @@ fn agent_row(
             Some(key) => SharedString::from(key),
             None => SharedString::from(task.title.clone()),
         })
-        .unwrap_or_else(|| SharedString::from(agent.note.clone()));
+        .unwrap_or_default();
+    let label = app.agent_label(agent);
 
     div()
         .h(px(26.))
@@ -975,14 +976,15 @@ fn agent_row(
             11.,
             false,
         ))
-        .child(elided(
+        .child(crate::ui::kit::elided_with(
             eid("mission-agent-name", agent.id),
-            app.agent_title(agent),
+            label.title,
+            label.tooltip,
             theme::text(),
             theme::font(Family::Chrome, Role::Label),
         ))
-        .when(!agent.model.is_empty(), |row| {
-            row.child(mono(agent.model.clone(), theme::text_faint()))
+        .when(!label.identity.is_empty(), |row| {
+            row.child(mono(label.identity, theme::text_faint()))
         })
         .child(mono(on, theme::text_muted()))
         .child(div().flex_1().min_w(px(0.)))

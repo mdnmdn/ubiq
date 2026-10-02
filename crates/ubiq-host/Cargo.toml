@@ -105,6 +105,10 @@ ring = { version = "0.17", optional = true }
 # The sealed password and the key that opens it are TOML strings, so they are base64. Behind `db`.
 base64 = { version = "0.22", optional = true }
 
+# TOON, the token-lean table encoding the SQL MCP servers answer in. `default-features = false`
+# drops its CLI and its extras; only `encode` is used.
+toon-format = { version = "0.5", default-features = false }
+
 # The usage meter's storage. A counter that survives a restart is a database, and this is the one
 # every machine already has. `bundled` compiles SQLite into the binary on purpose: the OS's own
 # libsqlite3 varies by platform and by decade, and which SQL is understood — `WITHOUT ROWID`, the

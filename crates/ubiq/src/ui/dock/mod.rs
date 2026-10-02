@@ -187,18 +187,15 @@ impl WorkbenchPanel {
         match &self.kind {
             PanelKind::Terminal(pane_id) => {
                 let pane = app.pane(*pane_id);
-                let title = app.tab_name(&self.kind).map_or_else(
-                    || {
-                        pane.map(|pane| pane.title.clone())
-                            .unwrap_or_else(|| "pane".to_string())
-                    },
-                    |name| name.to_string(),
-                );
+                let label = app.pane_label(*pane_id);
                 let dot = match pane.map(|pane| pane.running) {
                     Some(true) => theme::success(),
                     _ => theme::text_faint(),
                 };
-                let (label, tooltip) = truncate_tab_title(&title);
+                let (label, tooltip) = match label {
+                    Some(label) => tab_label(&label),
+                    None => (SharedString::from("pane"), None),
+                };
                 TabInfo {
                     label,
                     dot_colour: Some(dot),
@@ -279,21 +276,13 @@ impl WorkbenchPanel {
                 // be another held project's agent (`T-149`), and the active project's projection
                 // has no row for it — the tab would read "New chat" over a live conversation.
                 let agent = attached.and_then(|agent| app.teams_agent(agent, cx));
-                let label = match agent {
-                    Some(agent) => app.agent_title(agent).to_string(),
-                    None => "New chat".to_string(),
-                };
-                // The hover is what the conversation is about, where something has named it. A
-                // tab nothing named keeps no tooltip: the label is the whole of what it knows.
-                let tooltip = agent
-                    .and_then(|agent| agent.summary.clone())
-                    .map(SharedString::from);
-                // A typed-over name replaces the label and, like a terminal's overlong title, is
-                // run through the same truncation — the field that seeded it puts no ceiling on
-                // its length.
-                let (label, tooltip) = match app.tab_name(&self.kind) {
-                    Some(name) => truncate_tab_title(&name),
-                    None => (SharedString::from(label), tooltip),
+                // The agent's title, cut to the same length a terminal's is, and the standard
+                // tooltip. A rename of an attached tab is the agent's (`RenameConversation`), so
+                // it is already the title; only a tab attached to nothing keeps a name of its own.
+                let (label, tooltip) = match (agent, app.tab_name(&self.kind)) {
+                    (Some(agent), _) => tab_label(&app.agent_label(agent)),
+                    (None, Some(name)) => truncate_tab_title(&name),
+                    (None, None) => (SharedString::from("New chat"), None),
                 };
                 // The hexagon the agents column's tab wears too (T-99/T-102), from the one
                 // vocabulary both read — a reader scanning the tab row is asking which
@@ -412,6 +401,20 @@ impl WorkbenchPanel {
 /// `@`, because that is the half a `user@host` or a prompt's path keeps its meaning in. The full
 /// title comes back as the tooltip so nothing is actually lost, only hidden until hovered.
 const TAB_TITLE_KEEP: usize = 15;
+
+/// An agent's or a pane's tab: its title cut by [`truncate_tab_title`], and the standard agent
+/// tooltip — led by the full title when the cut took some of it away.
+fn tab_label(label: &crate::state::work::AgentLabel) -> (SharedString, Option<SharedString>) {
+    let (short, cut) = truncate_tab_title(&label.title);
+    let lines: Vec<&str> = cut
+        .as_ref()
+        .map(|full| full.as_ref())
+        .into_iter()
+        .chain((!label.tooltip.is_empty()).then_some(label.tooltip.as_ref()))
+        .collect();
+    let tooltip = (!lines.is_empty()).then(|| SharedString::from(lines.join("\n")));
+    (short, tooltip)
+}
 
 fn truncate_tab_title(title: &str) -> (SharedString, Option<SharedString>) {
     if title.chars().count() <= TAB_TITLE_KEEP {

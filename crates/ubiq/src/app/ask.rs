@@ -416,7 +416,11 @@ impl AppState {
             return;
         };
         // Read before the borrow ends: the bell needs the agent's name, per `G198`.
-        let actor = open.work.agent(agent_id).map(|agent| agent.name.clone());
+        let actor = open.work.agent(agent_id).map(|agent| {
+            crate::state::work::AgentLabel::of(agent, None)
+                .title
+                .to_string()
+        });
         let shown = conversation_shown(open, agent_id);
         let headers: Vec<String> = questions
             .iter()

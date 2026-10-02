@@ -9,6 +9,7 @@ use ubiq_proto::work::{AgentId, WorkAgent};
 
 use super::agents::{CHATS_MAX, COLUMNS_MAX};
 use super::dock::ChatId;
+use super::work::AgentLabel;
 
 /// One chat tab: a view, and nothing else. It owns a composer slot and, at most, an attachment.
 /// Closing it ends nothing — the conversation is the host's.
@@ -69,11 +70,14 @@ pub fn attach_choices(
     query: &str,
 ) -> AttachChoices {
     let query = query.trim().to_lowercase();
+    // Title then identity, and matched on title, identity and handle alike (T-283's B7): a search
+    // for the definition or the handle finds the agent as surely as one for its title.
     let items: Vec<(AgentId, String)> = agents
         .iter()
         .filter(|agent| live.contains(&agent.id))
-        .filter(|agent| query.is_empty() || agent.name.to_lowercase().contains(&query))
-        .map(|agent| (agent.id, agent.name.clone()))
+        .map(|agent| (agent.id, AgentLabel::of(agent, None)))
+        .filter(|(_, label)| query.is_empty() || label.matches(&query))
+        .map(|(id, label)| (id, label.row()))
         .collect();
 
     let disabled = items
@@ -231,6 +235,28 @@ mod tests {
         );
     }
 
+    /// A search finds an agent by its definition and by its handle, not only by its title — and
+    /// the row reads title first, identity after.
+    #[test]
+    fn a_search_matches_the_title_the_identity_and_the_handle() {
+        let id = AgentId::generate();
+        let mut named = agent(id, "claude 2");
+        named.title = Some("Fix tab truncation".to_string());
+        named.definition = Some("Reviewer".to_string());
+        named.harness = "Claude Code".to_string();
+        let agents = vec![named];
+
+        for query in ["fix tab", "reviewer", "claude 2", "claude code"] {
+            let attach = attach_choices(&agents, &[id], &[], None, query);
+            assert_eq!(attach.items.len(), 1, "{query:?} found nothing");
+        }
+        let attach = attach_choices(&agents, &[id], &[], None, "");
+        assert_eq!(
+            attach.items[0].1,
+            "Fix tab truncation \u{00b7} Reviewer \u{00b7} Claude Code"
+        );
+    }
+
     fn agent(id: AgentId, name: &str) -> WorkAgent {
         WorkAgent {
             id,
@@ -239,9 +265,9 @@ mod tests {
             parent: None,
             name: name.to_string(),
             summary: None,
-            role: String::new(),
+            title: None,
+            definition: None,
             activity: ubiq_proto::work::Activity::Thinking,
-            note: String::new(),
             branch: String::new(),
             tokens: 0.0,
             harness: String::new(),

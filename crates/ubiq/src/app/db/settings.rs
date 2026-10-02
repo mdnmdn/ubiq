@@ -82,9 +82,9 @@ impl AppState {
     /// Build the widgets queued for the window: the password prompt's field, which is made when a
     /// connection first asks for one, and the tree's focus.
     pub(super) fn build_db_form_widgets(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let wants_prompt = self.db(cx).is_some_and(|db| {
-            db.password_prompt.is_some() && db.tree.prompt_input.is_none()
-        });
+        let wants_prompt = self
+            .db(cx)
+            .is_some_and(|db| db.password_prompt.is_some() && db.tree.prompt_input.is_none());
         if wants_prompt {
             let input = text_input(window, cx, "Password", "", true);
             if let Some(db) = self.db_mut(cx) {
@@ -119,7 +119,10 @@ impl AppState {
         };
         // A saved password is written to the keychain only when asked; the default follows what
         // this install can do.
-        form.remember = !matches!(db.keystore, Some(ubiq_proto::db::DbKeystore::Unavailable(_)));
+        form.remember = !matches!(
+            db.keystore,
+            Some(ubiq_proto::db::DbKeystore::Unavailable(_))
+        );
         let text = form.text();
         let hint = port_hint(form.kind());
         form.inputs = Some(DbFormInputs {
@@ -136,6 +139,13 @@ impl AppState {
             database: text_input(window, cx, "Database", &text.database, false),
             user: text_input(window, cx, "User", &text.user, false),
             password: text_input(window, cx, "Password", "", true),
+            description: text_input(
+                window,
+                cx,
+                "What this database holds, for the agent",
+                &text.description,
+                false,
+            ),
         });
         self.workbench.open_menu = None;
         if let Some(db) = self.db_mut(cx) {
@@ -197,6 +207,7 @@ impl AppState {
             database: get(&inputs.database),
             user: get(&inputs.user),
             password: None,
+            description: get(&inputs.description),
         };
         Some((text, get(&inputs.password), get(&inputs.conn_string)))
     }
@@ -345,12 +356,13 @@ impl AppState {
                 return;
             }
         };
+        let agent = form.collect_agent(&text);
         let (id, edit, remember) = (form.id, form.secret_edit(&typed), form.remember);
         db.form = None;
         if let Some(id) = id {
             db.tree.reset(id);
         }
-        self.save_db_connection(project, id, config, edit, remember);
+        self.save_db_connection(project, id, config, edit, remember, agent);
         cx.notify();
     }
 

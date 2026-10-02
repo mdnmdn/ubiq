@@ -676,15 +676,6 @@ impl AppState {
         if let Some(preamble) = form.preamble() {
             self.workbench.agent_preambles.insert(agent_id, preamble);
         }
-        // The definition's own id is its display name (`AgentDefinition::id`'s doc) — the title a fresh
-        // agent wears until the harness (or the user) actually names the conversation, in place
-        // of the bare harness-label default `refresh_agent_record` gives one nothing else named.
-        // See `state::WorkbenchState::agent_started_definition`.
-        if let Some(definition) = &definition {
-            self.workbench
-                .agent_started_definition
-                .insert(agent_id, definition.clone());
-        }
         self.remember_harness_choice(
             &form.agent_type.clone(),
             form.account.as_deref(),

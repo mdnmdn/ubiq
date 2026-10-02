@@ -165,7 +165,7 @@ and agents stay its mocks.
 | `shell_integration.rs` | `handle(action)` on `cli_shortcut`'s shape, behind `desktop`; on Windows three HKCU `Software\Classes` verbs marked `UbiqTarget`, elsewhere `supported: false` (`D198`) | A stored flag — the registry is read back every time |
 | `links.rs` | `LinkScanner::new` / `feed`, `TAIL_CAP = 4 KiB`, `SEEN_CAP = 16` | A URL parser or a VT parser |
 | `watch/mod.rs` | `Job { project_id, root, excludes, index, reply_to }`, `Watcher`, `start(job)`, `QUIET = 150ms`, `BOUND = 64` | An absolute path on the wire, or an opinion about what a reader redraws |
-| `mcp/` | One loopback listener (`D102`), the catalogue (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`), the registry, and task tools that share `work::Handle` (`D120`) | A round trip through the coordinator |
+| `mcp/` | One loopback listener (`D102`), the catalogue (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`), the registry, and task tools that share `work::Handle` (`D120`); `mcp/sql/` is the `ubiq-sql-read`/`ubiq-sql-write` pair — `encode` (TOON), `blobs` (the `(agent, id)` cache) and the tools over `db::AgentDb`, each call on its own thread, at most 8 (`D202`) | A round trip through the coordinator |
 
 `shells::repair_path` is `D62`: a desktop-launched host asks the user's login shell for its `PATH`
 once, with `-lic`, because the environment a Finder launch inherits is exactly the one that cannot

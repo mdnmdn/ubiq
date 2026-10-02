@@ -20,6 +20,7 @@ use ubiq_proto::db::{
 use ubiq_proto::ids::{DbQueryId, DbSessionId};
 use ubiq_proto::messages::Message;
 
+use super::agent::{Panel, StmtResult};
 use super::session::Origin;
 
 /// A page and a tree listing give up after this.
@@ -66,6 +67,23 @@ pub enum Job {
         table: TableRef,
         edits: Vec<RowEdit>,
     },
+    /// An agent's statements, answered on `reply` rather than to a window; `panel` also shows each
+    /// result, to every window, in a shared editor's session.
+    Agent {
+        query: DbQueryId,
+        database: Option<String>,
+        statements: Vec<String>,
+        read_only: bool,
+        timeout: Duration,
+        row_limit: usize,
+        panel: Option<Panel>,
+        reply: flume::Sender<Vec<StmtResult>>,
+    },
+    /// An agent's look at the structure tree.
+    AgentTree {
+        node: DbNode,
+        reply: flume::Sender<Result<DbListing, DbFailure>>,
+    },
 }
 
 impl Job {
@@ -107,6 +125,29 @@ impl Job {
                     failure,
                 }),
             },
+            Job::Agent {
+                query,
+                statements,
+                panel,
+                reply,
+                ..
+            } => {
+                if let Some(panel) = panel {
+                    panel.show(o, *query, 0, true, 0, &Err(failure.clone()));
+                }
+                let _ = reply.send(vec![StmtResult {
+                    sql: statements.first().cloned().unwrap_or_default(),
+                    kind: String::new(),
+                    elapsed_ms: 0,
+                    outcome: Err(failure),
+                }]);
+                o.runs.end(*query);
+                return None;
+            }
+            Job::AgentTree { reply, .. } => {
+                let _ = reply.send(Err(failure));
+                return None;
+            }
         })
     }
 }
@@ -177,7 +218,16 @@ pub fn run(o: &Origin, conn: &mut Box<dyn Connection>, job: Job) -> bool {
             opts,
         } => {
             let _end = EndRun::new(o, query);
-            statements_run(o, conn, session, query, database.as_deref(), &statements, run, opts)
+            statements_run(
+                o,
+                conn,
+                session,
+                query,
+                database.as_deref(),
+                &statements,
+                run,
+                opts,
+            )
         }
         Job::Edits {
             session,
@@ -196,6 +246,40 @@ pub fn run(o: &Origin, conn: &mut Box<dyn Connection>, job: Job) -> bool {
                 query,
                 result,
             });
+            keep
+        }
+        Job::Agent {
+            query,
+            database,
+            statements,
+            read_only,
+            timeout,
+            row_limit,
+            panel,
+            reply,
+        } => {
+            let _end = EndRun::new(o, query);
+            let exec = ExecOptions {
+                read_only: read_only || conn.is_read_only(),
+                timeout: Some(timeout),
+                row_limit: Some(row_limit.clamp(1, MAX_ROWS)),
+            };
+            let (results, keep) = agent_run(
+                o,
+                conn,
+                query,
+                database.as_deref(),
+                &statements,
+                &exec,
+                panel.as_ref(),
+            );
+            let _ = reply.send(results);
+            keep
+        }
+        Job::AgentTree { node, reply } => {
+            let result = tree(conn, &node);
+            let keep = keeps(&result);
+            let _ = reply.send(result);
             keep
         }
     }
@@ -244,7 +328,10 @@ fn tree(conn: &mut Box<dyn Connection>, node: &DbNode) -> Result<DbListing, DbFa
 
 /// Make `database` the one statements run against, if it is not already. A session is one tab's, so
 /// this happens once, not before every run.
-fn select_database(conn: &mut Box<dyn Connection>, database: Option<&str>) -> Result<(), DbFailure> {
+fn select_database(
+    conn: &mut Box<dyn Connection>,
+    database: Option<&str>,
+) -> Result<(), DbFailure> {
     match database.filter(|d| !d.is_empty()) {
         Some(db) if conn.current_database().as_deref() != Some(db) => {
             conn.use_database(db).map_err(|e| failure(&e))
@@ -461,17 +548,18 @@ fn statements_run(
                 .clamp(1, MAX_ROWS),
         ),
     };
-    let reply = |index: usize, last: bool, started: Instant, result: Result<DbOutcome, DbFailure>| {
-        o.say(Message::DbQueryResult {
-            project_id: o.project,
-            session,
-            query,
-            index: u32::try_from(index).unwrap_or(u32::MAX),
-            last,
-            result: result.map(Box::new),
-            elapsed_ms: ms(started),
-        });
-    };
+    let reply =
+        |index: usize, last: bool, started: Instant, result: Result<DbOutcome, DbFailure>| {
+            o.say(Message::DbQueryResult {
+                project_id: o.project,
+                session,
+                query,
+                index: u32::try_from(index).unwrap_or(u32::MAX),
+                last,
+                result: result.map(Box::new),
+                elapsed_ms: ms(started),
+            });
+        };
     if statements.is_empty() {
         reply(
             0,
@@ -493,7 +581,12 @@ fn statements_run(
             .as_ref()
             .err()
             .is_some_and(|e| e.kind == DbFailureKind::Disconnected);
-        reply(index, failed || index + 1 == statements.len(), started, result);
+        reply(
+            index,
+            failed || index + 1 == statements.len(),
+            started,
+            result,
+        );
         if lost {
             return false;
         }
@@ -553,6 +646,72 @@ fn statement(
     }
 }
 
+// ---- an agent's statements ----------------------------------------------------------------------
+
+/// Run an agent's statements in order, stopping at the first failure. The database is selected on
+/// every run: the session is shared by every call the agent makes on the connection, and
+/// `use_database` is sticky. Answers the results and whether the connection is still good.
+fn agent_run(
+    o: &Origin,
+    conn: &mut Box<dyn Connection>,
+    query: DbQueryId,
+    database: Option<&str>,
+    statements: &[String],
+    exec: &ExecOptions,
+    panel: Option<&Panel>,
+) -> (Vec<StmtResult>, bool) {
+    if statements.is_empty() {
+        let failure = DbFailure::new(DbFailureKind::Query, "no statement to run");
+        if let Some(panel) = panel {
+            panel.show(o, query, 0, true, 0, &Err(failure.clone()));
+        }
+        let result = StmtResult {
+            sql: String::new(),
+            kind: String::new(),
+            elapsed_ms: 0,
+            outcome: Err(failure),
+        };
+        return (vec![result], true);
+    }
+    let setup = select_database(conn, database);
+    let mut results = Vec::with_capacity(statements.len());
+    for (index, text) in statements.iter().enumerate() {
+        let started = Instant::now();
+        let kind = sql::analyze(text, conn.kind().into())
+            .statements
+            .first()
+            .map(|s| s.kind.clone())
+            .unwrap_or_default();
+        let outcome = match &setup {
+            Err(failure) => Err(failure.clone()),
+            Ok(()) => statement(o, conn, query, text, DbRun::Query, exec),
+        };
+        let elapsed_ms = ms(started);
+        let failed = outcome.is_err();
+        let lost = outcome
+            .as_ref()
+            .err()
+            .is_some_and(|e| e.kind == DbFailureKind::Disconnected);
+        if let Some(panel) = panel {
+            let last = failed || index + 1 == statements.len();
+            panel.show(o, query, index, last, elapsed_ms, &outcome);
+        }
+        results.push(StmtResult {
+            sql: text.clone(),
+            kind,
+            elapsed_ms,
+            outcome,
+        });
+        if lost {
+            return (results, false);
+        }
+        if failed {
+            break;
+        }
+    }
+    (results, true)
+}
+
 // ---- row edits ----------------------------------------------------------------------------------
 
 /// Render the batch and run it between `BEGIN` and `COMMIT`; the first error rolls the whole of it
@@ -573,7 +732,10 @@ fn apply_edits(
         return Err(at(
             0,
             "",
-            DbFailure::new(DbFailureKind::ReadOnly, "read-only: this connection is read-only"),
+            DbFailure::new(
+                DbFailureKind::ReadOnly,
+                "read-only: this connection is read-only",
+            ),
         ));
     }
     let kind = conn.kind();
@@ -582,7 +744,11 @@ fn apply_edits(
             .iter()
             .position(|edit| edit::render(kind, table, edit).is_err())
             .unwrap_or(0);
-        at(index, "", DbFailure::new(DbFailureKind::Query, e.to_string()))
+        at(
+            index,
+            "",
+            DbFailure::new(DbFailureKind::Query, e.to_string()),
+        )
     })?;
     if statements.is_empty() {
         return Ok(0);
@@ -637,8 +803,8 @@ fn rollback(conn: &mut Box<dyn Connection>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ubiq_db::driver;
     use ubiq_db::conn::ConnectionConfig;
+    use ubiq_db::driver;
 
     fn file_db() -> (tempfile::TempDir, Box<dyn Connection>) {
         let dir = tempfile::tempdir().unwrap();
@@ -647,7 +813,8 @@ mod tests {
         let mut config = ConnectionConfig::new(DbKind::Sqlite);
         config.path = Some(path);
         let mut conn = driver::connect(&config).unwrap();
-        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)").unwrap();
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+            .unwrap();
         (dir, conn)
     }
 
@@ -659,10 +826,7 @@ mod tests {
         let refused = conn
             .query_with("INSERT INTO t VALUES (1)", &ExecOptions::read_only())
             .unwrap_err();
-        assert!(matches!(
-            refused,
-            DbError::ReadOnly(_) | DbError::Query(_)
-        ));
+        assert!(matches!(refused, DbError::ReadOnly(_) | DbError::Query(_)));
         assert_eq!(conn.query("SELECT * FROM t", None).unwrap().rows.len(), 0);
     }
 

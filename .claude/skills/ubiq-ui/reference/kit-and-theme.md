@@ -17,6 +17,7 @@ thread-local — a call site never learns which palette answered.
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane; the OSC 8 / detected-URL underline |
 | Border | `border`, `border_focus` | Ordinary separation; the focused edge |
 | Status | `danger`, `success`, `warning`, `info` + a `_soft` each | Agent and process states, and the fills behind them |
+| Agent control | `agent_controlled`, `agent_controlled_soft` | What an agent drives: the left edge, tab mark and chip of an agent-controlled SQL panel, and the ground behind the chip |
 | Ribbon | `ribbon_alpha`, `ribbon_beta`, `ribbon_ink`, `ribbon_experimental`, `ribbon_experimental_ink` | The build-channel ribbon, and Git mode's experimental ribbon — same values in every palette |
 | Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(temporary, colour, custom)`, `mark_dark(colour)` | One project's identity wherever it appears |
 

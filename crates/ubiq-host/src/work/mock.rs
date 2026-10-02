@@ -268,15 +268,18 @@ pub fn agents() -> Vec<WorkAgent> {
 /// which this file never sees. An agent with no task draws as ungrouped, which is honest; giving
 /// it one is `link`'s job in `work/mod.rs`, done against whatever the user has actually written
 /// down.
+///
+/// `definition` stands in for the saved setup the card was started from, and `summary` for the
+/// line the naming pass would have written about what it is doing.
 #[allow(clippy::too_many_arguments)]
 fn card(
     id: usize,
     session_n: usize,
     parent: Option<usize>,
     name: &str,
-    role: &str,
+    definition: &str,
     activity: Activity,
-    note: &str,
+    summary: &str,
     branch: &str,
     tokens: f32,
 ) -> WorkAgent {
@@ -286,10 +289,10 @@ fn card(
         task: None,
         parent: parent.map(agent),
         name: name.to_string(),
-        summary: None,
-        role: role.to_string(),
+        summary: Some(summary.to_string()),
+        title: None,
+        definition: Some(definition.to_string()),
         activity,
-        note: note.to_string(),
         branch: branch.to_string(),
         tokens,
         harness: "Claude Code".to_string(),
@@ -301,10 +304,10 @@ fn card(
         debug_dump: None,
         run_dir: None,
         config_dir: None,
-        // One line each: the last thing the agent said, which is also what its card prints.
+        // One line each: the last thing the agent said, which is also its summary.
         thread: vec![Turn {
             from: Speaker::Agent,
-            text: note.to_string(),
+            text: summary.to_string(),
         }],
     }
 }

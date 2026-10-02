@@ -4,7 +4,7 @@
 //!
 //! Top to bottom: the name, the engine, a box that takes a pasted connection string and fills the
 //! rest, the fields that engine has (a file and two ways to get one for SQLite; host, port,
-//! database, user and the password for a server), SSL, read-only, and the answer to the last Test.
+//! database, user and the password for a server), SSL, read-only, the Agents section (access, default, description), and the answer to the last Test.
 //!
 //! **The password field is write-only.** It is empty on open, even when one is saved; what it says
 //! beside the field is `saved` / `not saved` from the list's `PasswordState`, and the form sends
@@ -15,10 +15,10 @@ use gpui::{AnyElement, Context, Entity, IntoElement, ParentElement, Styled, Wind
 use gpui_component::IconName;
 use gpui_component::input::{Input, InputState};
 
-use ubiq_proto::db::{DbKeystore, DbKind, SslMode};
+use ubiq_proto::db::{DbAgentAccess, DbKeystore, DbKind, SslMode};
 
 use crate::app::AppState;
-use crate::state::db::form::DbConnForm;
+use crate::state::db::form::{DbConnForm, DbFormInputs};
 use crate::state::overlay::Layer;
 use crate::theme::{self, Family, Role};
 use crate::ui::kit::{
@@ -308,7 +308,13 @@ fn body(
                     window,
                     cx,
                 ))
-                .child(password_row(form, inputs.password.clone(), keystore, window, cx));
+                .child(password_row(
+                    form,
+                    inputs.password.clone(),
+                    keystore,
+                    window,
+                    cx,
+                ));
         }
         // SSL, as the four steps all the network engines can say.
         let mut modes = div().flex().flex_wrap().gap_1();
@@ -357,13 +363,123 @@ fn body(
                 theme::db_read_only(),
                 form.config.read_only,
                 cx.listener(|this, _, _, cx| {
-                    this.edit_db_form(cx, |form| form.config.read_only = !form.config.read_only)
+                    this.edit_db_form(cx, |form| form.set_read_only(!form.config.read_only))
                 }),
             ))
             .into_any_element(),
     ));
 
+    // 6 ─ what an agent may do, through the SQL MCP servers.
+    rows = rows.child(agents_section(form, inputs, window, cx));
+
     rows.into_any_element()
+}
+
+/// The Agents section: access, whether it is the default, and a description.
+fn agents_section(
+    form: &DbConnForm,
+    inputs: &DbFormInputs,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let label = theme::font(Family::Chrome, Role::Label);
+    let mut levels = div().flex().flex_wrap().gap_1();
+    for (ix, (name, access)) in [
+        ("None", DbAgentAccess::None),
+        ("Read-only", DbAgentAccess::Ro),
+        ("Read-write", DbAgentAccess::Rw),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // Read-write is not offered on a read-only connection.
+        let enabled = access != DbAgentAccess::Rw || form.can_write();
+        levels = levels.child(
+            choice_pill(
+                ("db-form-agent-access", ix),
+                name,
+                form.agent.access == access,
+                cx.listener(move |this, _, _, cx| {
+                    this.edit_db_form(cx, |form| form.set_agent_access(access))
+                }),
+            )
+            .when(!enabled, |this| this.opacity(0.4).cursor_default()),
+        );
+    }
+    let mut access_col = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap_1()
+        .w(px(CONTROL_WIDTH))
+        .child(levels);
+    if form.read_only_is_best_effort() {
+        access_col = access_col.child(div().text_size(label).text_color(theme::warning()).child(
+            "Read-only is best-effort on SQL Server: use a login that has read-only rights.",
+        ));
+    }
+
+    let can_default = form.can_default();
+    let default_box = check_box(
+        "db-form-agent-default",
+        form.agent.default,
+        cx.listener(|this, _, _, cx| {
+            this.edit_db_form(cx, |form| {
+                if form.can_default() {
+                    form.agent.default = !form.agent.default
+                }
+            })
+        }),
+    );
+    let default_row = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(match can_default {
+            true => default_box,
+            false => default_box.opacity(0.4).cursor_default(),
+        })
+        .child(
+            div()
+                .text_size(label)
+                .text_color(match can_default {
+                    true => theme::text(),
+                    false => theme::text_faint(),
+                })
+                .child("Default for agents"),
+        );
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(hint_row(
+            "db-form-agent-access-hint",
+            "Agents",
+            "What an agent may do with this connection through the SQL servers. Read-write needs a \
+             connection that is not read-only.",
+            access_col.into_any_element(),
+        ))
+        .child(hint_row(
+            "db-form-agent-default-hint",
+            "Default",
+            "The connection an agent gets when it names none. One per project; setting it here \
+             clears it elsewhere. Needs some access.",
+            div()
+                .flex_none()
+                .w(px(CONTROL_WIDTH))
+                .child(default_row)
+                .into_any_element(),
+        ))
+        .child(field_row(
+            "db-form-agent-description",
+            "Description",
+            "What the connection is for, as the agent reads it.",
+            &inputs.description,
+            window,
+            cx,
+        ))
+        .into_any_element()
 }
 
 /// The write-only password: a field that is empty unless typed in, what the host holds, and the

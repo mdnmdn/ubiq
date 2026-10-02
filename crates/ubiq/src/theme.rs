@@ -644,6 +644,10 @@ pub struct StatusColors {
     pub db_read_only: Rgba,
     pub db_read_only_soft: Rgba,
     pub db_plan_hot: Rgba,
+    /// What an agent controls: the left edge, tab mark and chip of a query panel an agent drives,
+    /// with `agent_controlled_soft` behind the chip.
+    pub agent_controlled: Rgba,
+    pub agent_controlled_soft: Rgba,
 }
 
 /// Colours the terminal emulator paints that are not ANSI — selection and links.
@@ -1853,6 +1857,16 @@ pub fn db_read_only_soft() -> Rgba {
     Theme::current().palette.status.db_read_only_soft
 }
 
+/// The edge, tab mark and chip ink of a panel an agent controls.
+pub fn agent_controlled() -> Rgba {
+    Theme::current().palette.status.agent_controlled
+}
+
+/// The ground behind [`agent_controlled`].
+pub fn agent_controlled_soft() -> Rgba {
+    Theme::current().palette.status.agent_controlled_soft
+}
+
 /// The plan node that cost the most.
 pub fn db_plan_hot() -> Rgba {
     Theme::current().palette.status.db_plan_hot
@@ -2057,6 +2071,8 @@ const DARK: Palette = Palette {
         db_statement_active: rgba_hex(0x252d3f),
         db_read_only: rgba_hex(0xe0b060),
         db_read_only_soft: rgba_hex(0x33291a),
+        agent_controlled: rgba_hex(0xb890e8),
+        agent_controlled_soft: rgba_hex(0x2a2238),
         db_plan_hot: rgba_hex(0x472826),
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
@@ -2140,6 +2156,8 @@ const LIGHT: Palette = Palette {
         db_statement_active: rgba_hex(0xe8eefa),
         db_read_only: rgba_hex(0x8a5a00),
         db_read_only_soft: rgba_hex(0xf6ecd4),
+        agent_controlled: rgba_hex(0x6b3fb0),
+        agent_controlled_soft: rgba_hex(0xece4f8),
         db_plan_hot: rgba_hex(0xf8dcd6),
         ribbon_alpha: rgba_hex(0xf5c518),
         ribbon_beta: rgba_hex(0xf5a04a),
@@ -2281,6 +2299,8 @@ const EMBER_DARK: Palette = Palette {
         db_statement_active: rgba_hex(0x30291f),
         db_read_only: rgba_hex(0xe0b060),
         db_read_only_soft: rgba_hex(0x352a1a),
+        agent_controlled: rgba_hex(0xb890e8),
+        agent_controlled_soft: rgba_hex(0x2a2238),
         db_plan_hot: rgba_hex(0x4a2b25),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
@@ -2344,6 +2364,8 @@ const EMBER_LIGHT: Palette = Palette {
         db_statement_active: rgba_hex(0xf0e6d6),
         db_read_only: rgba_hex(0x8a5a00),
         db_read_only_soft: rgba_hex(0xf3e8d0),
+        agent_controlled: rgba_hex(0x6b3fb0),
+        agent_controlled_soft: rgba_hex(0xece4f8),
         db_plan_hot: rgba_hex(0xf5d9d0),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
@@ -2410,6 +2432,8 @@ const CONTRAST_DARK: Palette = Palette {
         db_statement_active: rgba_hex(0x1a2f5c),
         db_read_only: rgba_hex(0xffd400),
         db_read_only_soft: rgba_hex(0x3d3200),
+        agent_controlled: rgba_hex(0xd7b0ff),
+        agent_controlled_soft: rgba_hex(0x2e1f4d),
         db_plan_hot: rgba_hex(0x661a1a),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
@@ -2474,6 +2498,8 @@ const CONTRAST_LIGHT: Palette = Palette {
         db_statement_active: rgba_hex(0xd0defc),
         db_read_only: rgba_hex(0x5c3d00),
         db_read_only_soft: rgba_hex(0xffe9b0),
+        agent_controlled: rgba_hex(0x4b1d8f),
+        agent_controlled_soft: rgba_hex(0xe6d8ff),
         db_plan_hot: rgba_hex(0xffc8c0),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
@@ -2538,6 +2564,8 @@ const NAVY_DARK: Palette = Palette {
         db_statement_active: rgba_hex(0x252d3f),
         db_read_only: rgba_hex(0xe0b060),
         db_read_only_soft: rgba_hex(0x33291a),
+        agent_controlled: rgba_hex(0xb890e8),
+        agent_controlled_soft: rgba_hex(0x2a2238),
         db_plan_hot: rgba_hex(0x472826),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
@@ -2601,6 +2629,8 @@ const NAVY_LIGHT: Palette = Palette {
         db_statement_active: rgba_hex(0xe8eefa),
         db_read_only: rgba_hex(0x8a5a00),
         db_read_only_soft: rgba_hex(0xf6ecd4),
+        agent_controlled: rgba_hex(0x6b3fb0),
+        agent_controlled_soft: rgba_hex(0xece4f8),
         db_plan_hot: rgba_hex(0xf8dcd6),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
@@ -2665,6 +2695,8 @@ const VIOLET_DARK: Palette = Palette {
         db_statement_active: rgba_hex(0x252d3f),
         db_read_only: rgba_hex(0xe0b060),
         db_read_only_soft: rgba_hex(0x33291a),
+        agent_controlled: rgba_hex(0xb890e8),
+        agent_controlled_soft: rgba_hex(0x2a2238),
         db_plan_hot: rgba_hex(0x472826),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,
@@ -2728,6 +2760,8 @@ const VIOLET_LIGHT: Palette = Palette {
         db_statement_active: rgba_hex(0xe8eefa),
         db_read_only: rgba_hex(0x8a5a00),
         db_read_only_soft: rgba_hex(0xf6ecd4),
+        agent_controlled: rgba_hex(0x6b3fb0),
+        agent_controlled_soft: rgba_hex(0xece4f8),
         db_plan_hot: rgba_hex(0xf8dcd6),
         ribbon_alpha: RIBBON_ALPHA,
         ribbon_beta: RIBBON_BETA,

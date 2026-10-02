@@ -87,7 +87,10 @@ pub fn spawn_overlay(
                 .mission_attach_candidates(task_id, cx)
                 .into_iter()
                 .filter_map(|id| app.work(cx).and_then(|work| work.agent(id)).cloned())
-                .map(|agent| kit::ContextItem::new(app.agent_title(&agent).to_string()))
+                .map(|agent| {
+                    let label = app.agent_label(&agent);
+                    kit::ContextItem::new(label.row()).tooltip(label.tooltip)
+                })
                 .collect();
             match rows.is_empty() {
                 true => vec![

@@ -8,9 +8,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
-use ubiq_db::driver::{self, CancelHandle, Connection};
 use ubiq_db::conn::DbKind;
+use ubiq_db::driver::{self, CancelHandle, Connection};
 use ubiq_proto::bus::{ClientId, Mailbox};
 use ubiq_proto::db::{DbConnState, DbFailure, DbFailureKind};
 use ubiq_proto::ids::{DbConnId, DbQueryId, DbSessionId, ProjectId};
@@ -31,8 +32,8 @@ pub struct Origin {
     pub reply: Mailbox,
     /// The project's folder, against which a relative SQLite path is resolved. Empty when unknown.
     pub project_path: PathBuf,
-    /// The project's `db.toml`.
-    pub list: PathBuf,
+    /// The project's `db.toml` and its local agent half.
+    pub files: store::Files,
     pub secrets: Arc<Secrets>,
     pub runs: Arc<Runs>,
 }
@@ -63,7 +64,9 @@ pub struct Runs {
 }
 
 struct Run {
-    client: ClientId,
+    /// The window that started it; `None` for an agent's run, which any window may stop — the
+    /// user watching an agent's editor is not the one who started what runs in it.
+    client: Option<ClientId>,
     session: DbSessionId,
     handle: Option<Arc<dyn CancelHandle>>,
     cancelled: bool,
@@ -75,6 +78,15 @@ impl Runs {
     }
 
     pub fn begin(&self, client: ClientId, session: DbSessionId, query: DbQueryId) {
+        self.insert(Some(client), session, query);
+    }
+
+    /// An agent's run: `session` is the shared editor's it shows in, or one nobody knows.
+    pub fn begin_agent(&self, session: DbSessionId, query: DbQueryId) {
+        self.insert(None, session, query);
+    }
+
+    fn insert(&self, client: Option<ClientId>, session: DbSessionId, query: DbQueryId) {
         self.table().insert(
             query,
             Run {
@@ -84,6 +96,18 @@ impl Runs {
                 cancelled: false,
             },
         );
+    }
+
+    /// Stop an agent's run whatever its session: its caller gave up waiting.
+    pub fn cancel_agent(&self, query: DbQueryId) {
+        let handle = match self.table().get_mut(&query) {
+            Some(run) if run.client.is_none() => {
+                run.cancelled = true;
+                run.handle.take()
+            }
+            _ => None,
+        };
+        fire(handle);
     }
 
     /// The statement is about to run on a connection whose cancel handle is `handle`. Answers
@@ -106,7 +130,9 @@ impl Runs {
     /// opens a connection of its own.
     pub fn cancel(&self, client: ClientId, session: DbSessionId, query: DbQueryId) {
         let handle = match self.table().get_mut(&query) {
-            Some(run) if run.client == client && run.session == session => {
+            Some(run)
+                if run.session == session && run.client.is_none_or(|owner| owner == client) =>
+            {
                 run.cancelled = true;
                 run.handle.take()
             }
@@ -119,7 +145,7 @@ impl Runs {
     pub fn forget_session(&self, client: ClientId, session: DbSessionId) {
         let mut handles = Vec::new();
         self.table().retain(|_, run| {
-            if run.client == client && run.session == session {
+            if run.client == Some(client) && run.session == session {
                 handles.extend(run.handle.take());
                 false
             } else {
@@ -155,6 +181,8 @@ fn fire(handle: Option<Arc<dyn CancelHandle>>) {
 /// The handle a [`Db`](super::Db) keeps for a session's worker.
 pub struct Session {
     pub conn: DbConnId,
+    /// When a job was last queued on it: an agent's session is dropped once idle long enough.
+    pub used: Instant,
     jobs: flume::Sender<Job>,
 }
 
@@ -174,7 +202,11 @@ impl Session {
             // The receiver went with the closure; the first `send` fails and says so.
             tracing::warn!("a database session could not start a thread: {error}");
         }
-        Self { conn, jobs: tx }
+        Self {
+            conn,
+            used: Instant::now(),
+            jobs: tx,
+        }
     }
 
     /// Queue a job. A session whose thread has gone gives the job back.
@@ -245,11 +277,13 @@ impl Worker {
 
 fn dial(o: &Origin) -> Result<(Box<dyn Connection>, String), DbFailure> {
     let root = Some(o.project_path.as_path()).filter(|p| !p.as_os_str().is_empty());
-    let stored = store::load(&o.list, root)
+    let stored = store::load(&o.files, root)
         .map_err(|e| DbFailure::new(DbFailureKind::Config, e.to_string()))?
         .into_iter()
         .find(|c| c.id == o.conn)
-        .ok_or_else(|| DbFailure::new(DbFailureKind::NotFound, "the connection no longer exists"))?;
+        .ok_or_else(|| {
+            DbFailure::new(DbFailureKind::NotFound, "the connection no longer exists")
+        })?;
     let mut config = stored.config;
     match o.secrets.password(o.project, o.conn) {
         Some(password) => config.password = Some(password),
@@ -261,9 +295,8 @@ fn dial(o: &Origin) -> Result<(Box<dyn Connection>, String), DbFailure> {
         }
         None => {}
     }
-    let asked_none = config.password.is_none()
-        && config.kind != DbKind::Sqlite
-        && !config.integrated_auth;
+    let asked_none =
+        config.password.is_none() && config.kind != DbKind::Sqlite && !config.integrated_auth;
     let mut conn = driver::connect(&config).map_err(|e| {
         let mut failure = jobs::failure(&e);
         // A server that wants a password the host never held is a prompt, not a dead end.

@@ -1,4 +1,4 @@
-//! A SQL tab — a bottom-dock panel, several at once.
+//! A SQL tab — a centre panel, several at once.
 //!
 //! The code editor with the `sql` grammar over a results area, under one toolbar. **What Run would
 //! do is visible**: the statement under the cursor carries the `db_statement_active` ground (an
@@ -9,6 +9,10 @@
 //! **Read-only is evident**: the toolbar takes the `db_read_only_soft` ground, a strip in
 //! `db_read_only` sits over the editor, and a READ-ONLY chip names it. A read-only connection
 //! locks the toggle on. The check here is the live copy; the host's refusal is what decides.
+//!
+//! **An agent-controlled tab is marked**: a left edge in `agent_controlled`, a ◆ and that ink on the
+//! tab label, a "Controlled by <title>" tooltip and an "Agent · <title>" chip in the toolbar. The
+//! text is the host's shared editor, so it follows what the agent writes.
 //!
 //! The results area keeps one tab per statement of a Run all (`1 · SELECT`, `2 · UPDATE`…), or the
 //! last result of a plain Run, and a "Plan" tab for Explain. The grid is [`results`], the plan view
@@ -21,6 +25,7 @@ use gpui::{
     Window, div, px, relative,
 };
 use gpui_component::input::Editor;
+use gpui_component::{Icon, IconName};
 use gpui_component::table::DataTable;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Sizable as _, Size, resizable_panel, v_resizable};
@@ -29,7 +34,7 @@ use crate::app::AppState;
 use crate::state::db::sql::{Confirm, DbSqlTab, ResultBody, Scope};
 use crate::theme::{self, Family, Role};
 use crate::ui::dock::TabInfo;
-use crate::ui::kit::{choice_pill, ghost_button, primary_button, state_chip};
+use crate::ui::kit::{choice_pill, ghost_button, primary_button, row_height, state_chip};
 use crate::ui::viewer::note;
 use ubiq_db::sql::StatementClass;
 
@@ -73,6 +78,10 @@ pub fn render(app: &AppState, key: &str, cx: &mut Context<AppState>) -> AnyEleme
         .min_w(px(0.))
         .min_h(px(0.))
         .bg(theme::pane_bg())
+        .when(tab.agent.is_some(), |this| {
+            this.border_l(px(theme::accent_edge()))
+                .border_color(theme::agent_controlled())
+        })
         .child(toolbar(tab, label, locked, ro, cx))
         .when_some(confirm, |this, confirm| {
             this.child(confirm_bar(session, &confirm, cx))
@@ -111,11 +120,25 @@ pub fn tab(app: &AppState, key: &str) -> TabInfo {
     } else {
         (None, false)
     };
+    let place = connection_label(tab, name);
+    let (label, tooltip, title_colour) = match &tab.agent {
+        Some(agent) => (
+            format!("◆ SQL · {}", name.unwrap_or("?")),
+            format!("{}\n{place}", agent.tooltip()),
+            theme::agent_controlled(),
+        ),
+        None => (
+            format!("SQL · {}", name.unwrap_or("?")),
+            place,
+            theme::text(),
+        ),
+    };
     TabInfo {
-        label: format!("SQL · {}", name.unwrap_or("?")).into(),
+        label: label.into(),
+        title_colour,
         dot_colour,
         dot_pulse,
-        tooltip: Some(connection_label(tab, name).into()),
+        tooltip: Some(tooltip.into()),
         ..TabInfo::default()
     }
 }
@@ -144,13 +167,15 @@ fn click(
 /// the handler runs, so this is only the look.
 fn button(
     id: impl Into<ElementId>,
+    icon: IconName,
     label: impl Into<SharedString>,
     tip: impl Into<SharedString>,
     enabled: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<gpui::Div> {
     let tip: SharedString = tip.into();
-    ghost_button(id, None, label, on_click)
+    ghost_button(id, Some(icon), label, on_click)
+        .h_full()
         .when(!enabled, |this| this.opacity(0.4).cursor_default())
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
 }
@@ -172,9 +197,8 @@ fn toolbar(
         .flex_row()
         .flex_none()
         .items_center()
-        .gap_1()
-        .px_2()
-        .h(px(theme::scaled(36.0)))
+        .gap_0()
+        .h(px(theme::scaled(30.0)))
         .bg(if ro {
             theme::db_read_only_soft()
         } else {
@@ -190,14 +214,35 @@ fn toolbar(
             div()
                 .flex_none()
                 .max_w(px(theme::scaled(280.0)))
+                .px_2()
                 .truncate()
                 .text_size(theme::font(Family::Chrome, Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(label)),
         )
-        .child(div().w(px(theme::hairline())).h_4().bg(theme::border()))
+        .when_some(tab.agent.as_ref(), |this, agent| {
+            let tip = SharedString::from(agent.tooltip());
+            this.child(
+                div()
+                    .id(crate::ui::eid("db-sql-agent", session))
+                    .flex_none()
+                    .max_w(px(theme::scaled(220.0)))
+                    .truncate()
+                    .px_2()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .text_size(micro)
+                    .text_color(theme::agent_controlled())
+                    .bg(theme::agent_controlled_soft())
+                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .child(SharedString::from(agent.chip())),
+            )
+        })
+        .child(div().w(px(theme::hairline())).h_full().flex_none().bg(theme::border()))
         .child(button(
             "db-sql-run",
+            IconName::Play,
             format!("Run {MOD}↵"),
             "Run the selection, or the statement under the cursor",
             idle,
@@ -207,6 +252,7 @@ fn toolbar(
         ))
         .child(button(
             "db-sql-run-all",
+            IconName::GalleryVerticalEnd,
             "Run all",
             format!("Run every statement, one result tab each ({MOD}⇧↵)"),
             idle,
@@ -214,6 +260,7 @@ fn toolbar(
         ))
         .child(button(
             "db-sql-explain",
+            IconName::Search,
             "Explain",
             "Show the plan of the statement Run would take",
             idle,
@@ -221,6 +268,7 @@ fn toolbar(
         ))
         .child(button(
             "db-sql-analyze",
+            IconName::ChartPie,
             "Analyze",
             "Explain analyze: executes the statement and measures it",
             idle,
@@ -230,6 +278,7 @@ fn toolbar(
             this.child(
                 div()
                     .flex_none()
+                    .px_2()
                     .text_size(micro)
                     .text_color(theme::text_faint())
                     .child(SharedString::from(target)),
@@ -244,7 +293,7 @@ fn toolbar(
             this.child(
                 div()
                     .flex_none()
-                    .px_1()
+                    .px_2()
                     .text_size(micro)
                     .text_color(theme::info())
                     .child(SharedString::from(format!("{word} {elapsed}"))),
@@ -252,6 +301,7 @@ fn toolbar(
             .child(
                 button(
                     "db-sql-stop",
+                    IconName::CircleX,
                     "Stop",
                     format!("Cancel the running statement ({MOD}.)"),
                     !tab.stopping,
@@ -262,23 +312,23 @@ fn toolbar(
         })
         .child(div().flex_1())
         .child(if locked {
-            state_chip("Read-only (connection)", theme::db_read_only(), 1.0).into_any_element()
+            div()
+                .px_2()
+                .child(state_chip(
+                    "Read-only (connection)",
+                    theme::db_read_only(),
+                    1.0,
+                ))
+                .into_any_element()
         } else {
-            choice_pill(
-                "db-sql-ro",
-                "Read-only",
-                tab.read_only,
-                click(cx, move |this, cx| {
-                    this.db_sql_toggle_read_only(session, cx)
-                }),
-            )
-            .into_any_element()
+            read_only_toggle(session, tab.read_only, cx).into_any_element()
         })
         .when(ro, |this| {
             this.when_some(tab.ro_allowed, |this, allowed| {
                 this.child(
                     div()
                         .flex_none()
+                        .px_2()
                         .text_size(micro)
                         .text_color(if allowed {
                             theme::success()
@@ -298,9 +348,45 @@ fn toolbar(
                 .flex_shrink(1.)
                 .min_w(px(0.))
                 .max_w(px(theme::scaled(420.0)))
+                .px_2()
                 .overflow_hidden()
                 .child(state_chip(badge, badge_colour, 1.0)),
         )
+        .into_any_element()
+}
+
+/// The read-only switch: an icon-only button, drawn in the warning colour while it is on.
+fn read_only_toggle(
+    session: ubiq_proto::ids::DbSessionId,
+    on: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let tip = if on {
+        "Read-only: writes are refused (click to allow them)"
+    } else {
+        "Make this tab read-only"
+    };
+    let (fg, bg) = if on {
+        (theme::on_accent(), Some(theme::warning()))
+    } else {
+        (theme::text_muted(), None)
+    };
+    div()
+        .id(crate::ui::eid("db-sql-ro", session))
+        .h_full()
+        .w(px(theme::scaled(30.0)))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .when_some(bg, |this, bg| this.bg(bg))
+        .hover(|this| this.bg(if on { theme::warning() } else { theme::hover() }))
+        .child(Icon::new(IconName::Eye).with_size(Size::XSmall).text_color(fg))
+        .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+        .on_click(click(cx, move |this, cx| {
+            this.db_sql_toggle_read_only(session, cx)
+        }))
         .into_any_element()
 }
 
@@ -420,7 +506,10 @@ fn results_area(tab: &DbSqlTab, cx: &mut Context<AppState>) -> AnyElement {
             .size_full()
             .child(
                 DataTable::new(grid)
-                    .with_size(Size::Medium)
+                    .with_size(Size::Size(px(row_height(f32::from(theme::font(
+                        Family::Content,
+                        Role::Dense,
+                    ))))))
                     .stripe(true)
                     .bordered(false),
             )

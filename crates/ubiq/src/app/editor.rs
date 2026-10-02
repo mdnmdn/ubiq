@@ -905,28 +905,32 @@ impl AppState {
         );
     }
 
-    /// What a terminal or a chat tab is called right now, typed override included — the same
-    /// label `ui::dock::WorkbenchPanel::tab` would compute before it is truncated for the strip.
+    /// What a terminal or a chat tab is called right now — the same title
+    /// `ui::dock::WorkbenchPanel::tab` computes before it is truncated for the strip, which is
+    /// what a rename starts from.
     fn tab_current_name(&self, kind: &PanelKind, cx: &App) -> String {
-        if let Some(name) = self.tab_name(kind) {
-            return name.to_string();
-        }
         match kind {
             PanelKind::Terminal(pane_id) => self
-                .pane(*pane_id)
-                .map(|pane| pane.title.clone())
+                .pane_label(*pane_id)
+                .map(|label| label.title.to_string())
                 .unwrap_or_else(|| "pane".to_string()),
             PanelKind::Chat(id) => {
                 let attached = self
                     .open_project(cx)
                     .and_then(|open| open.chats.iter().find(|tab| tab.id == *id))
                     .and_then(|tab| tab.attached);
-                attached
-                    .and_then(|agent| self.work(cx)?.agent(agent))
-                    .map(|agent| agent.name.clone())
-                    .unwrap_or_else(|| "New chat".to_string())
+                match attached.and_then(|agent| self.work(cx)?.agent(agent)) {
+                    Some(agent) => self.agent_label(agent).title.to_string(),
+                    None => self
+                        .tab_name(kind)
+                        .map(|name| name.to_string())
+                        .unwrap_or_else(|| "New chat".to_string()),
+                }
             }
-            _ => String::new(),
+            _ => self
+                .tab_name(kind)
+                .map(|name| name.to_string())
+                .unwrap_or_default(),
         }
     }
 

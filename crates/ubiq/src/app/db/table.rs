@@ -213,7 +213,9 @@ impl AppState {
         if !tab.leave_blocked() {
             return true;
         }
-        tab.note = Some(TableNote::error("Apply or discard the pending changes first."));
+        tab.note = Some(TableNote::error(
+            "Apply or discard the pending changes first.",
+        ));
         cx.notify();
         false
     }
@@ -410,7 +412,8 @@ impl AppState {
     ) {
         let (Some(grid), Some(row)) = (
             self.db_grid(key, cx),
-            self.db_tab_with_db(key, cx).and_then(|(_, tab)| tab.selected),
+            self.db_tab_with_db(key, cx)
+                .and_then(|(_, tab)| tab.selected),
         ) else {
             return;
         };
@@ -863,8 +866,9 @@ impl AppState {
         cx: &mut Context<Self>,
     ) -> TableWidgets {
         let grid = cx.new(|cx| ResultGrid::new(window, cx));
-        let where_input = cx
-            .new(|cx| InputState::new(window, cx).placeholder("e.g.  status = 'open' AND total > 10"));
+        let where_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("e.g.  status = 'open' AND total > 10")
+        });
         let order_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("e.g.  created_at DESC, id"));
         let mut subscriptions = Vec::new();

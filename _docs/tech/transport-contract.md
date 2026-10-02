@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-10-01
-verified: 2026-09-30
+updated: 2026-10-02
+verified: 2026-10-02
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -860,7 +860,7 @@ tab, so a reply for a closed tab is discarded by id; `DbQueryId` — minted by t
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `DbConnections` | UI → host | `project_id` | `DbConnectionsListed` |
-| `SaveDbConnection` | UI → host | `project_id`, `id?`, `config` (password `None`), `password` (`SecretEdit`), `remember` | `DbConnectionsListed` |
+| `SaveDbConnection` | UI → host | `project_id`, `id?`, `config` (password `None`), `password` (`SecretEdit`), `remember`, `agent?` (`DbAgentSettings`; `None` keeps what is saved) | `DbConnectionsListed` |
 | `DeleteDbConnection` | UI → host | `project_id`, `id` | `DbConnectionsListed`; its sessions close and its sealed password goes |
 | `TestDbConnection` | UI → host | `project_id`, `probe`, `id?`, `config`, `password` (`Keep` = the saved one) | `DbTested` |
 | `DbPassword` | UI → host | `project_id`, `conn`, `password` (`Secret`), `remember` | `DbConnectionState` |
@@ -881,14 +881,23 @@ tab, so a reply for a closed tab is discarded by id; `DbQueryId` — minted by t
 | `DbEditsApplied` | host → UI | `project_id`, `session`, `query`, `result` (`Result<u64, DbEditFailure>`) | — |
 | `DbFileCreated` | host → UI | `project_id`, `path` | — |
 | `DbFileError` | host → UI | `project_id`, `path`, `message` | — |
+| `DbEditors` | UI → host | `project_id` | `DbEditorsListed` |
+| `DbEditorEdit` | UI → host | `project_id`, `session`, `text`, `base_rev` | `DbEditorChanged` |
+| `DbEditorsListed` | host → UI | `project_id`, `editors[]` (`DbEditor`) | — |
+| `DbEditorChanged` | host → UI | `project_id`, `editor` (`DbEditor`), `reveal` | — |
+| `DbAgentRun` | host → UI | `project_id`, `session`, `query`, `statements[]` | `DbQueryResult`s, to everyone, for the same `session` and `query` |
 
-`DbConnectionsListed` and `DbConnectionState` go to every window of the project, as
+`DbConnectionsListed`, `DbConnectionState`, `DbEditorChanged`, `DbAgentRun` and an agent run's
+`DbQueryResult`s go to every window of the project, as
 `KbSourcesListed` does, so a settings form and an explorer agree by construction. Every other reply
 goes to the asker only.
 
 | Record | Shape |
 |---|---|
-| `DbConnection` | `id`, `config` (`ConnectionConfig`, `password` always `None`), `password` (`PasswordState`) |
+| `DbConnection` | `id`, `config` (`ConnectionConfig`, `password` always `None`), `password` (`PasswordState`), `agent` (`DbAgentSettings`, serde default) |
+| `DbAgentSettings` | `access` (`DbAgentAccess`), `default` (the connection an agent gets when it names none; at most one per project, never at `none`), `description` |
+| `DbAgentAccess` | `none` (default) · `ro` · `rw` — serialised lowercase |
+| `DbEditor` | `name`, `session` (`DbSessionId`), `conn`, `database?`, `text`, `rev` (bumped per change), `agent_key?`, `agent_title?` — a shared query editor, in the host's memory |
 | `PasswordState` | `None` · `Saved` · `Missing` (filed, cannot be opened) · `Session` (in the host's memory only) |
 | `SecretEdit` | `Keep` · `Set(Secret)` · `Clear` |
 | `DbKeystore` | `Ready` · `Unavailable(reason)` |
@@ -1416,7 +1425,6 @@ is what multiplexes several of them down one channel.
 | `ConversationDeleted` | host → UI | `agent_id` | — |
 | `ConversationUnloaded` | host → UI | `agent_id` | — |
 | `ConversationError` | host → UI | `agent_id`, `error` | — |
-| `ConversationNamed` | host → UI | `agent_id`, `title`, `summary?` | — |
 
 **The vocabulary is the Agent Client Protocol's; the transport is the bus.** `D53` states why, and
 [`../references/acp-protocol.md`](../references/acp-protocol.md) is the wire reference every name here
@@ -1473,15 +1481,16 @@ permission as a live prompt on the tool call it authorises and nothing retracts 
 offering no allowing option is emitted to the window unchanged: the flag says which answer to give,
 never that an answer must be invented. `D98` is the decision and its costs.
 
-**`RenameConversation` writes `WorkAgent.name` directly, and it is not a fourth flag.** The three
-above each carry a boolean the record already had a place for; this carries the string every
-surface that draws an agent already reads, so there is no second field to reconcile it against —
+**`RenameConversation` writes `WorkAgent.title`, and it is not a fourth flag.** The three
+above each carry a boolean the record already had a place for; this carries the string a surface
+draws in place of the handle —
 unlike a chat tab's own typed-over label (`WorkbenchState::tab_names`, purely cosmetic and local to
-the window that typed it), a rename here changes the one name every surface reads, and
+the window that typed it), a rename here lands on the host's live record, is broadcast as
+`AgentChanged`, refreshes the agent's MCP identity, and
 `Coordinator::rename_conversation` is what makes it durable: it is stamped onto the conversation's
-row as `title` — the same field [`Message::ConversationNamed`] writes from its own idea of a name —
-so a restart keeps it, and it counts as an already-answered naming, so the pass behind
-`ConversationNamed` never runs over it. Refused for nothing beyond ownership: unlike persistence,
+row as `title` — the same field the host's naming pass writes from its own idea of a name —
+so a restart keeps it, and it counts as an already-answered naming, so that pass never runs over
+it. Refused for nothing beyond ownership: unlike persistence,
 naming asks nothing of the harness.
 
 **`SetConversationDebugDump` narrows the process-wide tape to one agent.** The capture holds the
@@ -1558,17 +1567,19 @@ builders follow: a remembered model absent from the discovered catalogue falls b
 rather than naming a model that is gone, and a remembered level the resolved model does not accept
 is dropped, because a level belongs to a model and never to a harness.
 
-**`WorkAgent.name` starts host-derived, not typed by the user.** The host names a conversation
+**`WorkAgent.name` is the handle: host-derived, never typed by the user, never overwritten.** The host names a conversation
 from its harness's command — `claude`, `codex`, `opencode`, not the display label a menu shows —
 with a counter from the second occurrence onward, per project: `claude`, `claude 2`, `claude 3`.
 The first free name is picked, so a closed `claude 2` is reused before a new `claude 4` would be
-minted. The sidebar row, the column header and the chat panel row all draw that field, never
-`harness` directly. **That name is a placeholder, and three things may replace it.**
-`ConvUpdate::Title` is the harness naming the conversation itself, `ConversationNamed` is Ubiq
-naming it from the opening exchange, and `RenameConversation` is the user naming it by hand — all
-three write the same field, and whichever spoke last is the name. A rename also marks the
-conversation as already named, the same flag [`Message::ConversationNamed`]'s pass sets on itself,
-so a reply that lands after a manual rename does not overwrite it.
+minted. **What replaces it on screen is `WorkAgent.title`, and three things write that.**
+`ConvUpdate::Title` is the harness naming the conversation itself, the host's naming pass is Ubiq
+naming it from the opening exchange, and `RenameConversation` is the user naming it by hand. The host writes all three onto its live record and the conversation's row,
+so a later `AgentChanged` carries the title and a revive restores it (with `summary`). A harness
+title is adopted only while the agent has no title or still wears the harness's previous one, so it
+never runs over a rename or a naming. A rename also marks the conversation as already named, the
+same flag the naming pass sets on itself, so a reply that lands after a manual
+rename does not overwrite it. `WorkAgent.definition` is the saved definition the agent started from,
+by its id, set from `StartConversation.definition`.
 
 **`ConvUpdate::Compacted` marks where the harness's memory begins, and carries nothing else.** A
 harness that compacts its context has forgotten what came before, while the transcript above still
@@ -1582,14 +1593,15 @@ context that ran out, so an ACP harness emits nothing here and a divider is neve
 falling `UsageRecord.used`: a fresh turn lowers that too, and a guessed boundary is worse than
 none — the same rule that keeps a context ring off a harness that names no window (`G96`).
 
-**`ConversationNamed` is Ubiq's own reading, which is why it is not a `ConvUpdate`.** It carries no
-`seq` and takes no place in the sequence an interface checks for gaps: the naming is not something
-the harness said, and the pump that owns that sequence is not what produced it — the coordinator
-is, on a thread of its own, once the turn that carried the reply is over.
-Folding it into the transcript's numbering would make one message's absence read as a lost delta.
-It is sent at most once per conversation, and only where a provider is configured to write one. The
-title is what every surface that draws `WorkAgent.name` says from there on, and the `summary` beside
-it is the tooltip those same surfaces draw — the assist family below carries the wording behind
+**Ubiq's own naming of a conversation is an `AgentChanged`, not a message of its own and not a
+`ConvUpdate`.** It takes no place in the sequence an interface checks for gaps: the naming is not
+something the harness said, and the pump that owns that sequence is not what produced it — the
+coordinator is, on a thread of its own, once the turn that carried the reply is over. That thread
+writes `title` and `summary` onto the live record and broadcasts it, at most once per conversation
+and only where a provider is configured to write one. **The interface reads names only off the
+record:** `ConvUpdate::Title` is folded by the host, never by a window, and nothing on the window's
+side copies a name onto `WorkAgent`. The `summary` is the first line of the tooltip every surface
+that draws the agent's name draws — the assist family below carries the wording behind
 both, and `D90` is why a mechanical name is replaced at all.
 
 **A naming that fails is not reported.** There is no error variant paired with it, and the host
@@ -1823,7 +1835,7 @@ Forty-seven records travel inside payloads.
 | `Comment` | `id`, `author`, `text`, `created_at` |
 | `TaskField` | one of `Shape?`, `Kind?`, `Level?`, `Parent?`, `References[]`, `Prerequisites[]`, `Attachments[]`, `Complexity?`, `AssignedTo?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
-| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `summary?`, `role`, `activity`, `note`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
+| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `title?`, `definition?`, `summary?`, `activity`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |
 
 | `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |
@@ -1875,10 +1887,9 @@ down, and `tasks.toml` holds exactly what crosses the bus, so there is nothing t
 field on a task is like `health` or `open_panes`, which can only be known at the moment they are
 asked for. A `WorkSession`, a `WorkAgent` and a `Turn` are the other way round — per-request payloads
 with no store behind them, in the class `DirEntry` and `DirListing` are in. `WorkAgent.summary` is
-the one field on that record no host store and no harness fills: it arrives with a
-`ConversationNamed` and the interface folds it onto the record beside the title, so a surface
-reads one place for both. It is absent for every agent nothing has named, which includes every
-mock.
+the one field on that record no harness fills: the host's naming pass writes it onto the live
+record beside `title`, and the conversation's row keeps both for a revive. It is absent for every
+agent nothing has named, which includes every mock.
 
 Fifteen enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
 `Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`
@@ -2855,8 +2866,8 @@ without being selected.
 **A suggestion is advisory.** It fills an editable field the user was going to type in: it writes
 nothing into a repository, so a suggestion that never arrives leaves the mechanical name exactly as
 it was. That is why `SuggestError` is a sentence and never a state the interface has to unwind
-(`D83`). **The half of that rule about renaming holds only for this family.** A
-`ConversationNamed` does replace a name the user did not type, which is a departure `D90` records
+(`D83`). **The half of that rule about renaming holds only for this family.** The naming pass
+does replace a name the user did not type, which is a departure `D90` records
 and confines: what it replaces is a mechanical placeholder, the setting behind it is one checkbox,
 and nothing outside the window is written.
 

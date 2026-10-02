@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-10-01
-verified: 2026-09-29
+updated: 2026-10-02
+verified: 2026-10-02
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs, crates/ubiq-host/src/runners/mod.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -52,15 +52,22 @@ second way to the same result: its own New terminal shortcut brings the region o
 it was shut, and spawns exactly one pane either way — it defers to the switch's own spawn when
 opening lands on true emptiness, rather than handing the user two panes for one click.
 
-**A pane's tab is its program and a number.** `zsh 1`, `zsh 2`, `fish 1` — each program numbered in
-its own sequence, per project, from the lowest number no pane of that program is using. Closing
-`zsh 2` gives that name back to the next one rather than counting upwards for ever. A Windows shell
-is shortened — both PowerShells read `psh`, the command processor `cmd` — and a `.exe` suffix or a
-path never reaches the tab. A tool pane's tab is the tool's name numbered the same way. **A typed-over
-name replaces this until the pane closes.** The tab's right-click menu offers Rename…, the same
-single-field prompt every other rename in the window uses, seeded with the tab's current label; the
-name is kept in memory only, never written down, because a pane's id dies with its own process — the
-workbench document has the menu in full.
+**A pane's tab is its title, over a handle that is its program and a number.** The handle is
+`zsh`, `zsh 2`, `fish` — the scheme the host names a conversation by (T-283's B6): the bare name
+first, a number from the second on, the lowest one nothing in the project is wearing, panes and
+conversations both. A harness pane is named after the command it runs (`claude`, `claude 2`), not
+its harness id. Closing `zsh 2` gives that name back to the next one rather than counting upwards
+for ever. A Windows shell is shortened — both PowerShells read `psh`, the command processor `cmd` —
+and a `.exe` suffix or a path never reaches the handle. A tool pane's handle is the tool's name
+numbered the same way. **The title is a typed-over name, else what the program last called itself,
+else the handle** (`AppState::pane_label`, the agent label's shape). The program's own terminal
+title (`ESC ] 0 ; title BEL`) is taken with any leading spinner or status glyph stripped off
+(`osc_title`), so Claude Code's `✳ Fix the tabs` reads `Fix the tabs`. The tab cuts the title to
+fifteen characters, the same limit a chat tab has, and its tooltip is the full title, the harness's
+label and the handle, one a line. **A typed-over name replaces the rest until the pane closes.** The
+tab's right-click menu offers Rename…, the same single-field prompt every other rename in the window
+uses, seeded with the tab's current title; the name is kept in memory only, never written down,
+because a pane's id dies with its own process — the workbench document has the menu in full.
 
 **The `+` opens the platform's default shell; the chevron beside it says what else can run
 here.** A bare click starts `$SHELL` — the newest PowerShell on the machine on Windows
@@ -398,7 +405,7 @@ shell is `spawn_pane(Some(program), ..)`, a separator is a row and does nothing,
 `dock::reveal()`: a
 panel already in the tree has its region brought back and its tab brought forward, and one that is
 not is added to its home region first. `AppState::toggle_region()` is where opening an empty pane
-region starts a pane, and `pane_title()` is where a tab gets its number — a tool's name the same
+region starts a pane, and `pane_title()` is where a pane gets its handle and its number — a tool's name the same
 way a program does, through the same short-name rule.
 
 **`crates/ubiq-host/src/shells.rs` is the only place that knows what a shell is.** On Unix,

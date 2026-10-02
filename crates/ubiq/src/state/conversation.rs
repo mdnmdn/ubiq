@@ -127,6 +127,32 @@ pub struct SubagentTab {
     pub doing: Doing,
 }
 
+impl SubagentTab {
+    /// Who this delegate is, on the agent label's second line: its type, then its model as the
+    /// composer's chip cuts it (`Explore · haiku`), either skipped where the harness named none.
+    /// Its title is [`Self::name`]; this is what still tells two delegates of one title apart.
+    pub fn identity(&self, harness: &str) -> String {
+        [
+            self.kind.clone(),
+            self.model
+                .as_deref()
+                .map(|model| short_model_label(harness, model)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" \u{00b7} ")
+    }
+
+    /// Its handle: the parent's title, `↳`, and its type — what the tooltip ends on.
+    pub fn handle(&self, parent: &str) -> String {
+        match &self.kind {
+            Some(kind) => format!("{parent} \u{21b3} {kind}"),
+            None => format!("{parent} \u{21b3}"),
+        }
+    }
+}
+
 /// Which of the activity panels above the composer is open: the spawned-subagent
 /// list or the agent's own todo list. One at a time — both answer the same
 /// question, "what is the agent doing next", and the bar they hang from is a
@@ -242,14 +268,6 @@ pub struct Conversation {
     /// What the harness says it is answering with. Empty until it says.
     pub model: Option<String>,
     pub mode: Option<String>,
-    /// The title the harness has given this conversation, where it names one. `None` until it
-    /// does — `refresh_agent_record` in `app.rs` is what turns this into the name a reader
-    /// actually sees (the sidebar row, the column header, the chat panel row).
-    pub title: Option<String>,
-    /// The five-word reading of what this conversation is about, drawn as the title's tooltip
-    /// wherever the name is printed. `None` until something names the conversation: a title says
-    /// which one this is, and the summary is what it took a whole exchange to learn.
-    pub summary: Option<String>,
     /// Context and cost, as of the last thing the harness reported **for the conversation itself**.
     /// Occupancy is a level: it is replaced, never summed, and a subagent's report never reaches
     /// it — a subagent repeats the parent's `used`/`size` unchanged, so applying one would move the
@@ -425,8 +443,6 @@ impl Conversation {
             blocks: Vec::new(),
             model: None,
             mode: None,
-            title: None,
-            summary: None,
             usage: None,
             spend: None,
             spend_by_subagent: BTreeMap::new(),
@@ -876,9 +892,10 @@ impl Conversation {
                 });
             }
             ConvUpdate::ModeChanged { mode_id } => self.mode = Some(mode_id),
-            // Held here; `refresh_agent_record` (`app.rs`) is what copies it onto the
-            // `WorkAgent` the sidebar, the column header and the chat panel actually read.
-            ConvUpdate::Title(title) => self.title = Some(title),
+            // The host puts a harness's own title on `WorkAgent::title` and says so with an
+            // `AgentChanged` (T-283), under the rename-first precedence only it can apply; the
+            // transcript has nothing to keep of it.
+            ConvUpdate::Title(_) => {}
             ConvUpdate::Compacted => {
                 // A divider ends whatever was open above it: the next chunk is the agent talking
                 // about a context it no longer shares with the one before.
@@ -958,15 +975,6 @@ impl Conversation {
                 self.error = error;
             }
         }
-    }
-
-    /// Ubiq has read the opening exchange and named this conversation.
-    ///
-    /// The same field `ConvUpdate::Title` writes, because it is the same fact from the other
-    /// source — whichever spoke last is the name.
-    pub fn name(&mut self, title: String, summary: Option<String>) {
-        self.title = Some(title);
-        self.summary = summary;
     }
 
     /// Whether the harness behind this conversation is actually up — a live process, not a

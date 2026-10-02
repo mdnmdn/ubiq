@@ -713,11 +713,7 @@ impl CellInput {
                         .absolute()
                         .top_0()
                         .bottom_0()
-                        .left(px(if self.inline {
-                            0.0
-                        } else {
-                            theme::scaled(9.0)
-                        }))
+                        .left(px(if self.inline { 0.0 } else { theme::scaled(9.0) }))
                         .flex()
                         .items_center()
                         .italic()

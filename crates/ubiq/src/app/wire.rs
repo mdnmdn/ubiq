@@ -103,10 +103,7 @@ impl AppState {
     /// messages in the order they arrive. What comes back is a new pane with a new id, not the
     /// old one revived — a pseudo-terminal cannot be restarted, only replaced.
     pub fn restart_pane_tool(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
-        let Some(run) = self
-            .pane(pane_id)
-            .and_then(|pane| pane.tool.clone())
-        else {
+        let Some(run) = self.pane(pane_id).and_then(|pane| pane.tool.clone()) else {
             return;
         };
         self.close_pane(pane_id, cx);
@@ -333,15 +330,13 @@ impl AppState {
         cx.notify();
     }
 
-    /// A harness renamed itself over its own stream (`ESC ] 0 ; title BEL`). The dedup number
-    /// `pane_title` gave the tab is not the harness's to spend, so it survives the rename.
+    /// A harness renamed itself over its own stream (`ESC ] 0 ; title BEL`). It lands on the
+    /// pane's title, never its handle — the handle is what tells two panes apart, and it is in the
+    /// tooltip whatever the program calls itself.
     fn pane_title_reported(&mut self, pane_id: PaneId, title: String, cx: &mut Context<Self>) {
         for open in self.projects.values_mut() {
             if let Some(pane) = open.panes.iter_mut().find(|pane| pane.id == pane_id) {
-                pane.title = match pane_title_number(&pane.title) {
-                    Some(n) => format!("{title} {n}"),
-                    None => title,
-                };
+                pane.title = osc_title(&title);
                 cx.notify();
                 return;
             }
@@ -732,7 +727,10 @@ impl AppState {
 
             Message::ProjectForgotten { project_id } => {
                 self.bus.forget_project(project_id);
-                self.workbench.settings.definition_scopes.remove(&project_id);
+                self.workbench
+                    .settings
+                    .definition_scopes
+                    .remove(&project_id);
                 cx.global_mut::<WindowRegistry>().forget(project_id);
                 self.sync_projects(cx);
             }
@@ -1700,17 +1698,12 @@ impl AppState {
                 cx.notify();
             }
 
+            // The host's record, whole. Its `title` and `summary` are the host's to write — a rename,
+            // a naming, the harness's own title — and nothing on this side copies a name over
+            // them, so taking the record as it comes is the whole of keeping them (T-283).
             Message::AgentChanged { project_id, agent } => {
                 self.workbench.work_error = None;
                 let open = self.projects.get_mut(&project_id)?;
-                // A live conversation's own title follows the record's name here, so a rename
-                // reaching this window from another surface — or from the host, after
-                // `Message::RenameConversation` — is not quietly undone the next time
-                // `refresh_agent_record` runs: that function copies `conversation.title` back
-                // onto `WorkAgent::name`, and a title left stale would win the next round.
-                if let Some(conversation) = open.conversations.get_mut(&agent.id) {
-                    conversation.title = Some(agent.name.clone());
-                }
                 open.work.apply_agent(*agent);
                 open.graph.absorb_new(&open.work);
                 open.teams
@@ -2201,7 +2194,11 @@ impl AppState {
                 // — a delegate's turns fold into the transcript rather than closing with their
                 // own `TurnEnded`, so `parent` is what tells the two apart — and it is the bell
                 // for the conversation nobody has on screen.
-                let agent_name = open.work.agent(agent_id).map(|a| a.name.clone());
+                let agent_name = open.work.agent(agent_id).map(|a| {
+                    crate::state::work::AgentLabel::of(a, None)
+                        .title
+                        .to_string()
+                });
                 let is_delegate = open
                     .work
                     .agent(agent_id)
@@ -2340,24 +2337,6 @@ impl AppState {
                     conversation.error = Some(error.clone());
                 }
                 self.workbench.work_error = Some(error);
-                cx.notify();
-            }
-
-            // Ubiq read the opening exchange and named the conversation. Not a `ConvUpdate` and
-            // carrying no `seq`: the naming is this side's own reading rather than something the
-            // harness said, so it never counts against the gap check.
-            Message::ConversationNamed {
-                agent_id,
-                title,
-                summary,
-            } => {
-                let open = self
-                    .projects
-                    .values_mut()
-                    .find(|open| open.conversations.contains_key(&agent_id))?;
-                let conversation = open.conversations.get_mut(&agent_id)?;
-                conversation.name(title, summary);
-                refresh_agent_record(open, agent_id);
                 cx.notify();
             }
 
@@ -3508,12 +3487,28 @@ impl AppState {
     fn open_pane(&mut self, workspace: WorkspaceInfo, cx: &mut Context<Self>) {
         let pane_id = workspace.id;
         let project = workspace.project_id;
+        // Every handle in the project, panes' and conversations' both: one scheme, one namespace.
         let taken: Vec<String> = self
             .projects
             .get(&project)
-            .map(|open| open.panes.iter().map(|pane| pane.title.clone()).collect())
+            .map(|open| {
+                open.panes
+                    .iter()
+                    .map(|pane| pane.handle.clone())
+                    .chain(open.work.agents.iter().map(|agent| agent.name.clone()))
+                    .collect()
+            })
             .unwrap_or_default();
-        let title = pane_title(&workspace.agent_type, &taken);
+        // A harness is named after the command it runs (`claude`), as the host names its
+        // conversations; a shell or a tool after itself.
+        let program = self
+            .workbench
+            .agent_types
+            .iter()
+            .find(|agent| agent.id == workspace.agent_type)
+            .map(|agent| agent.command.clone())
+            .unwrap_or_else(|| workspace.agent_type.clone());
+        let handle = pane_title(&program, &taken);
 
         // A pane for a project this window no longer holds has nowhere to be drawn, and a harness
         // nobody can see is a leak: it is closed rather than kept.
@@ -3533,7 +3528,8 @@ impl AppState {
                 harness: workspace.agent_type,
                 rows: workspace.rows,
                 cols: workspace.cols,
-                title,
+                handle,
+                title: None,
                 running: workspace.running,
                 wait_on_exit: workspace.wait_on_exit,
                 wait_on_error: workspace.wait_on_error,

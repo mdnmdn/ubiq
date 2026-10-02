@@ -33,7 +33,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let about = match graph.agent_in_focus() {
         Some(id) => work
             .agent(id)
-            .map(|a| a.name.clone())
+            .map(|a| app.agent_label(a).title.to_string())
             .unwrap_or_else(|| "\u{2014}".to_string()),
         _ => graph
             .active_session(&work)
@@ -292,8 +292,11 @@ fn task_card(
                         .hover(|this| this.bg(theme::hover()))
                         .child(div().size(px(6.)).flex_none().rounded_full().bg(colour))
                         .child(
-                            mono(owner.name.clone(), theme::text_muted())
-                                .text_size(theme::font(Family::Chrome, Role::Meta)),
+                            mono(
+                                crate::state::work::AgentLabel::of(owner, None).title,
+                                theme::text_muted(),
+                            )
+                            .text_size(theme::font(Family::Chrome, Role::Meta)),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.select_in_teams(TeamsSelection::Agent(id), cx)

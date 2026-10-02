@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Rgba,
-    StatefulInteractiveElement, Styled, div, px,
+    StatefulInteractiveElement, Styled, div, px, relative,
 };
 use gpui_component::scroll::Scrollbar;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -80,6 +80,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                     .child(note_row(work, session))
                     .children(members.into_iter().map(|agent| {
                         agent_row(
+                            work.label(agent),
                             agent,
                             !agents.on_screen(agent.id),
                             chips.get(&agent.id).cloned(),
@@ -396,7 +397,15 @@ fn mission_roster(
     }
     roster
         .into_iter()
-        .map(|agent| agent_row(agent, !agents.on_screen(agent.id), None, cx))
+        .map(|agent| {
+            agent_row(
+                work.label(agent),
+                agent,
+                !agents.on_screen(agent.id),
+                None,
+                cx,
+            )
+        })
         .collect()
 }
 
@@ -535,6 +544,7 @@ fn note_row(work: &WorkProjection, session: &WorkSession) -> AnyElement {
 /// different things": the agent stays right here, under its session, and the mission is a fact
 /// about it rather than a second place it lives.
 fn agent_row(
+    label: crate::state::work::AgentLabel,
     agent: &WorkAgent,
     benched: bool,
     mission: Option<(String, Rgba)>,
@@ -555,12 +565,12 @@ fn agent_row(
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
         .child(status_dot(colour, theme::pane_bg()))
-        // What the conversation is about, where something has named it — otherwise the name in
-        // full, which is what an elided row says on hover anyway.
+        // The title, then the identity faint beside it — capped so a long one never squeezes the
+        // title out — and the standard agent tooltip on both.
         .child(elided_with(
             eid("agents-row-name", id),
-            agent.name.clone(),
-            agent.summary.clone().unwrap_or_else(|| agent.name.clone()),
+            label.title.clone(),
+            label.tooltip.clone(),
             if benched {
                 theme::text_muted()
             } else {
@@ -568,6 +578,17 @@ fn agent_row(
             },
             theme::font(theme::Family::Conversation, theme::Role::Body),
         ))
+        .children((!label.identity.is_empty()).then(|| {
+            elided_with(
+                eid("agents-row-identity", id),
+                label.identity.clone(),
+                label.tooltip.clone(),
+                theme::text_faint(),
+                theme::font(theme::Family::Conversation, theme::Role::Meta),
+            )
+            .flex_initial()
+            .max_w(relative(0.45))
+        }))
         .children(mission.map(|(label, colour)| badge(&label, colour).into_any_element()))
         // The one mark on the row that is about this window rather than about the agent: it is not
         // on screen, and clicking the row is what puts it back.

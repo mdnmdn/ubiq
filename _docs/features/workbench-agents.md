@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-09-30
-verified: 2026-09-30
+updated: 2026-10-02
+verified: 2026-10-02
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -26,7 +26,8 @@ same agents rather than converse with them ([the Teams graphs](./workbench-teams
 **The hexagonal status mark is on every tab, and nowhere else (T-99/T-102).** It used to also sit
 beside the column's own title, a line above the lifecycle strip's own reading of the same fact —
 two marks for one state, a line apart — and that copy is gone: a column's header now carries only
-the role mark, the name and the role label. `ui::teams::status::status_mark` is what a tab draws,
+the role mark (read off the agent's definition), the agent's title and, on the line below, its
+identity, branch, worktree and grouped count (T-283). `ui::teams::status::status_mark` is what a tab draws,
 off `state::status::agent_status(agent, conversation)`: the outer hexagon reads the lifecycle, the
 inner core the activity or the result, and the core pulses only while the lifecycle is `Working`.
 The dock's own tab strip wears the same mark for a chat tab (`TabInfo::dot_status`), so a column's
@@ -372,14 +373,14 @@ composer now addressing it. Two groups only, because that is
 the one honest split the record supports today: agents free on the bench, and agents already on
 screen in some other column — shown, disabled rather than dropped from the list, because a row that
 vanished would read as an agent that had ended, and `AgentsView::open_in` already refuses to draw one
-twice. Neither group is split further by role or task: `WorkAgent` carries both, but neither is filled
-from a real run yet, so a grouping built from them would be drawing real groups over invented values.
-An agent definition is a real thing a conversation can start from, and it still does not help here — it
-pins a harness, an identity and how the run is set up, and carries no role and no task — so the backlog row
-on grouping by role, task or team waits on those fields existing rather than on definitions. The list is
-searchable exactly the way every other filter in the window is: a lowercase substring typed into the
-shared `picker_search` field, narrowing both groups at once and dropping a heading whole once nothing
-under it still matches.
+twice. Neither group is split further by task or team: `WorkAgent.task` is filled only by an
+assignment, so a grouping built from it would be drawing real groups over mostly empty values, and
+the backlog row on grouping waits on that. Each row reads the agent's title, then its identity
+(`AgentLabel::row`), and the session is not spelled — the identity is what tells two agents
+of one title apart. The list is searchable exactly the way every other filter in the window is: a
+lowercase substring typed into the shared `picker_search` field, matched against the title, the
+identity and the handle (T-283's B7), narrowing both groups at once and dropping a heading whole
+once nothing under it still matches.
 
 **The screen lays itself out once, and every listing after that only prunes.** The first `WorkList`
 gives one column per session that has an agent in it, holding every agent in that session in the
@@ -481,12 +482,14 @@ conversation's own name — derived host-side from the harness's command, not se
 unaffected either way; the glyph only ever stands in for the harness identifier next to it.
 
 **A conversation names itself once its agent has answered the opening prompt.** The host reads that
-one exchange, asks the configured provider for a title and a five-word summary, and the title
-becomes the conversation's name wherever a name is printed: the column header, each of a grouped
-column's tabs, the sidebar row, and the chat panel's own dock tab. The summary is the **hover** on
-each of those, which is what lets a row that is one line still say what it is about — a sidebar row
-with no summary hovers to its own name in full, since that is what an elided row owes a reader
-anyway. It happens **once per conversation**, it needs a provider configured, and a naming that
+one exchange, asks the configured provider for a title and a five-word summary, and writes both
+onto its own record (`WorkAgent.title`, `summary`), so the title becomes the agent's name wherever
+a name is printed: the column header, each of a grouped column's tabs, the sidebar row, and the chat
+panel's own dock tab — every one of them read through `AppState::agent_label`. Before anything has
+named it, an agent reads as the definition it was started from, else its handle. The summary leads
+the **hover** on each of those, the standard agent tooltip — summary, identity, assigned task and
+handle, one a line — which is what lets a row that is one line still say what it is about. The
+sidebar row draws the identity faint beside the title. It happens **once per conversation**, it needs a provider configured, and a naming that
 fails says nothing: the mechanical name is still there, so there is nothing to report and nothing
 to undo. The checkbox that switches it off is in application settings' Assistance section below;
 `D90` is the decision behind replacing a name nobody typed. A user's own rename — the tab's
@@ -555,7 +558,7 @@ live conversation behind it, rather than to nothing.
 ways of working share the one that means "moving" — `lifecycle_colour()`, `doing_colour()` and
 `status_colour()` do the same for the two status dictionaries, `lifecycle_icon()`, `doing_icon()`
 and `status_icon()` are their glyphs, and `role_icon()` and `role_mark()` are the glyph
-a role wears. `ubiq_proto::work` keeps the words and `theme.rs` keeps the values, so the columns, the
+an agent wears, read off its definition's name (`WorkAgent` carries no role of its own). `ubiq_proto::work` keeps the words and `theme.rs` keeps the values, so the columns, the
 graph, the board and the status bar cannot disagree about what running looks like.
 
 `state/agents.rs` is the other view over that projection, and holds the arrangement rather than any
@@ -600,12 +603,11 @@ streaming tail is rendered once rather than copied per frame. `activity()`, `con
 `tokens()`, `cost_usd()` and `rate_limit_five_hour_pct()` are what the badge, the ring and the
 footer's pills are drawn from; `is_next()` is the gap check. `AppState` holds them per project as `conversations`, kept after the harness ends, and
 `refresh_agent_record()` writes the badge, the ring, the token count and the model onto the
-`WorkAgent` record, so the sidebar, the graph and a column's header keep one source. It folds a
-naming on the same way: a `title` replaces `WorkAgent.name` only when there is one, while
-`summary` is written whatever it is — a second naming that answered a title and nothing after it
-has to clear the reading the first one left, or the hover would describe the conversation as it
-was. `Conversation::name` is what a `ConversationNamed` lands in, beside the `title` a
-`ConvUpdate::Title` writes, because the two are the same fact from two sources.
+`WorkAgent` record, so the sidebar, the graph and a column's header keep one source. **It writes
+no name.** `WorkAgent.title`, `summary` and the handle `name` are the host's, carried whole by every
+`AgentChanged` — a rename, a naming and a harness's own `ConvUpdate::Title` all land there — and
+the window reads them through one resolver, `AppState::agent_label` (T-283): title, identity
+(`definition · harness · model`), handle and the standard tooltip.
 `ui/conversation/mod.rs` draws one — `render()` over a `ConversationView`, then `tool_block()`,
 `diff()`, `permission()`, `footer()`, `composer()`, `attachment_tags()` and `queue_list()` —
 `prompt_agent()` sends what was typed with every attached path composed into it as an `@path`

@@ -146,6 +146,7 @@ impl AppState {
         mut config: ConnectionConfig,
         password: SecretEdit,
         remember: bool,
+        agent: ubiq_proto::db::DbAgentSettings,
     ) {
         config.password = None;
         self.bus.send(Message::SaveDbConnection {
@@ -154,6 +155,7 @@ impl AppState {
             config: Box::new(config),
             password,
             remember,
+            agent: Some(agent),
         });
     }
 
@@ -423,8 +425,31 @@ impl AppState {
                 for conn in gone {
                     self.close_db_tabs_of(project_id, conn);
                 }
+                self.ask_db_editors_once(project_id);
                 cx.notify();
             }
+
+            Message::DbEditorsListed {
+                project_id,
+                editors,
+            } => {
+                for editor in editors {
+                    self.on_db_editor(project_id, editor, false, cx);
+                }
+            }
+
+            Message::DbEditorChanged {
+                project_id,
+                editor,
+                reveal,
+            } => self.on_db_editor(project_id, *editor, reveal, cx),
+
+            Message::DbAgentRun {
+                project_id,
+                session,
+                query,
+                statements,
+            } => self.on_db_agent_run(project_id, session, query, statements, cx),
 
             Message::DbConnectionState {
                 project_id,

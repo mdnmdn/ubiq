@@ -18,14 +18,15 @@ use ubiq_db::sql::{self, Dialect};
 
 use super::*;
 use crate::state::db::sql::{
-    ANALYSIS_DEBOUNCE_MS, Confirm, DRAFT_DEBOUNCE_MS, Job, Note, ResultBody, RunInfo, Scope,
-    failure_mark, pick, read_only_marks, result_of,
+    ANALYSIS_DEBOUNCE_MS, Confirm, DRAFT_DEBOUNCE_MS, EDITOR_EDIT_DEBOUNCE_MS, Job, Note,
+    ResultBody, RunInfo, Scope, failure_mark, pick, read_only_marks, result_of,
 };
-use crate::state::db::{DbSqlTab, DbState};
+use crate::state::db::{DbSqlTab, DbState, db_sql_key};
 use crate::state::prefs::{DB_SQL_DRAFT_MAX, DbSqlDraft};
 use crate::theme;
 use crate::ui::db::sql::plan::PlanAction;
 use crate::ui::db::sql::results::GridDelegate;
+use ubiq_proto::db::DbEditor;
 
 /// How often a running statement redraws its timer.
 const TICK: Duration = Duration::from_millis(250);
@@ -41,7 +42,7 @@ impl AppState {
             .find_map(|open| open.db.sql_tab(key).map(|tab| (tab, &open.db)))
     }
 
-    /// Open a SQL editor tab on a connection, in the bottom region. `database` is the one the
+    /// Open a SQL editor tab on a connection, in the centre. `database` is the one the
     /// session selects first.
     pub fn open_db_sql(
         &mut self,
@@ -105,6 +106,13 @@ impl AppState {
             return;
         };
         let mut built = false;
+        // Text the host wrote into an editor that already exists.
+        for tab in &mut open.db.sqls {
+            if let (Some(text), Some(editor)) = (tab.pending_text.take(), tab.editor.clone()) {
+                editor.update(cx, |editor, cx| editor.set_value(text, window, cx));
+                built = true;
+            }
+        }
         for tab in &mut open.db.sqls {
             for result in &mut tab.results {
                 let ResultBody::Rows { pending, grid } = &mut result.body else {
@@ -244,6 +252,19 @@ impl AppState {
         tab.analysis_gen = tab.analysis_gen.wrapping_add(1);
         tab.draft_gen = tab.draft_gen.wrapping_add(1);
         let (analysis, draft) = (tab.analysis_gen, tab.draft_gen);
+        if tab.agent.is_some() {
+            tab.edit_gen = tab.edit_gen.wrapping_add(1);
+            let edit = tab.edit_gen;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(EDITOR_EDIT_DEBOUNCE_MS))
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    this.send_db_editor_edit(project, session, edit, cx)
+                });
+            })
+            .detach();
+        }
         cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(ANALYSIS_DEBOUNCE_MS))
@@ -273,6 +294,58 @@ impl AppState {
             });
         })
         .detach();
+    }
+
+    /// The debounce of an agent tab's typing ran out: send the editor's text to the host unless a
+    /// later keystroke superseded this one, or the text is what the host already holds.
+    fn send_db_editor_edit(
+        &mut self,
+        project: ProjectId,
+        session: DbSessionId,
+        edit: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.db.sql_by_session(session))
+            .is_some_and(|tab| tab.edit_gen == edit);
+        if current {
+            self.flush_db_editor_edit(project, session, cx);
+        }
+    }
+
+    /// Send the editor's text to the host if it is an edit the host has not seen and none is in
+    /// flight. Called when the typing debounce runs out and again when an answer ends the flight,
+    /// so what was typed meanwhile goes out against the new revision.
+    pub(super) fn flush_db_editor_edit(
+        &mut self,
+        project: ProjectId,
+        session: DbSessionId,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.db.sql_by_session(session))
+        else {
+            return;
+        };
+        let Some(editor) = tab.editor.clone() else {
+            return;
+        };
+        let text = editor.read(cx).value().to_string();
+        if !tab.edit_due(&text) {
+            return;
+        }
+        let base_rev = tab.rev;
+        tab.sent_edit(&text);
+        self.bus.send(Message::DbEditorEdit {
+            project_id: project,
+            session,
+            text,
+            base_rev,
+        });
     }
 
     /// The caret or the selection moved.
@@ -418,6 +491,10 @@ impl AppState {
         let Some(tab) = open.db.sqls.iter().find(|tab| tab.session == session) else {
             return;
         };
+        // The host owns an agent tab's text, and it is not restored from a draft.
+        if tab.agent.is_some() {
+            return;
+        }
         let mut text = tab.text.clone();
         if text.len() > DB_SQL_DRAFT_MAX {
             let mut cut = DB_SQL_DRAFT_MAX;
@@ -779,6 +856,117 @@ impl AppState {
         {
             plan.apply(action);
         }
+        cx.notify();
+    }
+
+    // ── Agent-controlled editors ────────────────────────────────────
+
+    /// Ask the host for the project's shared editors, once its connections have loaded.
+    pub(super) fn ask_db_editors_once(&mut self, project: ProjectId) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        if open.db.editors_asked {
+            return;
+        }
+        open.db.editors_asked = true;
+        self.bus.send(Message::DbEditors {
+            project_id: project,
+        });
+    }
+
+    /// A shared editor was created or changed: open its tab if this window has none, and take its
+    /// text. `reveal` raises the tab; it never takes focus and never changes the rail mode.
+    pub(super) fn on_db_editor(
+        &mut self,
+        project: ProjectId,
+        editor: DbEditor,
+        reveal: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let on_screen = self.project(cx) == Some(project);
+        let mut flush = false;
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        match open.db.sql_by_session(editor.session) {
+            Some(tab) => {
+                // Without a widget yet the text seeds it; with one, `build_db_sql_widgets` sets it.
+                let built = tab.editor.is_some();
+                let replaced = tab.adopt_editor(&editor);
+                if !built {
+                    tab.pending_text = None;
+                }
+                // Typing that waited for the answer goes out now — unless the host's text is about
+                // to replace the editor's, in which case there is nothing of the user's to send.
+                flush = !replaced;
+            }
+            None => open.db.sqls.push(DbSqlTab::from_editor(&editor)),
+        }
+        if on_screen {
+            let kind = PanelKind::DbSql(db_sql_key(editor.session));
+            if !self.panels.contains_key(&kind) {
+                self.pending_panels.push(PanelEdit::Open(kind.clone()));
+            }
+            if reveal {
+                self.pending_panels.push(PanelEdit::Reveal(kind));
+            }
+        }
+        if flush {
+            self.flush_db_editor_edit(project, editor.session, cx);
+        }
+        cx.notify();
+    }
+
+    /// An agent runs statements in the tab's session: show the run in progress and accept the
+    /// `DbQueryResult`s that follow. Stop sends `DbCancel`, as it does for the user's own run.
+    pub(super) fn on_db_agent_run(
+        &mut self,
+        project: ProjectId,
+        session: DbSessionId,
+        query: DbQueryId,
+        statements: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let dialect = dialect_of(open, session);
+        let Some(tab) = open.db.sql_by_session(session) else {
+            return;
+        };
+        let jobs = statements
+            .into_iter()
+            .map(|sql| {
+                let class = sql::analyze(&sql, dialect)
+                    .statements
+                    .first()
+                    .map_or((sql::StatementClass::Other, String::new()), |info| {
+                        (info.class, info.kind.clone())
+                    });
+                // Where the statement sits in the text, to point an error at it; past the end when
+                // the agent has since changed the text, which `failure_mark` takes for no mark.
+                let offset = tab.text.find(&sql).unwrap_or(tab.text.len());
+                Job {
+                    sql,
+                    class: class.0,
+                    kind: class.1,
+                    offset,
+                }
+            })
+            .collect();
+        tab.confirm = None;
+        tab.notice = None;
+        tab.run = Some(RunInfo {
+            jobs,
+            keep_all: true,
+            explain: None,
+        });
+        tab.query = Some(query);
+        tab.started = Some(Instant::now());
+        tab.stopping = false;
+        tab.stop_ticks = 0;
+        self.tick_db_sql(project, session, query, cx);
         cx.notify();
     }
 

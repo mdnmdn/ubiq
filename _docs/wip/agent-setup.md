@@ -5,8 +5,8 @@ kind: wip
 status: draft
 summary: The protocol, the library work and the order of packages behind a real conversation with a composed harness — what has landed, and the honest inventory of what today's library cannot yet deliver.
 read_when: you are picking up the next agent-integration package, or judging whether a proposed conversation message belongs on the wire
-updated: 2026-09-29
-verified: 2026-09-27
+updated: 2026-10-02
+verified: 2026-10-02
 code_anchors: [crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/coordinator.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/model.rs, crates/agent-manager/src/io/jsonl.rs, crates/ubiq-proto/src/work.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/state/conversation.rs, crates/agent-manager/src/profile.rs]
 depends_on: [tech-agent-manager, feat-workbench, feat-chat]
 review_cycle: monthly
@@ -217,8 +217,8 @@ Three consequences worth stating plainly:
   to add a `Mapper::map_event` arm for is a shape observed only in Claude Code's on-disk **interactive**
   session transcript (`~/.claude/projects/**/*.jsonl`), a file headless `-p` runs do not even write;
   nothing confirms it is part of the headless stdout protocol at all, so no arm was added. The title
-  plumbing (`AgentEvent::SessionInfoUpdate` → `ConvUpdate::Title` → `Conversation::title` →
-  `refresh_agent_record` renaming the `WorkAgent`) is still built end to end, since it costs nothing
+  plumbing (`AgentEvent::SessionInfoUpdate` → `ConvUpdate::Title` → the host adopting it onto
+  `WorkAgent::title` → `AgentChanged`) is still built end to end, since it costs nothing
   idle and is what any future title producer — this harness or another — needs to reach a reader.
 
 **The `init` event is mapped**, and generously: `io/jsonl.rs:481` fills `SessionStarted` with the

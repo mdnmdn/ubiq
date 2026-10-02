@@ -46,15 +46,18 @@ impl AppState {
         let mut all: Vec<(AgentId, String)> = self
             .projects
             .values()
-            .flat_map(|open| open.conversations.values())
-            .map(|conversation| {
-                (
-                    conversation.id,
-                    conversation
-                        .title
-                        .clone()
-                        .unwrap_or_else(|| conversation.harness.clone()),
-                )
+            .flat_map(|open| {
+                open.conversations
+                    .values()
+                    .map(move |conversation| (open, conversation))
+            })
+            .map(|(open, conversation)| {
+                let title = open
+                    .work
+                    .agent(conversation.id)
+                    .map(|agent| self.agent_label(agent).title.to_string())
+                    .unwrap_or_else(|| conversation.harness.clone());
+                (conversation.id, title)
             })
             .collect();
         // A map has no order and the pill row must not shuffle between frames.

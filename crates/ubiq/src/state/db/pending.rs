@@ -256,6 +256,9 @@ mod tests {
         p.add_row(2);
         p.set(2, 1, Value::Text("n".into()), &Value::Null);
         let by_row = p.edits_by_row(&cols, &rows);
-        assert_eq!(by_row.iter().map(|(row, _)| *row).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(
+            by_row.iter().map(|(row, _)| *row).collect::<Vec<_>>(),
+            [1, 2]
+        );
     }
 }

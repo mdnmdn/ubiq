@@ -151,3 +151,6 @@ One file per area (`agents`, `board`, `chat`, `conversation`, `dock`, `explorer`
 `navigator`, `orchestration`, `search`, `settings`, `sink`, `stats`, `vim`, `windows`, …), plus
 the ones that assert a convention: `dismiss.rs` (every modal has a rung in the Escape ladder),
 `panel_reentrancy.rs`, `mode_restore.rs`, `when.rs`.
+`db_agent.rs` drives an agent-controlled SQL tab: the tab a host-side shared editor opens, its text
+adopted without echoing back as an edit, one `DbEditorEdit` in flight at a time (T-292), and its
+placement in the centre.

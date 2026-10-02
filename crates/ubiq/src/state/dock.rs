@@ -237,7 +237,6 @@ impl PanelKind {
             | PanelKind::GitChanges
             | PanelKind::GitHistory
             | PanelKind::GitDiff
-            | PanelKind::DbSql(_)
             | PanelKind::Help => PanelClass::Free,
             PanelKind::Explorer
             | PanelKind::KbExplorer
@@ -248,6 +247,7 @@ impl PanelKind {
             | PanelKind::File(_)
             | PanelKind::Kb(_)
             | PanelKind::DbTable(_)
+            | PanelKind::DbSql(_)
             | PanelKind::MissionView(_) => PanelClass::Centre,
         }
     }
@@ -256,9 +256,7 @@ impl PanelKind {
     /// back. Every kind's home satisfies its own class.
     pub fn home(&self) -> Region {
         match self {
-            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search | PanelKind::DbSql(_) => {
-                Region::Bottom
-            }
+            PanelKind::Terminal(_) | PanelKind::Logs | PanelKind::Search => Region::Bottom,
             PanelKind::Explorer
             | PanelKind::Outline
             | PanelKind::KbExplorer
@@ -271,6 +269,7 @@ impl PanelKind {
             | PanelKind::File(_)
             | PanelKind::Kb(_)
             | PanelKind::DbTable(_)
+            | PanelKind::DbSql(_)
             | PanelKind::MissionView(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
             PanelKind::GitRefs => Region::Left,

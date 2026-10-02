@@ -11,7 +11,10 @@
 
 use gpui::Entity;
 use gpui_component::input::InputState;
-use ubiq_proto::db::{ConnectionConfig, DbConnection, DbKind, PasswordState, SecretEdit};
+use ubiq_proto::db::{
+    ConnectionConfig, DbAgentAccess, DbAgentSettings, DbConnection, DbKind, PasswordState,
+    SecretEdit,
+};
 use ubiq_proto::ids::{DbConnId, DbProbeId};
 use ubiq_proto::messages::Secret;
 
@@ -26,6 +29,8 @@ pub struct DbFormInputs {
     pub user: Entity<InputState>,
     /// Masked, and empty unless the person typed: the saved password is never shown.
     pub password: Entity<InputState>,
+    /// What an agent reads about the connection, on one line.
+    pub description: Entity<InputState>,
 }
 
 /// What the form's text fields hold, as plain strings.
@@ -38,6 +43,7 @@ pub struct FormText {
     pub user: String,
     /// A password a pasted connection string carried; `None` when the field should be left alone.
     pub password: Option<String>,
+    pub description: String,
 }
 
 pub struct DbConnForm {
@@ -45,6 +51,8 @@ pub struct DbConnForm {
     pub id: Option<DbConnId>,
     /// Everything but the text fields (and never a password).
     pub config: ConnectionConfig,
+    /// What agents may do with it: access and the default flag (the description is a text field).
+    pub agent: DbAgentSettings,
     /// *Forget password* was pressed: send `Clear` unless a new one is typed.
     pub forget_password: bool,
     /// What the host reported for the connection being edited.
@@ -63,6 +71,7 @@ impl DbConnForm {
         Self {
             id: None,
             config: ConnectionConfig::new(kind),
+            agent: DbAgentSettings::default(),
             forget_password: false,
             saved: PasswordState::None,
             remember: true,
@@ -79,6 +88,7 @@ impl DbConnForm {
         Self {
             id: Some(conn.id),
             config,
+            agent: conn.agent.clone(),
             saved: conn.password,
             ..Self::new(conn.config.kind)
         }
@@ -97,6 +107,7 @@ impl DbConnForm {
             database: self.config.database.clone().unwrap_or_default(),
             user: self.config.user.clone().unwrap_or_default(),
             password: None,
+            description: self.agent.description.clone(),
         }
     }
 
@@ -116,6 +127,7 @@ impl DbConnForm {
             database: parsed.database.clone().unwrap_or_default(),
             user: parsed.user.clone().unwrap_or_default(),
             password: password.clone(),
+            description: self.agent.description.clone(),
         };
         parsed.name = name;
         self.config = parsed;
@@ -165,6 +177,53 @@ impl DbConnForm {
             config.name = config.default_name();
         }
         Ok(config)
+    }
+
+    /// Read-write is not offered on a read-only connection.
+    pub fn can_write(&self) -> bool {
+        !self.config.read_only
+    }
+
+    /// *Default for agents* needs some access.
+    pub fn can_default(&self) -> bool {
+        self.agent.access != DbAgentAccess::None
+    }
+
+    /// Choose the agents' access; `none` drops the default, and `rw` is refused on a read-only
+    /// connection.
+    pub fn set_agent_access(&mut self, access: DbAgentAccess) {
+        if access == DbAgentAccess::Rw && !self.can_write() {
+            return;
+        }
+        self.agent.access = access;
+        if access == DbAgentAccess::None {
+            self.agent.default = false;
+        }
+    }
+
+    /// Flag the connection read-only; an `rw` agent access follows down to `ro`.
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.config.read_only = read_only;
+        if read_only && self.agent.access == DbAgentAccess::Rw {
+            self.agent.access = DbAgentAccess::Ro;
+        }
+    }
+
+    /// The agent settings to send, with the description folded in and the rules the host holds
+    /// applied (so what is sent is what will be saved).
+    pub fn collect_agent(&self, text: &FormText) -> DbAgentSettings {
+        let mut agent = self.agent.clone();
+        agent.description = text.description.trim().to_string();
+        if agent.access == DbAgentAccess::Rw && self.config.read_only {
+            agent.access = DbAgentAccess::Ro;
+        }
+        agent.default &= agent.access != DbAgentAccess::None;
+        agent
+    }
+
+    /// Whether to say that read-only is only best-effort: SQL Server has no read-only session.
+    pub fn read_only_is_best_effort(&self) -> bool {
+        self.kind() == DbKind::MsSql && self.agent.access == DbAgentAccess::Ro
     }
 
     /// What this save does to the password, given what is typed in the field.
@@ -217,12 +276,16 @@ mod tests {
                 database: "shop".into(),
                 user: "ada".into(),
                 password: Some("s3cret".into()),
+                description: String::new(),
             }
         );
         assert_eq!(form.config.ssl, SslMode::Require);
         assert!(form.config.read_only);
         assert_eq!(form.config.params.get("application_name").unwrap(), "ubiq");
-        assert_eq!(form.config.password, None, "the form never holds the password");
+        assert_eq!(
+            form.config.password, None,
+            "the form never holds the password"
+        );
         // Folding the text back gives the connection that was pasted, name included.
         let config = form.collect(&text).unwrap();
         assert_eq!(config.host.as_deref(), Some("db.internal"));
@@ -263,7 +326,11 @@ mod tests {
     #[test]
     fn a_form_that_cannot_be_saved_says_why() {
         let form = DbConnForm::new(DbKind::Sqlite);
-        assert!(form.collect(&FormText::default()).unwrap_err().contains("path"));
+        assert!(
+            form.collect(&FormText::default())
+                .unwrap_err()
+                .contains("path")
+        );
         let form = DbConnForm::new(DbKind::Postgres);
         let text = FormText {
             port: "http".into(),
@@ -279,7 +346,10 @@ mod tests {
         let mut form = DbConnForm::new(DbKind::Postgres);
         form.saved = PasswordState::Saved;
         assert_eq!(form.secret_edit(""), SecretEdit::Keep);
-        assert_eq!(form.secret_edit("hunter2"), SecretEdit::Set(Secret::new("hunter2")));
+        assert_eq!(
+            form.secret_edit("hunter2"),
+            SecretEdit::Set(Secret::new("hunter2"))
+        );
         form.forget_password = true;
         assert_eq!(form.secret_edit(""), SecretEdit::Clear);
         assert_eq!(form.secret_edit("new"), SecretEdit::Set(Secret::new("new")));
@@ -298,11 +368,59 @@ mod tests {
             id: DbConnId::generate(),
             config,
             password: PasswordState::Saved,
+            agent: DbAgentSettings {
+                access: DbAgentAccess::Rw,
+                default: true,
+                description: "the erp".into(),
+            },
         };
         let form = DbConnForm::editing(&conn);
         assert_eq!(form.id, Some(conn.id));
         assert_eq!(form.text().port, "1444");
         assert_eq!(form.secret_edit(""), SecretEdit::Keep);
         assert_eq!(form.collect(&form.text()).unwrap(), conn.config);
+        // The agent settings round-trip through the form unchanged.
+        assert_eq!(form.collect_agent(&form.text()), conn.agent);
+    }
+
+    #[test]
+    fn agent_access_rules_disable_the_dependent_controls() {
+        let mut form = DbConnForm::new(DbKind::Postgres);
+        assert!(!form.can_default(), "none has no default");
+        form.set_agent_access(DbAgentAccess::Rw);
+        form.agent.default = true;
+        assert!(form.can_default());
+        // Read-only on the connection takes rw down to ro and refuses it after.
+        form.set_read_only(true);
+        assert_eq!(form.agent.access, DbAgentAccess::Ro);
+        form.set_agent_access(DbAgentAccess::Rw);
+        assert_eq!(form.agent.access, DbAgentAccess::Ro);
+        assert!(form.agent.default);
+        // None clears the default.
+        form.set_agent_access(DbAgentAccess::None);
+        assert!(!form.agent.default && !form.can_default());
+    }
+
+    #[test]
+    fn collect_agent_applies_the_rules_and_trims_the_description() {
+        let mut form = DbConnForm::new(DbKind::MsSql);
+        form.agent = DbAgentSettings {
+            access: DbAgentAccess::Rw,
+            default: true,
+            description: String::new(),
+        };
+        form.config.read_only = true; // set behind the setters' back
+        let text = FormText {
+            description: "  orders  ".into(),
+            ..Default::default()
+        };
+        let agent = form.collect_agent(&text);
+        assert_eq!(agent.access, DbAgentAccess::Ro);
+        assert_eq!(agent.description, "orders");
+        assert!(agent.default);
+        assert!(form.read_only_is_best_effort() == (form.agent.access == DbAgentAccess::Ro));
+        form.agent.access = DbAgentAccess::None;
+        assert!(!form.collect_agent(&text).default);
+        assert!(!form.read_only_is_best_effort());
     }
 }

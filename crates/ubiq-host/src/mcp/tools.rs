@@ -27,10 +27,10 @@ use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
 use super::catalogue::{
     MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, UBIQ_MISSION, UBIQ_PLAN,
-    USE_MISSION, USE_TASK,
+    UBIQ_SQL_READ, UBIQ_SQL_WRITE, USE_MISSION, USE_TASK,
 };
 use super::registry::AgentFacts;
-use super::{AskReach, HelpReach, KbReach, MissionReach, PlanReach, WorkAccess};
+use super::{AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
 /// the tool has not, so an unknown one ends here as the in-band error a model sees.
@@ -47,6 +47,7 @@ pub fn call(
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
+    sql: Option<&SqlReach>,
 ) -> Result<Value, String> {
     match (server, tool) {
         (TEST, "send_notification") => send_notification(arguments, facts, voice),
@@ -98,8 +99,34 @@ pub fn call(
                 ask.ok_or_else(|| "this host cannot put a question to the user".to_string())?;
             super::ask::call(tool, arguments, facts, voice, reach)
         }
+        // Reached on a thread [`super::server::handle`] spawned for it, like the ask arm: a query
+        // can run for minutes and the listener must stay free (`D202`).
+        (UBIQ_SQL_READ | UBIQ_SQL_WRITE, _) => sql_call(server, tool, arguments, facts, sql),
         _ => Err(format!("unknown tool: {server}/{tool}")),
     }
+}
+
+#[cfg(feature = "db")]
+fn sql_call(
+    server: &str,
+    tool: &str,
+    arguments: &Value,
+    facts: &AgentFacts,
+    sql: Option<&SqlReach>,
+) -> Result<Value, String> {
+    let reach = sql.ok_or_else(|| "this host has no databases for agents to reach".to_string())?;
+    super::sql::call(server == UBIQ_SQL_WRITE, tool, arguments, facts, reach)
+}
+
+#[cfg(not(feature = "db"))]
+fn sql_call(
+    _server: &str,
+    _tool: &str,
+    _arguments: &Value,
+    _facts: &AgentFacts,
+    _sql: Option<&SqlReach>,
+) -> Result<Value, String> {
+    Err("this host has no databases for agents to reach".to_string())
 }
 
 /// Raise a real Ubiq notification, attributed to the agent that asked for it.

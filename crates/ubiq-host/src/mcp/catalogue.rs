@@ -55,6 +55,14 @@ pub const UBIQ_HELP: &str = "ubiq-help";
 /// `register_question` arms a dialog for the end of the turn (`D175`) — see [`super::ask`].
 pub const UBIQ_ASK: &str = "ubiq-ask";
 
+/// The slug of the SQL server that only reads: every connection the user let agents use, run under
+/// the engine's read-only guard (`D202`). Not in a default set — a definition names it.
+pub const UBIQ_SQL_READ: &str = "ubiq-sql-read";
+
+/// The slug of the SQL server that also writes: the read tools plus `execute`, on connections the
+/// user marked read-write only (`D202`). Not in a default set — a definition names it.
+pub const UBIQ_SQL_WRITE: &str = "ubiq-sql-write";
+
 /// What a **mission/task coordinator** agent definition runs with: it runs the mission, writes
 /// the plan, manages the tasks, and keeps the knowledge base. The `manage` side of every split
 /// pair, because running the work is what a coordinator does.
@@ -300,6 +308,141 @@ const LIST_AGENTS: ToolSpec = ToolSpec {
     name: "list_agents",
     description: "Who is on the mission: each member's id, role, the task it is serving and what it is doing.",
     schema: r#"{"type": "object", "properties": {}}"#,
+};
+
+// ── the SQL servers ───────────────────────────────────────────────────────────────────────────
+//
+// Both servers answer the same tools bar `execute`, which only the write server has. The
+// parameter names are the contract: `max_rows` and `max_field_size` are required on purpose — an
+// agent that has to choose a size has to think about what it is about to read into its context.
+
+const SQL_LIST_CONNECTIONS: ToolSpec = ToolSpec {
+    name: "list_connections",
+    description: "The database connections you may use: name, engine, database, access (ro or rw), description and which is the default. Omit `connection` on the other tools to use the default.",
+    schema: r#"{"type": "object", "properties": {}}"#,
+};
+const SQL_LIST_OBJECTS: ToolSpec = ToolSpec {
+    name: "list_objects",
+    description: "List what a connection holds: with no `database` its databases, with one its schemas, with a `schema` its tables and views. Cheap; use it before writing SQL against names you have guessed.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "connection": {"type": "string", "description": "Connection name or id. Omit for the default."},
+            "database": {"type": "string"},
+            "schema": {"type": "string"}
+        }
+    }"#,
+};
+const SQL_DESCRIBE_TABLE: ToolSpec = ToolSpec {
+    name: "describe_table",
+    description: "A table's columns: type, nullability, key, default. Use it instead of `select *` to learn a table's shape.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "connection": {"type": "string", "description": "Connection name or id. Omit for the default."},
+            "database": {"type": "string"},
+            "schema": {"type": "string"},
+            "table": {"type": "string"}
+        },
+        "required": ["table"]
+    }"#,
+};
+const SQL_QUERY: ToolSpec = ToolSpec {
+    name: "query",
+    description: "Run one read-only SQL statement. Results come back as TOON, a table with the column names once. At most `max_rows` rows are read (`more_rows` says there were more). A text cell longer than `max_field_size` characters is cut and ends in `[blob:<id>:<total>]`; binary cells are always `[blob:...]`. Start with a small `max_field_size` (100 to 200) and call get_blob for the one cell you need whole. Pass `panel` to also show the query and its result to the user in a named query panel.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "sql": {"type": "string"},
+            "connection": {"type": "string", "description": "Connection name or id. Omit for the default."},
+            "database": {"type": "string"},
+            "max_rows": {"type": "integer", "minimum": 1, "maximum": 10000},
+            "max_field_size": {"type": "integer", "minimum": 0, "maximum": 100000, "description": "Characters kept per text cell."},
+            "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 300000, "default": 30000},
+            "panel": {"type": "string", "maxLength": 64, "description": "Show the query and result to the user in the query panel of this name."}
+        },
+        "required": ["sql", "max_rows", "max_field_size"]
+    }"#,
+};
+const SQL_EXECUTE: ToolSpec = ToolSpec {
+    name: "execute",
+    description: "Run up to 20 statements that may change data or schema, one after another, each committed on its own. Stops at the first failure and reports what ran. Only on connections with read-write access. Rows a statement returns (`returning`) obey `max_rows` and `max_field_size` as in query. Pass `panel` to also show the statements to the user in a named query panel.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "statements": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 20},
+            "connection": {"type": "string", "description": "Connection name or id. Omit for the default."},
+            "database": {"type": "string"},
+            "max_rows": {"type": "integer", "minimum": 1, "maximum": 10000},
+            "max_field_size": {"type": "integer", "minimum": 0, "maximum": 100000, "description": "Characters kept per text cell."},
+            "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 300000, "default": 30000},
+            "panel": {"type": "string", "maxLength": 64, "description": "Show the statements and results to the user in the query panel of this name."}
+        },
+        "required": ["statements", "max_rows", "max_field_size"]
+    }"#,
+};
+const SQL_GET_BLOB: ToolSpec = ToolSpec {
+    name: "get_blob",
+    description: "Read more of a cell that a result cut or blobbed, by the id in its `[blob:<id>:<len>]` marker. `offset` and `length` count characters for text and bytes for binary, which comes back base64. Blobs expire a few minutes after you last read them; re-run the query if one is gone.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "offset": {"type": "integer", "minimum": 0, "default": 0},
+            "length": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 20000}
+        },
+        "required": ["id"]
+    }"#,
+};
+const SQL_OPEN_EDITOR: ToolSpec = ToolSpec {
+    name: "open_editor",
+    description: "Open (or find) a named SQL editor shared with the user, marked in their window as controlled by you. Give it `text` to put a query in it for the user to review or run. The user can edit it too: read_editor shows their changes.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "maxLength": 64},
+            "connection": {"type": "string", "description": "Connection name or id. Omit for the default."},
+            "database": {"type": "string"},
+            "text": {"type": "string"}
+        },
+        "required": ["name"]
+    }"#,
+};
+const SQL_READ_EDITOR: ToolSpec = ToolSpec {
+    name: "read_editor",
+    description: "The current text of a named editor, with its revision and whether anyone but you changed it since your last write.",
+    schema: r#"{
+        "type": "object",
+        "properties": {"name": {"type": "string", "maxLength": 64}},
+        "required": ["name"]
+    }"#,
+};
+const SQL_EDIT_EDITOR: ToolSpec = ToolSpec {
+    name: "edit_editor",
+    description: "Replace a named editor's text. `mode` decides what happens if the user changed it since your last write: `force` overwrites regardless; `overwrite_return_previous` overwrites and hands back their text if they had changed it; `keep_if_user_changed` writes nothing if they had and returns the current text.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "maxLength": 64},
+            "text": {"type": "string"},
+            "mode": {"type": "string", "enum": ["force", "overwrite_return_previous", "keep_if_user_changed"]}
+        },
+        "required": ["name", "text", "mode"]
+    }"#,
+};
+const SQL_RUN_EDITOR: ToolSpec = ToolSpec {
+    name: "run_editor",
+    description: "Run the text of a named editor (every statement in it, at most 20) on its connection and show the result in that editor's panel. Read-only on the read server; the write server runs it with write access. Output and limits as in query.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "maxLength": 64},
+            "max_rows": {"type": "integer", "minimum": 1, "maximum": 10000},
+            "max_field_size": {"type": "integer", "minimum": 0, "maximum": 100000, "description": "Characters kept per text cell."},
+            "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 300000, "default": 30000}
+        },
+        "required": ["name", "max_rows", "max_field_size"]
+    }"#,
 };
 
 /// Every server this build can inject, in the order a panel lists them.
@@ -1123,6 +1266,39 @@ pub const SERVERS: &[ServerSpec] = &[
             LIST_AGENTS,
         ],
     },
+    ServerSpec {
+        name: UBIQ_SQL_READ,
+        title: "SQL (read)",
+        description: "Read the project's databases: the connections the user let agents use, queried read-only. Look before you write SQL (list_objects, describe_table), ask for few rows and short fields, and fetch the one cell you need whole with get_blob. A named editor lets you and the user work on a query together.",
+        tools: &[
+            SQL_LIST_CONNECTIONS,
+            SQL_LIST_OBJECTS,
+            SQL_DESCRIBE_TABLE,
+            SQL_QUERY,
+            SQL_GET_BLOB,
+            SQL_OPEN_EDITOR,
+            SQL_READ_EDITOR,
+            SQL_EDIT_EDITOR,
+            SQL_RUN_EDITOR,
+        ],
+    },
+    ServerSpec {
+        name: UBIQ_SQL_WRITE,
+        title: "SQL (read and write)",
+        description: "Read and change the project's databases, on the connections the user marked read-write. Everything the read server does, plus execute. Look before you write (list_objects, describe_table), keep statements narrow, and use a named editor when the user should see a change before it runs.",
+        tools: &[
+            SQL_LIST_CONNECTIONS,
+            SQL_LIST_OBJECTS,
+            SQL_DESCRIBE_TABLE,
+            SQL_QUERY,
+            SQL_EXECUTE,
+            SQL_GET_BLOB,
+            SQL_OPEN_EDITOR,
+            SQL_READ_EDITOR,
+            SQL_EDIT_EDITOR,
+            SQL_RUN_EDITOR,
+        ],
+    },
 ];
 
 /// The server a slug names, or `None` when this build offers none — which is a 404 on the wire and
@@ -1193,6 +1369,32 @@ mod tests {
                     .unwrap_or_else(|error| panic!("{}/{}: {error}", spec.name, tool.name));
                 assert_eq!(parsed["type"], "object", "{}/{}", spec.name, tool.name);
             }
+        }
+    }
+
+    #[test]
+    fn only_the_write_sql_server_has_execute_and_both_require_their_sizes() {
+        let tools =
+            |name: &str| -> Vec<&'static ToolSpec> { server(name).unwrap().tools.iter().collect() };
+        assert!(!tools(UBIQ_SQL_READ).iter().any(|t| t.name == "execute"));
+        assert!(tools(UBIQ_SQL_WRITE).iter().any(|t| t.name == "execute"));
+        for name in [UBIQ_SQL_READ, UBIQ_SQL_WRITE] {
+            for tool in tools(name) {
+                if matches!(tool.name, "query" | "execute" | "run_editor") {
+                    let schema: Value = serde_json::from_str(tool.schema).unwrap();
+                    let required = schema["required"].as_array().unwrap();
+                    for field in ["max_rows", "max_field_size"] {
+                        assert!(required.iter().any(|r| r == field), "{name}/{}", tool.name);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_sql_servers_are_in_no_default_set() {
+        for set in [COORDINATOR_MCPS, WORKER_MCPS] {
+            assert!(!set.contains(&UBIQ_SQL_READ) && !set.contains(&UBIQ_SQL_WRITE));
         }
     }
 

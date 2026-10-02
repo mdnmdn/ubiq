@@ -966,7 +966,9 @@ impl SettingsState {
         offered.extend(
             self.definitions
                 .iter()
-                .filter(|global| scope.use_global || scope.allowed.iter().any(|id| id == &global.id))
+                .filter(|global| {
+                    scope.use_global || scope.allowed.iter().any(|id| id == &global.id)
+                })
                 .filter(|global| !scoped.iter().any(|it| it.id == global.id))
                 .cloned(),
         );

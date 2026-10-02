@@ -623,8 +623,8 @@ fn close_pane_confirm(
              running.",
             app.workbench
                 .confirm_close_pane
-                .and_then(|pane_id| app.pane(pane_id))
-                .map(|pane| pane.title.clone())
+                .and_then(|pane_id| app.pane_label(pane_id))
+                .map(|label| label.title.to_string())
                 .unwrap_or_else(|| "this terminal".to_string()),
         ),
         "Close",
@@ -655,7 +655,11 @@ fn end_conversation_confirm(
              leave the conversation running.",
             app.workbench
                 .confirm_end_conversation
-                .and_then(|agent_id| app.work(cx)?.agent(agent_id).map(|a| a.name.clone()))
+                .and_then(|agent_id| {
+                    app.work(cx)?
+                        .agent(agent_id)
+                        .map(|a| app.agent_label(a).title.to_string())
+                })
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| "this conversation".to_string()),
         ),

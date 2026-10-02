@@ -41,7 +41,7 @@ use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
-use super::{AskReach, HelpReach, KbReach, MissionReach, PlanReach, WorkAccess};
+use super::{AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -108,6 +108,7 @@ pub fn start(
     kb: Option<KbReach>,
     help: Option<HelpReach>,
     ask: Option<AskReach>,
+    sql: Option<SqlReach>,
 ) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
@@ -132,6 +133,7 @@ pub fn start(
                 kb,
                 help,
                 ask,
+                sql,
                 stop_thread,
             )
         })
@@ -162,6 +164,7 @@ fn serve(
     kb: Option<KbReach>,
     help: Option<HelpReach>,
     ask: Option<AskReach>,
+    sql: Option<SqlReach>,
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::SeqCst) {
@@ -176,6 +179,7 @@ fn serve(
                 kb.as_ref(),
                 help.as_ref(),
                 ask.as_ref(),
+                sql.as_ref(),
             ),
             Ok(None) => continue,
             Err(_) => break,
@@ -196,6 +200,7 @@ fn handle(
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
+    sql: Option<&SqlReach>,
 ) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
@@ -286,8 +291,64 @@ fn handle(
         return;
     }
 
+    // The SQL servers' calls wait on a database, so each is served on a thread of its own, at most
+    // [`sql::MAX_CALLS`] at once; beyond that the call is refused as busy rather than queued (`D202`).
+    #[cfg(feature = "db")]
+    if matches!(
+        spec.name,
+        catalogue::UBIQ_SQL_READ | catalogue::UBIQ_SQL_WRITE
+    ) && method == "tools/call"
+        && let Some(reach) = sql
+    {
+        let Some(slot) = reach.claim() else {
+            let busy = tool_error(&format!(
+                "busy: {} SQL calls are already running; wait for one to finish and retry",
+                super::sql::MAX_CALLS
+            ));
+            let _ = request.respond(json_response(&envelope(&id, busy)));
+            return;
+        };
+        let reach = reach.clone();
+        let voice = voice.clone();
+        let server = spec.name;
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let spawned = std::thread::Builder::new()
+            .name("ubiq-sql-call".to_string())
+            .spawn(move || {
+                let _slot = slot;
+                let result = super::tools::call(
+                    server,
+                    &name,
+                    &arguments,
+                    &facts,
+                    &voice,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(&reach),
+                );
+                let _ = request.respond(json_response(&envelope(&id, tool_result(result))));
+            });
+        if let Err(error) = spawned {
+            // The request went into the closure and is dropped with it, closing the connection.
+            tracing::error!("a SQL call could not be served on a thread of its own: {error}");
+        }
+        return;
+    }
+
     let response = match dispatch(
-        method, params, spec, &facts, voice, work, plan, mission, kb, help, ask,
+        method, params, spec, &facts, voice, work, plan, mission, kb, help, ask, sql,
     ) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
@@ -332,6 +393,7 @@ fn dispatch(
     kb: Option<&KbReach>,
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
+    sql: Option<&SqlReach>,
 ) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => Ok(json!({
@@ -346,21 +408,9 @@ fn dispatch(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match super::tools::call(
-                spec.name, name, &arguments, facts, voice, work, plan, mission, kb, help, ask,
-            ) {
-                Ok(value) => {
-                    let text = serde_json::to_string(&value).unwrap_or_default();
-                    Ok(json!({
-                        "content": [{"type": "text", "text": text}],
-                        "isError": false,
-                    }))
-                }
-                Err(error) => Ok(json!({
-                    "content": [{"type": "text", "text": error}],
-                    "isError": true,
-                })),
-            }
+            Ok(tool_result(super::tools::call(
+                spec.name, name, &arguments, facts, voice, work, plan, mission, kb, help, ask, sql,
+            )))
         }
         _ => Err((-32601, format!("method not found: {method}"))),
     }
@@ -575,12 +625,19 @@ impl std::io::Read for Parked {
 
 /// A tool call's outcome as the `result` half of a JSON-RPC response. The same shape
 /// [`dispatch`]'s `tools/call` arm builds, because it is the same call.
+///
+/// **A tool that returns a string has said its text.** Every other value is serialised as JSON, but
+/// a result that is already a document — the SQL servers' TOON — is used as-is, because quoting it
+/// as a JSON string would escape every newline an agent has to read through.
 fn tool_result(result: Result<Value, String>) -> Value {
     match result {
-        Ok(value) => json!({
-            "content": [{"type": "text", "text": serde_json::to_string(&value).unwrap_or_default()}],
-            "isError": false,
-        }),
+        Ok(value) => {
+            let text = match value {
+                Value::String(text) => text,
+                other => serde_json::to_string(&other).unwrap_or_default(),
+            };
+            json!({"content": [{"type": "text", "text": text}], "isError": false})
+        }
         Err(error) => tool_error(&error),
     }
 }
@@ -636,8 +693,18 @@ mod tests {
         let (hub, host) = bus::hub();
         let registry = Registry::new();
         registry.register(facts());
-        let serving = start(registry, host.voice(), None, None, None, None, None, None)
-            .expect("the listener binds");
+        let serving = start(
+            registry,
+            host.voice(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("the listener binds");
         (serving, hub, host)
     }
 
@@ -657,6 +724,7 @@ mod tests {
             registry,
             host.voice(),
             Some(access),
+            None,
             None,
             None,
             None,
@@ -719,6 +787,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         (serving, hub, host, task, plans, dir)
@@ -751,6 +820,18 @@ mod tests {
             .as_str()
             .unwrap_or_default();
         serde_json::from_str(text).unwrap_or(Value::Null)
+    }
+
+    #[test]
+    fn a_string_result_is_sent_as_its_own_text_and_anything_else_as_json() {
+        let text = |result: Value| result["content"][0]["text"].as_str().unwrap().to_string();
+        assert_eq!(
+            text(tool_result(Ok(json!("a: 1\nb: 2")))),
+            "a: 1\nb: 2",
+            "a string is a document, not a JSON string"
+        );
+        assert_eq!(text(tool_result(Ok(json!({"a": 1})))), r#"{"a":1}"#);
+        assert_eq!(tool_result(Err("no".into()))["isError"], true);
     }
 
     #[test]
@@ -1533,6 +1614,7 @@ mod tests {
             Some(reach),
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         (
@@ -1821,6 +1903,7 @@ mod tests {
                 asks: Arc::clone(&asks),
                 armed: Arc::new(crate::armed::Armed::new()),
             }),
+            None,
         )
         .expect("the listener binds");
 

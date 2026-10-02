@@ -339,6 +339,13 @@ pub struct Conversation {
     /// `None` until the first turn ends. Written exactly once, so a conversation that goes on
     /// talking does not keep re-offering itself to be named.
     first_reply: Arc<Mutex<Option<String>>>,
+    /// The latest title the harness named itself with (`ConvUpdate::Title`, ACP's
+    /// `session_info_update`) that the coordinator has not yet taken.
+    ///
+    /// The same pump-writes, coordinator-reads shape as [`Self::first_reply`]: the pump sees the
+    /// title, and only the coordinator holds the live `WorkAgent` it has to land on — or the next
+    /// `AgentChanged` would carry the record without it (T-283's B1).
+    harness_title: Arc<Mutex<Option<String>>>,
     /// Ubiq's own two overrides — see [`ConvFlags`]. Held here as well as in the pump so the
     /// coordinator, which owns this side, can flip one on a running conversation.
     flags: Arc<ConvFlags>,
@@ -400,6 +407,8 @@ impl Conversation {
         let pump_session = session.clone();
         let first_reply = Arc::new(Mutex::new(None));
         let pump_first_reply = first_reply.clone();
+        let harness_title = Arc::new(Mutex::new(None));
+        let pump_harness_title = harness_title.clone();
         let pump_flags = flags.clone();
         // The pump answers a permission itself when `accept_all` is on, and the way in is the
         // same detached sink a prompt takes — the bridge it is reading cannot also be written to.
@@ -418,6 +427,7 @@ impl Conversation {
                     pump_outstanding,
                     pump_session,
                     pump_first_reply,
+                    pump_harness_title,
                     usage,
                     quota,
                     pump_flags,
@@ -438,6 +448,7 @@ impl Conversation {
             outstanding,
             session,
             first_reply,
+            harness_title,
             flags,
         }
     }
@@ -462,6 +473,22 @@ impl Conversation {
     /// must not come back round on the next poll.
     pub fn first_reply(&self) -> Option<String> {
         self.first_reply.lock().ok().and_then(|held| held.clone())
+    }
+
+    /// The title the harness last named itself with, if one arrived since the last call. Taken,
+    /// unlike [`Self::first_reply`]: a harness may retitle itself every turn, and each one is
+    /// offered to the coordinator once.
+    pub fn take_harness_title(&self) -> Option<String> {
+        self.harness_title
+            .lock()
+            .ok()
+            .and_then(|mut held| held.take())
+    }
+
+    /// What the pump does on a `ConvUpdate::Title`, for a test with no harness to say one.
+    #[cfg(test)]
+    pub(crate) fn offer_harness_title(&self, title: &str) {
+        *self.harness_title.lock().unwrap() = Some(title.to_string());
     }
 
     /// Whether the harness behind this conversation has ended by itself — its pump thread has
@@ -671,6 +698,7 @@ fn pump(
     outstanding: Arc<Mutex<Vec<String>>>,
     session: Arc<Mutex<Option<String>>>,
     first_reply: Arc<Mutex<Option<String>>>,
+    harness_title: Arc<Mutex<Option<String>>>,
     usage: Option<UsageMeter>,
     quota: Option<QuotaVoice>,
     flags: Arc<ConvFlags>,
@@ -835,6 +863,13 @@ fn pump(
             (Some(meter), ConvUpdate::Usage(record)) => usage_row(meter, record),
             _ => None,
         };
+        // Handed to the coordinator, which lands it on the live record. The update still goes out
+        // below, so the window that draws the transcript hears it as it always has.
+        if let ConvUpdate::Title(title) = &update
+            && let Ok(mut slot) = harness_title.lock()
+        {
+            *slot = Some(title.clone());
+        }
 
         seq += 1;
         seq_counter.store(seq, Ordering::Relaxed);
@@ -1861,6 +1896,7 @@ mod tests {
             outstanding: Arc::new(Mutex::new(Vec::new())),
             session: Arc::new(Mutex::new(None)),
             first_reply: Arc::new(Mutex::new(None)),
+            harness_title: Arc::new(Mutex::new(None)),
             flags: ConvFlags::new(id, false, false),
         };
         (conversation, seen)

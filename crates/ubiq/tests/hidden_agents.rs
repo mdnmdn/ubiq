@@ -146,9 +146,9 @@ fn an_agent(id: AgentId, name: &str) -> WorkAgent {
         parent: None,
         name: name.to_string(),
         summary: None,
-        role: "Implementer".to_string(),
+        title: None,
+        definition: None,
         activity: Activity::Thinking,
-        note: String::new(),
         branch: "main".to_string(),
         tokens: 0.0,
         harness: "Claude Code".to_string(),
@@ -213,7 +213,7 @@ fn a_live_agent_shown_nowhere_is_listed_and_picking_it_reveals_it(cx: &mut TestA
                 .agents
                 .iter()
                 .find(|a| a.id == id)
-                .map(|a| state.agent_title(a))
+                .map(|a| state.agent_label(a).row())
         })
         .expect("the agent is in the projection")
         .to_string();
@@ -320,7 +320,7 @@ fn a_column_only_agent_is_hidden_outside_agents_mode(cx: &mut TestAppContext) {
                 .agents
                 .iter()
                 .find(|a| a.id == id)
-                .map(|a| state.agent_title(a))
+                .map(|a| state.agent_label(a).row())
         })
         .expect("the agent is in the projection")
         .to_string();

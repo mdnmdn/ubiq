@@ -853,10 +853,11 @@ fn list_agents(
                 "role": role_name(entry.role),
                 "labels": entry.labels,
                 "joined_at": entry.joined_at,
-                "name": live.map(|agent| agent.name.clone()),
+                "name": live.map(|agent| agent.title_or_handle().to_string()),
+                "handle": live.map(|agent| agent.name.clone()),
                 "task_id": live.and_then(|agent| agent.task).map(|task| task.to_string()),
                 "activity": live.map(|agent| agent.activity.label()),
-                "note": live.map(|agent| agent.note.clone()),
+                "summary": live.and_then(|agent| agent.summary.clone()),
             })
         })
         .collect();

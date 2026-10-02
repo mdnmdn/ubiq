@@ -283,6 +283,13 @@ impl MovingAddress {
 }
 
 impl Mailbox {
+    /// A mailbox that delivers to nobody: every send is dropped and answers `false`. For a host-side
+    /// actor with no window behind it — an agent's database session — whose replies are read some
+    /// other way.
+    pub fn nowhere() -> Self {
+        Self(Sink::Gone)
+    }
+
     /// Post a message, and answer whether the destination is still reachable.
     ///
     /// The answer is what a pane's reader thread stops on: once the window that owned the pane has

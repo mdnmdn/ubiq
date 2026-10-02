@@ -149,24 +149,20 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .on_action(
             cx.listener(|this, _: &DbDown, window, cx| answer(this, DbKey::Down, window, cx)),
         )
-        .on_action(
-            cx.listener(|this, _: &DbOut, window, cx| answer(this, DbKey::Left, window, cx)),
-        )
+        .on_action(cx.listener(|this, _: &DbOut, window, cx| answer(this, DbKey::Left, window, cx)))
         .on_action(
             cx.listener(|this, _: &DbInto, window, cx| answer(this, DbKey::Right, window, cx)),
         )
         .on_action(
             cx.listener(|this, _: &DbEnter, window, cx| answer(this, DbKey::Enter, window, cx)),
         )
-        .on_action(cx.listener(|this, _: &DbDismiss, window, cx| {
-            answer(this, DbKey::Dismiss, window, cx)
-        }))
-        .on_action(cx.listener(|this, _: &DbFocusTree, window, cx| {
-            this.focus_db_tree(window, cx)
-        }))
-        .on_action(cx.listener(|this, _: &DbFocusFilter, window, cx| {
-            this.focus_db_filter(window, cx)
-        }))
+        .on_action(
+            cx.listener(|this, _: &DbDismiss, window, cx| answer(this, DbKey::Dismiss, window, cx)),
+        )
+        .on_action(cx.listener(|this, _: &DbFocusTree, window, cx| this.focus_db_tree(window, cx)))
+        .on_action(
+            cx.listener(|this, _: &DbFocusFilter, window, cx| this.focus_db_filter(window, cx)),
+        )
         .child(header)
         .child(filter_bar(
             Input::new(&app.db_filter).appearance(false),
@@ -178,7 +174,9 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .id("db-tree")
                 // The tree is a focus of its own, separate from the filter above it. Every key
                 // the panel binds is live only from here.
-                .when_some(db.tree.focus.as_ref(), |this, focus| this.track_focus(focus))
+                .when_some(db.tree.focus.as_ref(), |this, focus| {
+                    this.track_focus(focus)
+                })
                 .flex()
                 .flex_col()
                 .flex_1()
@@ -304,11 +302,9 @@ fn line(
     let click_id = node.id.clone();
     let menu_id = node.id.clone();
     let mut line = file_row(("db-row", ix), row.depth, selected, false, false, font)
-        .on_click(
-            cx.listener(move |this, event: &ClickEvent, window, cx| {
-                this.click_db_row(conn, click_id.clone(), event.click_count(), window, cx);
-            }),
-        )
+        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+            this.click_db_row(conn, click_id.clone(), event.click_count(), window, cx);
+        }))
         .on_mouse_down(
             MouseButton::Right,
             cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -465,9 +461,11 @@ pub fn password_prompt(
 
     let mut body = div()
         .key_context(PASSWORD_CONTEXT)
-        .on_action(cx.listener(|this, _: &DbPasswordSubmit, window, cx| {
-            this.submit_db_password(window, cx)
-        }))
+        .on_action(
+            cx.listener(|this, _: &DbPasswordSubmit, window, cx| {
+                this.submit_db_password(window, cx)
+            }),
+        )
         .flex()
         .flex_col()
         .gap_2()

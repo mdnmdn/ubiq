@@ -262,12 +262,7 @@ struct View<'a> {
 }
 
 impl<'a> View<'a> {
-    fn new(
-        db: &'a DbState,
-        tab: &'a DbTableTab,
-        widgets: &'a TableWidgets,
-        key: &'a str,
-    ) -> Self {
+    fn new(db: &'a DbState, tab: &'a DbTableTab, widgets: &'a TableWidgets, key: &'a str) -> Self {
         let conn_ro = db.is_read_only(tab.conn);
         Self {
             key,
@@ -301,11 +296,7 @@ fn eid(tag: &'static str, key: &str) -> ElementId {
 }
 
 /// A message strip under the bars.
-fn strip(
-    id: &'static str,
-    colour: gpui::Rgba,
-    text: impl Into<SharedString>,
-) -> Stateful<Div> {
+fn strip(id: &'static str, colour: gpui::Rgba, text: impl Into<SharedString>) -> Stateful<Div> {
     div()
         .id(id)
         .flex_none()
@@ -454,9 +445,7 @@ fn edit_bar(view: &View, cx: &mut Context<AppState>) -> Div {
         div()
             .id(eid("db-tbl-lock", key))
             .flex_none()
-            .tooltip(move |window, cx| {
-                gpui_component::tooltip::Tooltip::new(why).build(window, cx)
-            })
+            .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(why).build(window, cx))
             .child(read_only_badge("READ-ONLY"))
             .into_any_element()
     } else {
@@ -479,7 +468,9 @@ fn edit_bar(view: &View, cx: &mut Context<AppState>) -> Div {
 
     let mut bar = bar().child(lock);
     if read_only && !tab.forced(view.conn_ro) {
-        bar = bar.bg(theme::db_read_only_soft()).child(read_only_badge("READ-ONLY"));
+        bar = bar
+            .bg(theme::db_read_only_soft())
+            .child(read_only_badge("READ-ONLY"));
     } else if read_only {
         bar = bar.bg(theme::db_read_only_soft());
     }
@@ -531,16 +522,17 @@ fn edit_bar(view: &View, cx: &mut Context<AppState>) -> Div {
                 .into_any_element()
         });
         // Inline | Form: where this tab edits.
-        let segment = |tag: &'static str, label: &'static str, mode: EditMode, cx: &mut Context<AppState>| {
-            choice_pill(
-                eid(tag, key),
-                label,
-                tab.edit_mode == mode,
-                click(cx, key, move |this, key, window, cx| {
-                    this.db_table_set_edit_mode(key, mode, window, cx)
-                }),
-            )
-        };
+        let segment =
+            |tag: &'static str, label: &'static str, mode: EditMode, cx: &mut Context<AppState>| {
+                choice_pill(
+                    eid(tag, key),
+                    label,
+                    tab.edit_mode == mode,
+                    click(cx, key, move |this, key, window, cx| {
+                        this.db_table_set_edit_mode(key, mode, window, cx)
+                    }),
+                )
+            };
         bar = bar
             .child(
                 div()
@@ -561,7 +553,9 @@ fn edit_bar(view: &View, cx: &mut Context<AppState>) -> Div {
                 eid("db-tbl-sql", key),
                 "SQL preview",
                 tab.show_sql,
-                click(cx, key, |this, key, _, cx| this.db_table_toggle_sql(key, cx)),
+                click(cx, key, |this, key, _, cx| {
+                    this.db_table_toggle_sql(key, cx)
+                }),
             ))
             .child(muted(match view.pending {
                 0 => "no pending changes".to_string(),

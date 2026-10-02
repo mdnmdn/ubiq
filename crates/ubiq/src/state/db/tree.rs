@@ -506,14 +506,16 @@ impl DbTreeState {
         let mut held = std::mem::take(&mut self.roots);
         self.roots = connections
             .iter()
-            .map(|conn| match held.iter().position(|root| root.conn == conn.id) {
-                Some(at) => {
-                    let mut root = held.remove(at);
-                    root.label = conn.config.name.clone();
-                    root
-                }
-                None => Node::connection(conn.id, &conn.config.name),
-            })
+            .map(
+                |conn| match held.iter().position(|root| root.conn == conn.id) {
+                    Some(at) => {
+                        let mut root = held.remove(at);
+                        root.label = conn.config.name.clone();
+                        root
+                    }
+                    None => Node::connection(conn.id, &conn.config.name),
+                },
+            )
             .collect();
         if self
             .selected
@@ -720,6 +722,7 @@ mod tests {
             id: DbConnId::generate(),
             config,
             password: Default::default(),
+            agent: Default::default(),
         }
     }
 
@@ -735,7 +738,12 @@ mod tests {
             Toggled::Ask(DbNode::Databases),
             "a first connect asks for the databases"
         );
-        tree.apply(id, kind, &DbNode::Databases, Ok(DbListing::Names(vec!["shop".into()])));
+        tree.apply(
+            id,
+            kind,
+            &DbNode::Databases,
+            Ok(DbListing::Names(vec!["shop".into()])),
+        );
         let db = tree.root(id).unwrap().children[0].id.clone();
         assert_eq!(
             tree.toggle(id, &db, kind),
@@ -791,7 +799,15 @@ mod tests {
         tree.toggle(id, &tables, DbKind::Postgres);
         assert_eq!(
             names(&tree),
-            ["staging", "shop", "public", "Tables", "orders", "customers", "Views"]
+            [
+                "staging",
+                "shop",
+                "public",
+                "Tables",
+                "orders",
+                "customers",
+                "Views"
+            ]
         );
     }
 
@@ -903,13 +919,23 @@ mod tests {
         let idle = DbMenuRow::Connection { connected: false };
         assert_eq!(
             db_menu_entries(connected),
-            [NewSql, Refresh, Disconnect, Separator, EditConnection, Remove]
+            [
+                NewSql,
+                Refresh,
+                Disconnect,
+                Separator,
+                EditConnection,
+                Remove
+            ]
         );
         assert_eq!(
             db_menu_entries(idle),
             [Connect, Separator, EditConnection, Remove]
         );
-        assert_eq!(db_menu_entries(DbMenuRow::Container), [NewSql, RefreshCounts]);
+        assert_eq!(
+            db_menu_entries(DbMenuRow::Container),
+            [NewSql, RefreshCounts]
+        );
         assert_eq!(
             db_menu_entries(DbMenuRow::Relation),
             [OpenData, OpenInSql, Separator, CopyName, Refresh]
@@ -920,7 +946,9 @@ mod tests {
     #[test]
     fn the_menu_row_follows_the_node_and_the_connection_state() {
         let (tree, id) = loaded();
-        let up = DbConnState::Connected { server: "16".into() };
+        let up = DbConnState::Connected {
+            server: "16".into(),
+        };
         assert_eq!(
             tree.menu_row(id, &id.to_string(), &up),
             Some(DbMenuRow::Connection { connected: true })
@@ -930,7 +958,11 @@ mod tests {
             Some(DbMenuRow::Connection { connected: false })
         );
         let group = &tree.root(id).unwrap().children[0].children[0].children[0];
-        assert_eq!(tree.menu_row(id, &group.id, &up), None, "a group has no menu");
+        assert_eq!(
+            tree.menu_row(id, &group.id, &up),
+            None,
+            "a group has no menu"
+        );
         let table = &group.children[0];
         assert_eq!(tree.menu_row(id, &table.id, &up), Some(DbMenuRow::Relation));
     }

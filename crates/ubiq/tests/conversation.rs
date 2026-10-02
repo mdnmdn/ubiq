@@ -174,9 +174,9 @@ fn an_agent(id: AgentId) -> WorkAgent {
         parent: None,
         name: "Claude Code".to_string(),
         summary: None,
-        role: "Implementer".to_string(),
+        title: None,
+        definition: None,
         activity: Activity::Ended,
-        note: String::new(),
         branch: "main".to_string(),
         tokens: 0.0,
         harness: "Claude Code".to_string(),
@@ -348,97 +348,50 @@ fn an_unloaded_conversation_goes_back_to_idle_and_keeps_its_transcript(cx: &mut 
     assert_eq!(blocks, 1, "unload does not touch the transcript");
 }
 
-/// The name Ubiq wrote for itself lands on the record every surface reads, and the summary lands
-/// beside it as the hover — one message, both facts, and no place in the transcript's sequence.
+/// A naming reaches the window as the host's own record (T-283): its `title` is what every surface
+/// prints, the summary leads the tooltip, and the handle underneath is untouched — and a later
+/// transcript update does not copy anything back over them.
 #[gpui::test]
-fn a_naming_renames_the_record_and_carries_its_summary(cx: &mut TestAppContext) {
+fn a_named_record_is_the_label_and_the_transcript_never_overwrites_it(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let id = AgentId::generate();
     fixture.started(an_agent(id), cx);
 
-    let before = fixture.state.read_with(cx, |state, cx| {
-        state
-            .work(cx)
-            .and_then(|work| work.agent(id))
-            .cloned()
-            .expect("the agent is in the projection")
-    });
-    assert_eq!(
-        before.summary, None,
-        "a conversation nobody has named has nothing to say on hover"
-    );
-
+    let mut named = an_agent(id);
+    named.title = Some("Sidebar Fold Control".to_string());
+    named.summary = Some("adding a collapsible sidebar".to_string());
     fixture.host.send(
         To::Everyone,
-        Message::ConversationNamed {
-            agent_id: id,
-            title: "Sidebar Fold Control".to_string(),
-            summary: Some("adding a collapsible sidebar".to_string()),
+        Message::AgentChanged {
+            project_id: fixture.project,
+            agent: Box::new(named),
         },
     );
     cx.run_until_parked();
+    // A harness's own title is the host's to adopt, not the window's to fold.
+    fixture.update(id, 1, ConvUpdate::Title("Harness says".to_string()), cx);
 
-    let record = fixture.state.read_with(cx, |state, cx| {
-        state
+    let (record, label) = fixture.state.read_with(cx, |state, cx| {
+        let record = state
             .work(cx)
             .and_then(|work| work.agent(id))
             .cloned()
-            .expect("the agent is still in the projection")
+            .expect("the agent is in the projection");
+        let label = state.agent_label(&record);
+        (record, label)
     });
-    assert_eq!(record.name, "Sidebar Fold Control");
     assert_eq!(
-        record.summary.as_deref(),
-        Some("adding a collapsible sidebar")
+        record.name, "Claude Code",
+        "the handle is never overwritten"
     );
-
-    // A naming is not a transcript delta: it carries no `seq`, so it must not have consumed one
-    // or the next real update would read as a gap.
-    let (seq_is_untouched, blocks) = fixture.state.read_with(cx, |state, cx| {
-        let conversation = state
-            .conversation(id, cx)
-            .expect("the conversation is here");
-        (conversation.is_next(1), conversation.blocks.len())
-    });
+    assert_eq!(label.title.as_ref(), "Sidebar Fold Control");
     assert!(
-        seq_is_untouched,
-        "the naming took a sequence number that belongs to the harness"
+        label
+            .tooltip
+            .starts_with("adding a collapsible sidebar\nClaude Code"),
+        "the summary leads the tooltip, the identity follows: {:?}",
+        label.tooltip
     );
-    assert_eq!(blocks, 0, "a naming is not something anybody said");
-}
-
-/// A model that answered a title and nothing after it has still named the conversation, and a
-/// re-naming that answers no summary clears the one before it rather than leaving it to describe
-/// a conversation as it was.
-#[gpui::test]
-fn a_naming_without_a_summary_clears_the_one_before_it(cx: &mut TestAppContext) {
-    let fixture = Fixture::open(cx);
-    let id = AgentId::generate();
-    fixture.started(an_agent(id), cx);
-
-    for (title, summary) in [
-        ("First Reading", Some("what it looked like first")),
-        ("Second Reading", None),
-    ] {
-        fixture.host.send(
-            To::Everyone,
-            Message::ConversationNamed {
-                agent_id: id,
-                title: title.to_string(),
-                summary: summary.map(str::to_string),
-            },
-        );
-        cx.run_until_parked();
-    }
-
-    let record = fixture.state.read_with(cx, |state, cx| {
-        state
-            .work(cx)
-            .and_then(|work| work.agent(id))
-            .cloned()
-            .expect("the agent is in the projection")
-    });
-    assert_eq!(record.name, "Second Reading");
-    assert_eq!(record.summary, None, "a stale reading outlived its naming");
 }
 
 /// A sentence has to land where the user is looking, whether or not a conversation exists to hang

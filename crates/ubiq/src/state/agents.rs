@@ -251,8 +251,9 @@ impl AgentsView {
     /// left empty by it is omitted whole, heading and separator included.
     pub fn bench_rows(&self, column: usize, work: &WorkProjection, query: &str) -> Vec<BenchRow> {
         let query = query.to_lowercase();
-        let matches =
-            |agent: &WorkAgent| query.is_empty() || agent.name.to_lowercase().contains(&query);
+        let matches = |agent: &WorkAgent| {
+            query.is_empty() || crate::state::work::AgentLabel::of(agent, None).matches(&query)
+        };
 
         let bench: Vec<AgentId> = self
             .live_agents(work)

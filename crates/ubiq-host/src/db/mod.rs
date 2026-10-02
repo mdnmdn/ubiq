@@ -7,14 +7,18 @@
 //! reads files and the keychain, goes to one ordered admin thread; a Test and a file creation get
 //! one-off threads. Replies leave through a [`Mailbox`] addressed to the asking window.
 //!
-//! - `store` — `db.toml`, no secrets
+//! - `store` — `db.toml` and the local `db-agents.toml`, no secrets
 //! - `secrets` — the sealed passwords
 //! - `session` — one worker thread per table or SQL tab, and one meta session per
 //!   `(window, connection)` for the tree; the cancel registry
 //! - `jobs` — each message turned into a job, and the three read-only layers
+//! - `agent` — [`AgentDb`], the blocking handle the SQL MCP servers reach the family through
+//! - `editors` — the shared query editors, in memory
 //!
-//! See `_docs/wip/db-explorer.md`.
+//! See `_docs/features/workbench-db.md`.
 
+pub mod agent;
+pub mod editors;
 pub mod jobs;
 pub mod secrets;
 pub mod session;
@@ -26,16 +30,22 @@ mod tests;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Once};
+use std::time::Instant;
 
 use ubiq_db::conn::ConnectionConfig;
 use ubiq_db::driver;
 use ubiq_proto::bus::{ClientId, Mailbox};
-use ubiq_proto::db::{DbConnState, DbConnection, DbFailure, DbFailureKind, SecretEdit};
+use ubiq_proto::db::{
+    DbAgentSettings, DbConnState, DbConnection, DbFailure, DbFailureKind, SecretEdit,
+};
 use ubiq_proto::ids::{DbConnId, DbProbeId, DbSessionId, ProjectId};
 use ubiq_proto::messages::Message;
 
 use crate::connectors::store::Store;
 use crate::store::project_dir::ProjectDirs;
+pub use agent::{AgentConn, AgentDb, AgentRun, StmtResult};
+pub use editors::{EditMode, EditedBy, EditorReport};
+use editors::{Editors, UserEdit};
 use jobs::Job;
 use secrets::{KeySource, Secrets};
 use session::{Origin, Runs, Session};
@@ -53,11 +63,22 @@ pub struct Ctx {
     pub project_path: PathBuf,
 }
 
-/// A session is a tab's (`Tab`) or a connection's tree (`Meta`), per window.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+/// A session is a tab's (`Tab`) or a connection's tree (`Meta`), per window; or an agent's, per
+/// connection (`Agent`, keyed by the agent's key), which no window owns.
+#[derive(Clone, PartialEq, Eq, Hash)]
 enum Key {
     Tab(ClientId, DbSessionId),
     Meta(ClientId, DbConnId),
+    Agent(String, DbConnId),
+}
+
+impl Key {
+    fn owner(&self) -> Option<ClientId> {
+        match self {
+            Key::Tab(owner, _) | Key::Meta(owner, _) => Some(*owner),
+            Key::Agent(..) => None,
+        }
+    }
 }
 
 type Admin = Box<dyn FnOnce(&Inner) + Send>;
@@ -70,10 +91,13 @@ pub struct Db {
 }
 
 struct Inner {
+    /// The config root.
+    root: PathBuf,
     dirs: ProjectDirs,
     secrets: Arc<Secrets>,
     sessions: Mutex<HashMap<Key, Session>>,
     runs: Arc<Runs>,
+    editors: Editors,
 }
 
 impl Db {
@@ -88,10 +112,12 @@ impl Db {
     pub fn with_keys(root: PathBuf, keys: Arc<dyn KeySource>) -> Self {
         install_crypto_provider();
         let inner = Arc::new(Inner {
+            root: root.clone(),
             dirs: ProjectDirs::new(root.clone()),
             secrets: Arc::new(Secrets::new(root, keys)),
             sessions: Mutex::new(HashMap::new()),
             runs: Arc::new(Runs::default()),
+            editors: Editors::default(),
         });
         let (admin, queue) = flume::unbounded::<Admin>();
         let worker = inner.clone();
@@ -120,8 +146,16 @@ impl Db {
                 config,
                 password,
                 remember,
+                agent,
             } => self.on_admin(move |db| {
-                db.save(project_id, &ctx.project_path, id, *config, password, remember);
+                let edit = Edit {
+                    id,
+                    config: *config,
+                    password,
+                    remember,
+                    agent,
+                };
+                db.save(project_id, &ctx.project_path, edit);
                 ctx.everyone.send(db.listed(project_id, &ctx.project_path));
             }),
             Message::DeleteDbConnection { project_id, id } => self.on_admin(move |db| {
@@ -248,9 +282,9 @@ impl Db {
                     },
                 );
             }
-            Message::DbCancel {
-                session, query, ..
-            } => self.inner.runs.cancel(ctx.client, session, query),
+            Message::DbCancel { session, query, .. } => {
+                self.inner.runs.cancel(ctx.client, session, query)
+            }
             Message::DbCloseSession { session, .. } => {
                 let client = ctx.client;
                 self.inner
@@ -258,12 +292,8 @@ impl Db {
             }
             Message::DbDisconnect { project_id, conn } => {
                 let client = ctx.client;
-                self.inner.drop_where(|key, held| {
-                    held.conn == conn
-                        && match key {
-                            Key::Tab(owner, _) | Key::Meta(owner, _) => *owner == client,
-                        }
-                });
+                self.inner
+                    .drop_where(|key, held| held.conn == conn && key.owner() == Some(client));
                 ctx.asker.send(Message::DbConnectionState {
                     project_id,
                     conn,
@@ -271,15 +301,56 @@ impl Db {
                 });
             }
             Message::CreateDbFile { project_id, path } => create_file(ctx, project_id, path),
+            // The shared editors are in memory: answered here, without a thread.
+            Message::DbEditors { project_id } => {
+                ctx.asker.send(Message::DbEditorsListed {
+                    project_id,
+                    editors: self.inner.editors.list(project_id),
+                });
+            }
+            Message::DbEditorEdit {
+                project_id,
+                session,
+                text,
+                base_rev,
+            } => match self
+                .inner
+                .editors
+                .user_edit(project_id, session, text, base_rev)
+            {
+                UserEdit::Applied(editor) => {
+                    ctx.everyone.send(Message::DbEditorChanged {
+                        project_id,
+                        editor: Box::new(editor),
+                        reveal: false,
+                    });
+                }
+                // An agent wrote since the edit's base: the window takes the editor as it stands.
+                UserEdit::Stale(editor) => {
+                    ctx.asker.send(Message::DbEditorChanged {
+                        project_id,
+                        editor: Box::new(editor),
+                        reveal: false,
+                    });
+                }
+                UserEdit::Unchanged => {}
+                UserEdit::Unknown => {
+                    tracing::warn!("an edit arrived for a query editor that is not there")
+                }
+            },
             other => tracing::warn!("the database family was sent {other:?}"),
         }
     }
 
+    /// The handle the SQL MCP servers reach the family through; `everyone` is where the shared
+    /// editors and the runs shown in them are broadcast.
+    pub fn agent_handle(&self, everyone: Mailbox) -> AgentDb {
+        AgentDb::new(self.inner.clone(), everyone)
+    }
+
     /// A window has gone: its sessions go, and what they were running is stopped.
     pub fn client_gone(&self, client: ClientId) {
-        self.inner.drop_where(|key, _| match key {
-            Key::Tab(owner, _) | Key::Meta(owner, _) => *owner == client,
-        });
+        self.inner.drop_where(|key, _| key.owner() == Some(client));
     }
 
     fn on_admin(&self, job: impl FnOnce(&Inner) + Send + 'static) {
@@ -306,9 +377,7 @@ impl Db {
                 let pasted = store::scrub(&mut config);
                 config.password = match edit {
                     SecretEdit::Set(secret) => Some(secret.expose().to_string()),
-                    SecretEdit::Keep => id
-                        .and_then(|id| secrets.password(project, id))
-                        .or(pasted),
+                    SecretEdit::Keep => id.and_then(|id| secrets.password(project, id)).or(pasted),
                     SecretEdit::Clear => None,
                 };
                 let root = Some(ctx.project_path.as_path()).filter(|p| !p.as_os_str().is_empty());
@@ -367,15 +436,38 @@ impl Inner {
         project: ProjectId,
         conn: DbConnId,
         session: Option<DbSessionId>,
+        job: Job,
+    ) {
+        self.submit_to(
+            &ctx.asker,
+            &ctx.project_path,
+            key,
+            project,
+            conn,
+            session,
+            job,
+        );
+    }
+
+    /// [`Self::submit`], answering to `reply` rather than to a window that asked.
+    #[allow(clippy::too_many_arguments)]
+    fn submit_to(
+        &self,
+        reply: &Mailbox,
+        project_path: &Path,
+        key: Key,
+        project: ProjectId,
+        conn: DbConnId,
+        session: Option<DbSessionId>,
         mut job: Job,
     ) {
         let origin = |this: &Self| Origin {
             project,
             conn,
             session,
-            reply: ctx.asker.clone(),
-            project_path: ctx.project_path.clone(),
-            list: this.dirs.data(project).db_connections(),
+            reply: reply.clone(),
+            project_path: project_path.to_path_buf(),
+            files: this.files(project),
             secrets: this.secrets.clone(),
             runs: this.runs.clone(),
         };
@@ -385,10 +477,11 @@ impl Inner {
                 if sessions.get(&key).is_some_and(|held| held.conn != conn) {
                     sessions.remove(&key);
                 }
-                sessions
-                    .entry(key)
-                    .or_insert_with(|| Session::spawn(origin(self)))
-                    .send(job)
+                let held = sessions
+                    .entry(key.clone())
+                    .or_insert_with(|| Session::spawn(origin(self)));
+                held.used = Instant::now();
+                held.send(job)
             };
             match sent {
                 Ok(()) => return,
@@ -405,7 +498,7 @@ impl Inner {
                 "the database session could not be started",
             ),
         ) {
-            ctx.asker.send(message);
+            reply.send(message);
         }
     }
 
@@ -416,7 +509,7 @@ impl Inner {
             let keys: Vec<Key> = sessions
                 .iter()
                 .filter(|(key, held)| pred(key, held))
-                .map(|(key, _)| *key)
+                .map(|(key, _)| key.clone())
                 .collect();
             for key in &keys {
                 sessions.remove(key);
@@ -444,46 +537,71 @@ impl Inner {
                     id: stored.id,
                     config: stored.config,
                     password,
+                    agent: stored.agent,
                 })
                 .collect(),
             keystore: self.secrets.keystore(),
         }
     }
 
+    fn files(&self, project: ProjectId) -> store::Files {
+        store::Files::of(&self.root, &self.dirs, project)
+    }
+
     fn load(&self, project: ProjectId, project_path: &Path) -> Vec<StoredConnection> {
-        let path = self.dirs.data(project).db_connections();
-        store::load(&path, root_of(project_path)).unwrap_or_else(|error| {
+        let files = self.files(project);
+        store::load(&files, root_of(project_path)).unwrap_or_else(|error| {
             tracing::warn!("the database connections of project {project} are unreadable: {error}");
             Vec::new()
         })
     }
 
     fn write(&self, project: ProjectId, project_path: &Path, list: &[StoredConnection]) {
-        let path = self.dirs.data(project).db_connections();
-        if let Err(error) = store::save(&path, root_of(project_path), list) {
+        let files = self.files(project);
+        if let Err(error) = store::save(&files, root_of(project_path), list) {
             // The list the window is answered with is what it sees whether or not it is durable,
             // the knowledge base's own degradation.
-            tracing::warn!("the database connections of project {project} could not be written: {error}");
+            tracing::warn!(
+                "the database connections of project {project} could not be written: {error}"
+            );
         }
     }
 
-    fn save(
-        &self,
-        project: ProjectId,
-        project_path: &Path,
-        id: Option<DbConnId>,
-        mut config: ConnectionConfig,
-        password: SecretEdit,
-        remember: bool,
-    ) {
+    fn save(&self, project: ProjectId, project_path: &Path, edit: Edit) {
+        let Edit {
+            id,
+            mut config,
+            password,
+            remember,
+            agent,
+        } = edit;
         let existing = id.is_some();
         let id = id.unwrap_or_else(DbConnId::generate);
         // A connection string pasted with a password in it: the password goes where passwords go.
         let pasted = store::scrub(&mut config);
         let mut list = self.load(project, project_path);
-        match list.iter_mut().find(|c| c.id == id) {
-            Some(held) => held.config = config,
-            None => list.push(StoredConnection { id, config }),
+        let index = match list.iter().position(|c| c.id == id) {
+            Some(index) => {
+                list[index].config = config;
+                index
+            }
+            None => {
+                list.push(StoredConnection::new(id, config));
+                list.len() - 1
+            }
+        };
+        // `None` keeps what is saved — the form that does not edit agent settings.
+        if let Some(agent) = agent {
+            list[index].agent = agent;
+        }
+        // The saved one's invariants first, so a default it cannot hold clears nobody else's.
+        store::normalise(std::slice::from_mut(&mut list[index]));
+        if list[index].agent.default {
+            for (other, connection) in list.iter_mut().enumerate() {
+                if other != index {
+                    connection.agent.default = false;
+                }
+            }
         }
         self.write(project, project_path, &list);
         let typed = match password {
@@ -517,6 +635,15 @@ impl Inner {
         list.retain(|c| c.id != id);
         self.write(project, project_path, &list);
     }
+}
+
+/// One `SaveDbConnection`, unpacked.
+struct Edit {
+    id: Option<DbConnId>,
+    config: ConnectionConfig,
+    password: SecretEdit,
+    remember: bool,
+    agent: Option<DbAgentSettings>,
 }
 
 fn root_of(project_path: &Path) -> Option<&Path> {

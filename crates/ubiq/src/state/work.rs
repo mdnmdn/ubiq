@@ -166,6 +166,17 @@ impl WorkProjection {
         self.tasks.iter().find(|t| t.id == id)
     }
 
+    /// An agent's [`AgentLabel`], its assigned task's title read from this projection — for a
+    /// surface that holds the project's work and no `AppState` (`AppState::agent_label` is the
+    /// same answer, looked up across every project the window holds).
+    pub fn label(&self, agent: &WorkAgent) -> AgentLabel {
+        let task = agent
+            .task
+            .and_then(|task| self.task(task))
+            .map(|task| task.title.as_str());
+        AgentLabel::of(agent, task)
+    }
+
     pub fn session(&self, id: SessionId) -> Option<&WorkSession> {
         self.sessions.iter().find(|s| s.id == id)
     }
@@ -490,4 +501,139 @@ pub fn mission_term(project_override: Option<&str>, host_default: &str) -> Strin
     project_override
         .map(str::to_string)
         .unwrap_or_else(|| host_default.to_string())
+}
+
+/// Everything a surface prints about who an agent is — the one naming model (T-283), so the same
+/// agent reads the same on its tab, its card, its row and in every list that offers it.
+///
+/// - `title` is the primary label, what it is doing: the user's rename, the generated or the
+///   harness's own title (all [`WorkAgent::title`](ubiq_proto::work::WorkAgent::title)), else the
+///   definition it was started from, else the handle.
+/// - `identity` is the secondary line, who it is: `definition · harness · model`, any missing part
+///   skipped. Stable, so an agent is still recognisable after its title changes.
+/// - `handle` is the host's mechanical, unique name (`claude 2`) — never the primary label.
+/// - `tooltip` is the same everywhere: the summary, the identity, the assigned task's title and the
+///   handle, one per line, missing ones skipped.
+///
+/// The assigned task is never the name; it is in the tooltip, and a surface with room for it draws
+/// it as a chip or a third line of its own.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AgentLabel {
+    pub title: gpui::SharedString,
+    pub identity: gpui::SharedString,
+    pub handle: gpui::SharedString,
+    pub tooltip: gpui::SharedString,
+}
+
+impl AgentLabel {
+    /// One list row that can only hold a string — a picker's: the title, then the identity after
+    /// a middle dot, or the title alone where there is no identity.
+    pub fn row(&self) -> String {
+        if self.identity.is_empty() {
+            self.title.to_string()
+        } else {
+            format!("{} \u{00b7} {}", self.title, self.identity)
+        }
+    }
+
+    /// Whether `query` (already lowercased) is in the title, the identity or the handle — what
+    /// every list that filters agents matches against, so a search for the definition or the
+    /// handle finds the agent as surely as one for its title.
+    pub fn matches(&self, query: &str) -> bool {
+        [&self.title, &self.identity, &self.handle]
+            .iter()
+            .any(|field| field.to_lowercase().contains(query))
+    }
+
+    /// Build a label from its parts. `task` is the assigned task's title, where there is one.
+    pub fn of(agent: &ubiq_proto::work::WorkAgent, task: Option<&str>) -> Self {
+        let present = |text: &str| (!text.trim().is_empty()).then(|| text.to_string());
+        let definition = agent.definition.as_deref().and_then(present);
+        let title = agent
+            .title
+            .as_deref()
+            .and_then(present)
+            .or_else(|| definition.clone())
+            .or_else(|| present(&agent.name))
+            .unwrap_or_else(|| agent.harness.clone());
+        let model = present(&agent.model)
+            .map(|model| crate::state::conversation::short_model_label(&agent.harness, &model));
+        let identity = [definition, present(&agent.harness), model]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" \u{00b7} ");
+        let tooltip = [
+            agent.summary.as_deref().and_then(present),
+            present(&identity),
+            task.and_then(present),
+            present(&agent.name),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n");
+        Self {
+            title: title.into(),
+            identity: identity.into(),
+            handle: agent.name.clone().into(),
+            tooltip: tooltip.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod agent_label_tests {
+    use super::*;
+
+    fn agent() -> WorkAgent {
+        WorkAgent {
+            id: AgentId::generate(),
+            session: SessionId::generate(),
+            task: None,
+            parent: None,
+            name: "claude 2".to_string(),
+            title: None,
+            definition: None,
+            summary: None,
+            activity: Activity::Thinking,
+            branch: String::new(),
+            tokens: 0.0,
+            harness: "Claude Code".to_string(),
+            account: String::new(),
+            model: "claude-opus-4-6".to_string(),
+            context_pct: 0,
+            persistent: false,
+            accept_all: false,
+            debug_dump: None,
+            run_dir: None,
+            config_dir: None,
+            thread: Vec::new(),
+        }
+    }
+
+    /// Title, else definition, else handle — and the identity is the stable half either way.
+    #[test]
+    fn the_title_falls_back_to_the_definition_then_the_handle() {
+        let mut agent = agent();
+        assert_eq!(AgentLabel::of(&agent, None).title.as_ref(), "claude 2");
+
+        agent.definition = Some("Reviewer".to_string());
+        let label = AgentLabel::of(&agent, None);
+        assert_eq!(label.title.as_ref(), "Reviewer");
+        assert_eq!(
+            label.identity.as_ref(),
+            "Reviewer \u{00b7} Claude Code \u{00b7} opus"
+        );
+
+        // A rename with no summary still wins: the old gate read `summary` as "never named".
+        agent.title = Some("Fix tabs".to_string());
+        let label = AgentLabel::of(&agent, Some("T-283 labels"));
+        assert_eq!(label.title.as_ref(), "Fix tabs");
+        assert_eq!(label.handle.as_ref(), "claude 2");
+        assert_eq!(
+            label.tooltip.as_ref(),
+            "Reviewer \u{00b7} Claude Code \u{00b7} opus\nT-283 labels\nclaude 2"
+        );
+    }
 }

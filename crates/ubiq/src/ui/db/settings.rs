@@ -9,7 +9,9 @@
 //! The section hangs off a record, as the knowledge base's does: the sink's fixture page and the
 //! create form draw nothing here.
 
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Rgba, SharedString, Styled, Window, div, px};
+use gpui::{
+    AnyElement, Context, IntoElement, ParentElement, Rgba, SharedString, Styled, Window, div, px,
+};
 use gpui_component::IconName;
 
 use ubiq_proto::db::{DbConnection, DbKeystore, DbKind, PasswordState};
@@ -79,14 +81,12 @@ pub fn render(
 
     column
         .child(div().flex().flex_col().children(rows))
-        .child(
-            div().flex().items_center().pt_3().child(primary_button(
-                "project-db-add",
-                Some(IconName::Plus),
-                "Add connection",
-                cx.listener(|this, _, window, cx| this.open_db_conn_form(None, window, cx)),
-            )),
-        )
+        .child(div().flex().items_center().pt_3().child(primary_button(
+            "project-db-add",
+            Some(IconName::Plus),
+            "Add connection",
+            cx.listener(|this, _, window, cx| this.open_db_conn_form(None, window, cx)),
+        )))
         .into_any_element()
 }
 
@@ -266,6 +266,7 @@ mod tests {
             id: DbConnId::generate(),
             config,
             password,
+            agent: Default::default(),
         }
     }
 
@@ -291,7 +292,10 @@ mod tests {
         let file = saved(ConnectionConfig::new(DbKind::Sqlite), PasswordState::None);
         assert!(password_word(&file).is_none());
         let lost = saved(ConnectionConfig::new(DbKind::MySql), PasswordState::Missing);
-        assert_eq!(password_word(&lost).map(|(word, _)| word), Some("needs password"));
+        assert_eq!(
+            password_word(&lost).map(|(word, _)| word),
+            Some("needs password")
+        );
         let kept = saved(ConnectionConfig::new(DbKind::MySql), PasswordState::Saved);
         assert_eq!(password_word(&kept).map(|(word, _)| word), Some("saved"));
     }

@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::ConvBlock;
 use crate::state::conversation::ActivityPanel;
+use crate::state::work::AgentLabel;
 
 /// How often [`AppState::watch_for_dump_path`] looks to see whether the host has named the file,
 /// and how many times before it stops looking. Four seconds all told: long enough for a round trip
@@ -10,27 +11,50 @@ const DUMP_PATH_POLL: std::time::Duration = std::time::Duration::from_millis(100
 const DUMP_PATH_TRIES: usize = 40;
 
 impl AppState {
-    /// What a reader is shown as this agent's name — the dock tab, the column's own header and
-    /// its tab strip, every surface that used to print [`WorkAgent::name`] directly.
+    /// The one resolver for what a reader is shown about an agent — see [`AgentLabel`]. Every
+    /// surface that names an agent reads it here, rather than picking its own fields.
     ///
-    /// **The definition it was started from outranks the harness-label default, until something real
-    /// replaces both.** `WorkAgent::summary` is `None` until the harness (or a user rename) names
-    /// the conversation for itself — `refresh_agent_record`'s own signal — so that is the gate:
-    /// a fresh agent nothing has named yet shows the definition it was picked from rather than the
-    /// bare harness label every unnamed conversation used to wear, and a named one shows what it
-    /// was actually named, same as before. No definition remembered (a bare harness start, or a
-    /// window reloaded since) falls through to `WorkAgent::name` unchanged.
-    pub fn agent_title(&self, agent: &ubiq_proto::work::WorkAgent) -> SharedString {
-        if agent.summary.is_none()
-            && let Some(definition) = self.workbench.agent_started_definition.get(&agent.id)
-        {
-            return SharedString::from(definition.clone());
-        }
-        if agent.name.is_empty() {
-            SharedString::from(agent.harness.clone())
-        } else {
-            SharedString::from(agent.name.clone())
-        }
+    /// The assigned task's title is looked up across every project this window holds: a task id is
+    /// unique, and the surfaces that span projects (Teams, the title bar's chevron) draw agents
+    /// from projects other than the one on screen.
+    pub fn agent_label(&self, agent: &ubiq_proto::work::WorkAgent) -> AgentLabel {
+        let task = agent.task.and_then(|task| {
+            self.projects
+                .values()
+                .find_map(|open| open.work.task(task))
+                .map(|record| record.title.as_str())
+        });
+        AgentLabel::of(agent, task)
+    }
+
+    /// The same shape for a terminal pane, which has no `WorkAgent` behind it: the title is the
+    /// tab's typed-over name, else what the program last called itself, else the handle; the
+    /// identity is the harness as the host labels it (or the program, for a shell or a tool).
+    pub fn pane_label(&self, pane_id: PaneId) -> Option<AgentLabel> {
+        let pane = self.pane(pane_id)?;
+        let identity = self
+            .workbench
+            .agent_types
+            .iter()
+            .find(|agent| agent.id == pane.harness)
+            .map(|agent| agent.label.clone())
+            .unwrap_or_else(|| short_program_name(&pane.harness).to_string());
+        let title = self
+            .tab_name(&PanelKind::Terminal(pane_id))
+            .map(|name| name.to_string())
+            .or_else(|| pane.title.clone())
+            .unwrap_or_else(|| pane.handle.clone());
+        let tooltip = [identity.as_str(), pane.handle.as_str()]
+            .into_iter()
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(AgentLabel {
+            title: title.into(),
+            identity: identity.into(),
+            handle: pane.handle.clone().into(),
+            tooltip: tooltip.into(),
+        })
     }
 
     /// Bring an agent to the front: the tab of whatever column holds it, or a column of its own.
@@ -1710,7 +1734,7 @@ impl AppState {
                         let name = column
                             .active_agent()
                             .and_then(|id| self.work(cx).and_then(|work| work.agent(id)))
-                            .map(|agent| agent.name.clone())
+                            .map(|agent| self.agent_label(agent).title.to_string())
                             .unwrap_or_else(|| "this agent".to_string());
                         (
                             column.slot,

@@ -1069,7 +1069,7 @@ impl AppState {
                 let typed = self.file_name.read(cx).value().trim().to_string();
                 self.close_file_dialog(cx);
                 // A chat tab attached to a live agent is renaming *the agent*, not the tab: the
-                // agents column, the bench and every other surface read `WorkAgent::name`, and a
+                // agents column, the bench and every other surface read `WorkAgent::title`, and a
                 // tab-local override would leave every one of them showing the old name. The host
                 // owns that record, so this asks rather than writes it — the same "nothing drawn
                 // optimistically" rule `toggle_conversation_persistent` follows.

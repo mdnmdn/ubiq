@@ -3473,9 +3473,8 @@ fn activity_bar(
                 view.eid(&format!("agent-tag-{}", tab.id)),
                 format!("agent-row-{}", tab.id),
                 tab.name.clone(),
-                tab.model
-                    .as_deref()
-                    .map(|model| short_model_label(&conversation.harness, model)),
+                // The agent label's second line (T-283): its type and its model, faint.
+                Some(tab.identity(&conversation.harness)).filter(|identity| !identity.is_empty()),
                 status,
                 Some(subagent_tip(conversation, tab)),
                 colour,
@@ -3696,9 +3695,11 @@ pub fn subagent_tip(
 /// list reads as one selected agent rather than as several equal buttons. The status sits at the
 /// far end, so a column of rows reads down either side.
 ///
-/// **The model sits beside the name, faint.** A delegate is chiefly identified by what it is
-/// answering with, and a row that only had it on hover made the reader hover every row to compare
-/// three. Faint rather than muted because it is a qualifier of the name, not a second fact.
+/// **The identity sits beside the name, faint** — its type and its model,
+/// [`SubagentTab::identity`](crate::state::conversation::SubagentTab::identity), the agent label's
+/// second line (T-283). A delegate is chiefly identified by what it is and what it answers with,
+/// and a row that only had them on hover made the reader hover every row to compare three. Faint
+/// rather than muted because it is a qualifier of the name, not a second fact.
 ///
 /// **`need you` takes the status's place rather than sitting beside it.** A delegate blocked on a
 /// human is not doing anything, so `running` and `need you` together would be one of them wrong —

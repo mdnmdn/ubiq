@@ -664,37 +664,34 @@ impl Render for JsonEditor {
             )
             .when(read_only, |this| this.child(read_only_badge("read-only")));
 
-        let toolbar = div()
-            .flex()
-            .flex_row()
-            .flex_none()
-            .items_center()
-            .gap_2()
-            .child(
-                button("json-format", "Format", false, valid).on_click(cx.listener(
-                    |this, _: &ClickEvent, window, cx| this.format(window, cx),
-                )),
-            )
-            .child(
-                button("json-minify", "Minify", false, valid).on_click(cx.listener(
-                    |this, _: &ClickEvent, window, cx| this.minify(window, cx),
-                )),
-            )
-            .child(
-                button("json-copy", "Copy", false, true)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.copy(cx))),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_size(theme::font(Family::Content, Role::Dense))
-                    .text_color(status_colour)
-                    .child(SharedString::from(status)),
-            );
+        let toolbar =
+            div()
+                .flex()
+                .flex_row()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .child(button("json-format", "Format", false, valid).on_click(
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.format(window, cx)),
+                ))
+                .child(button("json-minify", "Minify", false, valid).on_click(
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.minify(window, cx)),
+                ))
+                .child(
+                    button("json-copy", "Copy", false, true)
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.copy(cx))),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_size(theme::font(Family::Content, Role::Dense))
+                        .text_color(status_colour)
+                        .child(SharedString::from(status)),
+                );
 
         let footer = div()
             .flex()

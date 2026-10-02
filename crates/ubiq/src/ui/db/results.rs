@@ -37,7 +37,7 @@ pub struct GridDelegate {
 
 impl GridDelegate {
     pub fn new(set: ResultSet) -> Self {
-        let em = f32::from(theme::font(Family::Content, Role::Body)) * CHAR_EM;
+        let em = f32::from(theme::font(Family::Content, Role::Dense)) * CHAR_EM;
         let widths = set
             .columns
             .iter()
@@ -68,7 +68,7 @@ fn column_width<'a>(
             chars = chars.max(cell_text(value).chars().count());
         }
     }
-    let pad = theme::scaled(24.0);
+    let pad = theme::scaled(14.0);
     px((chars as f32 * em + pad).clamp(theme::scaled(MIN_COL_WIDTH), theme::scaled(MAX_COL_WIDTH)))
 }
 
@@ -110,7 +110,13 @@ impl TableDelegate for GridDelegate {
         let meta = &self.columns[col_ix];
         let column = Column::new(col_ix.to_string(), meta.name.clone())
             .width(self.widths[col_ix])
-            .min_width(px(theme::scaled(40.0)));
+            .min_width(px(theme::scaled(40.0)))
+            .paddings(gpui::Edges {
+                top: px(0.),
+                bottom: px(0.),
+                left: px(theme::scaled(6.0)),
+                right: px(theme::scaled(6.0)),
+            });
         if meta.data_type.is_numeric() {
             column.text_right()
         } else {
@@ -135,6 +141,7 @@ impl TableDelegate for GridDelegate {
             .size_full()
             .flex()
             .items_center()
+            .text_size(theme::font(Family::Content, Role::Dense))
             .when(meta.data_type.is_numeric(), |this| this.justify_end())
             .child(SharedString::from(meta.name.clone()))
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
@@ -171,7 +178,7 @@ impl TableDelegate for GridDelegate {
             .flex()
             .items_center()
             .font_family(theme::MONO_FONT)
-            .text_size(theme::font(Family::Content, Role::Body))
+            .text_size(theme::font(Family::Content, Role::Dense))
             .when(numeric, |this| this.justify_end())
             .when(null, |this| this.italic().text_color(theme::text_faint()))
             .when(empty, |this| this.text_color(theme::text_faint()))

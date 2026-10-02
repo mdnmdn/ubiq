@@ -101,7 +101,7 @@ impl AppState {
                     continue;
                 }
                 rows.push((
-                    format!("{} \u{2014} running", self.agent_title(agent)),
+                    format!("{} \u{2014} running", self.agent_label(agent).title),
                     Coordinator::Running(agent.id),
                 ));
             }

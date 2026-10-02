@@ -35,14 +35,14 @@ use ubiq_proto::ids::TaskId;
 use ubiq_proto::work::{AgentId, TaskRecord, WorkAgent};
 
 use crate::app::AppState;
-use crate::state::conversation::{Conversation, SubagentTab, short_model_label};
+use crate::state::conversation::{Conversation, SubagentTab};
 use crate::state::status::Status;
 use crate::state::teams::{
     CARD_WIDTH, GROUP_LABEL, GROUP_PAD, MISSION_BAND, MISSION_HANDLE, TEAMS_CARD_HEIGHT, TeamsSpan,
     agent_status, delegate_status, fence,
 };
 use crate::state::work;
-use crate::state::work::WorkState;
+use crate::state::work::{AgentLabel, WorkState};
 use crate::state::{TeamsHeld, TeamsSelection};
 use crate::theme;
 use crate::theme::{Family, Role};
@@ -386,12 +386,17 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // read the same conversation to name the delegates at all; this is a second reading of it
         // for a second fact, on the same rule every other loop in this function follows.
         let conversation = app.teams_conversation(*id, cx);
+        let parent = work
+            .agent(*id)
+            .map(|a| app.agent_label(a).title)
+            .unwrap_or_default();
         for (ix, (tab, spot)) in delegates.iter().zip(spots).enumerate() {
             board.block(
                 (spot.0, spot.1, sub.0, sub.1),
                 subagent_card(
                     *id,
                     work.agent(*id).map(|a| a.harness.as_str()).unwrap_or(""),
+                    &parent,
                     tab,
                     conversation,
                     ix,
@@ -466,6 +471,11 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             (at.0, at.1, CARD_WIDTH, TEAMS_CARD_HEIGHT),
             agent_card(
                 agent,
+                app.agent_label(agent),
+                agent
+                    .task
+                    .and_then(|task| work.task(task))
+                    .map(|task| SharedString::from(task.title.clone())),
                 // The live conversation is the better witness of what a card is doing than the
                 // host's periodic reading of it, and this mode draws no card without one.
                 agent_status(agent, conversation),
@@ -716,7 +726,7 @@ fn coordinator_chip(
                     .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
             )
             .child(div().flex_none().child(state_chip(
-                agent.name.clone(),
+                app.agent_label(agent).title.to_string(),
                 activity_colour(agent.activity),
                 0.8 * zoom,
             )))
@@ -761,6 +771,7 @@ fn delegate_activity_label(tab: &SubagentTab) -> Option<String> {
 fn subagent_card(
     agent: AgentId,
     harness: &str,
+    parent: &str,
     tab: &SubagentTab,
     conversation: Option<&Conversation>,
     ix: usize,
@@ -774,20 +785,20 @@ fn subagent_card(
 ) -> gpui::AnyElement {
     let status = delegate_status(tab);
     let colour = card_colour(status);
-    // One line, `\u{b7}`-separated, the way every other tooltip in the interface reads — and each part
-    // is drawn only where the harness said it. The state leads it: what the delegate is doing is
-    // what the reader came for, and the rest is detail.
+    // The agent label's shape (T-283): title on row 1, identity (`kind · model`) on row 2, and the
+    // standard tooltip — led by the state, which is what the reader came for — one fact a line.
+    let identity = tab.identity(harness);
     let tip = [
         Some(status.label().to_string()),
         Some(tab.name.clone()),
-        tab.kind.clone(),
-        tab.model.clone(),
+        (!identity.is_empty()).then(|| identity.clone()),
         tab.thinking.clone(),
+        Some(tab.handle(parent)),
     ]
     .into_iter()
     .flatten()
     .collect::<Vec<_>>()
-    .join(" \u{b7} ");
+    .join("\n");
     let id = tab.id.clone();
     let held = TeamsHeld::Subagent {
         agent,
@@ -827,9 +838,8 @@ fn subagent_card(
                 theme::font(Family::Chrome, Role::Body) * zoom,
             )),
     )
-    // Row 2: the harness it runs under, and the model — the alias, not the catalogue id, the same
-    // cut the composer's chip makes, so one project never spells a model two ways. The tooltip
-    // above still carries it in full.
+    // Row 2: the harness's mark, then the delegate's identity — its type and its model, the alias
+    // the composer's chip cuts rather than the catalogue id.
     .child(
         div()
             .flex()
@@ -842,14 +852,10 @@ fn subagent_card(
                     .flex_none()
                     .text_color(theme::text_muted())
             }))
-            .children(tab.model.as_deref().map(|model| {
-                mono(short_model_label(harness, model), theme::text_muted())
+            .children((!identity.is_empty()).then(|| {
+                mono(identity.clone(), theme::text_muted())
                     .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
                     .truncate()
-            }))
-            .children(tab.kind.clone().map(|kind| {
-                mono(kind.to_uppercase(), theme::text_faint())
-                    .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
             })),
     );
 
@@ -941,6 +947,8 @@ fn card_tint(app: &AppState, agent: AgentId, cx: &App) -> Option<Rgba> {
 #[allow(clippy::too_many_arguments)]
 fn agent_card(
     agent: &WorkAgent,
+    label: AgentLabel,
+    task: Option<SharedString>,
     status: Status,
     context: Option<u8>,
     spend: Option<(u64, u64)>,
@@ -964,9 +972,9 @@ fn agent_card(
         Look::new(colour).selected(selected).carried(carried),
         zoom,
     )
-    // Row 1: the status mark, then whoever is answering — a persistent agent's own name where it
-    // has one, the bare harness otherwise. The project chip, under the window span only, is the
-    // one thing this row still owes to "whose card is this" beside what it is doing.
+    // Row 1: the status mark, then the agent's title, carrying the standard tooltip. The project
+    // chip, under the window span only, is the one thing this row still owes to "whose card is
+    // this" beside what it is doing.
     .child(
         div()
             .flex()
@@ -974,26 +982,19 @@ fn agent_card(
             .items_center()
             .gap(px(7.0 * zoom))
             .child(status_mark(status, 22.0 * zoom, eid("teams-card-mark", id)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .text_size(theme::font(Family::Chrome, Role::Body) * zoom)
-                    .text_color(theme::text())
-                    .truncate()
-                    .child(SharedString::from(if agent.name.is_empty() {
-                        agent.harness.clone()
-                    } else {
-                        agent.name.clone()
-                    })),
-            )
+            .child(div().flex_1().min_w(px(0.)).child(elided_with(
+                eid("teams-card-name", id),
+                label.title.clone(),
+                label.tooltip.clone(),
+                theme::text(),
+                theme::font(Family::Chrome, Role::Body) * zoom,
+            )))
             .children(project.map(|face| {
                 project_chip(eid("teams-card-project", id), &face, zoom).into_any_element()
             })),
     )
-    // Row 2: what is answering, and its model — the harness is its mark and the model is its
-    // name, because the mark is what tells two cards apart at a glance and the name is what
-    // tells one card what it is.
+    // Row 2: the harness's mark, then the agent's identity — `definition · harness · model` — the
+    // stable half of its label, so a card is still recognisable after its title changes.
     .child(
         div()
             .flex()
@@ -1007,30 +1008,23 @@ fn agent_card(
                     .text_color(theme::text_muted())
             }))
             .child(
-                mono(
-                    if agent.model.is_empty() {
-                        agent.harness.clone()
-                    } else {
-                        short_model_label(&agent.harness, &agent.model)
-                    },
-                    theme::text_muted(),
-                )
-                .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
-                .flex_1()
-                .min_w(px(0.))
-                .truncate(),
+                mono(label.identity.clone(), theme::text_muted())
+                    .text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate(),
             ),
     )
-    // Row 3: the title or the activity it is on — drawn only where there is one, on the same rule
-    // the delegate card's own third row follows, so a card between commands does not carry a blank
-    // line the footer would otherwise be stretched to clear.
-    .children((!agent.note.is_empty()).then(|| {
+    // Row 3: the task it is assigned, where it has one — never its name, only a line of its own.
+    // The activity is the corner chip's. Drawn only where there is a task, on the same rule the
+    // delegate card's own third row follows, so a card with none carries no blank line.
+    .children(task.map(|task| {
         div()
             .flex_none()
             .text_size(theme::font(Family::Chrome, Role::Label) * zoom)
             .text_color(theme::text_muted())
             .truncate()
-            .child(SharedString::from(agent.note.clone()))
+            .child(task)
     }))
     // The footer: how full the harness's window is and what it has spent — wrapping onto a second
     // row where the card is too narrow for it. The current activity chip is not in this flow; it

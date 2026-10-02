@@ -106,7 +106,7 @@ pub fn rows(
     // Name, path, and whether it is a folder — the explorer's rows, already filtered by it.
     files: &[(String, String, bool)],
     tasks: &[(TaskId, String)],
-    // Id, name, role.
+    // Id, title, identity — the agent's `AgentLabel` halves.
     agents: &[(AgentId, String, String)],
     name_of: &dyn Fn(ProjectId) -> Option<String>,
 ) -> Vec<NavRow> {
@@ -226,10 +226,10 @@ pub fn rows(
     );
     keep(
         &mut out,
-        agents.iter().map(|(agent, name, role)| NavRow {
+        agents.iter().map(|(agent, title, identity)| NavRow {
             group: Group::Agent,
-            label: name.clone(),
-            detail: role.clone(),
+            label: title.clone(),
+            detail: identity.clone(),
             dest: Some(Destination::new(project, View::Agents { agent: *agent })),
             adrift: false,
             action: None,

@@ -5037,6 +5037,26 @@ project that makes it; another project's stale entries read `Missing` until re-e
 sealed file is only as strong as the keychain item, and a process running as the user can ask the
 keychain for it.
 
+### D202 — The SQL servers are two MCP servers, each call on its own thread, answering in TOON
+
+An agent reaches a project's databases through `ubiq-sql-read` and `ubiq-sql-write`, two servers
+rather than one with a mode, so what an agent definition grants is visible in its list of servers
+and the write tools are simply absent from the read one. Neither is in a default set. The listener
+serves one request at a time, so each SQL `tools/call` is moved onto an `ubiq-sql-call` thread, at
+most 8 at once, and a ninth is refused as busy rather than queued (`D138`'s shape). The coordinator
+builds `Db` before the listener so the servers hold an `AgentDb`, the same service a window reaches.
+
+Results are TOON (`toon-format`, encode only), because a table's column names written once is the
+cheapest form an agent can read; a tool that returns a string has its text sent as-is, since
+quoting it as JSON would escape every newline. **`max_rows` and `max_field_size` are required on
+purpose:** an agent that must pick a size has to think about what it is about to read into its
+context. A cut or binary cell is a `[blob:<id>:<len>]` marker and the rest is in an in-memory cache
+keyed by `(agent, id)`, bounded by count, bytes and a 10-minute idle TTL.
+
+**Cost:** the cache is per process, so a blob does not survive a restart; a result past 200 000
+characters loses its trailing rows; and the scalar row count is `row_count` because `rows` is the
+table.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

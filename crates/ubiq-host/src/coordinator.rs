@@ -428,6 +428,12 @@ struct PendingConversation {
     /// Set whether it produced a name or not: a conversation is named once, and a provider that
     /// would not answer must not be asked again every half-second for as long as the agent lives.
     named: bool,
+    /// The last title the harness named itself with that was put on the live `WorkAgent`.
+    ///
+    /// What lets a harness retitle itself without ever overwriting a rename or a generated
+    /// title: its next title is adopted only while the agent's current one is still this (or
+    /// there is none). In memory only, so after a restart the restored title holds.
+    harness_title: Option<String>,
     /// The harness's own session id, as the last process to run this conversation reported it.
     ///
     /// **This is what makes a one-shot harness converse.** Such a harness answers once and exits,
@@ -457,6 +463,34 @@ fn unique_name(base: &str, taken: &[String]) -> String {
             return candidate;
         }
         n += 1;
+    }
+}
+
+/// Change one field of a live conversation's `WorkAgent`, refresh its MCP identity to match, and
+/// tell every window with an `AgentChanged`.
+///
+/// A free function rather than a method because the naming thread calls it too: the title it
+/// writes has to land on the live record (or the next `AgentChanged` from anywhere reverts it,
+/// T-283's B1), and that thread holds no `&self`. The identity is refreshed on every call, not
+/// only on a naming — it is one map write, and a field that changed is the only reason to be here.
+fn publish_live_agent(
+    work: &crate::work::Handle,
+    registry: &crate::mcp::Registry,
+    everyone: &ubiq_proto::bus::Mailbox,
+    project_id: ProjectId,
+    agent_id: AgentId,
+    set: impl FnOnce(&mut WorkAgent),
+) {
+    let changed = work
+        .lock()
+        .live_agent_mut(project_id, agent_id)
+        .map(|agent| {
+            set(agent);
+            Box::new(agent.clone())
+        });
+    if let Some(agent) = changed {
+        registry.set_name(&agent_id.to_string(), agent.title_or_handle());
+        everyone.send(Message::AgentChanged { project_id, agent });
     }
 }
 
@@ -863,6 +897,10 @@ impl Coordinator {
         // The registered dialogs, shared the same way and with the same two halves — armed on the
         // listener's thread, raised on a pump's, answered on this one.
         let armed = Arc::new(crate::armed::Armed::new());
+        // The database family, built here so the SQL servers can be handed a handle on it: they run
+        // on the listener's own threads and reach the same sessions and editors a window does
+        // (`D202`).
+        let db = crate::db::Db::new(root.path.clone());
         let mcp = crate::mcp::start(
             mcp_agents.clone(),
             host.voice(),
@@ -891,6 +929,9 @@ impl Coordinator {
                 asks: asks.clone(),
                 armed: armed.clone(),
             }),
+            Some(crate::mcp::SqlReach::new(
+                db.agent_handle(host.mailbox(To::Everyone)),
+            )),
         )
         .inspect_err(|error| {
             tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
@@ -1004,7 +1045,6 @@ impl Coordinator {
         // Taken before the root is moved into the struct: the quota worker probes from a thread of
         // its own and everything it needs is a path.
         let quota_root = root.path.clone();
-        let db = crate::db::Db::new(root.path.clone());
         let pending_conversations = conversation_record::all(&root.path.join("sessions"))
             .into_iter()
             .filter(|(_, row)| row.persistent)
@@ -1026,6 +1066,7 @@ impl Coordinator {
                         // A row that carries a title has already been through the naming pass, and
                         // a conversation is named once however many processes it outlives.
                         named: row.title.is_some(),
+                        harness_title: None,
                         resume: None,
                         // Not part of the persisted row yet: an mcp or skill pick made before a
                         // restart does not survive one, same as `catalogue` above.
@@ -1176,6 +1217,7 @@ impl Coordinator {
             self.sync_tasks_due();
             self.remember_sessions();
             self.name_conversations();
+            self.adopt_harness_titles();
             self.reap_conversations();
             self.register_clones();
             self.projects.flush_due(Instant::now());
@@ -3415,6 +3457,8 @@ impl Coordinator {
             | Message::DbCancel { .. }
             | Message::DbCloseSession { .. }
             | Message::DbDisconnect { .. }
+            | Message::DbEditors { .. }
+            | Message::DbEditorEdit { .. }
             | Message::CreateDbFile { .. }) => {
                 let project_path = message
                     .project_id()
@@ -3521,10 +3565,11 @@ impl Coordinator {
             // is why a mission's roster is written down at the spawn rather than read back off it.
             parent: spawned_by,
             name,
+            // Nothing has named it yet; a revive restores the row's title right after this.
+            title: None,
+            definition: definition.clone(),
             summary: None,
-            role: "agent".to_string(),
             activity: Activity::Thinking,
-            note: String::new(),
             branch: String::new(),
             tokens: 0.0,
             harness: label,
@@ -3620,6 +3665,7 @@ impl Coordinator {
                 // Nobody has said anything yet, so there is nothing to name it after.
                 opening_prompt: None,
                 named: false,
+                harness_title: None,
                 // Nothing has run, so there is no harness session to continue.
                 resume: None,
                 mcps,
@@ -3749,7 +3795,7 @@ impl Coordinator {
             .work
             .lock()
             .live_agent_mut(pending.project_id, agent_id)
-            .map(|agent| (agent.name.clone(), agent.harness.clone()))
+            .map(|agent| (agent.title_or_handle().to_string(), agent.harness.clone()))
             .unwrap_or_else(|| (pending.agent_type.clone(), pending.agent_type.clone()));
         let project = self.project_facts(pending.project_id);
         // Which mission this run is in, settled before the harness exists to ask — the mission
@@ -4027,10 +4073,10 @@ impl Coordinator {
     /// Give a conversation a new name, typed by the user over whatever it was called.
     ///
     /// Written to the durable row's `title` — the same field [`Self::name_job`] writes from its
-    /// own idea of one — and to the live `WorkAgent` through [`Self::publish_conversation_flags`],
-    /// the same broadcast [`Self::set_conversation_persistent`] and its two siblings use. One
-    /// field, so a rename shows up on every surface that reads a conversation's name rather than
-    /// only the one it was typed into.
+    /// own idea of one — and to the live `WorkAgent::title` through
+    /// [`Self::publish_conversation_flags`], the same broadcast [`Self::set_conversation_persistent`]
+    /// and its two siblings use. One field, so a rename shows up on every surface that reads a
+    /// conversation's name rather than only the one it was typed into, and the MCP identity with it.
     ///
     /// **Counts as named**, the same flag [`Self::name_conversations`] checks before ever running
     /// the naming pass: a title the user just typed is not overwritten the moment the opening
@@ -4052,7 +4098,8 @@ impl Coordinator {
             pending.named = true;
             pending.opening_prompt = None;
         }
-        self.publish_conversation_flags(agent_id, |agent| agent.name = name.clone());
+        // The title, never the handle: `name` stays the mechanical one it was minted with.
+        self.publish_conversation_flags(agent_id, |agent| agent.title = Some(name));
     }
 
     /// Answer every permission this conversation asks for, or stop.
@@ -4144,18 +4191,14 @@ impl Coordinator {
         let Some((_, project_id)) = self.conversation_owners.get(&agent_id).copied() else {
             return;
         };
-        let changed = self
-            .work
-            .lock()
-            .live_agent_mut(project_id, agent_id)
-            .map(|agent| {
-                set(agent);
-                Box::new(agent.clone())
-            });
-        if let Some(agent) = changed {
-            self.host
-                .send(To::Everyone, Message::AgentChanged { project_id, agent });
-        }
+        publish_live_agent(
+            &self.work,
+            &self.agents.mcp_agents(),
+            &self.host.mailbox(To::Everyone),
+            project_id,
+            agent_id,
+            set,
+        );
     }
 
     /// Put a message the window sent into the capture of the conversation it is about, when that
@@ -4352,6 +4395,31 @@ impl Coordinator {
             return;
         }
 
+        // What it was called, back onto the live record (T-283's B3): a fresh start mints only
+        // the handle, and the row's title is what the conversation was named before. A title on
+        // the row also means it has been named, so the naming pass does not run a second time.
+        // A fork copies both onto its own row, which `start_conversation` has just written blank.
+        let label = conversation_record::load(&self.sessions(), source)
+            .map(|row| (row.title, row.summary))
+            .filter(|(title, _)| title.is_some());
+        if let Some((title, summary)) = label {
+            if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
+                pending.named = true;
+            }
+            if forking {
+                let sessions = self.sessions();
+                if let Some(mut row) = conversation_record::load(&sessions, agent_id) {
+                    row.title = title.clone();
+                    row.summary = summary.clone();
+                    conversation_record::save(&sessions, agent_id, &row);
+                }
+            }
+            self.publish_conversation_flags(agent_id, |agent| {
+                agent.title = title;
+                agent.summary = summary;
+            });
+        }
+
         // The token the library holds for the *source*, which is what both paths resume: a
         // re-attach continues its own session, and a fork continues the same session inside its own
         // copy of the store.
@@ -4545,7 +4613,8 @@ impl Coordinator {
     /// that quietly disagrees with itself depending on what happened last.
     ///
     /// Three fields are *not* the coordinator's recipe and are carried over from the row already on
-    /// disk rather than rebuilt: `title`, written by the naming thread; `persistent`, written by the
+    /// disk rather than rebuilt: `title` and `summary`, written by the naming thread, a rename or
+    /// the harness's own title; `persistent`, written by the
     /// user through [`Message::SetConversationPersistent`]; and `forked_from`, stamped once by a
     /// revive. A sequence bump must not reset any of them.
     fn remember_conversation(&self, agent_id: AgentId) {
@@ -4565,6 +4634,7 @@ impl Coordinator {
             mode: pending.chosen_mode.clone(),
             next_seq: pending.next_seq,
             title: held.as_ref().and_then(|row| row.title.clone()),
+            summary: held.as_ref().and_then(|row| row.summary.clone()),
             persistent: held.as_ref().is_some_and(|row| row.persistent),
             accept_all: held.as_ref().is_some_and(|row| row.accept_all),
             debug_dump: held.as_ref().is_some_and(|row| row.debug_dump),
@@ -4663,6 +4733,47 @@ impl Coordinator {
         }
     }
 
+    /// Put each title a harness named itself with (`ConvUpdate::Title`) on the live `WorkAgent`
+    /// and the durable row, so it survives the next `AgentChanged` and a revive.
+    ///
+    /// **Never over a rename or a generated title.** A harness title is adopted only while the
+    /// agent has no title, or still wears the last one the harness gave it — the precedence
+    /// T-283 sets: the user's rename, then whichever naming came first, then the harness's later
+    /// retitles of its own.
+    fn adopt_harness_titles(&mut self) {
+        let arrived: Vec<(AgentId, String)> = self
+            .conversations
+            .iter()
+            .filter_map(|(agent_id, conversation)| {
+                Some((*agent_id, conversation.take_harness_title()?))
+            })
+            .collect();
+        for (agent_id, title) in arrived {
+            let Some((_, project_id)) = self.conversation_owners.get(&agent_id).copied() else {
+                continue;
+            };
+            let Some(pending) = self.pending_conversations.get_mut(&agent_id) else {
+                continue;
+            };
+            let current = self
+                .work
+                .lock()
+                .live_agent_mut(project_id, agent_id)
+                .and_then(|agent| agent.title.clone());
+            let ours = current.is_none() || current == pending.harness_title;
+            if !ours || current.as_deref() == Some(title.as_str()) {
+                continue;
+            }
+            pending.harness_title = Some(title.clone());
+            let sessions = self.sessions();
+            if let Some(mut row) = conversation_record::load(&sessions, agent_id) {
+                row.title = Some(title.clone());
+                conversation_record::save(&sessions, agent_id, &row);
+            }
+            self.publish_conversation_flags(agent_id, |agent| agent.title = Some(title));
+        }
+    }
+
     /// Ask the selected provider for a title and a five-word summary of one conversation.
     ///
     /// **A failure is a log line and nothing else.** Every other suggestion is something a user
@@ -4683,12 +4794,15 @@ impl Coordinator {
             );
             return;
         }
-        // The window that owns the conversation, which is the one drawing its tab. A naming is
-        // not a project-wide fact: another window showing the same project has no tab for it.
-        let Some((client, _)) = self.conversation_owners.get(&agent_id).copied() else {
+        // The project the conversation lives in. The naming goes to every window as an
+        // `AgentChanged` (T-283): it is the record's title now, not a fact about one tab.
+        let Some((_, project_id)) = self.conversation_owners.get(&agent_id).copied() else {
             return;
         };
-        let mailbox = self.host.mailbox(To::Client(client));
+        // What lands the naming on the live record from this thread — see `publish_live_agent`.
+        let everyone = self.host.mailbox(To::Everyone);
+        let work = self.work.clone();
+        let registry = self.agents.mcp_agents();
         // The title lands on this thread and nowhere else — nothing sends it back to the
         // coordinator — so this is where it reaches the durable row. Read-modify-write rather than
         // a rebuild: everything else on the row is the coordinator's, and this thread has none of
@@ -4706,13 +4820,20 @@ impl Coordinator {
                             tracing::debug!(agent = %agent_id, %title, "named a conversation");
                             if let Some(mut row) = conversation_record::load(&sessions, agent_id) {
                                 row.title = Some(title.clone());
+                                row.summary = summary.clone();
                                 conversation_record::save(&sessions, agent_id, &row);
                             }
-                            mailbox.send(Message::ConversationNamed {
+                            publish_live_agent(
+                                &work,
+                                &registry,
+                                &everyone,
+                                project_id,
                                 agent_id,
-                                title,
-                                summary,
-                            });
+                                |agent| {
+                                    agent.title = Some(title.clone());
+                                    agent.summary = summary;
+                                },
+                            );
                         }
                         None => tracing::debug!(
                             agent = %agent_id,
@@ -7100,9 +7221,9 @@ mod tests {
             parent: None,
             name: "fake".to_string(),
             summary: None,
-            role: "agent".to_string(),
+            title: None,
+            definition: None,
             activity: Activity::Thinking,
-            note: String::new(),
             branch: String::new(),
             tokens: 0.0,
             harness: "Fake".to_string(),
@@ -7144,6 +7265,7 @@ mod tests {
                 next_seq: last_seq,
                 opening_prompt: None,
                 named: false,
+                harness_title: None,
                 resume: None,
                 mcps: Vec::new(),
                 skills: Vec::new(),
@@ -7500,6 +7622,110 @@ mod tests {
         );
     }
 
+    /// The live record, as the last `AgentChanged` about `agent_id` carried it.
+    fn last_changed(sent: &[Message], agent_id: AgentId) -> Option<WorkAgent> {
+        sent.iter().rev().find_map(|message| match message {
+            Message::AgentChanged { agent, .. } if agent.id == agent_id => Some((**agent).clone()),
+            _ => None,
+        })
+    }
+
+    /// T-283's B1: a rename lands on the live record's `title` — never on the handle — and so
+    /// survives the next `AgentChanged` some unrelated flag sends; the MCP identity follows it.
+    #[test]
+    fn a_rename_is_on_the_live_record_and_survives_the_next_agent_changed() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        coordinator.remember_conversation(agent_id);
+        coordinator
+            .agents
+            .mcp_agents()
+            .register(crate::mcp::AgentFacts {
+                key: agent_id.to_string(),
+                name: "fake".to_string(),
+                ..Default::default()
+            });
+        while client.from_host().try_recv().is_ok() {}
+
+        coordinator.dispatch(
+            client.id(),
+            Message::RenameConversation {
+                agent_id,
+                name: "Reviewer".to_string(),
+            },
+        );
+        coordinator.dispatch(
+            client.id(),
+            Message::SetConversationAcceptAll {
+                agent_id,
+                accept_all: true,
+            },
+        );
+
+        let sent: Vec<Message> =
+            std::iter::from_fn(|| client.from_host().try_recv().ok()).collect();
+        let agent = last_changed(&sent, agent_id).expect("an AgentChanged");
+        assert!(agent.accept_all, "the later change is the one read");
+        assert_eq!(agent.title.as_deref(), Some("Reviewer"));
+        assert_eq!(agent.name, "fake", "the handle is never overwritten");
+        assert_eq!(
+            coordinator
+                .agents
+                .mcp_agents()
+                .facts(&agent_id.to_string())
+                .map(|facts| facts.name),
+            Some("Reviewer".to_string()),
+            "whoami says what the window says"
+        );
+        let row = conversation_record::load(&coordinator.sessions(), agent_id).expect("a row");
+        assert_eq!(row.title.as_deref(), Some("Reviewer"));
+    }
+
+    /// A harness's own title lands on the live record like a naming does, and never over a
+    /// rename.
+    #[test]
+    fn a_harness_title_is_adopted_until_the_user_renames() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        coordinator.remember_conversation(agent_id);
+        let title_of = |coordinator: &Coordinator| {
+            coordinator
+                .work
+                .lock()
+                .live_agent_mut(project_id, agent_id)
+                .and_then(|agent| agent.title.clone())
+        };
+
+        coordinator.conversations[&agent_id].offer_harness_title("Harness one");
+        coordinator.adopt_harness_titles();
+        assert_eq!(title_of(&coordinator).as_deref(), Some("Harness one"));
+
+        coordinator.conversations[&agent_id].offer_harness_title("Harness two");
+        coordinator.adopt_harness_titles();
+        assert_eq!(
+            title_of(&coordinator).as_deref(),
+            Some("Harness two"),
+            "the harness may retitle what it titled"
+        );
+
+        coordinator.dispatch(
+            client.id(),
+            Message::RenameConversation {
+                agent_id,
+                name: "Mine".to_string(),
+            },
+        );
+        coordinator.conversations[&agent_id].offer_harness_title("Harness three");
+        coordinator.adopt_harness_titles();
+        assert_eq!(title_of(&coordinator).as_deref(), Some("Mine"));
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
     /// The capture answers with the file it writes, because a window that cannot say where the
     /// traffic went is a debugging aid nobody can use.
     #[test]
@@ -7637,6 +7863,63 @@ mod tests {
             Some("harness-session-1"),
             "the resume token comes from the library's record, not the row"
         );
+
+        coordinator
+            .conversations
+            .remove(&agent_id)
+            .unwrap()
+            .stop(true);
+    }
+
+    /// T-283's B3: a revived conversation comes back under the title and summary its row kept,
+    /// on the live record rather than only on disk — and, being named, is not named again.
+    #[test]
+    fn a_re_attach_restores_the_title_and_summary() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent_id, _seeded) = seed_live_conversation(&mut coordinator, &client, 0);
+        let held = tempfile::TempDir::new().unwrap();
+        let folder = held.path().canonicalize().unwrap();
+        let project_id = add_test_project(&mut coordinator, &folder);
+        {
+            let pending = coordinator
+                .pending_conversations
+                .get_mut(&agent_id)
+                .unwrap();
+            pending.project_id = project_id;
+            pending.agent_type = "claude-code".to_string();
+            pending.cwd = folder.clone();
+            pending.definition = Some("Reviewer".to_string());
+        }
+        coordinator.remember_conversation(agent_id);
+        let sessions = coordinator.sessions();
+        let mut row = conversation_record::load(&sessions, agent_id).expect("a row");
+        row.title = Some("Fix tab truncation".to_string());
+        row.summary = Some("Tabs cut their labels short".to_string());
+        conversation_record::save(&sessions, agent_id, &row);
+
+        coordinator.revive_conversation(
+            client.id(),
+            agent_id,
+            agent_id,
+            project_id,
+            SessionId::generate(),
+        );
+
+        let said = drain_all(&client);
+        let agent = last_changed(&said, agent_id).expect("an AgentChanged after the revive");
+        assert_eq!(agent.title.as_deref(), Some("Fix tab truncation"));
+        assert_eq!(
+            agent.summary.as_deref(),
+            Some("Tabs cut their labels short")
+        );
+        assert_eq!(agent.definition.as_deref(), Some("Reviewer"));
+        assert_ne!(
+            agent.name, "Fix tab truncation",
+            "the handle stays the handle"
+        );
+        assert!(coordinator.pending_conversations[&agent_id].named);
+        let row = conversation_record::load(&sessions, agent_id).expect("a row");
+        assert_eq!(row.summary.as_deref(), Some("Tabs cut their labels short"));
 
         coordinator
             .conversations

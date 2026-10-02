@@ -91,6 +91,7 @@ project's own folder — `D30` — with one exception the person creating a proj
             ├── ui/                the interface's workarea — the host makes it and never looks in
             ├── index/             the host's file index, deleted rather than repaired
             ├── db-secrets.toml    that project's sealed database passwords, this machine's key
+            ├── db-agents.toml     what agents may do with each database connection, this machine's
             └── kb/<root ulid>/    a cloned knowledge-base repository, re-fetchable
 ```
 
@@ -127,6 +128,12 @@ list of roots, the user's data — stays on the shared side.
 passwords, each sealed under a key that lives in this machine's keychain, so the file is useless
 anywhere else and sits under the config root whatever the project's storage mode (`D201`). Forget
 removes it with the project's directory.
+
+`local/db-agents.toml` sits beside it, under the config root whatever the storage mode, for a
+reason of its own: it says which connections an agent may read or write (`access`) and which it
+gets by default, and in `.ubiq/` it would be inside the project's folder, where the agents it
+governs work and could grant themselves access. Each connection's `description` is shared, in
+`db.toml`. A connection the file does not name has no agent access.
 
 A `projects/<ulid>/` with no record in the catalogue is collected at the next successful load, which
 is what makes forgetting a project complete even after a crash halfway through it. The `local/ui/`

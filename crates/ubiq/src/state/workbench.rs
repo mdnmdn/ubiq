@@ -784,21 +784,6 @@ pub struct WorkbenchState {
     /// none, and the record is made by the host as the conversation starts — so the assignment
     /// goes out from the `ConversationStarted` arm, where there is certainly something to assign.
     pub agent_assignments: std::collections::HashMap<AgentId, (ProjectId, TaskId)>,
-    /// The definition a conversation was started from, by the agent it produced — until the harness
-    /// (or the user) names the conversation for itself.
-    ///
-    /// `AgentDefinition::id` **is** the definition's display name (`"what the user named this setup, e.g.
-    /// review"`), so the id `Message::StartConversation` already carries is the whole of what a
-    /// title needs — no second lookup. Nothing on `WorkAgent` remembers which definition started it
-    /// (there is no such field, and none is added for this alone), so the record kept here is
-    /// session-only: a reload of the window loses it exactly as it loses every other in-flight
-    /// pick, and the title falls back to the harness-label default `refresh_agent_record` always
-    /// gave, which is no regression.
-    ///
-    /// Read wherever a title is drawn, and only while `WorkAgent::summary` is still `None` — the
-    /// same signal `refresh_agent_record` sets the moment the harness (or a user rename) actually
-    /// names the conversation, so a definition's name never outlives the real one.
-    pub agent_started_definition: std::collections::HashMap<AgentId, String>,
     /// The "Connect to a remote host" modal, while it is up. Beside `clone_project` for the same
     /// reason: raised from the titlebar rather than from settings, and answering a question that
     /// has nothing to do with any project on screen.
@@ -1027,7 +1012,6 @@ impl Default for WorkbenchState {
             kb_source: None,
             agent_preambles: Default::default(),
             agent_assignments: Default::default(),
-            agent_started_definition: Default::default(),
             remote_connect: None,
             remote_manager: RemoteManagerState::default(),
             settings: SettingsState::default(),

@@ -1481,7 +1481,7 @@ fn the_mock_agents_come_back_linked_to_a_task_that_exists() {
     // the project manager is on `main`, whose only task is finished.
     let boss = agents
         .iter()
-        .find(|a| a.role == "Project manager")
+        .find(|a| a.definition.as_deref() == Some("Project manager"))
         .expect("the mock has a project manager");
     assert_eq!(
         boss.task, None,

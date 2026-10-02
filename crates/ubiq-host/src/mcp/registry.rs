@@ -26,7 +26,9 @@ pub struct AgentFacts {
     /// The agent's own id, and the segment its URL carries: `AgentId` for a conversation, `PaneId`
     /// for a pane. The same string [`crate::agent::Agents`] names the run directory with.
     pub key: String,
-    /// What the interface calls this agent — the name on its card.
+    /// What the interface calls this agent: its title once anything has named it, else its handle
+    /// ([`ubiq_proto::work::WorkAgent::title_or_handle`]). Like [`Self::mission`], not a launch
+    /// snapshot — [`Registry::set_name`] refreshes it on a rename or a naming.
     pub name: String,
     /// The harness behind it, as a person reads it.
     pub harness: String,
@@ -105,6 +107,15 @@ impl Registry {
         }
     }
 
+    /// Rename an agent, once anything has titled it. A key nobody registered is ignored, on the
+    /// same terms as [`Self::set_mission`]: a conversation named before its harness launched has no
+    /// row yet, and the launch reads the title off the live record when it registers one.
+    pub fn set_name(&self, key: &str, name: &str) {
+        if let Some(facts) = self.write().get_mut(key) {
+            facts.name = name.to_string();
+        }
+    }
+
     /// What is known about the agent a URL named, or `None` — which the listener turns into a 404,
     /// because a request naming nobody is not a protocol error, it is the wrong address.
     pub fn facts(&self, key: &str) -> Option<AgentFacts> {
@@ -171,5 +182,18 @@ mod tests {
         // Forgetting twice is what the retire paths actually do.
         registry.forget("abc");
         assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn a_rename_reaches_the_facts_and_an_unknown_key_is_ignored() {
+        let registry = Registry::new();
+        registry.register(facts("abc"));
+        registry.set_name("abc", "Fix tab truncation");
+        registry.set_name("nobody", "ignored");
+        assert_eq!(
+            registry.facts("abc").map(|f| f.name),
+            Some("Fix tab truncation".into())
+        );
+        assert_eq!(registry.len(), 1);
     }
 }

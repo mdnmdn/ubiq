@@ -869,12 +869,12 @@ fn agent_row(
         ))
         .child(cell(
             eid("mission-roster-role", agent.id),
-            match (is_coordinator, agent.role.is_empty()) {
-                // The mission's own role outranks the harness's own word for itself: which agent
-                // plans and asks is the one fact this table exists to say.
-                (true, _) => format!("coordinator \u{00b7} {}", app.agent_title(agent)),
-                (false, true) => app.agent_title(agent).to_string(),
-                (false, false) => agent.role.clone(),
+            // The mission's own role leads where it has one: which agent plans and asks is the
+            // one fact this table exists to say.
+            if is_coordinator {
+                format!("coordinator \u{00b7} {}", app.agent_label(agent).title)
+            } else {
+                app.agent_label(agent).title.to_string()
             },
             96.,
         ))
@@ -892,7 +892,7 @@ fn agent_row(
             eid("mission-roster-on", agent.id),
             match on {
                 Some(task) => task.key.clone().unwrap_or_else(|| task.title.clone()),
-                None => agent.note.clone(),
+                None => agent.summary.clone().unwrap_or_default(),
             },
             theme::text(),
             theme::font(Family::Chrome, Role::Meta),

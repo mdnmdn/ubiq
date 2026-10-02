@@ -201,7 +201,12 @@ fn agent_view(
     };
 
     let mut root = panel()
-        .child(header_bar(&agent.name, &agent.role, colour, cx))
+        .child(header_bar(
+            &app.agent_label(agent).title,
+            agent.definition.as_deref().unwrap_or_default(),
+            colour,
+            cx,
+        ))
         .child(
             div()
                 .px_3()
@@ -218,7 +223,11 @@ fn agent_view(
                     pill(theme::accent())
                         .h(px(24.))
                         .px_2()
-                        .child(role_mark(&agent.role, theme::accent(), 16.))
+                        .child(role_mark(
+                            agent.definition.as_deref().unwrap_or_default(),
+                            theme::accent(),
+                            16.,
+                        ))
                         .child(mono(agent.harness.clone(), theme::text())),
                 )
                 .child(
@@ -315,7 +324,7 @@ fn composer(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl
         .work(cx)
         .zip(app.graph(cx))
         .and_then(|(work, graph)| graph.selected_agent(work))
-        .map(|a| a.name.clone())
+        .map(|a| app.agent_label(a).title.to_string())
         .unwrap_or_default();
     let focused = app.agent_input.read(cx).focus_handle(cx).is_focused(window);
 

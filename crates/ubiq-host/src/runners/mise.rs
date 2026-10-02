@@ -18,8 +18,8 @@ impl RunnerSource for Mise {
         let Some(file) = first_file(root, &FILES) else {
             return Vec::new();
         };
-        if let Some(names) = capture("mise", &["tasks", "ls", "--json"], root)
-            .and_then(|out| parse_json(&out))
+        if let Some(names) =
+            capture("mise", &["tasks", "ls", "--json"], root).and_then(|out| parse_json(&out))
         {
             return targets(names);
         }

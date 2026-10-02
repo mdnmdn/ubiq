@@ -391,8 +391,10 @@ pub fn hidden_agents(app: &AppState, cx: &App) -> Vec<MenuEntry> {
                 continue;
             }
             let id = agent.id;
+            let label = app.agent_label(agent);
             rows.push(
-                MenuEntry::new(app.agent_title(agent))
+                MenuEntry::new(label.row())
+                    .tooltip(label.tooltip)
                     .icon(IconName::Bot)
                     .on(move |this, _, cx| this.reveal_agent_for_mode(id, cx)),
             );
@@ -426,25 +428,17 @@ fn is_agent(app: &AppState, harness: &str) -> bool {
 }
 
 /// One still-running pane with no panel over it, named the way both menus that list one name it:
-/// the harness as the host labels it, then the tab's own title.
+/// the pane's title, then its identity (the harness as the host labels it), and the standard
+/// tooltip — the agent label's shape (T-283).
 fn detached_entry(app: &AppState, id: PaneId) -> MenuEntry {
-    let Some(pane) = app.pane(id) else {
+    let Some(label) = app.pane_label(id) else {
         // A pane that went away between the list and the row. Drawn empty and dead rather than
         // dropped, so no other row moves under the pointer mid-frame.
         return MenuEntry::heading("");
     };
-    let harness = app
-        .workbench
-        .agent_types
-        .iter()
-        .find(|agent| agent.id == pane.harness)
-        .map(|agent| agent.label.clone())
-        .unwrap_or_else(|| pane.harness.clone());
-    MenuEntry::new(SharedString::from(format!(
-        "{harness} \u{00b7} {}",
-        pane.title
-    )))
-    .on(move |this, _, cx| this.reattach_pane(id, cx))
+    MenuEntry::new(label.row())
+        .tooltip(label.tooltip)
+        .on(move |this, _, cx| this.reattach_pane(id, cx))
 }
 
 /// The titlebar's overflow chevron: the commands reached occasionally rather than every session,

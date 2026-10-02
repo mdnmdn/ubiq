@@ -310,6 +310,7 @@ fn agent_card(
 ) -> gpui::AnyElement {
     let id = agent.id;
     let colour = activity_colour(agent.activity);
+    let label = crate::state::work::AgentLabel::of(agent, None);
     let view = view.clone();
 
     let body = card(eid("orch-card", id), colour, selected)
@@ -337,7 +338,11 @@ fn agent_card(
                 .flex_none()
                 .items_center()
                 .gap(px(7.0 * zoom))
-                .child(role_mark(&agent.role, colour, 22.0 * zoom))
+                .child(role_mark(
+                    agent.definition.as_deref().unwrap_or_default(),
+                    colour,
+                    22.0 * zoom,
+                ))
                 .child(
                     div()
                         .flex()
@@ -348,10 +353,10 @@ fn agent_card(
                             div()
                                 .text_size(theme::font(Family::Chrome, Role::Body) * zoom)
                                 .text_color(theme::text())
-                                .child(SharedString::from(agent.name.clone())),
+                                .child(label.title.clone()),
                         )
                         .child(
-                            mono(agent.role.to_uppercase(), theme::text_faint())
+                            mono(label.identity.clone(), theme::text_faint())
                                 .text_size(theme::font(Family::Chrome, Role::Micro) * zoom),
                         ),
                 )
@@ -363,7 +368,9 @@ fn agent_card(
                 .min_h(px(0.))
                 .text_size(theme::font(Family::Chrome, Role::Label) * zoom)
                 .text_color(theme::text_muted())
-                .child(SharedString::from(agent.note.clone())),
+                .child(SharedString::from(
+                    agent.summary.clone().unwrap_or_default(),
+                )),
         )
         .child(
             div()

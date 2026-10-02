@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::DbConnId;
+use crate::ids::{DbConnId, DbSessionId};
 use crate::messages::Secret;
 
 pub use ubiq_db::conn::{ConnectionConfig, DbKind, SslMode};
@@ -46,6 +46,53 @@ pub struct DbConnection {
     /// `config.password` is always `None` here, towards the interface.
     pub config: ConnectionConfig,
     pub password: PasswordState,
+    /// What an agent may do with this connection. Absent in an older record: no access.
+    #[serde(default)]
+    pub agent: DbAgentSettings,
+}
+
+/// What an agent may do with a connection, through the SQL MCP servers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DbAgentAccess {
+    /// Invisible to agents.
+    #[default]
+    None,
+    /// Read-only queries.
+    Ro,
+    /// Read and write.
+    Rw,
+}
+
+/// A connection's agent-facing settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DbAgentSettings {
+    #[serde(default)]
+    pub access: DbAgentAccess,
+    /// The connection an agent gets when it names none. At most one per project, and never at
+    /// [`DbAgentAccess::None`].
+    #[serde(default)]
+    pub default: bool,
+    /// What the connection is for, as an agent reads it.
+    #[serde(default)]
+    pub description: String,
+}
+
+/// A named query editor shared between the user and an agent. Lives in the host's memory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DbEditor {
+    pub name: String,
+    /// The session its statements run in.
+    pub session: DbSessionId,
+    pub conn: DbConnId,
+    pub database: Option<String>,
+    pub text: String,
+    /// Bumped on every change to `text`.
+    pub rev: u64,
+    /// The agent that controls it, as the host keys agents; `None` for a user's own editor.
+    pub agent_key: Option<String>,
+    /// That agent's title, for the mark on the tab.
+    pub agent_title: Option<String>,
 }
 
 /// What a form does to a connection's password. The password field is write-only: it sends
@@ -227,6 +274,16 @@ mod tests {
         let mut config = ConnectionConfig::new(DbKind::Sqlite);
         config.name = "local".into();
         config.path = Some("data/cache.sqlite".into());
+        let editor = DbEditor {
+            name: "scratch".into(),
+            session,
+            conn,
+            database: Some("main".into()),
+            text: "select 1".into(),
+            rev: 4,
+            agent_key: Some("agent-1".into()),
+            agent_title: Some("Claude".into()),
+        };
         vec![
             Message::DbConnections { project_id },
             Message::SaveDbConnection {
@@ -235,6 +292,11 @@ mod tests {
                 config: Box::new(config.clone()),
                 password: SecretEdit::Set(Secret::new("hunter2")),
                 remember: true,
+                agent: Some(DbAgentSettings {
+                    access: DbAgentAccess::Ro,
+                    default: true,
+                    description: "the cache".into(),
+                }),
             },
             Message::DeleteDbConnection {
                 project_id,
@@ -321,6 +383,7 @@ mod tests {
                     id: conn,
                     config,
                     password: PasswordState::Saved,
+                    agent: DbAgentSettings::default(),
                 }],
                 keystore: DbKeystore::Unavailable("no secret service".into()),
             },
@@ -451,6 +514,28 @@ mod tests {
                 path: "/tmp/new.sqlite".into(),
                 message: "exists".into(),
             },
+            Message::DbEditors { project_id },
+            Message::DbEditorEdit {
+                project_id,
+                session,
+                text: "select 1".into(),
+                base_rev: 3,
+            },
+            Message::DbEditorsListed {
+                project_id,
+                editors: vec![editor.clone()],
+            },
+            Message::DbEditorChanged {
+                project_id,
+                editor: Box::new(editor),
+                reveal: true,
+            },
+            Message::DbAgentRun {
+                project_id,
+                session,
+                query,
+                statements: vec!["select 1".into()],
+            },
         ]
     }
 
@@ -490,6 +575,21 @@ mod tests {
     fn a_password_edit_never_prints_its_material() {
         let edit = SecretEdit::Set(Secret::new("hunter2"));
         assert!(!format!("{edit:?}").contains("hunter2"));
+    }
+
+    #[test]
+    fn a_connection_record_without_agent_settings_reads_back_as_no_access() {
+        let mut value = serde_json::to_value(DbConnection {
+            id: DbConnId::generate(),
+            config: ConnectionConfig::new(DbKind::Sqlite),
+            password: PasswordState::None,
+            agent: DbAgentSettings::default(),
+        })
+        .unwrap();
+        value.as_object_mut().unwrap().remove("agent");
+        let back: DbConnection = serde_json::from_value(value).unwrap();
+        assert_eq!(back.agent, DbAgentSettings::default());
+        assert_eq!(serde_json::to_string(&DbAgentAccess::Rw).unwrap(), r#""rw""#);
     }
 
     #[test]

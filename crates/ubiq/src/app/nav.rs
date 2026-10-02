@@ -566,7 +566,14 @@ impl AppState {
             .work
             .agents
             .iter()
-            .map(|agent| (agent.id, agent.name.clone(), agent.role.clone()))
+            .map(|agent| {
+                let label = self.agent_label(agent);
+                (
+                    agent.id,
+                    label.title.to_string(),
+                    label.identity.to_string(),
+                )
+            })
             .collect();
 
         let registry = WindowRegistry::read(cx);

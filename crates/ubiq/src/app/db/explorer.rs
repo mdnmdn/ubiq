@@ -285,7 +285,12 @@ impl AppState {
 
     /// Answer a key on the tree. `false` hands it back, so the filter field keeps the keys a field
     /// keeps (`left` and `right` mean a caret there).
-    pub fn press_db_key(&mut self, key: DbKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub fn press_db_key(
+        &mut self,
+        key: DbKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(db) = self.db_mut(cx) else {
             return false;
         };
@@ -388,7 +393,8 @@ impl AppState {
         let Some(db) = self.db(cx) else {
             return;
         };
-        let (Some(prompt), Some(input)) = (db.password_prompt.clone(), db.tree.prompt_input.clone())
+        let (Some(prompt), Some(input)) =
+            (db.password_prompt.clone(), db.tree.prompt_input.clone())
         else {
             return;
         };
@@ -412,7 +418,10 @@ impl AppState {
     pub fn toggle_db_password_remember(&mut self, cx: &mut Context<Self>) {
         if let Some(db) = self.db_mut(cx)
             && let Some(prompt) = db.password_prompt.as_mut()
-            && !matches!(db.keystore, Some(ubiq_proto::db::DbKeystore::Unavailable(_)))
+            && !matches!(
+                db.keystore,
+                Some(ubiq_proto::db::DbKeystore::Unavailable(_))
+            )
         {
             prompt.remember = !prompt.remember;
         }

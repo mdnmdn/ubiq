@@ -81,7 +81,6 @@ fn a_free_panel_takes_any_region() {
         PanelKind::GitChanges,
         PanelKind::GitHistory,
         PanelKind::GitDiff,
-        PanelKind::DbSql("dbsql:01J0".to_string()),
     ] {
         for region in REGIONS {
             assert!(kind.class().allows(region), "{kind:?} in {region:?}");
@@ -96,6 +95,7 @@ fn a_centre_panel_takes_only_the_centre() {
         PanelKind::File("justfile".to_string()),
         PanelKind::Kb("kb:01J0:notes.md".to_string()),
         PanelKind::DbTable("db:01J0::main:person".to_string()),
+        PanelKind::DbSql("dbsql:01J0".to_string()),
     ] {
         assert!(kind.class().allows(Region::Centre), "{kind:?}");
         for region in [Region::Left, Region::Right, Region::Bottom] {
@@ -187,7 +187,7 @@ fn the_names_a_saved_layout_is_keyed_by_are_fixed() {
     assert_eq!(PanelKind::DbTable(String::new()).name(), "ubiq.db.table");
     assert_eq!(PanelKind::DbTable(String::new()).home(), Region::Centre);
     assert_eq!(PanelKind::DbSql(String::new()).name(), "ubiq.db.sql");
-    assert_eq!(PanelKind::DbSql(String::new()).home(), Region::Bottom);
+    assert_eq!(PanelKind::DbSql(String::new()).home(), Region::Centre);
     assert_eq!(PanelKind::Task.name(), "ubiq.task");
     assert_eq!(PanelKind::Task.home(), Region::Right);
     assert_eq!(PanelKind::AgentsExplorer.name(), "ubiq.agents.explorer");

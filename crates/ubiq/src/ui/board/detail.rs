@@ -161,6 +161,7 @@ fn body(
     let now = match work.now(task) {
         Some(agent) => {
             let agent_colour = activity_colour(agent.activity);
+            let label = app.agent_label(agent);
             div()
                 .flex()
                 .items_center()
@@ -172,15 +173,15 @@ fn body(
                         .rounded_full()
                         .bg(agent_colour),
                 )
-                .child(mono(agent.name.clone(), agent_colour))
-                .child(
+                .child(mono(label.title.clone(), agent_colour))
+                .children((!label.identity.is_empty()).then(|| {
                     div()
                         .flex_1()
                         .min_w(px(0.))
                         .text_size(theme::font(Family::Chrome, Role::Label))
                         .text_color(theme::text_muted())
-                        .child(SharedString::from(format!("\u{2014} {}", agent.note))),
-                )
+                        .child(SharedString::from(format!("\u{2014} {}", label.identity)))
+                }))
                 .into_any_element()
         }
         None => mono("nobody has started this", theme::text_faint()).into_any_element(),
@@ -262,7 +263,7 @@ fn body(
                                 .items_center()
                                 .gap_1p5()
                                 .children(owner.map(|owner| {
-                                    mono(owner.name.clone(), theme::text_muted())
+                                    mono(app.agent_label(owner).title, theme::text_muted())
                                         .text_size(theme::font(Family::Chrome, Role::Meta))
                                 }))
                                 .children(owner.map(|_| {
@@ -579,7 +580,7 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
     let now = app
         .work(cx)
         .and_then(|work| work.now(task))
-        .map(|agent| (agent.id, agent.name.clone()));
+        .map(|agent| (agent.id, app.agent_label(agent).title));
     let nobody_yet = now.is_none();
 
     div()

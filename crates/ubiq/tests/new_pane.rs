@@ -503,8 +503,10 @@ fn the_pane_regions_own_groups_are_what_the_control_is_drawn_on(cx: &mut TestApp
 /// refuses, and the naming does not need one.
 #[test]
 fn a_panes_tab_is_its_program_and_a_number() {
+    // The scheme the host names conversations by (T-283's B6): the bare name first, a number from
+    // the second on.
     let mut taken: Vec<String> = Vec::new();
-    for expected in ["zsh 1", "zsh 2", "zsh 3"] {
+    for expected in ["zsh", "zsh 2", "zsh 3"] {
         let title = ubiq::app::pane_title("/bin/zsh", &taken);
         assert_eq!(title, expected);
         taken.push(title);
@@ -513,7 +515,7 @@ fn a_panes_tab_is_its_program_and_a_number() {
     // Each program is numbered in its own sequence, and the path it was started by is not the name.
     assert_eq!(
         ubiq::app::pane_title("/opt/homebrew/bin/fish", &taken),
-        "fish 1"
+        "fish"
     );
 
     // A number goes back in the pool when its pane closes, rather than counting upwards for ever.
@@ -521,27 +523,54 @@ fn a_panes_tab_is_its_program_and_a_number() {
     assert_eq!(ubiq::app::pane_title("/bin/zsh", &taken), "zsh 2");
 
     // A program with no path, and one with a trailing name only, are named the same way.
-    assert_eq!(ubiq::app::pane_title("bash", &[]), "bash 1");
+    assert_eq!(ubiq::app::pane_title("bash", &[]), "bash");
+
+    // A conversation's handle is in the same namespace: a pane of the harness it runs is numbered
+    // past it.
+    assert_eq!(
+        ubiq::app::pane_title("claude", &["claude".to_string()]),
+        "claude 2"
+    );
+}
+
+/// What a program sends as its terminal title is the pane's title with a leading spinner or
+/// status glyph taken off; a title that was nothing but one is no title at all.
+#[test]
+fn an_osc_title_loses_its_leading_spinner() {
+    assert_eq!(
+        ubiq::app::osc_title("\u{2733} Fix tab truncation").as_deref(),
+        Some("Fix tab truncation")
+    );
+    assert_eq!(
+        ubiq::app::osc_title("\u{2810} Thinking").as_deref(),
+        Some("Thinking")
+    );
+    assert_eq!(
+        ubiq::app::osc_title("~/src/ubiq").as_deref(),
+        Some("~/src/ubiq")
+    );
+    assert_eq!(ubiq::app::osc_title("\u{2733} "), None);
 }
 
 /// A Windows shell names its tab after its short name, never its path or its `.exe`: both
-/// PowerShells are `psh`, the console is `cmd`, and each numbers in its own sequence.
+/// PowerShells are `psh`, the console is `cmd`, and each numbers in its own sequence from the
+/// second on.
 #[test]
 fn a_windows_shells_tab_is_its_short_name_and_a_number() {
     assert_eq!(
         ubiq::app::pane_title("C:\\Windows\\System32\\cmd.exe", &[]),
-        "cmd 1"
+        "cmd"
     );
     assert_eq!(
         ubiq::app::pane_title("C:\\Program Files\\PowerShell\\7\\pwsh.exe", &[]),
-        "psh 1"
+        "psh"
     );
     assert_eq!(
         ubiq::app::pane_title(
             "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
             &[]
         ),
-        "psh 1"
+        "psh"
     );
 
     // Bare names take the same path, and a second pane of the same shell takes the next number.
@@ -549,7 +578,7 @@ fn a_windows_shells_tab_is_its_short_name_and_a_number() {
         ubiq::app::pane_title("pwsh.exe", &[]),
         ubiq::app::pane_title("cmd.exe", &[]),
     ];
-    assert_eq!(taken, vec!["psh 1", "cmd 1"]);
+    assert_eq!(taken, vec!["psh", "cmd"]);
     assert_eq!(
         ubiq::app::pane_title("C:\\Program Files\\PowerShell\\7\\pwsh.exe", &taken),
         "psh 2"

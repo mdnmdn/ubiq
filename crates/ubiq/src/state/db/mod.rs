@@ -27,7 +27,7 @@ pub mod table;
 pub mod tree;
 
 pub use form::DbConnForm;
-pub use sql::DbSqlTab;
+pub use sql::{AgentMark, DbSqlTab};
 pub use table::DbTableTab;
 pub use tree::{DbMenu, DbTreeState};
 
@@ -109,6 +109,9 @@ pub struct DbState {
     /// Stamped onto each menu as it opens, so the outside click that dismisses the old one cannot
     /// shut the new one raised by the same event — [`crate::state::KbState`]'s reasoning.
     pub menu_epoch: u64,
+    /// Whether `DbEditors` has been asked, once the connections loaded — the shared editors an
+    /// agent opened before this window looked.
+    pub editors_asked: bool,
 }
 
 /// The password a connection asked for, and what the person has chosen about keeping it.

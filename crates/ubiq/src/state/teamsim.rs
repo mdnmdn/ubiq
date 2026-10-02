@@ -565,9 +565,10 @@ impl Sim {
                 parent,
                 name: row.name.clone(),
                 summary: None,
-                role: row.role.clone(),
+                title: None,
+                // A scenario's role is what a definition would say about the agent.
+                definition: (!row.role.is_empty()).then(|| row.role.clone()),
                 activity: row.activity.record(),
-                note: String::new(),
                 branch: String::new(),
                 tokens: 0.0,
                 harness: row.harness.clone(),

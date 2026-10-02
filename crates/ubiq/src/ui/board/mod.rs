@@ -1226,6 +1226,7 @@ fn now_line(
 
     let colour = activity_colour(agent.activity);
     let id = agent.id;
+    let label = app.agent_label(agent);
 
     div()
         .flex()
@@ -1246,7 +1247,7 @@ fn now_line(
                 .hover(|this| this.bg(theme::hover()))
                 .child(div().size(px(6.)).flex_none().rounded_full().bg(colour))
                 .child(
-                    mono(agent.name.clone(), colour)
+                    mono(label.title.clone(), colour)
                         .text_size(theme::font(Family::Chrome, Role::Meta)),
                 )
                 .on_click(
@@ -1260,7 +1261,7 @@ fn now_line(
                 .text_size(theme::font(Family::Chrome, Role::Meta))
                 .text_color(theme::text_muted())
                 .truncate()
-                .child(SharedString::from(format!("\u{2014} {}", agent.note))),
+                .child(SharedString::from(format!("\u{2014} {}", label.identity))),
         )
         .into_any_element()
 }

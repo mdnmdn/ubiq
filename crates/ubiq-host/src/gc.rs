@@ -199,6 +199,7 @@ mod tests {
             mode: None,
             next_seq: 0,
             title: None,
+            summary: None,
             persistent,
             accept_all: false,
             debug_dump: false,

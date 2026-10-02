@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-09-28
-verified: 2026-09-29
+updated: 2026-10-02
+verified: 2026-10-02
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -108,23 +108,20 @@ draws the chevron alone: there is no menu and no chip with no conversation to re
 **Nothing in the header names the tab.** The dock's tab already carries the conversation's name, and
 a second copy of it directly under the first was the same answer twice.
 
-**The dock tab's name is whatever the conversation is called, including a name Ubiq wrote itself.**
-Once an agent has answered the opening prompt, the host reads that exchange and names the
-conversation — the title lands on the tab in place of the harness-and-counter it started with, and
-the five-word summary that comes with it is the tab's hover, so the strip stays a strip and still
-says what each tab is about. A tab attached to nothing reads `New chat` and hovers to nothing,
-because there is no conversation to say anything about. The rule the naming follows, the surfaces it
-reaches beyond this one and the checkbox that switches it off are the workbench's; the message
-behind it is the conversation family's `ConversationNamed`
+**The dock tab's name is the agent's title, including a title Ubiq wrote itself.** Every surface
+that names an agent reads one resolver, `AppState::agent_label` (T-283), and the tab is one of them:
+the user's rename, the generated or the harness's own title (`WorkAgent::title`), else the agent
+definition it was started from (`WorkAgent::definition`), else the handle (`claude 2`). It is cut to
+fifteen characters, the same limit a terminal's tab has. The hover is the standard agent tooltip,
+one fact a line: the summary, the identity (`definition · harness · model`), the assigned task's
+title and the handle — led by the full title when the tab cut it. Once an agent has answered the
+opening prompt, the host reads that exchange and names the conversation onto its own record, and
+the tab follows with the next `AgentChanged`. A tab attached to nothing reads `New chat` and hovers
+to nothing, because there is no conversation to say anything about. The rule the naming follows,
+the surfaces it reaches beyond this one and the checkbox that switches it off are the workbench's;
+the record behind it is the work family's `AgentChanged`
 ([`../tech/transport-contract.md`](../tech/transport-contract.md)), and `D90` is why a name Ubiq
 invented may be replaced by one it read.
-
-**Before that naming lands, the tab shows the agent definition it was started from rather than the bare
-harness label (T-102).** `AppState::agent_title` is what every surface that used to print
-`WorkAgent::name` directly reads now — the dock tab included — and it prefers the session-only
-`agent_started_profile` record over the harness-and-counter default for as long as
-`WorkAgent::summary` is `None`. See [`agent-vocabulary.md`](../wip/agent-vocabulary.md) for where
-that record is kept.
 
 **Closing the last chat tab is allowed.** There is no last-tab guard anywhere in this tree, and a
 chat tab is no exception: closing the only open one leaves nothing behind but a tab strip with

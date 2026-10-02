@@ -679,20 +679,30 @@ pub struct WorkAgent {
     pub task: Option<TaskId>,
     /// Who spawned it. The connector is drawn from the parent's card to this one.
     pub parent: Option<AgentId>,
+    /// The handle: the mechanical, unique-in-project name the host mints at start (`claude`,
+    /// `claude 2`). **Never overwritten** — a rename, a generated title and a harness title all
+    /// land on [`Self::title`] instead, so this stays the one stable thing to search and tell two
+    /// agents apart by.
     pub name: String,
-    /// The five-word reading of what this conversation is about, where one has been written —
-    /// `Message::ConversationNamed`, folded on by the interface beside the title it came with.
-    /// Drawn as the tooltip on whichever surface prints [`Self::name`], so a row stays one line
-    /// and still says what it is.
+    /// What the agent is called now, once anything has named it: the user's rename, the naming
+    /// pass's generated title, or the harness's own (ACP `session_info_update`). Written by the
+    /// host on the live record, so every later `AgentChanged` carries it. `None` is an agent
+    /// nothing has named yet.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The saved agent definition this agent was started from, by its id — which is also its
+    /// display name. `None` is a start with no definition picked.
+    #[serde(default)]
+    pub definition: Option<String>,
+    /// The five-word reading of what this conversation is about, where one has been written by
+    /// the host's naming pass, beside [`Self::title`]. Drawn as the tooltip on whichever surface
+    /// prints the agent's name, so a row stays one line and still says what it is.
     ///
     /// `None` is the ordinary state: a conversation nobody has named automatically, a build with
     /// no provider configured, and every agent that is a mock.
     #[serde(default)]
     pub summary: Option<String>,
-    pub role: String,
     pub activity: Activity,
-    /// The one line the card says about what it is doing.
-    pub note: String,
     pub branch: String,
     pub tokens: f32,
     pub harness: String,
@@ -756,4 +766,12 @@ pub struct WorkAgent {
     /// in as many words: a fabricated reply is the one thing a screen with no live agent must not
     /// draw.
     pub thread: Vec<Turn>,
+}
+
+impl WorkAgent {
+    /// The title when anything has named the agent, else its handle — the one name a surface
+    /// with room for a single string (an MCP `whoami`, a roster row) reports.
+    pub fn title_or_handle(&self) -> &str {
+        self.title.as_deref().unwrap_or(&self.name)
+    }
 }

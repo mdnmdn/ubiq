@@ -456,9 +456,10 @@ fn row(
         .join(", ");
     let assignee = work
         .now(task)
-        .map(|agent| match agent.role.is_empty() {
-            true => agent.harness.clone(),
-            false => agent.role.clone(),
+        .map(|agent| {
+            crate::state::work::AgentLabel::of(agent, None)
+                .title
+                .to_string()
         })
         .unwrap_or_default();
     let on_chain = view.wbs_critical && arranged.is_critical(id);

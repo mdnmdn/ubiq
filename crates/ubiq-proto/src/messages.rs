@@ -28,7 +28,7 @@ use crate::git::{
     self, GitChangedPath, GitCommit, GitEntry, GitNested, GitRef, GitRollup, RepoOverview,
 };
 use crate::db::{
-    ConnectionConfig, DbConnState, DbConnection, DbEditFailure, DbFailure, DbKeystore, DbListing,
+    ConnectionConfig, DbAgentSettings, DbConnState, DbConnection, DbEditFailure, DbEditor, DbFailure, DbKeystore, DbListing,
     DbNode, DbOutcome, DbPage, DbRun, DbRunOptions, RowEdit, SecretEdit, TableRef,
 };
 use crate::help::HelpCatalog;
@@ -1888,6 +1888,20 @@ pub enum Message {
         config: Box<ConnectionConfig>,
         password: SecretEdit,
         remember: bool,
+        /// `None` keeps what is saved.
+        agent: Option<DbAgentSettings>,
+    },
+    /// What shared query editors this project has. Answered with [`Message::DbEditorsListed`].
+    DbEditors {
+        project_id: ProjectId,
+    },
+    /// The user edited a shared query editor's text. `base_rev` is the `rev` the edit started
+    /// from. Answered with [`Message::DbEditorChanged`].
+    DbEditorEdit {
+        project_id: ProjectId,
+        session: DbSessionId,
+        text: String,
+        base_rev: u64,
     },
     /// Remove a connection; its sessions close and its sealed password goes. Answered with
     /// [`Message::DbConnectionsListed`].
@@ -2042,6 +2056,26 @@ pub enum Message {
         project_id: ProjectId,
         path: String,
         message: String,
+    },
+    /// Answer to [`Message::DbEditors`]: every shared query editor of the project.
+    DbEditorsListed {
+        project_id: ProjectId,
+        editors: Vec<DbEditor>,
+    },
+    /// A shared query editor was created or changed (by an agent or by [`Message::DbEditorEdit`]).
+    /// `reveal` asks the window to open or show its tab.
+    DbEditorChanged {
+        project_id: ProjectId,
+        editor: Box<DbEditor>,
+        reveal: bool,
+    },
+    /// An agent runs statements in a shared editor's session. The results follow as
+    /// [`Message::DbQueryResult`] for the same `session` and `query`, to everyone.
+    DbAgentRun {
+        project_id: ProjectId,
+        session: DbSessionId,
+        query: DbQueryId,
+        statements: Vec<String>,
     },
 
     // ── Work family: UI → host ──────────────────────────────────────
@@ -2841,12 +2875,12 @@ pub enum Message {
         accept_all: bool,
     },
     /// Give a conversation a new name, from a window that asked to. Written onto
-    /// [`WorkAgent::name`](crate::work::WorkAgent::name) — the one field every surface that draws
-    /// an agent reads (the sidebar row, the agents column, a chat tab) — so a rename shows up
-    /// wherever the old name did, rather than only on the surface it was typed into.
+    /// [`WorkAgent::title`](crate::work::WorkAgent::title) on the host's live record and broadcast
+    /// as `AgentChanged`, so a rename shows up on every surface rather than only the one it was
+    /// typed into. [`WorkAgent::name`](crate::work::WorkAgent::name), the handle, is untouched.
     ///
-    /// The naming pass behind [`Message::ConversationNamed`] writes the same field once, from its
-    /// own idea of a title; this is the user's, and it does not ask that pass to run again — a
+    /// The host's naming pass writes the same field once, from its own idea of a title (and the
+    /// summary beside it), through the same `AgentChanged`; this is the user's, and it does not ask that pass to run again — a
     /// conversation renamed by hand is not renamed a second time out from under the user once its
     /// opening reply lands.
     RenameConversation {
@@ -2950,26 +2984,6 @@ pub enum Message {
         agent_id: AgentId,
         error: String,
     },
-    /// Ubiq has read the opening exchange and named the conversation.
-    ///
-    /// **Not a transcript delta, which is why it is not a [`ConvUpdate`].** It carries no `seq`
-    /// and takes no place in the sequence an interface checks for gaps: the naming is Ubiq's own
-    /// reading of the conversation rather than something the harness said, and the pump that owns
-    /// that sequence is not what produced it. `ConvUpdate::Title` remains the harness naming
-    /// itself, and the two write the same field — whichever spoke last is the name.
-    ///
-    /// Sent at most once per conversation, and only where a provider is configured to write one.
-    /// A naming that fails is not reported: nothing was renamed behind anybody's back and the
-    /// mechanical name is still there, so there is no state for an interface to unwind.
-    ConversationNamed {
-        agent_id: AgentId,
-        /// What the agent tab says from here on.
-        title: String,
-        /// The five-word reading of what the conversation is about, drawn as the title's tooltip.
-        /// `None` where the model answered a title and nothing after it.
-        summary: Option<String>,
-    },
-
     // ── Search family: UI → host ────────────────────────────────────
     /// Start a content search across a project. One live search per project; a new one supersedes
     /// the old, which is interrupted mid-file. The interface mints `search_id` and discards every
@@ -3407,6 +3421,11 @@ impl Message {
             | Message::DbEditsApplied { project_id, .. }
             | Message::DbFileCreated { project_id, .. }
             | Message::DbFileError { project_id, .. }
+            | Message::DbEditors { project_id }
+            | Message::DbEditorEdit { project_id, .. }
+            | Message::DbEditorsListed { project_id, .. }
+            | Message::DbEditorChanged { project_id, .. }
+            | Message::DbAgentRun { project_id, .. }
             | Message::ProjectFilesChanged { project_id, .. }
             | Message::ProjectGit { project_id, .. }
             | Message::RefreshProjectGit { project_id, .. }

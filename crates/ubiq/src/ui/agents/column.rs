@@ -48,7 +48,7 @@ use crate::state::work;
 use crate::theme;
 use crate::ui::agents::DraggedTab;
 use crate::ui::conversation::{self, ConversationView};
-use crate::ui::kit::{Picker, PickerStyle, mono, section_label};
+use crate::ui::kit::{Picker, PickerStyle, mono};
 use crate::ui::work::{activity_colour, role_mark};
 use crate::ui::{eid, handler, indexed};
 
@@ -163,11 +163,11 @@ fn tab(
     let Some(agent) = app.work(cx).and_then(|work| work.agent(id)) else {
         return div().into_any_element();
     };
-    let name = app.agent_title(agent);
+    let label = app.agent_label(agent);
+    let name = label.title.clone();
     let ghost = name.clone();
-    // What the conversation is about, where something has named it. A tab with no summary says
-    // nothing on hover: the name is printed in full beside the mark already.
-    let summary: Option<SharedString> = agent.summary.clone().map(SharedString::from);
+    // The standard agent tooltip: what it is about, who it is, its task, its handle.
+    let summary: Option<SharedString> = (!label.tooltip.is_empty()).then_some(label.tooltip);
     // The same reading the title carries, so a grouped column's tabs and its title agree. A
     // record with no live conversation behind it reads `agent_status`'s own record fallback
     // rather than nothing — the hexagon draws whatever the record can say either way.
@@ -276,19 +276,14 @@ fn add_tab(
         .is_focused(window);
     let rows = agents.bench_rows(column, work, &query);
 
-    // Each agent row names its session as well as the agent. Two sessions may be running an
-    // agent by the same name, and a menu that could not tell them apart would open the wrong
-    // conversation.
+    // Each agent row is its title and then its identity, the attach lists' one shape (T-283).
     let names: Vec<String> = rows
         .iter()
         .map(|row| match row {
-            BenchRow::Agent { id, .. } => match work.agent(*id) {
-                Some(agent) => match work.session(agent.session) {
-                    Some(session) => format!("{} \u{b7} {}", agent.name, session.name),
-                    None => agent.name.clone(),
-                },
-                None => String::new(),
-            },
+            BenchRow::Agent { id, .. } => work
+                .agent(*id)
+                .map(|agent| app.agent_label(agent).row())
+                .unwrap_or_default(),
             BenchRow::Label(text) => text.to_string(),
             BenchRow::Separator => String::new(),
         })
@@ -355,9 +350,14 @@ fn header(
         .session(agent.session)
         .is_some_and(|session| session.worktree);
 
-    let summary: Option<SharedString> = agent.summary.clone().map(SharedString::from);
+    let label = app.agent_label(agent);
+    let summary: Option<SharedString> = (!label.tooltip.is_empty()).then_some(label.tooltip);
 
-    let mut place = vec![agent.branch.clone()];
+    // Who it is first, then where it is working: identity · branch · worktree · N grouped.
+    let mut place: Vec<String> = [label.identity.to_string(), agent.branch.clone()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect();
     if worktree {
         place.push("worktree".to_string());
     }
@@ -379,15 +379,18 @@ fn header(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(role_mark(&agent.role, colour, 18.))
-                // The title says which conversation this is; the summary on hover says what it
-                // is about, and a conversation nothing has named has nothing to add.
+                .child(role_mark(
+                    agent.definition.as_deref().unwrap_or_default(),
+                    colour,
+                    18.,
+                ))
+                // The title says which conversation this is; the tooltip is the standard one.
                 .child(
                     div()
                         .id(eid("agents-header-name", agent.id))
                         .text_size(theme::font(theme::Family::Conversation, theme::Role::Title))
                         .text_color(theme::text())
-                        .child(app.agent_title(agent))
+                        .child(label.title)
                         .when_some(summary, |this, summary| {
                             this.tooltip(move |window, cx| {
                                 gpui_component::tooltip::Tooltip::new(summary.clone())
@@ -395,7 +398,6 @@ fn header(
                             })
                         }),
                 )
-                .child(section_label(&agent.role))
                 .child(div().flex_1().min_w(px(0.))),
         )
         .child(

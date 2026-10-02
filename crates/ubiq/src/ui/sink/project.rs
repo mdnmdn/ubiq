@@ -2013,8 +2013,7 @@ fn project_definitions(
         .iter()
         .map(|definition| {
             let shadowed = own.iter().any(|it| it.id == definition.id);
-            let inherited =
-                scope.use_global || scope.allowed.iter().any(|it| it == &definition.id);
+            let inherited = scope.use_global || scope.allowed.iter().any(|it| it == &definition.id);
             inherited_row(app, definition, project, shadowed, inherited, cx)
         })
         .collect();
@@ -2135,7 +2134,9 @@ fn inherited_row(
         // one would only be `<id> copy` beside it.
         .when(!shadowed, |row| {
             row.child(ghost_button(
-                ElementId::Name(format!("project-definition-global-{}-clone", definition.id).into()),
+                ElementId::Name(
+                    format!("project-definition-global-{}-clone", definition.id).into(),
+                ),
                 None,
                 "Clone to project",
                 cx.listener(move |this, _, _, cx| {

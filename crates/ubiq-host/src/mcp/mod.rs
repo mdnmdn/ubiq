@@ -40,6 +40,9 @@
 //!   `ask_user_question` parks on [`crate::ask::Asks`] until a person answers, on a thread of its
 //!   own so the listener stays free (`D138`); `register_question` files a dialog in
 //!   [`crate::armed::Armed`] and returns at once, to be raised when the turn ends (`D175`)
+//! - `sql`: the `ubiq-sql-read` / `ubiq-sql-write` pair, reaching a project's database connections
+//!   through [`crate::db::agent::AgentDb`] and answering in TOON — each call on a thread of its own,
+//!   at most eight at once, like `ask_user_question` (`D202`)
 //!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
@@ -55,6 +58,8 @@ mod mission;
 mod plan;
 pub mod registry;
 pub mod server;
+#[cfg(feature = "db")]
+pub mod sql;
 mod tasks;
 mod tools;
 
@@ -63,6 +68,15 @@ use std::sync::Arc;
 use ubiq_proto::bus::Mailbox;
 
 use crate::work;
+
+#[cfg(feature = "db")]
+pub use sql::SqlReach;
+
+/// How the SQL servers reach the databases. Without the `db` feature there is nothing to reach and
+/// no value of this type: a build that lacks it passes `None` and the two servers answer that this
+/// host has no databases for agents.
+#[cfg(not(feature = "db"))]
+pub enum SqlReach {}
 
 pub use catalogue::{catalogue, knows};
 pub use registry::{AgentFacts, ProjectFacts, Registry};

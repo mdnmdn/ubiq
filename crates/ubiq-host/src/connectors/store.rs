@@ -212,7 +212,10 @@ impl Store {
     /// The install's database-password key, if one is filed. An unreadable store is an `Err`, a
     /// store with nothing in it `Ok(None)`: the two are different problems for the caller.
     pub fn db_key_value(&self) -> Result<Option<String>, String> {
-        let blobs = self.inner.get(&db_key()).map_err(|error| error.to_string())?;
+        let blobs = self
+            .inner
+            .get(&db_key())
+            .map_err(|error| error.to_string())?;
         Ok(blobs
             .and_then(|blobs| blobs.into_iter().next())
             .and_then(|blob| String::from_utf8(blob.bytes).ok()))

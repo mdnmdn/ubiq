@@ -199,9 +199,9 @@ fn an_agent(id: AgentId, name: &str) -> WorkAgent {
         parent: None,
         name: name.to_string(),
         summary: None,
-        role: "Implementer".to_string(),
+        title: None,
+        definition: None,
         activity: Activity::Ended,
-        note: String::new(),
         branch: "main".to_string(),
         tokens: 0.0,
         harness: "Claude Code".to_string(),
@@ -248,8 +248,14 @@ fn two_chat_tabs_coexist_with_different_attachments_and_slots(cx: &mut TestAppCo
         state.open_project(cx).unwrap().chats.clone()
     });
     assert_eq!(chats.len(), 2, "each fresh start claims a tab of its own");
-    let a = chats.iter().find(|tab| tab.attached == Some(agent_a)).unwrap();
-    let b = chats.iter().find(|tab| tab.attached == Some(agent_b)).unwrap();
+    let a = chats
+        .iter()
+        .find(|tab| tab.attached == Some(agent_a))
+        .unwrap();
+    let b = chats
+        .iter()
+        .find(|tab| tab.attached == Some(agent_b))
+        .unwrap();
     assert_ne!(a.slot, b.slot, "each tab must own a composer of its own");
 }
 
@@ -482,8 +488,16 @@ fn deleting_a_conversation_closes_the_chat_tab_that_was_looking_at_it(cx: &mut T
     let (watching, other) = fixture.state.read_with(cx, |state, cx| {
         let chats = &state.open_project(cx).unwrap().chats;
         (
-            chats.iter().find(|tab| tab.attached == Some(agent_id)).unwrap().id,
-            chats.iter().find(|tab| tab.attached == Some(other_id)).unwrap().id,
+            chats
+                .iter()
+                .find(|tab| tab.attached == Some(agent_id))
+                .unwrap()
+                .id,
+            chats
+                .iter()
+                .find(|tab| tab.attached == Some(other_id))
+                .unwrap()
+                .id,
         )
     });
     assert!(
@@ -640,9 +654,9 @@ fn reveal_agent_for_mode_reuses_an_already_attached_tab(cx: &mut TestAppContext)
     let id = AgentId::generate();
     fixture.started(an_agent(id, "Ship the release"), cx);
 
-    let before = fixture
-        .state
-        .read_with(cx, |state, cx| state.open_project(cx).unwrap().chats.clone());
+    let before = fixture.state.read_with(cx, |state, cx| {
+        state.open_project(cx).unwrap().chats.clone()
+    });
     assert_eq!(
         before.len(),
         1,
@@ -655,9 +669,9 @@ fn reveal_agent_for_mode_reuses_an_already_attached_tab(cx: &mut TestAppContext)
         .update(cx, |state, cx| state.reveal_agent_for_mode(id, cx));
     cx.run_until_parked();
 
-    let after = fixture
-        .state
-        .read_with(cx, |state, cx| state.open_project(cx).unwrap().chats.clone());
+    let after = fixture.state.read_with(cx, |state, cx| {
+        state.open_project(cx).unwrap().chats.clone()
+    });
     assert_eq!(
         after.len(),
         1,

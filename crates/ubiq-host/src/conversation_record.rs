@@ -73,6 +73,10 @@ pub struct ConversationRecord {
     /// that lives only in the window that started it is a name a restart loses.
     #[serde(default)]
     pub title: Option<String>,
+    /// The naming pass's five-word reading beside [`Self::title`], for the same reason: a revive
+    /// restores both onto the live `WorkAgent`.
+    #[serde(default)]
+    pub summary: Option<String>,
     /// Whether the user asked for this conversation to be kept.
     ///
     /// **This is the single flag every retention decision reads.** It decides whether closing a
@@ -237,6 +241,7 @@ mod tests {
             mode: None,
             next_seq: 42,
             title: Some("Fixing the parser".to_string()),
+            summary: Some("Fixing the markdown parser".to_string()),
             persistent: true,
             accept_all: false,
             debug_dump: false,

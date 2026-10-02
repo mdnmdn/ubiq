@@ -22,7 +22,7 @@ use gpui::{Entity, SharedString, Subscription};
 use gpui_component::input::{EditorState, TextDecorationCollection};
 use gpui_component::table::TableState;
 use ubiq_db::sql::{self, Analysis, Dialect, ReadOnlyRule, StatementClass};
-use ubiq_proto::db::{DbFailure, DbFailureKind, DbOutcome, ResultSet};
+use ubiq_proto::db::{DbEditor, DbFailure, DbFailureKind, DbOutcome, ResultSet};
 use ubiq_proto::ids::{DbConnId, DbQueryId, DbSessionId};
 
 use crate::ui::db::sql::plan::PlanState;
@@ -32,6 +32,12 @@ use crate::ui::db::sql::results::GridDelegate;
 pub const ANALYSIS_DEBOUNCE_MS: u64 = 250;
 /// Quiet time, in milliseconds, before the text is written down as a draft.
 pub const DRAFT_DEBOUNCE_MS: u64 = 1500;
+/// Quiet time, in milliseconds, after the last keystroke before an agent tab's text goes to the
+/// host as a `DbEditorEdit`.
+pub const EDITOR_EDIT_DEBOUNCE_MS: u64 = 250;
+/// How long, in milliseconds, an edit may go unanswered before it is given up on (the host says
+/// nothing to an edit that changes nothing) and the next may go out.
+pub const EDITOR_EDIT_LOST_MS: u64 = 2000;
 
 // ── What Run runs ───────────────────────────────────────────────────
 
@@ -240,6 +246,27 @@ pub fn result_of(
 
 // ── The tab ─────────────────────────────────────────────────────────
 
+/// The agent that controls a tab: the host's shared editor it mirrors.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentMark {
+    /// The editor's name, as the agent gave it.
+    pub name: String,
+    /// The agent's title, for the chip and the tooltip.
+    pub title: String,
+}
+
+impl AgentMark {
+    /// "Controlled by <title>" — the tab's tooltip.
+    pub fn tooltip(&self) -> String {
+        format!("Controlled by {}", self.title)
+    }
+
+    /// "Agent · <title>" — the chip in the tab header.
+    pub fn chip(&self) -> String {
+        format!("Agent · {}", self.title)
+    }
+}
+
 pub struct DbSqlTab {
     pub session: DbSessionId,
     pub conn: DbConnId,
@@ -279,6 +306,22 @@ pub struct DbSqlTab {
     pub notice: Option<Note>,
     pub confirm: Option<Confirm>,
     pub subscriptions: Vec<Subscription>,
+
+    /// Set while an agent controls the tab (a host-side shared editor). Such a tab is never saved
+    /// as a draft: the host owns the text.
+    pub agent: Option<AgentMark>,
+    /// The text the host last held — or last was sent. An edit goes out only when the editor
+    /// differs from it, which is what stops the host's echo of our own edit coming back as one.
+    pub host_text: String,
+    /// The host's revision of the text, sent back as `base_rev`.
+    pub rev: u64,
+    /// Bumped on each keystroke, so only the last of a burst sends.
+    pub edit_gen: u64,
+    /// When the `DbEditorEdit` still waiting for its answer went out. Only one is in flight, so a
+    /// second never races the first for the revision and gets refused as stale.
+    pub edit_in_flight: Option<Instant>,
+    /// Text the host wrote that the editor widget has not taken yet (it needs a `Window`).
+    pub pending_text: Option<String>,
 }
 
 impl DbSqlTab {
@@ -319,7 +362,68 @@ impl DbSqlTab {
             notice: None,
             confirm: None,
             subscriptions: Vec::new(),
+            agent: None,
+            host_text: String::new(),
+            rev: 0,
+            edit_gen: 0,
+            edit_in_flight: None,
+            pending_text: None,
         }
+    }
+
+    /// A tab for a shared editor the host reported, under the editor's own session.
+    pub fn from_editor(editor: &DbEditor) -> Self {
+        let mut tab = Self::with_session(
+            editor.session,
+            editor.conn,
+            editor.database.clone(),
+            editor.text.clone(),
+        );
+        tab.agent = Self::mark_of(editor);
+        tab.host_text = editor.text.clone();
+        tab.rev = editor.rev;
+        tab
+    }
+
+    fn mark_of(editor: &DbEditor) -> Option<AgentMark> {
+        let key = editor.agent_key.as_ref()?;
+        Some(AgentMark {
+            name: editor.name.clone(),
+            title: editor.agent_title.clone().unwrap_or_else(|| key.clone()),
+        })
+    }
+
+    /// Take what the host now says the editor holds. Returns whether the text must replace the
+    /// editor's: the host's own echo of an edit this tab sent changes only the revision. Any answer
+    /// ends the edit in flight; text that is not what was sent means an agent wrote, and wins.
+    pub fn adopt_editor(&mut self, editor: &DbEditor) -> bool {
+        self.agent = Self::mark_of(editor);
+        self.database = editor.database.clone();
+        self.rev = editor.rev;
+        self.edit_in_flight = None;
+        if editor.text == self.host_text {
+            return false;
+        }
+        self.host_text = editor.text.clone();
+        self.text = editor.text.clone();
+        self.pending_text = Some(editor.text.clone());
+        true
+    }
+
+    /// Whether `text`, as the editor now holds it, is an edit the host has not seen: only an agent
+    /// tab sends, only text that differs from what the host holds, and only while no earlier edit
+    /// waits for its answer.
+    pub fn edit_due(&self, text: &str) -> bool {
+        let waiting = self
+            .edit_in_flight
+            .is_some_and(|at| at.elapsed().as_millis() < u128::from(EDITOR_EDIT_LOST_MS));
+        self.agent.is_some() && !waiting && text != self.host_text
+    }
+
+    /// Record that `text` is going to the host, so its echo is not mistaken for news.
+    pub fn sent_edit(&mut self, text: &str) {
+        self.host_text = text.to_string();
+        self.edit_in_flight = Some(Instant::now());
     }
 
     /// The panel's key — [`super::db_sql_key`].

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's two graph modes — `Teams`, scoped by a window span and drawing its cards' conversations in the dock, and `[Teams]`, the established screen kept beside it with its own inspector and composer — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer under both.
 read_when: you are changing the Teams or `[Teams]` screen — its graph, how it arranges itself, a card or a delegate row, the span, the filters, the inspector or the tasks drawer
-updated: 2026-09-25
-verified: 2026-09-26
+updated: 2026-10-02
+verified: 2026-10-02
 code_anchors: [crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/tests/orchestration.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -125,9 +125,13 @@ and `Layout::auto`/`Layout::place_new`, `Algo::inside` and every packer beneath 
 an explicit `card: (f32, f32)` argument rather than reading `CARD_HEIGHT` off the constant, so one
 engine lays both graphs out at their own size: `TeamsView::relayout`/`absorb_new` pass
 `(CARD_WIDTH, TEAMS_CARD_HEIGHT)`, the orchestration graph passes `(CARD_WIDTH, CARD_HEIGHT)`
-unchanged. `agent_card`'s own third row — the title or the activity it is on — is drawn only where
-there is one now, and its footer sits flush under its own content rather than stretched by a flex
-that used to fill the shorter card's spare height.
+unchanged. **A card reads the agent label (T-283):** row 1 is the agent's title with the standard
+agent tooltip, row 2 the harness's mark and the identity (`definition · harness · model`), and the
+third row — the title of the task it is assigned, never its name — is drawn only where there is one;
+the activity is the corner chip's. A delegate's card reads the same shape at its own grain: its
+`Task` description, then `kind · model` (`SubagentTab::identity`), and the composer's agent
+switcher draws the same identity faint beside each delegate. The footer sits flush under its own
+content rather than stretched by a flex that used to fill the shorter card's spare height.
 
 **A card that has delegates draws every one of them, one full-width row underneath it per delegate,
 inside a fence that is never placed but always derived.** `state::layout::SUB_WIDTH` equals

@@ -277,7 +277,13 @@ pub struct PaneState {
     pub harness: String,
     pub rows: u16,
     pub cols: u16,
-    pub title: String,
+    /// The pane's mechanical, unique-in-project name — `claude`, `claude 2`, `zsh` — minted by
+    /// [`pane_title`] when it opens, on the same scheme the host names a conversation by (T-283).
+    /// Never overwritten.
+    pub handle: String,
+    /// What the program running in it last called itself (`ESC ] 0 ; title BEL`), with a leading
+    /// spinner or status glyph taken off. `None` until it says anything.
+    pub title: Option<String>,
     /// Whether the harness behind the pane is still running.
     pub running: bool,
     /// Keep the pane open after the process ends instead of closing it: a tool run with
@@ -591,8 +597,6 @@ fn refresh_agent_record(open: &mut OpenProject, id: AgentId) {
     let context_pct = conversation.context_pct();
     let tokens = conversation.tokens() as f32;
     let model = conversation.model.clone();
-    let title = conversation.title.clone();
-    let summary = conversation.summary.clone();
 
     let Some(record) = open.work.agent_mut(id) else {
         return;
@@ -607,17 +611,9 @@ fn refresh_agent_record(open: &mut OpenProject, id: AgentId) {
     if let Some(model) = model {
         record.model = model;
     }
-    // A conversation the harness has not named a title for keeps whatever name it started with —
-    // today's harness-label default from registration. Once it names one, that's the record's
-    // name from here on: the sidebar row, the column header and the chat panel row all read it,
-    // and the summary beside it is the hover those same surfaces draw.
-    if let Some(title) = title {
-        record.name = title;
-    }
-    // The summary is written whatever it is, unlike the name: a second naming that answered a
-    // title and nothing after it must clear the reading the first one left, or the tooltip would
-    // describe a conversation as it was.
-    record.summary = summary;
+    // Not the title, the summary or the handle: those are the host's, written on its own record
+    // and carried whole by every `AgentChanged` (T-283). A copy made here would be one more
+    // writer to disagree with it.
 }
 
 /// A read the host answered, waiting for the frame that can turn it into a buffer.
@@ -1437,8 +1433,8 @@ pub use hosts::{
     Bus, ConnStatus, HostEntry, HostId, HostRef, HostStatus, LiveRemote, RemoteConn,
     RemoteHostMeta, host_menu_rows, host_row_label, preferred_remote,
 };
-mod image_edit;
 mod db;
+mod image_edit;
 pub use db::{DbPageRequest, DbQueryReply, DbQueryRequest};
 mod kb;
 mod mark;
@@ -1700,21 +1696,33 @@ fn is_terminal_defocus(keystroke: &gpui::Keystroke) -> bool {
     shift_only || ctrl_only || cmd_only
 }
 
-/// What a pane calls itself before its harness says otherwise: the program without its path, and a
-/// number, because a project with three shells in it needs three different tabs.
+/// A pane's handle: the program without its path, then a number from the second one on —
+/// `claude`, `claude 2`, `zsh` — the same scheme the host names a conversation by, so a pane and a
+/// conversation never read as two numbering systems (T-283's B6). `program` is the harness's
+/// command where the pane runs one (`claude`, not `claude-code`), else the shell or tool itself.
 ///
-/// The number is the lowest one no pane of that program is using in that project, so closing
-/// `zsh 2` gives the name back to the next one rather than counting upwards for ever. `taken` is
-/// the titles already in use.
+/// The number is the lowest one nothing in `taken` is wearing — the handles already in use in
+/// the project, panes and conversations both — so closing `zsh 2` gives the name back to the next
+/// one rather than counting upwards for ever.
 ///
 /// Public because it is the one part of a pane's tab that is a rule rather than a redraw, and
 /// `crates/ubiq/tests/new_pane.rs` asserts it without a window.
-pub fn pane_title(agent_type: &str, taken: &[String]) -> String {
-    let base = short_program_name(agent_type);
-    (1..)
-        .map(|n| format!("{base} {n}"))
+pub fn pane_title(program: &str, taken: &[String]) -> String {
+    let base = short_program_name(program);
+    std::iter::once(base.to_string())
+        .chain((2..).map(|n| format!("{base} {n}")))
         .find(|name| !taken.iter().any(|used| used == name))
         .unwrap_or_else(|| base.to_string())
+}
+
+/// A program's own terminal title, as a pane's title: a leading spinner or status glyph (Claude
+/// Code's `✳`, a braille spinner frame) taken off, so the tab says the words and does not
+/// flicker. `None` when nothing but such glyphs was sent.
+pub fn osc_title(raw: &str) -> Option<String> {
+    let words = raw
+        .trim_start_matches(|c: char| (!c.is_ascii() && !c.is_alphanumeric()) || c.is_whitespace())
+        .trim_end();
+    (!words.is_empty()).then(|| words.to_string())
 }
 
 /// The program without its path, its `.exe` suffix, or its long Windows name.
@@ -1732,13 +1740,6 @@ fn short_program_name(agent_type: &str) -> &str {
         "pwsh" | "powershell" => "psh",
         _ => stem,
     }
-}
-
-/// The disambiguating number `pane_title` appended, if the title still ends in one.
-fn pane_title_number(title: &str) -> Option<&str> {
-    title
-        .rsplit_once(' ')
-        .and_then(|(_, n)| (!n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).then_some(n))
 }
 
 /// Re-exported so `main.rs` can name the palette it boots with.
