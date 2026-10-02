@@ -3995,4 +3995,10 @@ pub struct WorkspaceInfo {
     /// interface sends the very same `RunTool` again rather than guessing from the tab's title.
     #[serde(default)]
     pub tool: Option<crate::tools::ToolRun>,
+    /// The pane's handle — `claude`, `claude 2` — minted by the host over the same namespace it
+    /// names conversations from, and the name the pane answers to over MCP. Set for a harness
+    /// pane; a shell, a tool, a drone's pane and an older host leave it `None`, and the interface
+    /// names those itself.
+    #[serde(default)]
+    pub handle: Option<String>,
 }

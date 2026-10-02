@@ -111,6 +111,7 @@ fn start_control(
     let mut picker = Picker::new(ElementId::Name(format!("chat-start-{id}").into()), "")
         .tooltip("change agent")
         .items(picks.labels)
+        .details(picks.details.into_iter().map(Some))
         .disabled(picks.disabled)
         .separators(picks.separators)
         .open(open)

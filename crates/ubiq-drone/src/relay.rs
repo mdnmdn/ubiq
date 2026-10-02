@@ -447,6 +447,8 @@ impl Relay {
                     // A drone spawns shells, never a configured tool — `RunTool` is the local
                     // coordinator's alone.
                     tool: None,
+                    // A drone's shell is named by the interface.
+                    handle: None,
                 };
                 // Kept so a client attaching later can be told about this pane in the same words
                 // the client that spawned it heard.

@@ -237,6 +237,9 @@ loses when drawn centred instead of docked (`T-263`, `G375`).
   each row, and `multi_order(len, selected, query)` draws the ticked rows first under an empty
   query, nothing pinned under a typed one, and never reorders a list with no search field. First
   caller: the Teams toolbar's states filter.
+- **Row detail**: `Picker::details(opts)`, `ContextItem::detail(text)` and `MenuEntry::detail(text)`
+  draw faint secondary text after a row's own, same line, truncated first (`label_cell` in
+  `ui/kit/menu.rs`). Specimen: the `context_menu` one on the style reference.
 
 ### `md_navigator.rs` — a markdown document's headings, hierarchically, with thread counts
 

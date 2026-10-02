@@ -1575,7 +1575,11 @@ is dropped, because a level belongs to a model and never to a harness.
 from its harness's command — `claude`, `codex`, `opencode`, not the display label a menu shows —
 with a counter from the second occurrence onward, per project: `claude`, `claude 2`, `claude 3`.
 The first free name is picked, so a closed `claude 2` is reused before a new `claude 4` would be
-minted. **What replaces it on screen is `WorkAgent.title`, and three things write that.**
+minted. A harness terminal pane draws from the same namespace: the host mints its handle with the
+same rule over the project's live conversations and harness panes (`Coordinator::taken_names`),
+registers it as the pane's MCP `name`, and sends it as `WorkspaceInfo.handle` — so no pane and
+conversation ever share one. A shell, a tool or a drone's pane carries no `handle`, and the
+interface names it on the same scheme. **What replaces it on screen is `WorkAgent.title`, and three things write that.**
 `ConvUpdate::Title` is the harness naming the conversation itself, the host's naming pass is Ubiq
 naming it from the opening exchange, and `RenameConversation` is the user naming it by hand. The host writes all three onto its live record and the conversation's row,
 so a later `AgentChanged` carries the title and a revive restores it (with `summary`). A harness
@@ -1811,7 +1815,7 @@ Forty-seven records travel inside payloads.
 | Record | Fields |
 |---|---|
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
-| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit`, `wait_on_error`, `tool?` |
+| `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit`, `wait_on_error`, `tool?`, `handle?` |
 | `ShellInfo` | `label`, `program`, `is_default` |
 | `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `acp`, `modes[]`, `unattended_mode?`, `keeps_sessions`, `quota`, `shares_home` |
 | `AcpCapabilitiesRecord` | `protocol_version`, `agent?`, `groups[]`, `auth_methods[]`, `discovered_ms` |

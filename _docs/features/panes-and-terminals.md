@@ -55,9 +55,9 @@ opening lands on true emptiness, rather than handing the user two panes for one 
 **A pane's tab is its title, over a handle that is its program and a number.** The handle is
 `zsh`, `zsh 2`, `fish` — the scheme the host names a conversation by (T-283's B6): the bare name
 first, a number from the second on, the lowest one nothing in the project is wearing, panes and
-conversations both. A harness pane is named after the command it runs (`claude`, `claude 2`), not
-its harness id. Closing `zsh 2` gives that name back to the next one rather than counting upwards
-for ever. A Windows shell is shortened — both PowerShells read `psh`, the command processor `cmd` —
+conversations both. A harness pane is named after its command (`claude`, `claude 2`), not its harness
+id, by the host, over its conversations and harness panes (`WorkspaceInfo.handle`, also its MCP name);
+the interface names the rest. A Windows shell is shortened — both PowerShells read `psh`, the command processor `cmd` —
 and a `.exe` suffix or a path never reaches the handle. A tool pane's handle is the tool's name
 numbered the same way. **The title is a typed-over name, else what the program last called itself,
 else the handle** (`AppState::pane_label`, the agent label's shape). The program's own terminal
@@ -69,42 +69,33 @@ tab's right-click menu offers Rename…, the same single-field prompt every othe
 uses, seeded with the tab's current title; the name is kept in memory only, never written down,
 because a pane's id dies with its own process — the workbench document has the menu in full.
 
-**The `+` opens the platform's default shell; the chevron beside it says what else can run
-here.** A bare click starts `$SHELL` — the newest PowerShell on the machine on Windows
-(`pwsh.exe` where it is installed, the inbox `powershell.exe` otherwise, `COMSPEC` only where
-neither is), which is what a terminal application starting no particular program means. The chevron opens a menu of every shell the machine actually
-has, the default one marked, and picking one starts a pane running that shell instead. On Unix the
-list is a fixed set of known names checked for — `zsh`, `bash`, `fish` and `sh`. On Windows it is a
-known install layout instead: every PowerShell version under `%ProgramFiles%\PowerShell\`, the Store
-alias, whatever `pwsh.exe` is on `PATH`, Windows PowerShell, then the command processor — so a
-machine with PowerShell 6 and 7 side by side shows a row for each, labelled with its product name and
-version (`PowerShell 7`, `PowerShell 7 (preview)`, `Windows PowerShell 5.1`, `Command Prompt`) rather
-than the executable's own file name. Either way it is not a launcher for anything on disk, and a
-shell that is not installed is not offered. Above the shells, and separated from them, the menu offers every agent
-harness the harness library knows; picking one starts a composed agent rather than a program, which
-[`sessions-and-workspaces.md`](./sessions-and-workspaces.md) describes. A harness whose binary is
-not on this machine is offered as an unavailable row rather than left out, because the row is how a
-user learns it could be there. **The runnable tools are not on this menu.** A named command defined
-for the machine in Settings › Tools or for the project in its own settings is reached from the
-titlebar's own run control instead — a play triangle that runs the first of them and a chevron that
-opens a filtered picker of them all, with the targets the project's runner files offer — because a project's tools are a property of the project rather than of a terminal;
-the workbench document owns that strip. Below a separator — everything above it starts something — one row puts
-the console on screen, which is the one thing on that menu that is not a pane. The `+` needs a
-project and is not drawn without one; the chevron is drawn either way, and with no project the
-console is the only row it offers, because a shell that cannot be started is not worth a row.
+**The `+` opens the platform's default shell; the chevron beside it says what else can run here.** A bare
+click starts `$SHELL`, or on Windows the newest PowerShell (`pwsh.exe` where installed, else the inbox
+`powershell.exe`, `COMSPEC` only where neither is). The chevron opens a menu of every shell the machine
+has, the default marked; picking one runs that shell. On Unix the list is a fixed set of known names
+(`zsh`, `bash`, `fish`, `sh`); on Windows it is the install layout (every PowerShell under
+`%ProgramFiles%\PowerShell\`, the Store alias, `pwsh.exe` on `PATH`, Windows PowerShell, the command
+processor), each labelled with product name and version (`PowerShell 7`, `PowerShell 7 (preview)`,
+`Windows PowerShell 5.1`, `Command Prompt`). It is not a launcher for anything on disk, and an
+uninstalled shell is not offered. Above the shells, separated, the menu offers every agent harness the
+harness library knows; picking one starts a composed agent
+([`sessions-and-workspaces.md`](./sessions-and-workspaces.md)), and a harness whose binary is absent is an
+unavailable row, because the row is how a user learns it could be there. **The runnable tools are not on
+this menu**: a named command defined in Settings › Tools or the project's settings is reached from the
+titlebar's run control (a play triangle running the first, a chevron opening a filtered picker of all,
+with the targets the project's runner files offer), because tools belong to the project; the workbench
+document owns that strip. Below a final separator, one row puts the console on screen, the one row that
+is not a pane. The `+` needs a project and is not drawn without one; the chevron is drawn either way and
+then offers the console alone.
 
-**A shell pane is a login shell.** It is started the way the user's own terminal starts one, so
-`.zprofile`, `.zlogin` and `.profile` run and a pane's `PATH` is the `PATH` the user has everywhere
-else. Without it a tool that is genuinely installed reports as `command not found` in a pane while
-working in Terminal.app, because Ubiq launched from Finder inherits a `PATH` that nothing has set up
-yet. Only a shell started with no arguments is treated this way: a harness, or a shell handed a
-command to run, is started as itself.
+**A shell pane is a login shell**, started the way the user's own terminal starts one, so `.zprofile`,
+`.zlogin` and `.profile` run and the pane's `PATH` matches the user's everywhere else (Ubiq launched from
+Finder inherits a `PATH` nothing has set up). Only a shell started with no arguments is treated so: a
+harness, or a shell handed a command, starts as itself.
 
-**Which shells exist is the host's answer, asked for and never assumed.** The interface may not look
-on disk, so it asks — as it attaches, and again every time the menu opens, which is what makes a
-shell installed since the window opened available without a restart. It asks for the agent types the
-same way, and for the same reason. The runnable tools are asked for on the same terms from their own
-control, so a tool added in the settings is offered without a restart.
+**Which shells exist is the host's answer, asked for and never assumed.** The interface asks as it
+attaches and on every menu open, so a shell installed since the window opened is available without a
+restart; agent types and the runnable tools are asked for on the same terms.
 
 **A pane's environment is whatever started it.** A shell inherits Ubiq's own, plus the `TERM` and
 `COLORTERM` every pane is given. A composed agent adds the variables that point it at the throwaway
@@ -197,19 +188,14 @@ the mode is set and otherwise sends the text plain, with every newline turned in
 return a console submits a line on. The same function serves the paste chord and an OS file drop.
 
 **Windows pastes on `Ctrl+V` and on the right button; nowhere else does.** `Ctrl+Shift+V` is the X11
-convention, and it exists because `Ctrl+V` is a control character readline reads as quoted-insert.
-Windows never had it — conhost, PowerShell and Windows Terminal all paste on `Ctrl+V` — so there the
-terminal takes both, and loses quoted-insert from the keyboard for it. The right button is the same
-console convention and is confined the same way: it pastes on Windows only, and only past the
-mouse-reporting check, so a program that asked for the mouse still gets the button. On macOS and
-Linux the right button reaches the emulator — mouse reporting and focus — and is otherwise the
-platform's.
+convention, existing because `Ctrl+V` is readline's quoted-insert. conhost, PowerShell and Windows
+Terminal paste on `Ctrl+V`, so there the terminal takes both and loses quoted-insert. The right button
+pastes on Windows only, and only past the mouse-reporting check, so a program that asked for the mouse
+still gets it; elsewhere it reaches the emulator (mouse reporting, focus).
 
-**`Ctrl+C` is SIGINT, except on Windows with a selection.** Windows is the one exception, because
-conhost and Windows Terminal have taught every Windows user that `Ctrl+C` copies what is selected:
-there, and only there, a bare `Ctrl+C` with a non-empty selection copies it and drops the
-selection, so the next press is the interrupt again. With nothing selected it is `0x03`, as it is
-unconditionally on macOS and Linux, which have a copy chord of their own.
+**`Ctrl+C` is SIGINT, except on Windows with a selection**, where conhost has taught users that it
+copies: a bare `Ctrl+C` with a non-empty selection copies it and drops the selection, so the next press
+interrupts. With nothing selected, and always on macOS and Linux (which have a copy chord), it is `0x03`.
 
 **A paste with an image on the clipboard belongs to the harness.** Both paste chords are nulled in
 the `Terminal` key context, so the window's own `Cmd+V` / `Ctrl+V` binding — which opens a picture
@@ -252,11 +238,9 @@ new size in character cells, telling the coordinator, setting the pseudo-termina
 letting the kernel signal the harness so it redraws. A pane that resizes visually while its harness
 still believes the old dimensions is the failure this rule exists to prevent.
 
-**This holds for a pane drawn outside the dock, too.** A harness login runs in a pane the same way
-any workspace does — `AppState::open_terminal` installs the same resize callback regardless of
-where the pane ends up drawn, and the coordinator resizes whatever pane it owns without asking
-where the interface put it. The harness login modal is the one caller of this today: its terminal
-box sizing is `tech/ui-and-design.md`'s to state, not this one's.
+**This holds for a pane drawn outside the dock, too.** `AppState::open_terminal` installs the same resize
+callback wherever the pane is drawn (the harness login modal is the one such caller; its sizing is
+`tech/ui-and-design.md`'s), and the coordinator resizes any pane it owns.
 
 **Geometry is measured in cells, not pixels.** The conversion happens once, in the UI, where the
 font metrics are known. Everything downstream speaks columns and rows.
@@ -409,23 +393,18 @@ region starts a pane, and `pane_title()` is where a pane gets its handle and its
 way a program does, through the same short-name rule.
 
 **`crates/ubiq-host/src/shells.rs` is the only place that knows what a shell is.** On Unix,
-`available()` checks a fixed candidate list against `PATH`, the user's login shell's own `PATH` and
-the usual homes, and always includes `default_program()`, whatever it is. The other two lookups are
-there because the `PATH` Ubiq itself was launched with is exactly the one that cannot be trusted: a
-harness installed under the user's home is named by neither the thin environment a desktop launcher
-hands over nor a fixed list of system directories. The login shell is asked once per process, with
-`-lic`, because the login and interactive files are where a toolchain installer writes its
-directory and a non-interactive shell never reads them. On Windows, `windows_shells()` walks the
-PowerShell install layout under `%ProgramFiles%\PowerShell\` instead of a name list — reading each
-version directory's major and whether it is a preview — before falling back to the Store alias, a
-bare `pwsh.exe` on `PATH`, `powershell.exe`, then `COMSPEC`; duplicates naming the same file are
-dropped by path, case-insensitively, keeping the first (most informative) label. The 32-bit builds
-under `%ProgramFiles(x86)%` and `SysWOW64` are not read. `default_program()` resolves against this
-same richer list rather than one `locate()` call per name.
-`pty::spawn` asks the same module whether the program it was handed is a shell, and `command_for()` builds a login shell when it is: `portable-pty` prefixes argv0
-with `-` only for a builder made with `new_default_prog`, which takes no program name and reads the
-shell out of `SHELL`, so that is where the chosen shell is handed to it. The coordinator answers
-`ListShells` straight from `available()`, and `ListAgentTypes` from `agent::Agents::types()`.
+`available()` checks a fixed candidate list against `PATH`, the user's login shell's own `PATH` and the
+usual homes, and always includes `default_program()`; the extra lookups exist because the `PATH` Ubiq was
+launched with cannot be trusted (a desktop launcher hands over a thin environment). The login shell is
+asked once per process with `-lic`, because the login and interactive files are where a toolchain
+installer writes its directory. On Windows, `windows_shells()` walks the install layout under
+`%ProgramFiles%\PowerShell\` (each version directory's major and preview flag), then the Store alias, a
+bare `pwsh.exe` on `PATH`, `powershell.exe`, then `COMSPEC`; duplicates naming one file are dropped by
+path, case-insensitively, keeping the first label; the 32-bit `%ProgramFiles(x86)%` and `SysWOW64`
+builds are not read. `default_program()` resolves against the same list. `pty::spawn` asks the module
+whether its program is a shell, and `command_for()` builds a login shell when it is (`portable-pty`
+prefixes argv0 with `-` only for `new_default_prog`, which reads the shell out of `SHELL`). The
+coordinator answers `ListShells` from `available()` and `ListAgentTypes` from `agent::Agents::types()`.
 
 **`pty::spawn` is handed a `Program`, not a program name.** It carries the argv and the environment
 a pane starts from — variables to set, variables to drop, and whether to start from an empty one at
@@ -443,22 +422,16 @@ the sender is how it learns the stream is over. `PaneInput` is the `Write`, and 
 into it leaves as `TerminalInput` for that pane ID.
 
 A pane belongs to the window that spawned it: the host records the owner before it answers, routes
-everything that pane emits back to that window alone, and refuses a message about it from any
-other. When a window goes, the host reaps the pseudo-terminals it owned — nothing else drops now
-that the host outlives every window.
+everything the pane emits to that window alone and refuses a message about it from any other. When a
+window goes, the host reaps the pseudo-terminals it owned. `Message::AdoptProject` re-homes every pane
+and conversation of one project onto the sender (two maps, `owners` and `conversation_owners`, and the
+`MovingAddress` beside each pane); `Sink::Moving` exists because a reader thread is handed one mailbox
+and never asks again, so the destination sits behind a handle the host can re-point. The host takes the
+sender's word for who may adopt; the interface's `WindowRegistry` guarantees one such window.
 
-It belongs to that window until its project moves. `Message::AdoptProject` re-homes every pane and
-every conversation of one project onto the sender, which is two maps (`owners`,
-`conversation_owners`) and the `MovingAddress` beside each pane. `Mailbox` gained `Sink::Moving` for
-exactly this: a reader thread is handed one mailbox and never asks again, so the destination has to
-be behind a handle the host can re-point. The host takes the sender's word for who may adopt — the
-interface's `WindowRegistry` is what guarantees there is one such window.
-
-Inside the window, a pane also belongs to one of its hosts — recorded in `Bus::note_pane` the moment
-`WorkspaceSpawned` arrives — which is how its keystrokes and its resizes reach the connection
-actually running it rather than whichever the window happens to be pointed at. The routing itself,
-and why the local host is always one of them, is
-[`../tech/architecture.md`](../tech/architecture.md)'s.
+Inside the window, a pane also belongs to one of its hosts, recorded by `Bus::note_pane` when
+`WorkspaceSpawned` arrives, which is how keystrokes and resizes reach the connection actually running
+it. The routing is [`../tech/architecture.md`](../tech/architecture.md)'s.
 
 **`AppState` in `crates/ubiq/src/app/mod.rs` owns one `OpenProject` per project the window holds**, and
 each of those owns that project's panes and which of them is focused. The emulators do not move with
@@ -498,25 +471,18 @@ stalled reader stalls the harness.
 | The UI cannot keep up with output | The pane's queue grows; nothing is dropped and the coordinator's reader is never blocked |
 | Output is not valid UTF-8 at a chunk boundary | Passed through as bytes; the emulator handles the split sequence |
 | A resize arrives for an unknown pane | Ignored; a pane that has gone is not an error the user needs |
-| A pane is dragged while its harness is writing | Nothing is interrupted. The panel is re-parented by id, so the emulator, the stream and the pane ID are the same on the other side; the new rectangle is measured and the harness is told |
-| A pane becomes a background tab | It is not laid out and not resized, and keeps the geometry its harness was told. Its output goes on arriving and its emulator goes on consuming it |
 | A panel is displaced by an arrangement being installed over it | Its pane is untouched. Only a closed tab closes a pane |
-| The harness exits | `PaneExited`; `close_pane()` takes the tab out of the dock. Focus moves to another pane, or to none if it was the last |
-| The harness exits while its pane is a background tab | The same close: the tab leaves that project's dock, and the pane the user is typing into is untouched |
+| The harness exits, whichever tab it is | `PaneExited`; `close_pane()` takes the tab out of that project's dock. Focus moves to another pane, or to none if it was the last |
 | A waiting tool's process exits | `PaneExited` dims the dot through `pane_stopped()` and the tab stays with its output; × still closes it through `close_pane()` |
 | A tool run is refused | `ToolError`: unknown row, wrong platform, empty command, or a `single_instance` row whose pane is still held. A log line, no tab — the interface was never told of a pane |
 | The harness cannot be started | `PaneError` against a pane ID the UI never drew; no tab appears |
-| A spawn is asked for with no project open | Nothing is sent; there is no folder to start a harness in |
 | The shell list has not been answered yet | The menu offers the console row alone, and no separator. The list is asked for again on every open, so the next one has it |
 | The tool list has not been answered yet | The run picker shows one note saying there are no tools for the project, and the play triangle runs nothing. The list is asked for again on every open |
 | A stop arrives for a pane that holds no process | Logged at debug and ignored; the pane is untouched |
-| The pane region is opened with no project | Nothing is started; the region opens empty, and the chevron's menu still reaches the console |
 | A shell is uninstalled between the list and the pick | The spawn fails the way any unstartable program does: `PaneError` against a pane the UI never drew |
-| A spawn names a project whose folder has gone | `ProjectError`, and the picker's row is marked. No pseudo-terminal is opened and no tab appears |
-| A spawn names a `rel_path` that escapes the project | Refused with the same `ProjectError`, before anything is opened |
+| A spawn names a project whose folder has gone, or a `rel_path` that escapes it | `ProjectError` before anything is opened, and the picker's row is marked. No tab appears |
 | A pane is announced for a project the window no longer holds | The window closes it again rather than draw it, so no harness is left running with nothing on screen |
 | A project leaves the window | Its panes are closed and their harnesses killed; the panes of the projects that stayed are untouched |
-| The focused pane closes | Focus moves to another pane, or to none if it was the last |
 
 ## Related docs
 

@@ -36,8 +36,9 @@ pub fn free_chat_slot(tabs: &[ChatTab]) -> Option<usize> {
 /// What an attach list offers: the project's conversations, filtered by what is typed, and which
 /// of the survivors are already spoken for.
 pub struct AttachChoices {
-    /// `(agent, name)`, in the host's own order, after the filter.
-    pub items: Vec<(AgentId, String)>,
+    /// `(agent, title, identity)`, in the host's own order, after the filter. The identity is
+    /// empty where the agent has none; a row draws it faint after the title.
+    pub items: Vec<(AgentId, String, String)>,
     /// Indices into `items` an open panel in the *same* surface already shows — drawn disabled,
     /// never dropped: a row that vanishes reads as a conversation that ended, not one taken.
     pub disabled: Vec<usize>,
@@ -72,22 +73,22 @@ pub fn attach_choices(
     let query = query.trim().to_lowercase();
     // Title then identity, and matched on title, identity and handle alike (T-283's B7): a search
     // for the definition or the handle finds the agent as surely as one for its title.
-    let items: Vec<(AgentId, String)> = agents
+    let items: Vec<(AgentId, String, String)> = agents
         .iter()
         .filter(|agent| live.contains(&agent.id))
         .map(|agent| (agent.id, AgentLabel::of(agent, None)))
         .filter(|(_, label)| query.is_empty() || label.matches(&query))
-        .map(|(id, label)| (id, label.row()))
+        .map(|(id, label)| (id, label.title.to_string(), label.identity.to_string()))
         .collect();
 
     let disabled = items
         .iter()
         .enumerate()
-        .filter_map(|(ix, (agent, _))| {
+        .filter_map(|(ix, (agent, _, _))| {
             (shown.contains(agent) && mine != Some(*agent)).then_some(ix)
         })
         .collect();
-    let selected = mine.and_then(|agent| items.iter().position(|(id, _)| *id == agent));
+    let selected = mine.and_then(|agent| items.iter().position(|(id, _, _)| *id == agent));
 
     AttachChoices {
         items,
@@ -115,6 +116,8 @@ pub enum ChatPick {
 pub struct ChatPicks {
     pub rows: Vec<ChatPick>,
     pub labels: Vec<String>,
+    /// Faint secondary text per row, parallel to `labels`; empty for none.
+    pub details: Vec<String>,
     /// Hairlines, and conversations another tab holds.
     pub disabled: Vec<usize>,
     pub separators: Vec<usize>,
@@ -134,6 +137,7 @@ pub fn chat_picks(attach: &AttachChoices) -> ChatPicks {
     let mut picks = ChatPicks {
         rows: vec![ChatPick::New],
         labels: vec!["New agent".to_string()],
+        details: vec![String::new()],
         disabled: Vec::new(),
         separators: Vec::new(),
         selected: None,
@@ -144,8 +148,9 @@ pub fn chat_picks(attach: &AttachChoices) -> ChatPicks {
     picks.separators.push(picks.rows.len());
     picks.rows.push(ChatPick::Inert);
     picks.labels.push(String::new());
+    picks.details.push(String::new());
 
-    for (ix, (agent, name)) in attach.items.iter().enumerate() {
+    for (ix, (agent, name, identity)) in attach.items.iter().enumerate() {
         if attach.selected == Some(ix) {
             picks.selected = Some(picks.rows.len());
         }
@@ -154,6 +159,7 @@ pub fn chat_picks(attach: &AttachChoices) -> ChatPicks {
         }
         picks.rows.push(ChatPick::Attach(*agent));
         picks.labels.push(name.clone());
+        picks.details.push(identity.clone());
     }
 
     picks
@@ -226,7 +232,10 @@ mod tests {
         let agents = vec![agent(live_agent, "real"), agent(fixture, "Orchestrator")];
 
         let attach = attach_choices(&agents, &[live_agent], &[], None, "");
-        assert_eq!(attach.items, vec![(live_agent, "real".to_string())]);
+        assert_eq!(
+            attach.items,
+            vec![(live_agent, "real".to_string(), String::new())]
+        );
 
         let picks = chat_picks(&attach);
         assert_eq!(
@@ -251,10 +260,8 @@ mod tests {
             assert_eq!(attach.items.len(), 1, "{query:?} found nothing");
         }
         let attach = attach_choices(&agents, &[id], &[], None, "");
-        assert_eq!(
-            attach.items[0].1,
-            "Fix tab truncation \u{00b7} Reviewer \u{00b7} Claude Code"
-        );
+        assert_eq!(attach.items[0].1, "Fix tab truncation");
+        assert_eq!(attach.items[0].2, "Reviewer \u{00b7} Claude Code");
     }
 
     fn agent(id: AgentId, name: &str) -> WorkAgent {

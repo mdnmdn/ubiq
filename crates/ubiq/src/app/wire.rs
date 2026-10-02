@@ -3487,28 +3487,12 @@ impl AppState {
     fn open_pane(&mut self, workspace: WorkspaceInfo, cx: &mut Context<Self>) {
         let pane_id = workspace.id;
         let project = workspace.project_id;
-        // Every handle in the project, panes' and conversations' both: one scheme, one namespace.
-        let taken: Vec<String> = self
-            .projects
-            .get(&project)
-            .map(|open| {
-                open.panes
-                    .iter()
-                    .map(|pane| pane.handle.clone())
-                    .chain(open.work.agents.iter().map(|agent| agent.name.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        // A harness is named after the command it runs (`claude`), as the host names its
-        // conversations; a shell or a tool after itself.
-        let program = self
-            .workbench
-            .agent_types
-            .iter()
-            .find(|agent| agent.id == workspace.agent_type)
-            .map(|agent| agent.command.clone())
-            .unwrap_or_else(|| workspace.agent_type.clone());
-        let handle = pane_title(&program, &taken);
+        // A harness pane's handle is the host's, minted over the same namespace as its
+        // conversations (T-291). Only a shell, a tool or an older host's pane is named here.
+        let handle = workspace
+            .handle
+            .clone()
+            .unwrap_or_else(|| self.local_pane_handle(&workspace));
 
         // A pane for a project this window no longer holds has nowhere to be drawn, and a harness
         // nobody can see is a leak: it is closed rather than kept.
@@ -3551,6 +3535,33 @@ impl AppState {
             self.bus.send(Message::Focus { pane_id });
         }
         cx.notify();
+    }
+
+    /// The handle for a pane the host did not name — a shell, a tool, a drone's pane, an older
+    /// host's — on the host's own scheme, skipping every handle in the project, panes' and
+    /// conversations' both.
+    fn local_pane_handle(&self, workspace: &WorkspaceInfo) -> String {
+        let taken: Vec<String> = self
+            .projects
+            .get(&workspace.project_id)
+            .map(|open| {
+                open.panes
+                    .iter()
+                    .map(|pane| pane.handle.clone())
+                    .chain(open.work.agents.iter().map(|agent| agent.name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        // A harness is named after the command it runs (`claude`), as the host names its
+        // conversations; a shell or a tool after itself.
+        let program = self
+            .workbench
+            .agent_types
+            .iter()
+            .find(|agent| agent.id == workspace.agent_type)
+            .map(|agent| agent.command.clone())
+            .unwrap_or_else(|| workspace.agent_type.clone());
+        pane_title(&program, &taken)
     }
 
     /// Give the keyboard to whoever asked for it. Focus needs a window, so it waits for one.

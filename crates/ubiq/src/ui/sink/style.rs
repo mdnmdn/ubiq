@@ -914,7 +914,7 @@ fn files(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             "sink-context",
             vec![
                 ContextItem::new("Open"),
-                ContextItem::new("Copy path"),
+                ContextItem::new("Copy path").detail("clipboard"),
                 ContextItem::separator(),
                 ContextItem::new("New file").disabled(),
             ],

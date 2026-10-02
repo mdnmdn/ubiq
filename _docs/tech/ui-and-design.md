@@ -732,7 +732,10 @@ single-select `Picker` the same per-row status colour `MultiPicker` always drew,
 leaving that row bare for a choice like "All tasks" that stands for no one colour; `.dim(indices)`
 mutes a row without disabling it — pickable, drawn faint, for a choice that still answers but is not
 where the reader's attention belongs, such as a completed mission in the board toolbar's mission
-filter.
+filter. `.details(texts)` on a `Picker` (one `Option` per row, in `items` order) and
+`ContextItem::detail(text)` on a context row (`MenuEntry::detail` on a bar menu's) draw a faint
+secondary text on the same line after the row's own, truncated before it: an agent's identity after
+its title in the attach, bench, chat-chevron and hidden-agents lists.
 
 **A picker has three shapes, and the third is for a form.** `PickerStyle::Plain` is the bare
 trigger, `Chip` the small filled one a composer's config controls wear, and `Field` the shape

@@ -276,17 +276,30 @@ fn add_tab(
         .is_focused(window);
     let rows = agents.bench_rows(column, work, &query);
 
-    // Each agent row is its title and then its identity, the attach lists' one shape (T-283).
-    let names: Vec<String> = rows
+    // Each agent row is its title with the identity faint after it, the attach lists' one shape
+    // (T-283).
+    let labels: Vec<Option<_>> = rows
         .iter()
         .map(|row| match row {
-            BenchRow::Agent { id, .. } => work
-                .agent(*id)
-                .map(|agent| app.agent_label(agent).row())
+            BenchRow::Agent { id, .. } => work.agent(*id).map(|agent| app.agent_label(agent)),
+            _ => None,
+        })
+        .collect();
+    let names: Vec<String> = rows
+        .iter()
+        .zip(&labels)
+        .map(|(row, label)| match row {
+            BenchRow::Agent { .. } => label
+                .as_ref()
+                .map(|label| label.title.to_string())
                 .unwrap_or_default(),
             BenchRow::Label(text) => text.to_string(),
             BenchRow::Separator => String::new(),
         })
+        .collect();
+    let details: Vec<Option<_>> = labels
+        .iter()
+        .map(|label| label.as_ref().map(|label| label.identity.clone()))
         .collect();
     let disabled: Vec<usize> = rows
         .iter()
@@ -312,6 +325,7 @@ fn add_tab(
                 .icon(IconName::Plus)
                 .style(PickerStyle::Chip)
                 .items(names)
+                .details(details)
                 .disabled(disabled)
                 .separators(separators)
                 .search(&app.picker_search, search_focused)

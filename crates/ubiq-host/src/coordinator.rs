@@ -285,6 +285,9 @@ struct Coordinator {
     /// Which project each pane belongs to, so a pane opening or ending changes a count the picker
     /// draws.
     pane_projects: HashMap<PaneId, ProjectId>,
+    /// Each harness pane's handle (`claude 2`), minted by `unique_name` over the same namespace
+    /// as the project's conversations — see `taken_names`. A shell or a tool pane has none here.
+    pane_handles: HashMap<PaneId, String>,
     /// Which session each pane belongs to, so `stats()` can count live sessions. Ubiq's sense of
     /// session — a named grouping of panes — not the harness library's resumable conversation.
     pane_sessions: HashMap<PaneId, SessionId>,
@@ -1111,6 +1114,7 @@ impl Coordinator {
             watchers: HashMap::new(),
             pending,
             pane_projects: HashMap::new(),
+            pane_handles: HashMap::new(),
             pane_sessions: HashMap::new(),
             pane_tools: HashMap::new(),
             runners,
@@ -1429,6 +1433,8 @@ impl Coordinator {
         // A single-instance tool's next run is allowed the moment its pane is gone, so this goes
         // with the pane rather than being swept later.
         self.pane_tools.remove(&pane_id);
+        // Its handle is free for the next pane or conversation the moment it is gone.
+        self.pane_handles.remove(&pane_id);
         if let Some(project_id) = self.pane_projects.remove(&pane_id) {
             let replies = self.projects.pane_closed(project_id);
             self.answer(client, replies);
@@ -1442,6 +1448,19 @@ impl Coordinator {
     fn refuse_pane(&self, client: ClientId, pane_id: PaneId, error: String) {
         self.host
             .send(To::Client(client), Message::PaneError { pane_id, error });
+    }
+
+    /// Every handle in use in one project: its live conversations' names and its harness panes'
+    /// handles. One namespace, so `unique_name` never hands a pane and a conversation the same one.
+    fn taken_names(&self, project_id: ProjectId) -> Vec<String> {
+        let mut taken = self.work.lock().live_agent_names(project_id);
+        taken.extend(
+            self.pane_handles
+                .iter()
+                .filter(|(pane, _)| self.pane_projects.get(pane) == Some(&project_id))
+                .map(|(_, handle)| handle.clone()),
+        );
+        taken
     }
 
     /// Whether this window is the one that owns the pane. A message about somebody else's pane is
@@ -3554,7 +3573,7 @@ impl Coordinator {
             .agents
             .command_of(&agent_type)
             .unwrap_or_else(|| agent_type.clone());
-        let name = unique_name(&base, &self.work.lock().live_agent_names(project_id));
+        let name = unique_name(&base, &self.taken_names(project_id));
 
         let agent = WorkAgent {
             id: agent_id,
@@ -6140,14 +6159,22 @@ impl Coordinator {
         }
 
         // Tell the MCP listener who this pane is, before the harness exists to ask — the same
-        // reason `launch` registers a conversation before its own composed run spawns. A pane has
-        // no card and no name of its own, so both `name` and `harness` are the resolved agent
-        // type; `account` is what the run actually resolved to, not merely what was picked.
-        if let Some(composed) = &composed {
+        // reason `launch` registers a conversation before its own composed run spawns. Its `name`
+        // is the pane's handle, minted from the harness's command over the same namespace a
+        // conversation's is (T-291), so `claude 2` means one thing whichever kind holds it;
+        // `account` is what the run actually resolved to, not merely what was picked.
+        let handle = composed.as_ref().map(|_| {
+            let base = self
+                .agents
+                .command_of(&agent_type)
+                .unwrap_or_else(|| agent_type.clone());
+            unique_name(&base, &self.taken_names(project_id))
+        });
+        if let (Some(composed), Some(handle)) = (&composed, &handle) {
             let project = self.project_facts(project_id);
             self.agents.mcp_agents().register(crate::mcp::AgentFacts {
                 key: pane_id.to_string(),
-                name: agent_type.clone(),
+                name: handle.clone(),
                 harness: agent_type.clone(),
                 account: composed.account().map(str::to_string),
                 model: picked_model.clone(),
@@ -6232,6 +6259,9 @@ impl Coordinator {
         // real because of this.
         self.pane_projects.insert(pane_id, project_id);
         self.pane_sessions.insert(pane_id, session_id);
+        if let Some(handle) = &handle {
+            self.pane_handles.insert(pane_id, handle.clone());
+        }
         let replies = self.projects.pane_opened(project_id);
         self.answer(client, replies);
 
@@ -6248,6 +6278,7 @@ impl Coordinator {
                 wait_on_exit: false,
                 wait_on_error: false,
                 tool: None,
+                handle,
             },
         });
     }
@@ -6557,6 +6588,8 @@ impl Coordinator {
                 // What started it, so a stopped pane can be restarted with the same two values
                 // this call was addressed with.
                 tool: Some(ToolRun { scope, id }),
+                // A tool pane is named by the interface, after the tool.
+                handle: None,
             },
         });
     }
@@ -7184,6 +7217,28 @@ mod tests {
         );
         let client = hub.connect();
         (coordinator, client)
+    }
+
+    #[test]
+    fn a_pane_handle_and_a_conversation_name_share_one_namespace() {
+        let (mut coordinator, client) = test_coordinator();
+        let (_, project_id) = seed_live_conversation(&mut coordinator, &client, 0);
+        // A harness pane in the same project, and one in another that must not count.
+        let pane = PaneId::generate();
+        coordinator.pane_projects.insert(pane, project_id);
+        coordinator.pane_handles.insert(pane, "fake 2".to_string());
+        let elsewhere = PaneId::generate();
+        coordinator
+            .pane_projects
+            .insert(elsewhere, ProjectId::generate());
+        coordinator
+            .pane_handles
+            .insert(elsewhere, "fake 3".to_string());
+
+        let mut taken = coordinator.taken_names(project_id);
+        taken.sort();
+        assert_eq!(taken, vec!["fake".to_string(), "fake 2".to_string()]);
+        assert_eq!(unique_name("fake", &taken), "fake 3");
     }
 
     /// Register everything a live conversation needs — a `WorkAgent`, an owner, a launch recipe

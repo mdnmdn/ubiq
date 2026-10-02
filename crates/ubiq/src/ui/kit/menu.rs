@@ -66,6 +66,8 @@ pub struct Picker {
     /// single-choice list often mixes rows that carry one (a mission's phase) with rows that do
     /// not (an "All ..." row).
     dots: Vec<Option<Rgba>>,
+    /// A faint secondary text per row, parallel to `items` — see [`Self::details`].
+    details: Vec<Option<SharedString>>,
     selected: Option<usize>,
     open: bool,
     anchor: Anchor,
@@ -93,6 +95,7 @@ impl Picker {
             separators: Vec::new(),
             dim: Vec::new(),
             dots: Vec::new(),
+            details: Vec::new(),
             selected: None,
             open: false,
             anchor: Anchor::TopLeft,
@@ -150,6 +153,17 @@ impl Picker {
     /// A status colour per row, in `items` order. `None` at an index draws that row with no dot.
     pub fn dots(mut self, dots: impl IntoIterator<Item = Option<Rgba>>) -> Self {
         self.dots = dots.into_iter().collect();
+        self
+    }
+
+    /// A faint secondary text per row, in `items` order, drawn on the same line after the row's
+    /// own text and truncated first when the row is short of room — an agent's identity after its
+    /// title. `None` (or a short list) draws that row with the text alone.
+    pub fn details<S: Into<SharedString>>(
+        mut self,
+        details: impl IntoIterator<Item = Option<S>>,
+    ) -> Self {
+        self.details = details.into_iter().map(|d| d.map(Into::into)).collect();
         self
     }
 
@@ -225,6 +239,7 @@ impl RenderOnce for Picker {
             separators,
             dim,
             dots,
+            details,
             selected,
             open,
             anchor,
@@ -270,6 +285,7 @@ impl RenderOnce for Picker {
                     separator: separators.contains(&ix),
                     dim: dim.contains(&ix),
                     dot: dots.get(ix).copied().flatten(),
+                    detail: details.get(ix).cloned().flatten(),
                 })
                 .collect();
             trigger = trigger.child(menu_panel(
@@ -367,6 +383,30 @@ struct PanelRow {
     /// [`crate::ui::kit::toggle_pill`] wears, so a filter moved off a pill row into a menu reads
     /// the same way.
     dot: Option<Rgba>,
+    /// Faint secondary text after the label, truncated before it.
+    detail: Option<SharedString>,
+}
+
+/// A row's text and its optional faint detail on one line. The label keeps its width; the detail
+/// takes what is left and truncates first.
+fn label_cell(label: SharedString, detail: Option<SharedString>) -> Div {
+    let cell = div().flex_1().min_w(px(0.));
+    match detail.filter(|d| !d.is_empty()) {
+        None => cell.child(label),
+        Some(detail) => cell
+            .flex()
+            .gap_2()
+            .overflow_hidden()
+            .child(div().flex_none().whitespace_nowrap().child(label))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_color(theme::text_faint())
+                    .child(detail),
+            ),
+    }
 }
 
 fn menu_panel(
@@ -439,7 +479,7 @@ fn menu_panel(
                         item.dot
                             .map(|colour| div().size(px(7.)).flex_none().rounded_full().bg(colour)),
                     )
-                    .child(div().flex_1().min_w(px(0.)).child(item.label));
+                    .child(label_cell(item.label, item.detail));
                 if !is_disabled {
                     row = row
                         .cursor_pointer()
@@ -794,6 +834,7 @@ impl RenderOnce for MultiPicker {
                     separator: false,
                     dim: false,
                     dot: dots.get(ix).copied(),
+                    detail: None,
                 })
                 .collect();
             trigger = trigger.child(menu_panel(
@@ -822,6 +863,9 @@ pub struct ContextItem {
     /// instead of widening every row to fit the one. Not a second label: a row whose *name* is in
     /// its tooltip is a row nobody reads.
     pub tooltip: Option<SharedString>,
+    /// A faint secondary text after the label, truncated before it. Not a second label: the
+    /// qualifier a row can do without, such as an agent's identity.
+    pub detail: Option<SharedString>,
 }
 
 impl ContextItem {
@@ -832,7 +876,14 @@ impl ContextItem {
             separator: false,
             icon: None,
             tooltip: None,
+            detail: None,
         }
+    }
+
+    /// Draw `text` faint after the label on the same line.
+    pub fn detail(mut self, text: impl Into<SharedString>) -> Self {
+        self.detail = Some(text.into());
+        self
     }
 
     /// Drawn, and does nothing: the predisposition for an action the host does not answer yet.
@@ -864,6 +915,7 @@ impl ContextItem {
             separator: true,
             icon: None,
             tooltip: None,
+            detail: None,
         }
     }
 }
@@ -938,7 +990,7 @@ pub fn context_panel(
                         .text_color(theme::text_muted()),
                 );
             }
-            row = row.child(item.label);
+            row = row.child(label_cell(item.label, item.detail));
 
             // Hung on the row itself rather than on the label, so hovering anywhere across the
             // full width — including the dead part left of a short verb — answers it. The row

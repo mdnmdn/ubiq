@@ -213,7 +213,7 @@ fn a_live_agent_shown_nowhere_is_listed_and_picking_it_reveals_it(cx: &mut TestA
                 .agents
                 .iter()
                 .find(|a| a.id == id)
-                .map(|a| state.agent_label(a).row())
+                .map(|a| state.agent_label(a).title.clone())
         })
         .expect("the agent is in the projection")
         .to_string();
@@ -320,7 +320,7 @@ fn a_column_only_agent_is_hidden_outside_agents_mode(cx: &mut TestAppContext) {
                 .agents
                 .iter()
                 .find(|a| a.id == id)
-                .map(|a| state.agent_label(a).row())
+                .map(|a| state.agent_label(a).title.clone())
         })
         .expect("the agent is in the projection")
         .to_string();

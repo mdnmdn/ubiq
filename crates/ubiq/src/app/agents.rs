@@ -1622,7 +1622,7 @@ impl AppState {
             .items
             .get(index)
             .filter(|_| !rows.disabled.contains(&index))
-            .map(|(agent, _)| *agent);
+            .map(|(agent, _, _)| *agent);
         self.workbench.open_menu = None;
         self.workbench.new_agent_menu = None;
         let Some(agent) = picked else {

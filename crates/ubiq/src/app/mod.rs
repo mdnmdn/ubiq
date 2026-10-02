@@ -277,9 +277,10 @@ pub struct PaneState {
     pub harness: String,
     pub rows: u16,
     pub cols: u16,
-    /// The pane's mechanical, unique-in-project name — `claude`, `claude 2`, `zsh` — minted by
-    /// [`pane_title`] when it opens, on the same scheme the host names a conversation by (T-283).
-    /// Never overwritten.
+    /// The pane's mechanical, unique-in-project name — `claude`, `claude 2`, `zsh`. A harness
+    /// pane's is the host's (`WorkspaceInfo::handle`, minted over the same namespace as its
+    /// conversations, T-291); a shell's or a tool's is minted here by [`pane_title`] on the same
+    /// scheme. Never overwritten.
     pub handle: String,
     /// What the program running in it last called itself (`ESC ] 0 ; title BEL`), with a leading
     /// spinner or status glyph taken off. `None` until it says anything.

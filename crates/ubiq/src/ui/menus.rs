@@ -54,6 +54,9 @@ pub struct MenuEntry {
     pub icon: Option<Icon>,
     /// What the label has no room for, shown on hover.
     pub tooltip: Option<SharedString>,
+    /// Faint secondary text after the label on the same line, truncated before it — an agent's
+    /// identity after its title.
+    pub detail: Option<SharedString>,
     /// Drawn faint and unclickable. A heading is this, and so is an action the host cannot answer
     /// yet.
     pub enabled: bool,
@@ -76,6 +79,7 @@ impl MenuEntry {
             label: label.into(),
             icon: None,
             tooltip: None,
+            detail: None,
             enabled: true,
             visible: true,
             separator: false,
@@ -105,6 +109,11 @@ impl MenuEntry {
 
     pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
         self.tooltip = Some(text.into());
+        self
+    }
+
+    pub fn detail(mut self, text: impl Into<SharedString>) -> Self {
+        self.detail = Some(text.into());
         self
     }
 
@@ -227,6 +236,9 @@ fn item(entry: &MenuEntry) -> kit::ContextItem {
     }
     if let Some(tooltip) = entry.tooltip.clone() {
         item = item.tooltip(tooltip);
+    }
+    if let Some(detail) = entry.detail.clone() {
+        item = item.detail(detail);
     }
     item
 }
@@ -393,7 +405,7 @@ pub fn hidden_agents(app: &AppState, cx: &App) -> Vec<MenuEntry> {
             let id = agent.id;
             let label = app.agent_label(agent);
             rows.push(
-                MenuEntry::new(label.row())
+                with_identity(MenuEntry::new(label.title.clone()), &label.identity)
                     .tooltip(label.tooltip)
                     .icon(IconName::Bot)
                     .on(move |this, _, cx| this.reveal_agent_for_mode(id, cx)),
@@ -436,9 +448,18 @@ fn detached_entry(app: &AppState, id: PaneId) -> MenuEntry {
         // dropped, so no other row moves under the pointer mid-frame.
         return MenuEntry::heading("");
     };
-    MenuEntry::new(label.row())
+    with_identity(MenuEntry::new(label.title.clone()), &label.identity)
         .tooltip(label.tooltip)
         .on(move |this, _, cx| this.reattach_pane(id, cx))
+}
+
+/// The entry with the identity as its faint detail, or none where the label has no identity.
+fn with_identity(entry: MenuEntry, identity: &SharedString) -> MenuEntry {
+    if identity.is_empty() {
+        entry
+    } else {
+        entry.detail(identity.clone())
+    }
 }
 
 /// The titlebar's overflow chevron: the commands reached occasionally rather than every session,
