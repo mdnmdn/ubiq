@@ -2744,14 +2744,7 @@ fn footer(
         // nor a cache write, the same figure `spend_tip`'s "in" already names. Only for the
         // conversation's own transcript: a delegate's spend is banked by type with no such
         // breakdown behind it (`Conversation::delegate_tokens`).
-        let label = match delegate.is_none().then(|| conversation.spend).flatten() {
-            Some(spend) => format!(
-                "{} tot \u{b7} {} in",
-                format_tokens(total),
-                format_tokens(spend.input)
-            ),
-            None => format!("{} tot", format_tokens(total)),
-        };
+        let label = format!("{} tot", format_tokens(total));
         row = row.child(tipped(
             view.eid("total-tokens"),
             label,

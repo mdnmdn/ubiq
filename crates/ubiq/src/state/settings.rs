@@ -1267,7 +1267,7 @@ pub fn quota_tip(snapshot: &QuotaSnapshot, now_ms: i64) -> String {
             magnitude(now_ms - snapshot.as_of * 1000)
         ));
     } else {
-        tip.push_str(" \u{b7} pushed by this turn");
+        tip.push_str(" \u{b7}");
     }
     tip
 }
@@ -1513,7 +1513,7 @@ mod tests {
         assert_eq!(
             quota_tip(&snapshot, HOUR),
             "claude-code \u{b7} work \u{2014} 5 hours: 7% used \u{b7} resets in 1 hour; \
-             Week: 88% used \u{b7} pushed by this turn"
+             Week: 88% used \u{b7}"
         );
     }
 
@@ -1530,7 +1530,7 @@ mod tests {
         };
         assert_eq!(
             quota_tip(&snapshot, 0),
-            "codex \u{b7} work \u{2014} no limit stated \u{b7} pushed by this turn"
+            "codex \u{b7} work \u{2014} no limit stated \u{b7}"
         );
     }
 
@@ -1547,7 +1547,7 @@ mod tests {
         };
         assert_eq!(
             quota_tip(&snapshot, 0),
-            "claude-code \u{b7} work \u{2014} no limit stated \u{b7} pushed by this turn"
+            "claude-code \u{b7} work \u{2014} no limit stated \u{b7}"
         );
     }
 }
