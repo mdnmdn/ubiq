@@ -1610,6 +1610,39 @@ impl AppState {
         );
     }
 
+    /// An untitled text buffer named `name` and holding `text` — numbered past a name already
+    /// open (`a.dbml`, `a-2.dbml`), so two exports of the same node are two tabs.
+    pub(super) fn open_untitled_named(&mut self, name: &str, text: String, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return;
+        };
+        let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+        let path = std::iter::once(name.to_string())
+            .chain((2..).map(|n| match ext.is_empty() {
+                true => format!("{stem}-{n}"),
+                false => format!("{stem}-{n}.{ext}"),
+            }))
+            .find(|path| open.editor.index_of(path).is_none())
+            .expect("the numbering grows without bound");
+        let bytes = text.into_bytes();
+        let len = bytes.len() as u64;
+        self.push_untitled(
+            project,
+            path,
+            FileContents {
+                bytes,
+                len,
+                truncated: false,
+                is_binary: false,
+                version: None,
+            },
+            cx,
+        );
+    }
+
     /// An untitled picture from the clipboard — and, when it lands, from capture: named with
     /// its extension, because `image::format` and `ViewerKind::of` read nothing else.
     pub(super) fn open_untitled_image(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {

@@ -524,6 +524,13 @@ impl AppState {
                 message,
             } => self.on_db_file_error(project_id, path, message, cx),
 
+            Message::DbDbmlReady {
+                project_id,
+                request,
+                result,
+                ..
+            } => self.on_db_dbml_ready(project_id, request, result, cx),
+
             other => return Some(other),
         }
         None

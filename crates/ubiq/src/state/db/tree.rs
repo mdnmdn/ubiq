@@ -12,7 +12,8 @@ use std::collections::HashMap;
 
 use gpui::{FocusHandle, ScrollHandle};
 use ubiq_proto::db::{
-    DbConnState, DbConnection, DbKind, DbListing, DbNode, DbObject, ObjectKind, TableRef,
+    DbConnState, DbConnection, DbKind, DbListing, DbNode, DbObject, ObjectKind, StructureScope,
+    TableRef,
 };
 use ubiq_proto::ids::{DbConnId, DbProbeId};
 
@@ -112,6 +113,25 @@ impl Node {
             NodeKind::Object(obj) => obj.database.clone(),
             _ => None,
         }
+    }
+
+    /// What a DBML export of this node asks for: the database and the scope. A connection is the
+    /// session's current database whole, a database that database whole, a schema that schema, a
+    /// table itself. Anything else (a group, a column, a note) has no export.
+    pub fn dbml_scope(&self) -> Option<(Option<String>, StructureScope)> {
+        let scope = match &self.kind {
+            NodeKind::Connection | NodeKind::Database(_) => StructureScope::default(),
+            NodeKind::Schema { schema, .. } => StructureScope {
+                schema: Some(schema.clone()),
+                tables: Vec::new(),
+            },
+            NodeKind::Object(obj) if obj.kind.is_relation() => StructureScope {
+                schema: obj.schema.clone(),
+                tables: vec![obj.name.clone()],
+            },
+            _ => return None,
+        };
+        Some((self.database(), scope))
     }
 
     /// What this node needs fetched, derived from the node alone.
@@ -388,6 +408,10 @@ pub enum DbAction {
     OpenData,
     OpenInSql,
     CopyName,
+    /// DBML export, to the clipboard.
+    CopyDbml,
+    /// DBML export, into a new untitled file.
+    OpenDbml,
     /// The line between two groups. An action so it holds a slot in the list the pick indexes.
     Separator,
 }
@@ -405,6 +429,8 @@ impl DbAction {
             DbAction::OpenData => "Open data",
             DbAction::OpenInSql => "Open in SQL editor",
             DbAction::CopyName => "Copy name",
+            DbAction::CopyDbml => "DBML: Copy to clipboard",
+            DbAction::OpenDbml => "DBML: Open in new file",
             DbAction::Separator => "",
         }
     }
@@ -414,22 +440,30 @@ impl DbAction {
     }
 }
 
+/// The DBML pair. The kit's menu is flat, so it is two prefixed entries rather than a submenu.
+const DBML: [DbAction; 2] = [DbAction::CopyDbml, DbAction::OpenDbml];
+
 /// What a right-click on this kind of row offers, in the order the menu draws it. The order is
 /// what the pick reads, so it is decided here rather than by whoever draws the list.
 pub fn db_menu_entries(row: DbMenuRow) -> Vec<DbAction> {
     let groups: Vec<Vec<DbAction>> = match row {
         DbMenuRow::Connection { connected: true } => vec![
             vec![DbAction::NewSql, DbAction::Refresh, DbAction::Disconnect],
+            DBML.to_vec(),
             vec![DbAction::EditConnection, DbAction::Remove],
         ],
         DbMenuRow::Connection { connected: false } => vec![
             vec![DbAction::Connect],
             vec![DbAction::EditConnection, DbAction::Remove],
         ],
-        DbMenuRow::Container => vec![vec![DbAction::NewSql, DbAction::RefreshCounts]],
+        DbMenuRow::Container => vec![
+            vec![DbAction::NewSql, DbAction::RefreshCounts],
+            DBML.to_vec(),
+        ],
         DbMenuRow::Relation => vec![
             vec![DbAction::OpenData, DbAction::OpenInSql],
             vec![DbAction::CopyName, DbAction::Refresh],
+            DBML.to_vec(),
         ],
         DbMenuRow::Column => vec![vec![DbAction::CopyName]],
     };
@@ -924,6 +958,9 @@ mod tests {
                 Refresh,
                 Disconnect,
                 Separator,
+                CopyDbml,
+                OpenDbml,
+                Separator,
                 EditConnection,
                 Remove
             ]
@@ -934,11 +971,13 @@ mod tests {
         );
         assert_eq!(
             db_menu_entries(DbMenuRow::Container),
-            [NewSql, RefreshCounts]
+            [NewSql, RefreshCounts, Separator, CopyDbml, OpenDbml]
         );
         assert_eq!(
             db_menu_entries(DbMenuRow::Relation),
-            [OpenData, OpenInSql, Separator, CopyName, Refresh]
+            [
+                OpenData, OpenInSql, Separator, CopyName, Refresh, Separator, CopyDbml, OpenDbml
+            ]
         );
         assert_eq!(db_menu_entries(DbMenuRow::Column), [CopyName]);
     }

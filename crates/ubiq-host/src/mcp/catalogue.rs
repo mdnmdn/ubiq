@@ -347,6 +347,20 @@ const SQL_DESCRIBE_TABLE: ToolSpec = ToolSpec {
         "required": ["table"]
     }"#,
 };
+const SQL_EXPORT_DBML: ToolSpec = ToolSpec {
+    name: "export_dbml",
+    description: "A database's structure as DBML text, reverse-engineered from the catalog: tables with their comments; columns with type, primary key, increment, not null, unique, default and comment; indexes, composite and unique ones included; foreign keys as Refs with their delete and update actions; enums (Postgres enum types, MySQL enum columns). Views, sequences, triggers and check constraints are left out, and a Ref is written only when both its tables are exported. Tables in the default schema (public, dbo) are written without it. Narrow it with `schema` or `tables` on a large database.",
+    schema: r#"{
+        "type": "object",
+        "properties": {
+            "connection": {"type": "string", "description": "Connection name or id. Omit for the default."},
+            "database": {"type": "string", "description": "Omit for the connection's own."},
+            "schema": {"type": "string", "description": "Only this schema. Omit for every schema bar the system ones."},
+            "tables": {"type": "array", "items": {"type": "string"}, "description": "Only these tables, each `name` or `schema.name`."},
+            "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 300000, "default": 30000}
+        }
+    }"#,
+};
 const SQL_QUERY: ToolSpec = ToolSpec {
     name: "query",
     description: "Run one read-only SQL statement. Results come back as TOON, a table with the column names once. At most `max_rows` rows are read (`more_rows` says there were more). A text cell longer than `max_field_size` characters is cut and ends in `[blob:<id>:<total>]`; binary cells are always `[blob:...]`. Start with a small `max_field_size` (100 to 200) and call get_blob for the one cell you need whole. Pass `panel` to also show the query and its result to the user in a named query panel.",
@@ -1274,6 +1288,7 @@ pub const SERVERS: &[ServerSpec] = &[
             SQL_LIST_CONNECTIONS,
             SQL_LIST_OBJECTS,
             SQL_DESCRIBE_TABLE,
+            SQL_EXPORT_DBML,
             SQL_QUERY,
             SQL_GET_BLOB,
             SQL_OPEN_EDITOR,
@@ -1290,6 +1305,7 @@ pub const SERVERS: &[ServerSpec] = &[
             SQL_LIST_CONNECTIONS,
             SQL_LIST_OBJECTS,
             SQL_DESCRIBE_TABLE,
+            SQL_EXPORT_DBML,
             SQL_QUERY,
             SQL_EXECUTE,
             SQL_GET_BLOB,

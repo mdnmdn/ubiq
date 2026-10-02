@@ -199,6 +199,24 @@ impl Db {
                 None,
                 Job::Tree { node },
             ),
+            Message::DbExportDbml {
+                project_id,
+                conn,
+                request,
+                database,
+                scope,
+            } => self.inner.submit(
+                &ctx,
+                Key::Meta(ctx.client, conn),
+                project_id,
+                conn,
+                None,
+                Job::Dbml {
+                    request,
+                    database,
+                    scope,
+                },
+            ),
             Message::DbTablePage {
                 project_id,
                 conn,

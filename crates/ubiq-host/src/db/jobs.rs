@@ -9,6 +9,7 @@
 use std::time::{Duration, Instant};
 
 use ubiq_db::conn::DbKind;
+use ubiq_db::dbml::{StructureScope, to_dbml};
 use ubiq_db::driver::Connection;
 use ubiq_db::sql::{self, StatementClass};
 use ubiq_db::value::Value;
@@ -17,7 +18,7 @@ use ubiq_proto::db::{
     DbEditFailure, DbFailure, DbFailureKind, DbListing, DbNode, DbOutcome, DbPage, DbRun,
     DbRunOptions, RowEdit,
 };
-use ubiq_proto::ids::{DbQueryId, DbSessionId};
+use ubiq_proto::ids::{DbExportId, DbQueryId, DbSessionId};
 use ubiq_proto::messages::Message;
 
 use super::agent::{Panel, StmtResult};
@@ -84,6 +85,18 @@ pub enum Job {
         node: DbNode,
         reply: flume::Sender<Result<DbListing, DbFailure>>,
     },
+    /// The structure as DBML, for a window. Catalog reads only.
+    Dbml {
+        request: DbExportId,
+        database: Option<String>,
+        scope: StructureScope,
+    },
+    /// The same, for an agent.
+    AgentDbml {
+        database: Option<String>,
+        scope: StructureScope,
+        reply: flume::Sender<Result<String, DbFailure>>,
+    },
 }
 
 impl Job {
@@ -145,6 +158,16 @@ impl Job {
                 return None;
             }
             Job::AgentTree { reply, .. } => {
+                let _ = reply.send(Err(failure));
+                return None;
+            }
+            Job::Dbml { request, .. } => Message::DbDbmlReady {
+                project_id,
+                conn: o.conn,
+                request: *request,
+                result: Err(failure),
+            },
+            Job::AgentDbml { reply, .. } => {
                 let _ = reply.send(Err(failure));
                 return None;
             }
@@ -282,7 +305,44 @@ pub fn run(o: &Origin, conn: &mut Box<dyn Connection>, job: Job) -> bool {
             let _ = reply.send(result);
             keep
         }
+        Job::Dbml {
+            request,
+            database,
+            scope,
+        } => {
+            let result = dbml(conn, database.as_deref(), &scope);
+            let keep = keeps(&result);
+            o.say(Message::DbDbmlReady {
+                project_id: o.project,
+                conn: o.conn,
+                request,
+                result,
+            });
+            keep
+        }
+        Job::AgentDbml {
+            database,
+            scope,
+            reply,
+        } => {
+            let result = dbml(conn, database.as_deref(), &scope);
+            let keep = keeps(&result);
+            let _ = reply.send(result);
+            keep
+        }
     }
+}
+
+/// `database` (`None` or empty: the session's current one) within `scope`, as DBML. Reads the
+/// catalog only, so it needs no read-only guard; it never moves the session's current database.
+fn dbml(
+    conn: &mut Box<dyn Connection>,
+    database: Option<&str>,
+    scope: &StructureScope,
+) -> Result<String, DbFailure> {
+    conn.structure(database.unwrap_or_default(), scope)
+        .map(|s| to_dbml(&s))
+        .map_err(|e| failure(&e))
 }
 
 fn keeps<T>(result: &Result<T, DbFailure>) -> bool {

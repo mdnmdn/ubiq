@@ -4,13 +4,14 @@
 //!
 //! | Part | Modules | Feature |
 //! |---|---|---|
-//! | Model | [`model`], [`plan`] | default |
-//! | Pure engine | [`conn`], [`value`], [`sql`], [`edit`] | default |
+//! | Model | [`model`], [`plan`], [`dbml`] | default |
+//! | Pure engine | [`conn`], [`value`], [`sql`], [`edit`], [`dbml::to_dbml`] | default |
 //! | Drivers | `driver` | `drivers` |
 //!
 //! The statement log is `tracing` under the target `ubiq_db::sql`.
 
 pub mod conn;
+pub mod dbml;
 #[cfg(feature = "drivers")]
 pub mod driver;
 pub mod edit;

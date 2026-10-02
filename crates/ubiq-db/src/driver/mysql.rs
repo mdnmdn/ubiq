@@ -30,8 +30,8 @@ use mysql::{Column, Conn, Opts, OptsBuilder, SslOpts, Value as My};
 
 use super::{
     CancelHandle, ColumnMeta, Connection, DbError, DbObject, ExecOptions, ExecOutcome, ObjectKind,
-    Plan, PlanFormat, Result, ResultSet, TableRef, Watchdog, canonical, log_statement, plan,
-    strip_terminator,
+    Plan, PlanFormat, Result, ResultSet, Structure, StructureScope, TableRef, Watchdog, canonical,
+    database_or_current, log_statement, plan, strip_terminator, structure,
 };
 use crate::conn::{ConnectionConfig, DbKind, SslMode};
 use crate::edit::quote_ident;
@@ -334,6 +334,20 @@ impl Connection for MySql {
         };
         log_statement(DbKind::MySql, what, sql, self.read_only, started, result)
     }
+
+    fn structure(&mut self, database: &str, scope: &StructureScope) -> Result<Structure> {
+        let db = database_or_current(self.current.clone(), database)?;
+        if !self.database_exists(&db)? {
+            return Err(DbError::NotFound(format!("database {db}")));
+        }
+        structure::introspect(DbKind::MySql, &db, scope, |sql| {
+            let rows: Vec<mysql::Row> = self.conn.query(sql).map_err(err)?;
+            Ok(rows
+                .into_iter()
+                .map(|r| r.unwrap().iter().map(plain).collect())
+                .collect())
+        })
+    }
 }
 
 /// Column names and text cells of an `EXPLAIN` statement.
@@ -621,6 +635,17 @@ mod tests {
         assert_eq!(cols[0].native_type, "int unsigned");
         assert_eq!(cols[1].native_type, "varchar(40)");
         assert!(cols.last().unwrap().computed);
+
+        let scope = crate::dbml::StructureScope::default();
+        let dbml = crate::dbml::to_dbml(&c.structure("dbx_test", &scope).unwrap());
+        for want in [
+            "Enum person_kind_enum {",
+            "kind person_kind_enum",
+            "id \"int unsigned\" [pk, increment]",
+            "Note: 'people'",
+        ] {
+            assert!(dbml.contains(want), "{want} in {dbml}");
+        }
 
         let rs = c
             .query(

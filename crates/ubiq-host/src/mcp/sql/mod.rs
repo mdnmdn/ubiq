@@ -14,7 +14,8 @@
 //! before the thread is spawned and released when the call ends.
 //!
 //! **Answers are text.** A tool returns `Value::String` holding TOON, which the listener sends as
-//! it is. `get_blob` is the exception — JSON, because what it returns is an arbitrary text.
+//! it is. `get_blob` is the exception — JSON, because what it returns is an arbitrary text — and
+//! `export_dbml`, whose answer is the DBML itself.
 
 pub mod blobs;
 pub mod encode;
@@ -95,6 +96,7 @@ pub fn call(
         "list_connections" => list_connections(write, &who, reach),
         "list_objects" => list_objects(write, &who, &args, reach),
         "describe_table" => describe_table(write, &who, &args, reach),
+        "export_dbml" => export_dbml(write, &who, &args, reach),
         "query" => query(write, &who, &args, reach),
         "execute" if write => execute(&who, &args, reach),
         "get_blob" => get_blob(&who, &args, reach),
@@ -436,6 +438,45 @@ fn describe_table(write: bool, who: &Who, args: &Args, reach: &SqlReach) -> Resu
         })
         .collect();
     toon_of(&json!({"connection": conn.name, "columns": rows}))
+}
+
+/// The structure as DBML — plain text, not TOON.
+fn export_dbml(write: bool, who: &Who, args: &Args, reach: &SqlReach) -> Result<Value, String> {
+    let conn = resolve(write, who, reach, args.optional("connection")?)?;
+    let tables = match args.0.get("tables") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .ok_or_else(|| "'tables' must be a list of table names".to_string())
+            })
+            .collect::<Result<_, _>>()?,
+        Some(_) => return Err("'tables' must be a list of table names".to_string()),
+    };
+    let scope = ubiq_db::dbml::StructureScope {
+        schema: args.optional("schema")?.filter(|_| has_schemas(conn.kind)),
+        tables,
+    };
+    let timeout = Duration::from_millis(
+        args.integer("timeout_ms", 100, 300_000)?
+            .unwrap_or(DEFAULT_TIMEOUT_MS),
+    );
+    reach
+        .db
+        .dbml(
+            who.key,
+            who.project,
+            &who.path,
+            conn.id,
+            args.optional("database")?,
+            scope,
+            timeout,
+        )
+        .map(Value::String)
+        .map_err(|failure| failure_text(&failure))
 }
 
 // ── tools: running SQL ────────────────────────────────────────────────────────────────────────

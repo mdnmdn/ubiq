@@ -852,10 +852,11 @@ configuration, a typed `Value`, a `ResultSet`, a `TableRef`, a `RowEdit`, a `Pla
 `crates/ubiq-db` and re-exported by `crates/ubiq-proto/src/db.rs`, which adds only the records
 below.
 
-Four ids, in `ids.rs`: `DbConnId` — minted by the **host** on the first save, on `AiProviderId`'s
+Five ids, in `ids.rs`: `DbConnId` — minted by the **host** on the first save, on `AiProviderId`'s
 discipline, stable across a rename; `DbSessionId` — minted by the **interface**, one per table or SQL
 tab, so a reply for a closed tab is discarded by id; `DbQueryId` — minted by the interface per run,
-`SearchId`'s discipline, and the handle `DbCancel` stops a statement by; `DbProbeId` — one Test.
+`SearchId`'s discipline, and the handle `DbCancel` stops a statement by; `DbProbeId` — one Test;
+`DbExportId` — one DBML export, minted by the interface.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
@@ -865,6 +866,7 @@ tab, so a reply for a closed tab is discarded by id; `DbQueryId` — minted by t
 | `TestDbConnection` | UI → host | `project_id`, `probe`, `id?`, `config`, `password` (`Keep` = the saved one) | `DbTested` |
 | `DbPassword` | UI → host | `project_id`, `conn`, `password` (`Secret`), `remember` | `DbConnectionState` |
 | `DbTree` | UI → host | `project_id`, `conn`, `node` (`DbNode`) | `DbTreeListing` |
+| `DbExportDbml` | UI → host | `project_id`, `conn`, `request` (`DbExportId`), `database?` (`None` = the session's current one), `scope` (`StructureScope`) — runs on the window's tree session, catalog reads only | `DbDbmlReady` |
 | `DbTablePage` | UI → host | `project_id`, `conn`, `session`, `query`, `table` (`TableRef`), `filter`, `order_by`, `limit`, `offset`, `count`, `read_only` | `DbTablePageResult` |
 | `DbQuery` | UI → host | `project_id`, `conn`, `session`, `query`, `database?`, `statements[]`, `run` (`DbRun`), `opts` (`DbRunOptions`) | one `DbQueryResult` per statement |
 | `DbApplyEdits` | UI → host | `project_id`, `conn`, `session`, `query`, `table`, `edits[]` (`RowEdit`) | `DbEditsApplied` |
@@ -876,6 +878,7 @@ tab, so a reply for a closed tab is discarded by id; `DbQueryId` — minted by t
 | `DbTested` | host → UI | `project_id`, `probe`, `result` (`Result<String /* server version */, DbFailure>`) | — |
 | `DbConnectionState` | host → UI | `project_id`, `conn`, `state` (`DbConnState`) | — |
 | `DbTreeListing` | host → UI | `project_id`, `conn`, `node`, `result` (`Result<DbListing, DbFailure>`) | — |
+| `DbDbmlReady` | host → UI | `project_id`, `conn`, `request`, `result` (`Result<String /* DBML */, DbFailure>`) | — |
 | `DbTablePageResult` | host → UI | `project_id`, `session`, `query`, `result` (`Result<DbPage, DbFailure>`), `elapsed_ms` | — |
 | `DbQueryResult` | host → UI | `project_id`, `session`, `query`, `index`, `last`, `result` (`Result<DbOutcome, DbFailure>`), `elapsed_ms` | — |
 | `DbEditsApplied` | host → UI | `project_id`, `session`, `query`, `result` (`Result<u64, DbEditFailure>`) | — |
@@ -903,6 +906,7 @@ goes to the asker only.
 | `DbKeystore` | `Ready` · `Unavailable(reason)` |
 | `DbNode` | `Databases` · `Schemas { database }` · `Objects { database, schema? }` · `Columns { table }` |
 | `DbListing` | `Names[]` · `Objects[]` (`DbObject`) · `Columns[]` (`ColumnMeta`) |
+| `StructureScope` | `schema?` (`None` = every schema bar the system ones; ignored without a schema level), `tables[]` (empty = all; each `name` or `schema.name`) — defined in `ubiq_db::dbml` |
 | `DbRun` | `Query` · `Explain { analyze }` |
 | `DbRunOptions` | `read_only`, `timeout_ms?`, `row_limit?` |
 | `DbOutcome` | `Rows(ResultSet)` · `Affected(u64)` · `Plan(Plan)` |

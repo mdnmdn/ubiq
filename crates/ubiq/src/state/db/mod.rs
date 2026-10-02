@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use ubiq_proto::db::{DbConnState, DbConnection, DbFailure, DbKeystore, PasswordState, TableRef};
-use ubiq_proto::ids::{DbConnId, DbProbeId, DbSessionId};
+use ubiq_proto::ids::{DbConnId, DbExportId, DbProbeId, DbSessionId};
 
 pub mod form;
 pub mod pending;
@@ -112,6 +112,16 @@ pub struct DbState {
     /// Whether `DbEditors` has been asked, once the connections loaded — the shared editors an
     /// agent opened before this window looked.
     pub editors_asked: bool,
+    /// DBML exports asked for and not yet answered, by request: what to do with the text, and the
+    /// file name it takes if it is opened.
+    pub dbml_pending: HashMap<DbExportId, (DbmlSink, String)>,
+}
+
+/// What a DBML export's text is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DbmlSink {
+    Copy,
+    Open,
 }
 
 /// The password a connection asked for, and what the person has chosen about keeping it.

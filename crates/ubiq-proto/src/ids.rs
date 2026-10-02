@@ -378,3 +378,9 @@ ulid_id! {
     /// is discarded rather than drawn into the next one.
     DbProbeId
 }
+
+ulid_id! {
+    /// One DBML export, from `DbExportDbml` to the single `DbDbmlReady` that answers it. Minted by
+    /// the **interface**, [`DbProbeId`]'s discipline: an answer nobody still waits for is dropped.
+    DbExportId
+}

@@ -7,9 +7,11 @@
 
 use super::*;
 use crate::state::MenuId;
+use crate::state::db::DbmlSink;
 use crate::state::db::tree::{DbAction, DbKey, DbMenu, DbTreeState, NodeKind, Toggled};
 use gpui::ClipboardItem;
 use ubiq_proto::db::{DbConnState, DbKind, DbListing};
+use ubiq_proto::ids::DbExportId;
 
 impl AppState {
     /// A `DbTreeListing`: file `result` under `node` of `conn`'s tree, or the failure on its row.
@@ -263,7 +265,73 @@ impl AppState {
                 }
             }
             DbAction::CopyName => cx.write_to_clipboard(ClipboardItem::new_string(label)),
+            DbAction::CopyDbml => self.export_dbml(conn, &menu.node, DbmlSink::Copy, cx),
+            DbAction::OpenDbml => self.export_dbml(conn, &menu.node, DbmlSink::Open, cx),
             DbAction::Separator => {}
+        }
+        cx.notify();
+    }
+
+    /// Ask the host for the DBML of a tree node and remember what to do with the answer.
+    pub fn export_dbml(&mut self, conn: DbConnId, id: &str, sink: DbmlSink, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(db) = self.db_mut(cx) else {
+            return;
+        };
+        let Some((label, (database, scope))) = db
+            .tree
+            .node(conn, id)
+            .and_then(|node| Some((node.label.clone(), node.dbml_scope()?)))
+        else {
+            return;
+        };
+        let request = DbExportId::generate();
+        db.dbml_pending
+            .insert(request, (sink, format!("{label}.dbml")));
+        self.bus.send(Message::DbExportDbml {
+            project_id: project,
+            conn,
+            request,
+            database,
+            scope,
+        });
+    }
+
+    /// A `DbDbmlReady`: copy the text, open it in a new untitled file, or say why not. A reply for
+    /// a request this window did not make, or already answered, is dropped.
+    pub(super) fn on_db_dbml_ready(
+        &mut self,
+        project: ProjectId,
+        request: DbExportId,
+        result: Result<String, DbFailure>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((sink, name)) = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.db.dbml_pending.remove(&request))
+        else {
+            return;
+        };
+        match (result, sink) {
+            (Ok(text), DbmlSink::Copy) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                self.raise_notification(
+                    NotificationRequest::info(Family::Ubiq, "DBML copied to the clipboard")
+                        .with_category("db-dbml")
+                        .quietly(),
+                );
+            }
+            (Ok(text), DbmlSink::Open) => self.open_untitled_named(&name, text, cx),
+            (Err(failure), _) => self.raise_notification(
+                NotificationRequest::error(
+                    Family::Ubiq,
+                    format!("DBML export failed \u{2014} {}", failure.message),
+                )
+                .with_category("db-dbml"),
+            ),
         }
         cx.notify();
     }

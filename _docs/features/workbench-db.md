@@ -3,11 +3,11 @@ id: feat-workbench-db
 title: DB mode — connections, tables and SQL
 kind: feature
 status: draft
-summary: The rail's opt-in DB mode — the project's saved database connections (PostgreSQL, MySQL/MariaDB, SQLite, SQL Server) and the Databases section that edits them, the explorer tree, table tabs that page, filter and edit rows, SQL tabs with a timer, Stop, Explain and a read-only guard enforced in three layers by the host, where `db.toml` and the sealed passwords live, and the `ubiq-db` engine and host sessions behind it.
+summary: The rail's opt-in DB mode — the project's saved database connections (PostgreSQL, MySQL/MariaDB, SQLite, SQL Server) and the Databases section that edits them, the explorer tree, table tabs that page, filter and edit rows, SQL tabs with a timer, Stop, Explain and a read-only guard enforced in three layers by the host, the DBML export, where `db.toml` and the sealed passwords live, and the `ubiq-db` engine and host sessions behind it.
 read_when: you are changing the DB mode — the explorer, a table or SQL tab, the connection form, the Databases settings section, the host's database sessions, how a password is kept, or the `ubiq-db` engine
 updated: 2026-10-02
 verified: 2026-10-01
-code_anchors: [crates/ubiq-db/src/lib.rs, crates/ubiq-db/src/sql/readonly.rs, crates/ubiq-db/src/edit.rs, crates/ubiq-db/src/driver/mod.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-host/src/db/mod.rs, crates/ubiq-host/src/db/session.rs, crates/ubiq-host/src/db/jobs.rs, crates/ubiq-host/src/db/store.rs, crates/ubiq-host/src/db/secrets.rs, crates/ubiq-host/src/db/agent.rs, crates/ubiq-host/src/db/editors.rs, crates/ubiq/src/state/db/mod.rs, crates/ubiq/src/state/db/tree.rs, crates/ubiq/src/state/db/table.rs, crates/ubiq/src/state/db/sql.rs, crates/ubiq/src/state/db/pending.rs, crates/ubiq/src/app/db/mod.rs, crates/ubiq/src/app/db/table.rs, crates/ubiq/src/app/db/sql.rs, crates/ubiq/src/ui/db/mod.rs, crates/ubiq/src/ui/db/explorer.rs, crates/ubiq/src/ui/db/table.rs, crates/ubiq/src/ui/db/sql.rs, crates/ubiq/src/ui/db/conn_form.rs, crates/ubiq/src/ui/db/settings.rs]
+code_anchors: [crates/ubiq-db/src/lib.rs, crates/ubiq-db/src/sql/readonly.rs, crates/ubiq-db/src/edit.rs, crates/ubiq-db/src/driver/mod.rs, crates/ubiq-db/src/dbml.rs, crates/ubiq-db/src/driver/structure.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-host/src/db/mod.rs, crates/ubiq-host/src/db/session.rs, crates/ubiq-host/src/db/jobs.rs, crates/ubiq-host/src/db/store.rs, crates/ubiq-host/src/db/secrets.rs, crates/ubiq-host/src/db/agent.rs, crates/ubiq-host/src/db/editors.rs, crates/ubiq/src/state/db/mod.rs, crates/ubiq/src/state/db/tree.rs, crates/ubiq/src/state/db/table.rs, crates/ubiq/src/state/db/sql.rs, crates/ubiq/src/state/db/pending.rs, crates/ubiq/src/app/db/mod.rs, crates/ubiq/src/app/db/table.rs, crates/ubiq/src/app/db/sql.rs, crates/ubiq/src/ui/db/mod.rs, crates/ubiq/src/ui/db/explorer.rs, crates/ubiq/src/ui/db/table.rs, crates/ubiq/src/ui/db/sql.rs, crates/ubiq/src/ui/db/conn_form.rs, crates/ubiq/src/ui/db/settings.rs]
 depends_on: [feat-workbench, tech-transport, tech-ui, tech-architecture]
 review_cycle: monthly
 ---
@@ -153,7 +153,8 @@ parsing), `value.rs` (`DataType`, `Value`, `parse_input`), `sql.rs` with `sql/re
 `statement_at`, `check_read_only`), and `edit.rs` (`select_table`, `count_table`,
 `validate_fragment`, `RowEdit`, `render_batch`). The `drivers` feature adds `driver/` — the
 `Connection` trait, `connect` and the four engines (`sqlite.rs`, `postgres.rs`, `mysql.rs`,
-`mssql.rs`), plus the `EXPLAIN` parsers in `driver/plan.rs`. The interface links the default half
+`mssql.rs`), plus the `EXPLAIN` parsers in `driver/plan.rs` and the structure queries in
+`driver/structure.rs`. `dbml.rs` is the structure model and `to_dbml`, in the default half. The interface links the default half
 and `just ui` fails if a driver crate reaches its tree; only the host enables `drivers`.
 `crates/ubiq-proto/src/db.rs` re-exports the model and adds the records the contract owns.
 
@@ -172,7 +173,7 @@ without the `db` feature and answers the whole family `Unavailable`.
 **The agents' half of the host.** `store.rs`'s `split` and `join` are the one place that says
 which agent setting lives in which file. `agent.rs` is `AgentDb`, a cloneable handle on the same
 service (`Db::agent_handle(everyone)`) whose methods block, for the SQL MCP threads: `connections`,
-`run`, `tree`, and the editor calls `open_editor`, `read_editor`, `edit_editor` and `run_editor`.
+`run`, `tree`, `dbml`, and the editor calls `open_editor`, `read_editor`, `edit_editor` and `run_editor`.
 Its sessions are keyed by agent and connection, answer to `Mailbox::nowhere()` so no connection
 state or password prompt reaches a window, and are dropped after 10 minutes idle, swept on the
 next agent call. A run checks the connection's access (none is not found; a write needs `rw` on a
@@ -215,6 +216,7 @@ the engine's guard); the write server sees `rw` connections only and adds `execu
 |---|---|
 | `list_connections` | name, engine, database, access, default, description |
 | `list_objects`, `describe_table` | databases, schemas, tables and a table's columns |
+| `export_dbml` | the structure as DBML text (see below); `schema?`, `tables?[]`, `timeout_ms?` |
 | `query` | one read-only statement |
 | `execute` (write only) | up to 20 statements, each autocommitted, stopping at the first failure |
 | `get_blob` | the rest of a cut or binary cell, by id |
@@ -244,6 +246,51 @@ blobs, 64 MiB in all and 16 MiB each; a blob expires 10 minutes after it was las
 Each SQL `tools/call` runs on a thread of its own (`ubiq-sql-call`), at most 8 at once; a ninth is
 refused as busy. The host waits `timeout_ms` plus 10 seconds, then cancels. The editors'
 `agent_title` is the calling agent's name in the MCP registry.
+
+## DBML export
+
+A connection's structure, reverse-engineered from the catalog and written as DBML. A window asks
+with `DbExportDbml` on its tree session; an agent with `export_dbml` on either SQL server, whose
+answer is the DBML text itself, not TOON. Both read the catalog only, so neither needs the
+read-only guard, and neither moves the session's current database. The scope is a whole database,
+one schema, or a list of tables (`name` or `schema.name`). An agent's omitted `database` is the
+connection's configured one.
+
+**In the explorer.** The right-click on a connection (while connected), database, schema or table
+offers `DBML: Copy to clipboard` and `DBML: Open in new file` (the menu is flat, so a prefix stands
+for a submenu). The scope follows the node (`Node::dbml_scope`): connection and database
+ask for the whole database (`database` set on a database node), a schema for `schema`, a table for
+`schema` plus `tables: [name]`. The window mints a `DbExportId`, sends `DbExportDbml`, and keeps
+`(sink, "<label>.dbml")` in `DbState::dbml_pending` until `DbDbmlReady` arrives. Copy writes the
+clipboard and raises a quiet notification; open pushes an untitled editor buffer named
+`<label>.dbml` (`-2`, `-3` when taken), which a save-as turns into a file; a failure raises an error
+notification with the host's text. An unknown or already-answered request id is dropped.
+
+`Connection::structure` fills `ubiq_db::dbml::Structure` with five catalog queries per engine
+(`driver/structure.rs`); `to_dbml` writes it, a pure function.
+
+| Engine | Comments | Enums | Index method | Left out |
+|---|---|---|---|---|
+| PostgreSQL | `obj_description`, `col_description` | `pg_enum` types | `pg_am` | partitions (the parent is written), partial-index predicates, `INCLUDE` columns |
+| MySQL / MariaDB | `TABLE_COMMENT`, `COLUMN_COMMENT` | each `enum(...)` column gets `Enum <table>_<column>_enum` | `INDEX_TYPE` | functional key parts (the whole index), foreign keys to another database |
+| SQLite | none | none | none | expression indexes |
+| SQL Server | `MS_Description` extended properties | none | none | included columns, filter predicates |
+
+Views, sequences, triggers and check constraints are never written. The DBML's rules:
+
+- The default schema (`public`, `dbo`) is not written; any other prefixes the name
+  (`audit.events`). MySQL and SQLite have no schema level and write no prefix.
+- A single-column primary key is the column's `pk`; a composite one is `(a, b) [pk]` under
+  `Indexes`. A single-column unique index is the column's `unique`, without its name.
+- Column settings, in order: `pk`, `increment`, `not null`, `unique`, `default`, `note`. A default
+  is a number, a `'string'`, `true`/`false`, `null` or a `` `expression` ``. A serial's `nextval`
+  default is dropped for `increment`.
+- An index method of `hash` is `type: hash`; `btree` is left out; any other becomes
+  `note: 'using <method>'`.
+- `Ref <name>: a.b > c.d [delete: …, update: …]`, composite as `t.(a, b)`. A `no action` action is
+  left out, and a Ref is written only when both tables are in the export.
+- Identifiers that are not plain words, or that are DBML keywords, are double-quoted; notes are
+  single-quoted, triple-quoted when they span lines, with quotes and backslashes escaped.
 
 ## Failure
 

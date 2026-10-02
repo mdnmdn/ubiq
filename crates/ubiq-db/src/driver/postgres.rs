@@ -40,8 +40,8 @@ use tokio::runtime::Runtime;
 
 use super::{
     CancelHandle, ColumnMeta, Connection, DbError, DbObject, ExecOptions, ExecOutcome, ObjectKind,
-    Plan, PlanFormat, Result, ResultSet, TableRef, canonical, log_statement, plan,
-    strip_terminator,
+    Plan, PlanFormat, Result, ResultSet, Structure, StructureScope, TableRef, canonical,
+    database_or_current, log_statement, plan, strip_terminator, structure,
 };
 use crate::conn::{ConnectionConfig, DbKind, SslMode};
 use crate::value::{DataType, Value};
@@ -597,6 +597,17 @@ impl Connection for Postgres {
         };
         log_statement(DbKind::Postgres, what, sql, ro, started, result)
     }
+
+    fn structure(&mut self, database: &str, scope: &StructureScope) -> Result<Structure> {
+        let db = database_or_current(self.current_database(), database)?;
+        structure::introspect(DbKind::Postgres, &db, scope, |sql| {
+            Ok(self
+                .rows(Some(&db), sql)?
+                .iter()
+                .map(|r| (0..r.len()).map(|i| text(r, i)).collect())
+                .collect())
+        })
+    }
 }
 
 /// A result column, typed from the type name the server announced.
@@ -826,6 +837,20 @@ mod tests {
             ]
         );
         assert_eq!(objs[1].comment.as_deref(), Some("people"));
+
+        let scope = StructureScope {
+            schema: Some("dbx_test".into()),
+            tables: Vec::new(),
+        };
+        let dbml = crate::dbml::to_dbml(&c.structure(&home, &scope).unwrap());
+        for want in [
+            "Enum dbx_test.mood {",
+            "feel dbx_test.mood",
+            "id integer [pk, increment]",
+            "Note: 'people'",
+        ] {
+            assert!(dbml.contains(want), "{want} in {dbml}");
+        }
 
         let cols = c.columns(&objs[1].table_ref()).unwrap();
         assert!(cols[0].is_pk && cols[0].auto_increment && !cols[0].nullable);

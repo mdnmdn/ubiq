@@ -29,12 +29,12 @@ use crate::git::{
 };
 use crate::db::{
     ConnectionConfig, DbAgentSettings, DbConnState, DbConnection, DbEditFailure, DbEditor, DbFailure, DbKeystore, DbListing,
-    DbNode, DbOutcome, DbPage, DbRun, DbRunOptions, RowEdit, SecretEdit, TableRef,
+    DbNode, DbOutcome, DbPage, DbRun, DbRunOptions, RowEdit, SecretEdit, StructureScope, TableRef,
 };
 use crate::help::HelpCatalog;
 use crate::ids::{
     AiProviderId, AnnotationId, AskId, BlockId, CloneId, ConnectId, ConnectionId, DbConnId,
-    DbProbeId, DbQueryId, DbSessionId, KbSourceId, NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
+    DbExportId, DbProbeId, DbQueryId, DbSessionId, KbSourceId, NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
     SshProfileId, StepId, SuggestId, TaskId, TaskSrcQueryId, ToolId,
 };
 use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
@@ -1992,6 +1992,16 @@ pub enum Message {
         project_id: ProjectId,
         path: String,
     },
+    /// A connection's structure as DBML, on the window's tree session. `database` `None` is the
+    /// session's current one; `scope` narrows it to one schema or to some tables. Read-only.
+    /// Answered with [`Message::DbDbmlReady`].
+    DbExportDbml {
+        project_id: ProjectId,
+        conn: DbConnId,
+        request: DbExportId,
+        database: Option<String>,
+        scope: StructureScope,
+    },
 
     // ── Database family: host → UI ──────────────────────────────────
     /// The connections, and whether this install can seal a password. Sent to every window of the
@@ -2046,6 +2056,13 @@ pub enum Message {
         session: DbSessionId,
         query: DbQueryId,
         result: Result<u64, DbEditFailure>,
+    },
+    /// Answer to [`Message::DbExportDbml`], to the asker: the DBML text, or why not.
+    DbDbmlReady {
+        project_id: ProjectId,
+        conn: DbConnId,
+        request: DbExportId,
+        result: Result<String, DbFailure>,
     },
     /// Answer to [`Message::CreateDbFile`].
     DbFileCreated {
@@ -3412,6 +3429,8 @@ impl Message {
             | Message::DbCloseSession { project_id, .. }
             | Message::DbDisconnect { project_id, .. }
             | Message::CreateDbFile { project_id, .. }
+            | Message::DbExportDbml { project_id, .. }
+            | Message::DbDbmlReady { project_id, .. }
             | Message::DbConnectionsListed { project_id, .. }
             | Message::DbTested { project_id, .. }
             | Message::DbConnectionState { project_id, .. }

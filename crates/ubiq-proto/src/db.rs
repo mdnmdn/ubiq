@@ -16,6 +16,7 @@ use crate::ids::{DbConnId, DbSessionId};
 use crate::messages::Secret;
 
 pub use ubiq_db::conn::{ConnectionConfig, DbKind, SslMode};
+pub use ubiq_db::dbml::StructureScope;
 pub use ubiq_db::edit::RowEdit;
 pub use ubiq_db::value::{DataType, Value};
 pub use ubiq_db::{
@@ -243,7 +244,7 @@ pub enum DbConnState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::{DbProbeId, DbQueryId, DbSessionId, ProjectId};
+    use crate::ids::{DbExportId, DbProbeId, DbQueryId, DbSessionId, ProjectId};
     use crate::messages::Message;
     use crate::wire::{decode, encode};
 
@@ -376,6 +377,22 @@ mod tests {
             Message::CreateDbFile {
                 project_id,
                 path: "/tmp/new.sqlite".into(),
+            },
+            Message::DbExportDbml {
+                project_id,
+                conn,
+                request: DbExportId::generate(),
+                database: Some("app".into()),
+                scope: StructureScope {
+                    schema: Some("public".into()),
+                    tables: vec!["users".into()],
+                },
+            },
+            Message::DbDbmlReady {
+                project_id,
+                conn,
+                request: DbExportId::generate(),
+                result: Ok("Table users {\n  id int [pk]\n}\n".into()),
             },
             Message::DbConnectionsListed {
                 project_id,

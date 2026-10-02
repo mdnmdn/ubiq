@@ -3451,6 +3451,7 @@ impl Coordinator {
             | Message::TestDbConnection { .. }
             | Message::DbPassword { .. }
             | Message::DbTree { .. }
+            | Message::DbExportDbml { .. }
             | Message::DbTablePage { .. }
             | Message::DbQuery { .. }
             | Message::DbApplyEdits { .. }

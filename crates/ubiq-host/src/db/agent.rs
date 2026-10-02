@@ -20,6 +20,7 @@ use ubiq_db::sql;
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::db::{
     DbAgentAccess, DbAgentSettings, DbFailure, DbFailureKind, DbListing, DbNode, DbOutcome,
+    StructureScope,
 };
 use ubiq_proto::ids::{DbConnId, DbQueryId, DbSessionId, ProjectId};
 use ubiq_proto::messages::Message;
@@ -217,6 +218,42 @@ impl AgentDb {
             conn,
             None,
             Job::AgentTree { node, reply },
+        );
+        answer.recv_timeout(timeout).unwrap_or_else(|_| {
+            Err(DbFailure::new(
+                DbFailureKind::Timeout,
+                "the connection did not answer in time",
+            ))
+        })
+    }
+
+    /// A connection's structure as DBML: `database` (`None` is the connection's configured one,
+    /// else the session's current one) within `scope`. Catalog reads only, on the agent's session.
+    /// Blocks for at most `timeout`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn dbml(
+        &self,
+        agent_key: &str,
+        project: ProjectId,
+        project_path: &Path,
+        conn: DbConnId,
+        database: Option<String>,
+        scope: StructureScope,
+        timeout: Duration,
+    ) -> Result<String, DbFailure> {
+        let stored = self.eligible(project, project_path, conn)?;
+        let (reply, answer) = flume::bounded(1);
+        self.submit(
+            agent_key,
+            project,
+            project_path,
+            conn,
+            None,
+            Job::AgentDbml {
+                database: database.or(stored.config.database),
+                scope,
+                reply,
+            },
         );
         answer.recv_timeout(timeout).unwrap_or_else(|_| {
             Err(DbFailure::new(

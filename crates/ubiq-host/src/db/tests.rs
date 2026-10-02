@@ -9,7 +9,7 @@ use ubiq_db::value::Value;
 use ubiq_proto::bus::{Client, HostEnd, Hub, To, hub};
 use ubiq_proto::db::{
     ColumnMeta, DbAgentAccess, DbListing, DbNode, DbOutcome, DbRun, DbRunOptions, ObjectKind,
-    PasswordState, TableRef,
+    PasswordState, StructureScope, TableRef,
 };
 use ubiq_proto::ids::DbQueryId;
 use ubiq_proto::messages::Secret;
@@ -350,6 +350,49 @@ fn the_tree_lists_databases_objects_and_columns() {
         ["id", "name"]
     );
     assert!(columns[0].is_pk);
+}
+
+const PERSON_DBML: &str =
+    "Table person {\n  id INTEGER [pk, increment]\n  name TEXT [not null]\n}\n";
+
+#[test]
+fn a_window_exports_dbml_and_an_agent_too() {
+    let rig = Rig::new();
+    let conn = rig.people_for_agents(DbAgentAccess::Ro);
+    let request = ubiq_proto::ids::DbExportId::generate();
+    rig.send(Message::DbExportDbml {
+        project_id: rig.project,
+        conn,
+        request,
+        database: None,
+        scope: StructureScope::default(),
+    });
+    let (asked, result) = rig.next(|m| match m {
+        Message::DbDbmlReady {
+            request, result, ..
+        } => Some((request, result)),
+        _ => None,
+    });
+    assert_eq!(asked, request);
+    assert_eq!(result.as_deref(), Ok(PERSON_DBML));
+
+    let scope = StructureScope {
+        schema: None,
+        tables: vec!["person".into()],
+    };
+    let dbml = rig
+        .agents()
+        .dbml(
+            "agent-a",
+            rig.project,
+            &rig.project_path(),
+            conn,
+            None,
+            scope,
+            Duration::from_secs(20),
+        )
+        .expect("dbml");
+    assert_eq!(dbml, PERSON_DBML);
 }
 
 #[test]

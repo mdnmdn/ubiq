@@ -20,8 +20,8 @@ use rusqlite::{Connection as Db, InterruptHandle, OpenFlags, Statement, types::V
 
 use super::{
     CancelHandle, ColumnMeta, Connection, DbError, DbObject, ExecOptions, ExecOutcome, ObjectKind,
-    Plan, PlanFormat, Result, ResultSet, TableRef, Watchdog, canonical, log_statement, plan,
-    strip_terminator,
+    Plan, PlanFormat, Result, ResultSet, Structure, StructureScope, TableRef, Watchdog, canonical,
+    database_or_current, log_statement, plan, strip_terminator, structure,
 };
 use crate::conn::{ConnectionConfig, DbKind, ParseError};
 use crate::value::{DataType, Value};
@@ -466,6 +466,34 @@ impl Connection for Sqlite {
         };
         log_statement(DbKind::Sqlite, what, sql, self.read_only, started, result)
     }
+
+    fn structure(&mut self, database: &str, scope: &StructureScope) -> Result<Structure> {
+        let db = database_or_current(Some(self.current.clone()), database)?;
+        if !self.database_names()?.iter().any(|d| *d == db) {
+            return Err(DbError::NotFound(format!("database {db}")));
+        }
+        structure::introspect(DbKind::Sqlite, &db, scope, |sql| {
+            let mut stmt = self.db.prepare(sql).map_err(query_err)?;
+            let width = stmt.column_count();
+            stmt.query_map([], |r| {
+                (0..width)
+                    .map(|i| {
+                        Ok(match r.get_ref(i)? {
+                            ValueRef::Null => None,
+                            ValueRef::Integer(n) => Some(n.to_string()),
+                            ValueRef::Real(x) => Some(x.to_string()),
+                            ValueRef::Text(t) | ValueRef::Blob(t) => {
+                                Some(String::from_utf8_lossy(t).into_owned())
+                            }
+                        })
+                    })
+                    .collect()
+            })
+            .map_err(query_err)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(query_err)
+        })
+    }
 }
 
 fn cell(v: ValueRef<'_>, meta: &ColumnMeta) -> Value {
@@ -632,6 +660,68 @@ mod tests {
             Err(DbError::NotFound(_))
         ));
         drop(tmp);
+    }
+
+    #[test]
+    fn structure_as_dbml() {
+        let tmp = TempDb::new();
+        let mut c = connect(&tmp.cfg()).unwrap();
+        for sql in [
+            "CREATE TABLE author (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, \
+             name VARCHAR(40) DEFAULT 'anon', joined DATETIME DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE book (author_id INT NOT NULL REFERENCES author(id) ON DELETE CASCADE, \
+             n INT NOT NULL, title TEXT, PRIMARY KEY (author_id, n))",
+            "CREATE INDEX book_title ON book (title, n)",
+            "CREATE INDEX book_lower ON book (lower(title))",
+            "CREATE TABLE tag (book_author INT, book_n INT, label, \
+             FOREIGN KEY (book_author, book_n) REFERENCES book (author_id, n))",
+            "CREATE VIEW v AS SELECT 1",
+        ] {
+            c.execute(sql).unwrap();
+        }
+        let all = c.structure("main", &StructureScope::default()).unwrap();
+        assert_eq!(
+            crate::dbml::to_dbml(&all),
+            "Table author {
+  id INTEGER [pk, increment]
+  email TEXT [not null, unique]
+  name VARCHAR(40) [default: 'anon']
+  joined DATETIME [default: `CURRENT_TIMESTAMP`]
+}
+
+Table book {
+  author_id INT [not null]
+  n INT [not null]
+  title TEXT
+
+  Indexes {
+    (author_id, n) [pk]
+    (title, n) [name: 'book_title']
+  }
+}
+
+Table tag {
+  book_author INT
+  book_n INT
+  label any
+}
+
+Ref: book.author_id > author.id [delete: cascade]
+Ref: tag.(book_author, book_n) > book.(author_id, n)
+"
+        );
+        // one table: the reference to a table left out goes with it
+        let scope = StructureScope {
+            schema: None,
+            tables: vec!["book".into()],
+        };
+        let one = c.structure("", &scope).unwrap();
+        assert_eq!(one.tables.len(), 1);
+        assert!(one.refs.is_empty());
+        assert!(matches!(
+            c.structure("nope", &scope),
+            Err(DbError::NotFound(_))
+        ));
     }
 
     #[test]

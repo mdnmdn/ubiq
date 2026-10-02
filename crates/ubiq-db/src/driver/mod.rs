@@ -93,6 +93,7 @@ mod mysql;
 mod plan;
 mod postgres;
 mod sqlite;
+mod structure;
 
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -100,6 +101,7 @@ use std::time::{Duration, Instant};
 pub use sqlite::create_sqlite_database;
 
 use crate::conn::{ConnectionConfig, DbKind};
+use crate::dbml::{Structure, StructureScope};
 // The model types the engines name through `super::`; they live in `crate::model` and `crate::plan`.
 use crate::model::{
     ColumnMeta, DbError, DbObject, ExecOptions, ExecOutcome, ObjectKind, Result, ResultSet,
@@ -192,6 +194,20 @@ pub trait Connection: Send {
     /// The plan of one statement (module docs, "Plans"). `analyze` executes it inside a
     /// transaction that is rolled back.
     fn explain(&mut self, sql: &str, analyze: bool) -> Result<Plan>;
+
+    /// The structure of `database` within `scope` — tables, columns, indexes, foreign keys, enums
+    /// and comments — for [`crate::dbml::to_dbml`]. Catalog queries only, unlogged; what each
+    /// engine covers is the `structure` module's table. `database` empty is the current one.
+    fn structure(&mut self, database: &str, scope: &StructureScope) -> Result<Structure>;
+}
+
+/// `database`, or the current one when it is empty.
+fn database_or_current(current: Option<String>, database: &str) -> Result<String> {
+    if database.is_empty() {
+        current.ok_or_else(|| DbError::NotFound("no database selected".into()))
+    } else {
+        Ok(database.to_string())
+    }
 }
 
 /// `sql` without trailing whitespace and `;`, for wrapping in `EXPLAIN …`.

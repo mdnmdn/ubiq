@@ -1181,6 +1181,17 @@ fn refusal(message: &Message) -> Option<Message> {
                 failure: unavailable(NOT_HERE),
             }),
         },
+        DbExportDbml {
+            project_id,
+            conn,
+            request,
+            ..
+        } => DbDbmlReady {
+            project_id: *project_id,
+            conn: *conn,
+            request: *request,
+            result: Err(unavailable(NOT_HERE)),
+        },
         CreateDbFile { project_id, path } => DbFileError {
             project_id: *project_id,
             path: path.clone(),

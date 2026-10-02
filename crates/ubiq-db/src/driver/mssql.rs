@@ -37,7 +37,8 @@ use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 use super::{
     CancelHandle, ColumnMeta, Connection, DbError, DbObject, ExecOptions, ExecOutcome, ObjectKind,
-    Plan, PlanFormat, Result, ResultSet, TableRef, log_statement, plan,
+    Plan, PlanFormat, Result, ResultSet, Structure, StructureScope, TableRef, database_or_current,
+    log_statement, plan, structure,
 };
 use crate::conn::{ConnectionConfig, DbKind, ParseError, SslMode};
 use crate::value::Value;
@@ -269,6 +270,19 @@ fn lit(s: &str) -> String {
     format!("N'{}'", s.replace('\'', "''"))
 }
 
+/// A column's declared type with its arguments (`nvarchar(40)`, `decimal(10,2)`), over `c`
+/// (`sys.columns`) and `ty` (`sys.types`).
+pub(super) const NATIVE_TYPE: &str = "CAST(CASE \
+   WHEN ty.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN ty.name + N'(' \
+    + CASE WHEN c.max_length = -1 THEN N'max' ELSE CAST(c.max_length AS nvarchar(10)) END + N')' \
+   WHEN ty.name IN (N'nvarchar', N'nchar') THEN ty.name + N'(' \
+    + CASE WHEN c.max_length = -1 THEN N'max' ELSE CAST(c.max_length / 2 AS nvarchar(10)) END + N')' \
+   WHEN ty.name IN (N'decimal', N'numeric') THEN ty.name + N'(' \
+    + CAST(c.precision AS nvarchar(5)) + N',' + CAST(c.scale AS nvarchar(5)) + N')' \
+   WHEN ty.name IN (N'datetime2', N'datetimeoffset', N'time') THEN ty.name + N'(' \
+    + CAST(c.scale AS nvarchar(5)) + N')' \
+   ELSE ty.name END AS nvarchar(200))";
+
 fn text(row: &Row, i: usize) -> Option<String> {
     row.try_get::<&str, _>(i).ok().flatten().map(str::to_string)
 }
@@ -414,17 +428,7 @@ impl Connection for MsSql {
         );
         let qdb = br(db);
         let rows = self.rows(&format!(
-            "SELECT CAST(c.name AS nvarchar(128)), \
-              CAST(CASE \
-               WHEN ty.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN ty.name + N'(' \
-                + CASE WHEN c.max_length = -1 THEN N'max' ELSE CAST(c.max_length AS nvarchar(10)) END + N')' \
-               WHEN ty.name IN (N'nvarchar', N'nchar') THEN ty.name + N'(' \
-                + CASE WHEN c.max_length = -1 THEN N'max' ELSE CAST(c.max_length / 2 AS nvarchar(10)) END + N')' \
-               WHEN ty.name IN (N'decimal', N'numeric') THEN ty.name + N'(' \
-                + CAST(c.precision AS nvarchar(5)) + N',' + CAST(c.scale AS nvarchar(5)) + N')' \
-               WHEN ty.name IN (N'datetime2', N'datetimeoffset', N'time') THEN ty.name + N'(' \
-                + CAST(c.scale AS nvarchar(5)) + N')' \
-               ELSE ty.name END AS nvarchar(200)), \
+            "SELECT CAST(c.name AS nvarchar(128)), {NATIVE_TYPE}, \
               CAST(c.is_nullable AS bit), CAST(c.is_identity AS bit), CAST(c.is_computed AS bit), \
               CAST(dc.definition AS nvarchar(4000)), \
               CAST(CASE WHEN EXISTS (SELECT 1 FROM {qdb}.sys.indexes i \
@@ -546,6 +550,21 @@ impl Connection for MsSql {
             "explain"
         };
         log_statement(DbKind::MsSql, what, sql, self.read_only, started, result)
+    }
+
+    fn structure(&mut self, database: &str, scope: &StructureScope) -> Result<Structure> {
+        let db = match database_or_current(self.current.clone(), database) {
+            Ok(db) => db,
+            Err(_) => text(&self.rows("SELECT CAST(DB_NAME() AS nvarchar(128))")?[0], 0)
+                .ok_or_else(|| DbError::NotFound("no database selected".into()))?,
+        };
+        structure::introspect(DbKind::MsSql, &db, scope, |sql| {
+            Ok(self
+                .rows(sql)?
+                .iter()
+                .map(|r| (0..r.len()).map(|i| text(r, i)).collect())
+                .collect())
+        })
     }
 }
 
@@ -936,6 +955,19 @@ mod tests {
         assert_eq!(cols[1].native_type, "nvarchar(40)");
         assert!(cols[2].default.is_some());
         assert!(cols.last().unwrap().computed);
+
+        let scope = crate::dbml::StructureScope {
+            schema: Some("dbo".into()),
+            tables: vec![t.clone()],
+        };
+        let dbml = crate::dbml::to_dbml(&c.structure("master", &scope).unwrap());
+        for want in [
+            format!("Table {t} {{"),
+            "id int [pk, increment]".to_string(),
+            "price decimal(10,2) [default: 0]".to_string(),
+        ] {
+            assert!(dbml.contains(&want), "{want} in {dbml}");
+        }
 
         let rs = c
             .query(
