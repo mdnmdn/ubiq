@@ -158,6 +158,7 @@ pub fn overlay(
         .border_l(px(theme::accent_edge()))
         .border_color(theme::accent())
         .shadow_lg()
+        .occlude()
         // Painted above whatever raised it, so a click inside must not reach the titlebar under.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down_out(cx.listener(|this, _, _, cx| this.dismiss_run_tool_menu(cx)))

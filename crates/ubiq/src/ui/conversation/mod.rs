@@ -2711,7 +2711,7 @@ fn footer(
 
     let mut row = div()
         .px_3()
-        .py_1p5()
+        .py_1()
         .flex()
         .flex_none()
         .items_center()
@@ -3348,8 +3348,8 @@ fn composer(
             div()
                 .id(view.eid("composer"))
                 .debug_selector(|| "composer-field".into())
-                .px_2()
-                .pt_1p5()
+                .px_1p5()
+                .pt_0p5()
                 .cursor_text()
                 .child(
                     Textarea::new(&input)

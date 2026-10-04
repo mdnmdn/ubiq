@@ -133,6 +133,7 @@ fn panel(app: &AppState, nav: &NavigatorState, cx: &mut Context<AppState>) -> im
                 .border_l(px(theme::accent_edge()))
                 .border_color(theme::accent())
                 .shadow_lg()
+                .occlude()
                 .children(children),
         ),
     )

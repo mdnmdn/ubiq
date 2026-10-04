@@ -829,15 +829,22 @@ impl AppState {
         match &kind {
             PanelKind::File(key) => {
                 let key = key.clone();
+                if let Some(action) = ExplorerAction::SHARED_FILE
+                    .into_iter()
+                    .find(|action| action.label() == row)
+                {
+                    self.run_tab_file_action(action, &key, window, cx);
+                    cx.notify();
+                    return;
+                }
                 match row {
                     "Close" => self.close_editor_tab_at_key(&key, cx),
                     "Close Others" => self.close_editor_tabs_except(&key, cx),
                     "Close Left" => self.close_editor_tabs_left(&key, cx),
                     "Close Right" => self.close_editor_tabs_right(&key, cx),
                     "Close All" => self.close_all_editor_tabs(cx),
-                    "Copy Full Path" => self.copy_full_path_for_tab(&key, cx),
-                    "Copy link" => self.copy_link_for_tab(&key, cx),
-                    "Open in Finder" => self.open_in_finder_for_tab(&key, cx),
+                    "Reveal in Explorer" => self.reveal_tab_in_explorer(&key, cx),
+                    "Refresh" => self.refresh_editor_tab(&key, cx),
                     "Save" => self.save_file(&key, window, cx),
                     "Word Wrap" => self.toggle_editor_wrap(window, cx),
                     "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
@@ -934,42 +941,91 @@ impl AppState {
         }
     }
 
-    /// Copy the file a tab names, resolved against the project root, to the clipboard.
-    fn copy_full_path_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+    /// Run one of the shared file-path rows ([`ExplorerAction::SHARED_FILE`]) on the file a tab
+    /// names. A guest tab (outside every project) offers only the copies and the file manager:
+    /// the web export and a rename act on a project path.
+    fn run_tab_file_action(
+        &mut self,
+        action: ExplorerAction,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let (rel, _) = from_tab_key(key);
-        if let Some(snap) = self.project_snapshot(cx) {
-            // A guest tab's key is already an absolute path, and `Path::join` with an absolute
-            // argument replaces the base rather than concatenating with it — so this resolves a
-            // guest file correctly without a special case here.
-            let full = absolute_path(&snap.record.path, &rel);
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
+        let guest = self.file(key, cx).is_some_and(|file| file.guest);
+        if guest && matches!(action, ExplorerAction::OpenInWeb | ExplorerAction::Rename) {
+            return;
+        }
+        let link = View::Ide {
+            key: key.to_string(),
+        };
+        self.run_file_action(action, rel, link, window, cx);
+    }
+
+    /// Put the explorer on a tab's file: the rail switches to it, the folders above open and the
+    /// row scrolls into view — the navigation a `ubiq://` explorer link does.
+    fn reveal_tab_in_explorer(&mut self, key: &str, cx: &mut Context<Self>) {
+        let (rel, _) = from_tab_key(key);
+        let guest = self.file(key, cx).is_some_and(|file| file.guest);
+        if guest {
+            return;
+        }
+        if let Some(project) = self.project(cx) {
+            self.navigate(Destination::new(project, View::Explorer { path: rel }), cx);
         }
     }
 
-    /// Copy the tab's `ubiq://` link: the file itself, no line — a tab is not a spot in one.
-    fn copy_link_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+    /// Refresh a tab: re-read its file from disk. A buffer holding unsaved edits asks first, in
+    /// the same dialog a close does.
+    fn refresh_editor_tab(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(file) = self.file(key, cx) else {
+            return;
+        };
+        if file.untitled || file.guest || file.subject != Subject::File {
+            return;
+        }
+        if file.dirty() {
+            self.workbench.file_dialog = Some(FileDialog::ReloadChanges {
+                key: key.to_string(),
+            });
+            cx.notify();
+            return;
+        }
+        self.reload_editor_tab(key, cx);
+    }
+
+    /// Drop a tab's buffer and ask for the file again, keeping the caret and scroll as the
+    /// watcher's own re-read does. Edits are discarded: callers have already asked.
+    pub(super) fn reload_editor_tab(&mut self, key: &str, cx: &mut Context<Self>) {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let dest = Destination {
-            project,
-            view: View::Ide {
-                key: key.to_string(),
-            },
-            locus: None,
+        let Some(open) = self.projects.get(&project) else {
+            return;
         };
-        self.copy_link(&dest, cx);
-    }
-
-    /// Reveal the file a tab names in the system file manager.
-    fn open_in_finder_for_tab(&mut self, key: &str, cx: &mut Context<Self>) {
-        let (rel, _) = from_tab_key(key);
-        if let Some(snap) = self.project_snapshot(cx) {
-            // See `copy_full_path_for_tab`: `join` with an absolute `rel` replaces the base, so a
-            // guest file's absolute key resolves to itself here too.
-            let full = absolute_path(&snap.record.path, &rel);
-            let _ = open_in_system(&full);
+        let Some(file) = open.editor.open.get(index_of_key(&open.editor, key).unwrap_or(usize::MAX))
+        else {
+            return;
+        };
+        let path = file.path.clone();
+        let restore = file.buffer().map(|buffer| {
+            let state = buffer.read(cx);
+            (state.selected_range(), state.scroll_offset())
+        });
+        if let Some(open) = self.projects.get_mut(&project)
+            && let Some(file) = open.editor.find_mut(&path)
+        {
+            if let Some((selection, scroll)) = restore {
+                file.set_restore(selection, scroll);
+            }
+            file.reload();
         }
+        self.bus.send(Message::ReadProjectFile {
+            project_id: project,
+            rel_path: path,
+            max_bytes: Some(MAX_FILE_BYTES),
+        });
+        cx.notify();
     }
 
     /// Close the one tab named by a key, the way the close button does: a dirty tab is asked for

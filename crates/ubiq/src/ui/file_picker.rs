@@ -160,6 +160,7 @@ pub fn render(
             .border_l(px(theme::accent_edge()))
             .border_color(theme::accent())
             .shadow_lg()
+            .occlude()
             .child(header(picker, cx))
             .children(host_browse_banner(app, cx))
             .child(field(app, picker, window, cx))

@@ -46,7 +46,8 @@ pub fn popover(
         .bg(theme::surface_raised())
         .border_l(px(theme::accent_edge()))
         .border_color(theme::accent())
-        .shadow_lg();
+        .shadow_lg()
+        .occlude();
     if let Some(name) = debug {
         panel = panel.debug_selector(move || name.into());
     }

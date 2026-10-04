@@ -35,7 +35,11 @@
 use gpui::{Context, IntoElement, SharedString, Window, div, point, px};
 
 use crate::app::AppState;
-use crate::state::PanelKind;
+use crate::state::{ExplorerAction, PanelKind};
+
+/// A row that is the line between two groups. It holds a slot in [`rows`] so the pick's index
+/// still lines up with what was drawn; no pick matches it.
+const SEPARATOR: &str = "-";
 use crate::ui::{self, kit};
 
 /// The rows a tab's right-click menu offers, by the panel's own kind, whether it is pinned, and
@@ -59,9 +63,14 @@ pub fn rows(kind: &PanelKind, pinned: bool, restartable: bool) -> Vec<&'static s
                 "Close Left",
                 "Close Right",
                 "Close All",
-                "Copy Full Path",
-                "Copy link",
-                "Open in Finder",
+                SEPARATOR,
+            ]);
+            // The explorer's own path rows, drawn from the one list both menus read.
+            rows.extend(ExplorerAction::SHARED_FILE.map(ExplorerAction::label));
+            rows.extend([
+                "Reveal in Explorer",
+                "Refresh",
+                SEPARATOR,
                 "Save",
                 "Word Wrap",
             ]);
@@ -98,17 +107,6 @@ pub fn rows(kind: &PanelKind, pinned: bool, restartable: bool) -> Vec<&'static s
     }
 }
 
-/// The "reveal in the system file manager" row's label, named after the platform.
-fn open_in_system_label() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "Open in Finder"
-    } else if cfg!(target_os = "windows") {
-        "Open in Explorer"
-    } else {
-        "Open in File Manager"
-    }
-}
-
 /// Draw the open tab menu, or nothing when there is none. Called from the window root.
 pub fn overlay(
     app: &AppState,
@@ -123,12 +121,10 @@ pub fn overlay(
     let items: Vec<_> = rows(&kind, pinned, restartable)
         .iter()
         .map(|label| {
-            let label = if *label == "Open in Finder" {
-                open_in_system_label()
-            } else {
-                label
-            };
-            kit::ContextItem::new(SharedString::from(label))
+            if *label == SEPARATOR {
+                return kit::ContextItem::separator();
+            }
+            kit::ContextItem::new(SharedString::from(*label))
         })
         .collect();
     kit::context_menu(

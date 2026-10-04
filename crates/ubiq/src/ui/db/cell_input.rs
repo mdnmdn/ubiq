@@ -38,9 +38,10 @@ use gpui_component::input::{
     Backspace, Escape, IndentInline, Input, InputEvent, InputState, OutdentInline,
 };
 use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
-use gpui_component::{Disableable as _, Sizable as _, Size};
+use gpui_component::{Disableable as _, Sizable as _};
 use ubiq_proto::db::{ColumnMeta, DataType};
 
+use super::grid::{CELL_ROLE, GRID_SIZE};
 use super::json::{json, open_button};
 use crate::theme::{self, Family, Role};
 
@@ -667,7 +668,7 @@ impl CellInput {
                 .px_0()
                 .py_0()
                 .font_family(theme::MONO_FONT)
-                .text_size(theme::font(Family::Content, Role::Body));
+                .text_size(theme::font(Family::Content, CELL_ROLE));
         }
         div()
             .relative()
@@ -718,7 +719,10 @@ impl CellInput {
                         .items_center()
                         .italic()
                         .when(self.inline, |this| this.font_family(theme::MONO_FONT))
-                        .text_size(theme::font(Family::Content, Role::Body))
+                        .text_size(theme::font(
+                            Family::Content,
+                            if self.inline { CELL_ROLE } else { Role::Body },
+                        ))
                         .text_color(theme::text_faint())
                         .child(self.placeholder.clone()),
                 )
@@ -783,7 +787,7 @@ impl Render for CellInput {
             // Exactly the cell: cancel the table's cell padding with negative insets, then pad
             // the same way inside. The dropdown and the picker bring their own horizontal
             // padding (the same as the cell's), so only the text field needs it here.
-            let pad = Size::Medium.table_cell_padding();
+            let pad = GRID_SIZE.table_cell_padding();
             return div()
                 .absolute()
                 .top(-pad.top)

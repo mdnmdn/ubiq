@@ -304,6 +304,12 @@ and context readout, over the field. The queue is the topmost thing in the botto
 bar, footer and composer. Clicking a tag opens the file in the editor, its `×` removes it. A tag shows the
 name; its tooltip shows the project-relative path and the size.
 
+**Typing `@` at the start of the field or after whitespace raises the same picker** (`app/picker.rs`
+`at_trigger`, `open_picker_from_at`, called from the composer's `Change` subscription in `app/boot.rs`). The
+`@` is consumed, since the picker has no query and a pick comes back as a tag that becomes `@path` at send
+time; `foo@bar` does not trigger. With no project tree the `@` stays. The field grows with its text up to
+`COMPOSER_ROWS_MAX_DEFAULT` (16) rows, then scrolls; the bottom block is bottom-anchored, so it grows upward.
+
 **A tag's colour is the file's size.** Over 300 KiB the warning tokens, over 500 KiB the danger ones, with
 the reason in the tooltip: a large file costs context, and the tag says so *before* the turn is spent. A
 file no host sized is drawn plainly (unknown is not small, and is not guessed).

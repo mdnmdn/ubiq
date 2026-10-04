@@ -327,6 +327,17 @@ pub enum ExplorerAction {
 }
 
 impl ExplorerAction {
+    /// The path actions an explorer row and an editor tab both offer, in the order both draw them.
+    /// `AppState::run_file_action` runs them.
+    pub const SHARED_FILE: [ExplorerAction; 6] = [
+        ExplorerAction::CopyPath,
+        ExplorerAction::CopyFullPath,
+        ExplorerAction::CopyLink,
+        ExplorerAction::OpenInSystem,
+        ExplorerAction::OpenInWeb,
+        ExplorerAction::Rename,
+    ];
+
     /// What the row says. A separator says nothing: it is drawn as a hairline.
     pub fn label(self) -> &'static str {
         match self {

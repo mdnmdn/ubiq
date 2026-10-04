@@ -702,9 +702,16 @@ second one discards the edit. Bringing the tab forward again withdraws the quest
 back to its group to ask, because the dock takes a closed tab out before the window hears about it.
 
 **A right-click on a tab raises a menu over the window — a file's, a terminal's or a chat's.** A
-file's is Close, Close Others, Close Left, Close Right, Close All, Copy Full Path, Copy link, Open
-in Finder, Save, Word Wrap and Pin (or Unpin) — the two *closes* and the surround closes anchoring
-on the tab that was clicked, Copy Full Path copying the file's project path to the clipboard, Open
+file's is Close, Close Others, Close Left, Close Right, Close All, then a group of Copy path, Copy
+full path, Copy link, Open in Finder, Open in Web, Rename, Reveal in Explorer and Refresh, then
+Save, Word Wrap and Pin (or Unpin). The first five of that group and Rename are the explorer's own
+rows (`ExplorerAction::SHARED_FILE`, run by `AppState::run_file_action`), so the two menus cannot
+drift; Rename goes through the explorer's rename dialog and the open tab follows the new name.
+Reveal in Explorer switches the rail to the explorer, opens the folders above the file and
+scrolls its row into view; Refresh re-reads the file from disk, asking first (the discard
+dialog's wording, "Reload") when the buffer holds unsaved edits. A guest tab skips Open in Web,
+Rename, Reveal and Refresh. The *closes* and the surround closes anchor
+on the tab that was clicked, Copy full path copying the file's absolute path to the clipboard, Open
 in Finder revealing it (or its folder) in the system's file manager, Save writing the file behind
 one tab rather than only the active one, and a dirty tab in a bulk close still asked for rather than
 silently closed. A terminal's or a chat's is Rename…, Hide, Close and Pin (or Unpin) — Rename raises

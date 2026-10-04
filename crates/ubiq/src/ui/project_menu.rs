@@ -147,6 +147,10 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
         .border_l(px(theme::accent_edge()))
         .border_color(app.project_tint(cx))
         .shadow_lg()
+        // The panel's empty area and the gaps between rows hit nothing of their own, so without
+        // this the click falls through to whatever panel is underneath.
+        .occlude()
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
             field(app.project_tint(cx), focused)
                 .h(px(34.))

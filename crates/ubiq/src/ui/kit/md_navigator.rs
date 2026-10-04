@@ -143,6 +143,7 @@ fn panel(
                 .border_color(theme::accent())
                 .shadow_lg()
                 .font_weight(FontWeight::NORMAL)
+                .occlude()
                 .children(rows)
                 // Same reason as every other anchored list's panel: painted above whatever raised
                 // it, so a click here must not also land on a control underneath.

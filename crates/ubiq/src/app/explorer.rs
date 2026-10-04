@@ -469,6 +469,63 @@ impl AppState {
         }
     }
 
+    /// The file-path actions the explorer's context menu and an editor tab's both offer, run
+    /// against one project-relative path (`ExplorerAction::SHARED_FILE`). One body, so the two
+    /// menus cannot drift. `link` is the destination Copy link copies: the explorer names the
+    /// path, a tab names its own tab key.
+    pub(super) fn run_file_action(
+        &mut self,
+        action: ExplorerAction,
+        rel: String,
+        link: View,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            ExplorerAction::CopyPath => cx.write_to_clipboard(gpui::ClipboardItem::new_string(rel)),
+            ExplorerAction::CopyLink => {
+                if let Some(project) = self.project(cx) {
+                    let dest = Destination::new(project, link);
+                    self.copy_link(&dest, cx);
+                }
+            }
+            ExplorerAction::CopyFullPath => {
+                if let Some(snap) = self.project_snapshot(cx) {
+                    let full = absolute_path(&snap.record.path, &rel);
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
+                }
+            }
+            ExplorerAction::OpenInSystem => {
+                if let Some(snap) = self.project_snapshot(cx) {
+                    let full = absolute_path(&snap.record.path, &rel);
+                    let _ = open_in_system(&full);
+                }
+            }
+            ExplorerAction::OpenInWeb => {
+                if let Some(snap) = self.project_snapshot(cx) {
+                    let project_id = snap.record.id.to_string();
+                    let project_name = snap.record.name.clone();
+                    let root = std::path::PathBuf::from(&snap.record.path);
+                    match crate::web_export::ensure_started_and_registered(
+                        &project_id,
+                        &project_name,
+                        &root,
+                    ) {
+                        Ok(base) => {
+                            let full = format!("{base}{}", rel.trim_start_matches('/'));
+                            let _ = open_url(&full);
+                        }
+                        Err(err) => {
+                            tracing::error!("web export failed to start: {err}");
+                        }
+                    }
+                }
+            }
+            ExplorerAction::Rename => self.ask_rename(rel, window, cx),
+            _ => {}
+        }
+    }
+
     pub fn pick_explorer_action(
         &mut self,
         index: usize,
@@ -507,59 +564,15 @@ impl AppState {
                     self.open_diff(path, DiffBase::Head, cx);
                 }
             }
-            ExplorerAction::CopyPath => {
+            ExplorerAction::CopyPath
+            | ExplorerAction::CopyFullPath
+            | ExplorerAction::CopyLink
+            | ExplorerAction::OpenInSystem
+            | ExplorerAction::OpenInWeb
+            | ExplorerAction::Rename => {
                 if let Some(path) = path {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(path));
-                }
-                cx.notify();
-            }
-            ExplorerAction::CopyLink => {
-                if let Some(path) = path
-                    && let Some(project) = self.project(cx)
-                {
-                    let dest = Destination::new(project, View::Explorer { path });
-                    self.copy_link(&dest, cx);
-                }
-                cx.notify();
-            }
-            ExplorerAction::CopyFullPath => {
-                if let Some(rel) = path
-                    && let Some(snap) = self.project_snapshot(cx)
-                {
-                    let full = absolute_path(&snap.record.path, &rel);
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(full));
-                }
-                cx.notify();
-            }
-            ExplorerAction::OpenInSystem => {
-                if let Some(rel) = path
-                    && let Some(snap) = self.project_snapshot(cx)
-                {
-                    let full = absolute_path(&snap.record.path, &rel);
-                    let _ = open_in_system(&full);
-                }
-                cx.notify();
-            }
-            ExplorerAction::OpenInWeb => {
-                if let Some(rel) = path
-                    && let Some(snap) = self.project_snapshot(cx)
-                {
-                    let project_id = snap.record.id.to_string();
-                    let project_name = snap.record.name.clone();
-                    let root = std::path::PathBuf::from(&snap.record.path);
-                    match crate::web_export::ensure_started_and_registered(
-                        &project_id,
-                        &project_name,
-                        &root,
-                    ) {
-                        Ok(base) => {
-                            let full = format!("{base}{}", rel.trim_start_matches('/'));
-                            let _ = open_url(&full);
-                        }
-                        Err(err) => {
-                            tracing::error!("web export failed to start: {err}");
-                        }
-                    }
+                    let link = View::Explorer { path: path.clone() };
+                    self.run_file_action(entry.action, path, link, window, cx);
                 }
                 cx.notify();
             }
@@ -608,11 +621,6 @@ impl AppState {
                     .map(|explorer| explorer.target_dir(path.as_deref().unwrap_or_default()))
                     .unwrap_or_default();
                 self.open_file_dialog(FileDialog::New { parent, dir, ext }, seed, window, cx);
-            }
-            ExplorerAction::Rename => {
-                if let Some(path) = path {
-                    self.ask_rename(path, window, cx);
-                }
             }
             ExplorerAction::Delete => {
                 if let Some(path) = path {
@@ -1034,6 +1042,11 @@ impl AppState {
                 self.force_close_tab(&key, cx);
                 return;
             }
+            FileDialog::ReloadChanges { key } => {
+                self.close_file_dialog(cx);
+                self.reload_editor_tab(&key, cx);
+                return;
+            }
             // Nothing to answer: the modal exists so a save that did not happen is said out loud,
             // and its button only takes it away. The buffer keeps the edits either way.
             FileDialog::SaveFailed { .. } => {
@@ -1200,6 +1213,7 @@ impl AppState {
             }
             // Answered above, before the project was looked up.
             FileDialog::DiscardChanges { .. }
+            | FileDialog::ReloadChanges { .. }
             | FileDialog::SaveFailed { .. }
             | FileDialog::OverwriteFile { .. }
             | FileDialog::CloseWindow { .. }

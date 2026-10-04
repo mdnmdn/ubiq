@@ -712,11 +712,19 @@ impl AppState {
                 move |this, input, event: &InputEvent, window, cx| match event {
                     InputEvent::Change => {
                         let draft = input.read(cx).value().to_string();
+                        let before = this
+                            .agents_mut(cx)
+                            .map(|agents| agents.draft(slot).to_string())
+                            .unwrap_or_default();
+                        let cursor = input.read(cx).cursor();
                         if let Some(agents) = this.agents_mut(cx) {
                             agents.set_draft(slot, draft.clone());
                         }
                         if let Some(agent_id) = this.agent_for_slot(slot, cx) {
-                            this.remember_conversation_draft(agent_id, draft, cx);
+                            this.remember_conversation_draft(agent_id, draft.clone(), cx);
+                            if let Some(at) = super::picker::at_trigger(&before, &draft, cursor) {
+                                this.open_picker_from_at(agent_id, slot, at, window, cx);
+                            }
                         }
                         cx.notify();
                     }

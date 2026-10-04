@@ -585,6 +585,9 @@ pub enum FileDialog {
     /// A file tab holding unsaved changes, asked before its buffer is dropped. `key` is its tab
     /// key.
     DiscardChanges { key: String },
+    /// A file tab holding unsaved changes, asked before Refresh reloads it from disk. `key` is its
+    /// tab key.
+    ReloadChanges { key: String },
     /// A save the host refused, said out loud. Nothing to answer — the button dismisses it — but
     /// a write that did not happen is not something a dot on a tab can report, and the buffer
     /// still holds every edit. `key` is the tab's key, `reason` what the host gave.

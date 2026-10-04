@@ -47,6 +47,10 @@ const WIDTH_SAMPLE_ROWS: usize = 50;
 const CHAR_WIDTH_EM: f32 = 0.58;
 const MIN_COL_WIDTH: f32 = 60.0;
 const MAX_COL_WIDTH: f32 = 420.0;
+/// The grid's row size: the densest the table offers. `cell_input`'s inline editor pads for it.
+pub const GRID_SIZE: Size = Size::XSmall;
+/// The type role of a cell, a header and the inline editor over a cell.
+pub const CELL_ROLE: Role = Role::Meta;
 
 /// What the grid tells its owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,7 +130,7 @@ fn column_width<'a>(
             chars = chars.max(shown(meta, v).chars().take(MAX_CELL_CHARS).count());
         }
     }
-    let em = f32::from(theme::font(Family::Content, Role::Body));
+    let em = f32::from(theme::font(Family::Content, CELL_ROLE));
     px((chars as f32 * em * CHAR_WIDTH_EM + theme::scaled(24.0))
         .clamp(theme::scaled(MIN_COL_WIDTH), theme::scaled(MAX_COL_WIDTH)))
 }
@@ -199,6 +203,7 @@ impl TableDelegate for GridDelegate {
             .size_full()
             .flex()
             .items_center()
+            .text_size(theme::font(Family::Content, CELL_ROLE))
             .when(meta.data_type.is_numeric(), |this| this.justify_end())
             .child(SharedString::from(meta.name.clone()))
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
@@ -267,7 +272,7 @@ impl TableDelegate for GridDelegate {
             .flex()
             .items_center()
             .font_family(theme::MONO_FONT)
-            .text_size(theme::font(Family::Content, Role::Body))
+            .text_size(theme::font(Family::Content, CELL_ROLE))
             .when(numeric, |this| this.justify_end())
             .when(null, |this| this.italic().text_color(theme::text_faint()))
             .when(empty, |this| this.text_color(theme::text_faint()))
@@ -716,10 +721,9 @@ impl Render for ResultGrid {
                 div()
                     .flex_1()
                     .min_h(px(0.))
-                    // `Medium` is the cell size `cell_input`'s inline editor pads for.
                     .child(
                         DataTable::new(&self.state)
-                            .with_size(Size::Medium)
+                            .with_size(GRID_SIZE)
                             .stripe(true)
                             .bordered(false),
                     ),

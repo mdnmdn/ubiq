@@ -63,7 +63,7 @@ pub const COMPOSER_SLOTS: usize = COLUMNS_MAX + CHATS_MAX + 1;
 
 /// How many rows a composer nobody has resized grows to before it scrolls. What the pool is built
 /// with, and what a resized one is reset to.
-pub const COMPOSER_ROWS_MAX_DEFAULT: usize = 5;
+pub const COMPOSER_ROWS_MAX_DEFAULT: usize = 16;
 
 /// The fewest and the most rows a composer may be dragged to.
 ///

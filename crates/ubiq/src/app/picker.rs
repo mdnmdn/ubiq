@@ -394,6 +394,52 @@ impl AppState {
         }
     }
 
+    /// A word-start `@` was typed into a composer: take it back out and raise the attach picker.
+    ///
+    /// The `@` is consumed. The picker has no query to carry it into, and what comes back is a tag
+    /// that becomes `@path` at send time, so a kept `@` would be a stray character in the prompt
+    /// whether the picker is answered or dismissed. With no project open the picker does not open
+    /// and the `@` stays, so it can still be typed.
+    pub fn open_picker_from_at(
+        &mut self,
+        agent: AgentId,
+        slot: usize,
+        at: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let has_tree = self.explorer(cx).is_some_and(|explorer| {
+            !crate::state::file_picker::forest_from_explorer(&explorer.root).is_empty()
+        });
+        let Some(input) = self.column_inputs.get(slot).cloned() else {
+            return;
+        };
+        if !has_tree {
+            return;
+        }
+        let text = input.read(cx).value().to_string();
+        if text.as_bytes().get(at) != Some(&b'@') {
+            return;
+        }
+        let mut stripped = text.clone();
+        stripped.remove(at);
+        let before = &text[..at];
+        let line = before.matches('\n').count() as u32;
+        let character = before
+            .rsplit('\n')
+            .next()
+            .map_or(0, |tail| tail.encode_utf16().count()) as u32;
+        input.update(cx, |state, cx| {
+            state.set_value(stripped, window, cx);
+            state.set_cursor_position(
+                gpui_component::input::Position { line, character },
+                window,
+                cx,
+            );
+        });
+        self.raise_composer_picker(agent, slot, window, cx);
+    }
+
     /// Take one attachment back off — a tag's own dismiss control.
     pub fn detach_file(&mut self, agent: AgentId, attachment: u64, cx: &mut Context<Self>) {
         if let Some(id) = self.project(cx)
@@ -881,4 +927,37 @@ impl AppState {
     }
 
     // ── Projects ────────────────────────────────────────────────────
+}
+
+/// Where a just-typed `@` sits, if this edit was exactly that and it opens a word: the draft grew
+/// by one `@` at the cursor, and what precedes it is the start of the text or whitespace. `foo@bar`
+/// is not a mention, so it does not trigger. Returns the byte offset of the `@`.
+pub fn at_trigger(before: &str, after: &str, cursor: usize) -> Option<usize> {
+    let at = cursor.checked_sub(1)?;
+    if after.len() != before.len() + 1 || after.as_bytes().get(at) != Some(&b'@') {
+        return None;
+    }
+    if !after.is_char_boundary(at) || format!("{}{}", &after[..at], &after[cursor..]) != before {
+        return None;
+    }
+    match after[..at].chars().next_back() {
+        None => Some(at),
+        Some(c) if c.is_whitespace() => Some(at),
+        Some(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod at_trigger_tests {
+    use super::at_trigger;
+
+    #[test]
+    fn word_start_triggers_mid_word_does_not() {
+        assert_eq!(at_trigger("", "@", 1), Some(0));
+        assert_eq!(at_trigger("see ", "see @", 5), Some(4));
+        assert_eq!(at_trigger("a\n", "a\n@", 3), Some(2));
+        assert_eq!(at_trigger("foo", "foo@", 4), None);
+        assert_eq!(at_trigger("ab", "a@b", 2), None);
+        assert_eq!(at_trigger("x", "xy", 2), None);
+    }
 }

@@ -563,6 +563,7 @@ fn menu_panel(
                     .border_color(theme::accent())
                     .shadow_lg()
                     .font_weight(FontWeight::NORMAL)
+                    .occlude()
                     .children(search_field)
                     .children(rows)
                     // The list is painted above whatever it hangs from — a modal's own body
@@ -1025,6 +1026,7 @@ pub fn context_panel(
         .border_color(theme::accent())
         .shadow_lg()
         .font_weight(FontWeight::NORMAL)
+        .occlude()
         .children(rows)
         // Same reason as the dropdown list in `menu_panel`: painted above whatever raised it, so
         // a click here must not also land on a control underneath.

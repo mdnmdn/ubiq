@@ -403,6 +403,23 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 )
             }
         }
+        Some(FileDialog::ReloadChanges { key }) => {
+            let name = app
+                .file(&key, cx)
+                .map_or_else(|| key.clone(), |file| file.name.clone());
+            confirm_modal(
+                "app-file-reload",
+                "Unsaved changes",
+                &format!("{name} has changes that were never written. Reload it from disk and discard them?"),
+                "Reload",
+                true,
+                crate::ui::handler(&view, |this, window, cx| {
+                    this.confirm_file_dialog(window, cx)
+                }),
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
         Some(FileDialog::DiscardChanges { key }) => {
             let name = app
                 .file(&key, cx)

@@ -365,6 +365,7 @@ fn checklist_panel(id: &'static str, rows: Vec<AnyElement>, view: &Entity<AppSta
                     .border_l(px(theme::accent_edge()))
                     .border_color(theme::accent())
                     .shadow_lg()
+                    .occlude()
                     .children(rows)
                     // Painted above the modal that raised it, so a click on a row sits at the same
                     // screen point as a control underneath — the rule `kit::menu`'s own panel
