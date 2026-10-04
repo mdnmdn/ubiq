@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-01
+updated: 2026-10-04
 verified: 2026-09-29
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -3735,8 +3735,9 @@ silently become a headless type-check that leaves the interface unchecked.
 
 `crates/ubiq-proto` is the contract, and the reflex is that only things that cross the bus belong
 in it. The block walk broke that reflex: the host splits a saved document into blocks to index them
-(`plan::blocks::match_blocks`) and the window splits an edited section the same way to patch its own
-cache ahead of the host's answer (`state::document::parse_section_blocks`). The two are not talking
+(`plan::blocks::match_blocks`) and the window split an edited section the same way to patch its own
+cache ahead of the host's answer (`state::document::parse_section_blocks`, removed with the section
+editor by `D203`, which leaves the host as the walk's one caller). The two are not talking
 to each other — neither result crosses the bus — but they have to produce the *same* split, because
 a cache built by different rules than the index disagrees with it on screen and says nothing. It
 was two copies, character for character identical, and staying that way by luck (`T-114`).
@@ -5056,6 +5057,30 @@ keyed by `(agent, id)`, bounded by count, bytes and a 10-minute idle TTL.
 **Cost:** the cache is per process, so a blob does not survive a restart; a result past 200 000
 characters loses its trailing rows; and the scalar row count is `row_count` because `rows` is the
 table.
+
+### D203 — The plan surface is drawn on `MdView`, and the window maps `ubiq_md` rows to the host's block ids by source range
+
+The annotated-document surface (`ui/document.rs`, framed by the plan dialog and by a markdown tab's
+`Annotation` layout) is an `MdView` with its annotation layer on, not a per-block `TextView` list of
+its own. That leaves two block models side by side: the host indexes a document into `PlanBlock`s
+through `ubiq_proto::blocks` and owns their ids, which is what keeps a thread anchored across a save
+(`D159`); the view lays out `ubiq_md` root rows. **The window joins them, and only the window**:
+`state::document::row_map()` finds each host block's source range by forward scan
+(`block_ranges()`) and places it in the row `ubiq_md::Document::block_at_offset` names for the
+range's start. A row may hold several host blocks — a list is one row, each item one block — so a
+row sums their threads, a highlight on a row colours all of them, and a new thread targets the
+block holding the pressed offset, else the row's first. The wire is unchanged: every intent still
+names a host `BlockId`.
+
+The alternative was to move the host's index onto `ubiq-md` so a row *is* a block, which changes
+what a `BlockId` covers for every existing sidecar; it is deferred (`_docs/backlog.md`).
+The window's own copy of the split went with the section editor, and `D163`'s second caller with
+it.
+
+**Cost:** two parsers read the same text and can disagree on where a block starts; a host block
+whose text differs from the buffer (an unsaved edit) maps to no row and draws no decor until the
+next save re-indexes it. Several host blocks sharing a row cannot be told apart in
+the margin, only in the rail.
 
 ## Related docs
 

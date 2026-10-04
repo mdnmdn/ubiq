@@ -1,5 +1,8 @@
 use super::*;
 use crate::state::run_picker;
+use crate::ui::mdview::MdViewConfig;
+use crate::ui::mdview::events::MdViewEvent;
+use crate::ui::mdview::view::MdView;
 
 impl AppState {
     /// One open tab of the project on screen, by its key. What a file panel draws and what its tab
@@ -38,6 +41,10 @@ impl AppState {
         // What the file *took*, not what was asked: a viewer refuses a layout it does not offer,
         // and a panel told the asked-for one would write it into the arrangement anyway.
         let settled = file.layout;
+        // The markdown view scroll-links itself to the buffer while the two are side by side.
+        if let Some(md) = file.md.clone() {
+            md.update(cx, |md, _| md.set_linked(settled == ViewLayout::Split));
+        }
 
         let panel = self.panels.get(&kind).cloned();
         if let Some(panel) = panel {
@@ -155,6 +162,7 @@ impl AppState {
     /// same reason `OpenFile::retarget` re-derives the viewer on a rename or a save-as: the tab
     /// is then pointed at a different path, and the new path's own extension is the better answer.
     pub fn set_viewer_kind(&mut self, key: &str, viewer: ViewerKind, cx: &mut Context<Self>) {
+        let config = self.md_view_config();
         let Some(project) = self.project(cx) else {
             return;
         };
@@ -176,6 +184,7 @@ impl AppState {
         let settled = file.layout;
         let language = file.language;
         let buffer = file.buffer().cloned();
+        attach_md_view(file, config, cx);
 
         if let Some(buffer) = buffer {
             buffer.update(cx, |state, cx| {
@@ -203,27 +212,13 @@ impl AppState {
         self.open_menu(MenuId::ViewerKind, cx);
     }
 
-    /// Toggle whether the YAML frontmatter disclosure is open for the given tab.
-    pub fn toggle_frontmatter(&mut self, key: &str, cx: &mut Context<Self>) {
-        let Some(project) = self.project(cx) else {
-            return;
-        };
-        let Some(open) = self.projects.get_mut(&project) else {
-            return;
-        };
-        let Some(file) = open.editor.find_key_mut(key) else {
-            return;
-        };
-        file.toggle_frontmatter();
-        cx.notify();
-    }
-
     /// Set the Markdown preview's text-column width preset. Global to the window, not per file
     /// type (proposal §4.1's per-file-type memory is a later card) — and persisted through
     /// `UiSettings.md_width` (T-118), the gap this card closed.
     pub fn set_md_width(&mut self, width: crate::theme::MdWidth, cx: &mut Context<Self>) {
         self.workbench.settings.ui.md_width = width;
         self.remember_settings();
+        self.push_md_config(cx);
         cx.notify();
     }
 
@@ -232,6 +227,7 @@ impl AppState {
     pub fn set_md_density(&mut self, density: crate::theme::MdDensity, cx: &mut Context<Self>) {
         self.workbench.settings.ui.md_density = density;
         self.remember_settings();
+        self.push_md_config(cx);
         cx.notify();
     }
 
@@ -277,6 +273,7 @@ impl AppState {
             crate::state::editor::MD_CHAR_SCALE_MIN,
             crate::state::editor::MD_CHAR_SCALE_MAX,
         );
+        self.push_md_config(cx);
         cx.notify();
     }
 
@@ -298,6 +295,7 @@ impl AppState {
             return;
         };
         file.md_reading.text_shade = shade;
+        self.push_md_config(cx);
         cx.notify();
     }
 
@@ -322,53 +320,64 @@ impl AppState {
         cx.notify();
     }
 
-    /// The markdown viewer header's heading navigator (T-124). Opened rather than toggled, the
-    /// window's one rule for every anchored panel.
-    pub fn open_md_navigator(&mut self, cx: &mut Context<Self>) {
-        self.open_menu(MenuId::MdNavigator, cx);
+    /// The config a markdown view draws with: the window's width, density and minimap settings.
+    /// The per-tab reading options are the tab's own, laid over this by [`attach_md_view`] and
+    /// [`Self::push_md_config`].
+    pub(crate) fn md_view_config(&self) -> MdViewConfig {
+        let ui = &self.workbench.settings.ui;
+        MdViewConfig {
+            md_width: ui.md_width,
+            md_density: ui.md_density,
+            reading: crate::state::editor::MdReading::default(),
+            minimap: ui.md_minimap,
+            minimap_side: ui.md_minimap_side,
+        }
     }
 
-    /// A heading picked in that navigator: scroll the tab's own preview to it, and close the list
-    /// the way any dropdown row does.
-    ///
-    /// Proportional, for [`Self::select_md_minimap_mark`]'s own reason — the standard viewer draws
-    /// one `TextView`, so a heading has no measured position of its own to jump to.
-    pub fn select_md_nav_heading(&mut self, key: &str, index: usize, cx: &mut Context<Self>) {
-        self.close_menu(cx);
-        self.select_md_minimap_mark(key, index, cx);
+    /// Push the current markdown config into every open markdown view, in every project — a
+    /// setting changed, and each view re-measures only if what it draws with did.
+    pub(crate) fn push_md_config(&mut self, cx: &mut Context<Self>) {
+        let config = self.md_view_config();
+        let files = self
+            .projects
+            .values()
+            .flat_map(|open| open.editor.open.iter().chain(open.kb.docs.iter()));
+        let mut views: Vec<_> = files
+            .filter_map(|file| {
+                let reading = file.md_reading;
+                file.md.clone().map(|md| (md, reading))
+            })
+            .collect();
+        // The plan dialog's own view, which no tab holds.
+        if let Some(doc) = self.workbench.plan.as_ref().filter(|doc| doc.is_modal()) {
+            views.push((doc.md.clone(), crate::state::editor::MdReading::default()));
+        }
+        for (md, reading) in views {
+            md.update(cx, |md, cx| {
+                md.set_config(MdViewConfig { reading, ..config }, cx)
+            });
+        }
     }
 
-    /// A mark picked on the standard viewer's markdown minimap (T-118): scroll that tab's own
-    /// document by the same proportion down as the heading sits at.
-    ///
-    /// **Proportional, not pixel-exact** — the standard viewer draws one `TextView` rather than a
-    /// block per heading (`ui/plan.rs`'s own minimap has real block bounds to jump to; this one
-    /// does not), so the mark's `fraction` from `markdown::heading_marks` is reused directly as
-    /// the scroll position's own fraction of `ScrollHandle::max_offset`.
-    pub fn select_md_minimap_mark(&mut self, key: &str, index: usize, cx: &mut Context<Self>) {
-        let Some(project) = self.project(cx) else {
-            return;
-        };
-        let Some(open) = self.projects.get_mut(&project) else {
-            return;
-        };
-        let Some(file) = open.editor.find_key_mut(key) else {
-            return;
-        };
-        let FileBody::Text { state, .. } = &file.body else {
-            return;
-        };
-        let source = state.read(cx).value().to_string();
-        let Some(mark) = crate::ui::viewer::markdown::heading_marks(key, &source)
-            .get(index)
-            .map(|m| m.fraction)
-        else {
-            return;
-        };
-        let max_offset = file.md_scroll.max_offset();
-        file.md_scroll
-            .set_offset(gpui::point(px(0.), -max_offset.y * mark));
-        cx.notify();
+    /// What a clicked link in a document does, `base` being the path it is resolved against:
+    /// a destination that names a place is navigated to, the web and mail are handed to the
+    /// operating system, and anything else is nothing at all.
+    pub fn follow_link(&mut self, base: &str, target: &str, cx: &mut Context<Self>) {
+        let dest = self
+            .project(cx)
+            .and_then(|project| crate::state::nav::resolve_relative(project, base, target));
+        match dest {
+            Some(dest) => self.navigate(dest, cx),
+            None => {
+                let lower = target.to_ascii_lowercase();
+                if ["http:", "https:", "mailto:"]
+                    .iter()
+                    .any(|scheme| lower.starts_with(scheme))
+                {
+                    cx.open_url(target);
+                }
+            }
+        }
     }
 
     /// Ask for every file a project's blob said was open, and open the folders it said were.
@@ -1003,7 +1012,10 @@ impl AppState {
         let Some(open) = self.projects.get(&project) else {
             return;
         };
-        let Some(file) = open.editor.open.get(index_of_key(&open.editor, key).unwrap_or(usize::MAX))
+        let Some(file) = open
+            .editor
+            .open
+            .get(index_of_key(&open.editor, key).unwrap_or(usize::MAX))
         else {
             return;
         };
@@ -1505,6 +1517,10 @@ impl AppState {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A displayed SQL or table tab is the one ⌘W means, ahead of a file tab behind it.
+        if self.close_active_db_tab(cx) {
+            return;
+        }
         let Some(project) = self.project(cx) else {
             return;
         };
@@ -1545,8 +1561,8 @@ impl AppState {
         // surface is the editor, not a dialog with a Save button.
         //
         // **A document open inside a markdown tab is not that case**: the key is over a file tab,
-        // and it means the file. The annotation surface writes through its own section edits,
-        // which save as they are confirmed, so nothing there is waiting on a ⌘S.
+        // and it means the file — the surface draws the tab's own view over the tab's own buffer,
+        // so a block committed there is an edit to the tab, saved here like any other.
         if self
             .workbench
             .plan
@@ -1925,6 +1941,7 @@ impl AppState {
         path: &str,
         cx: &mut Context<Self>,
     ) {
+        let config = self.md_view_config();
         let Some(open) = self.projects.get_mut(&project) else {
             return;
         };
@@ -1932,6 +1949,8 @@ impl AppState {
             return;
         };
         file.retarget(path);
+        // A rename can make a markdown file of what was not one.
+        attach_md_view(file, config, cx);
         let fresh = file.key();
         self.pending_panels
             .push(PanelEdit::Close(PanelKind::File(key.to_string())));
@@ -2064,6 +2083,7 @@ impl AppState {
             .take_if(|(key, _)| *key == tab_key(&path, Subject::File))
             .and_then(|(_, locus)| range_for(&text, &locus));
 
+        let config = self.md_view_config();
         if let Some(open) = self.projects.get_mut(&project)
             && let Some(file) = open.editor.find_mut(&path)
         {
@@ -2078,6 +2098,7 @@ impl AppState {
                 contents.version,
                 change,
             );
+            attach_md_view(file, config, cx);
             if let Some((selection, scroll)) = restore {
                 buffer.update(cx, |state, cx| {
                     state.set_selected_range(selection, cx);
@@ -2102,6 +2123,44 @@ impl AppState {
     // bus from this screen is the one thing that is not about arrangement — what the user typed at
     // an agent, which `steer_column` sends. Every handler is guarded on the window holding a
     // project, because the screen is a view of one project's work.
+}
+
+/// Hang a markdown view over `file`'s buffer when it is a markdown file holding one and has none
+/// yet. The view shares the buffer — never a copy — so a block commit is an edit to the tab, and
+/// its link clicks come back to the window through [`AppState::follow_link`], resolved against
+/// the file's own path.
+pub(super) fn attach_md_view(
+    file: &mut OpenFile,
+    config: MdViewConfig,
+    cx: &mut Context<AppState>,
+) {
+    if file.viewer != ViewerKind::Markdown || file.md.is_some() {
+        return;
+    }
+    let Some(buffer) = file.buffer().cloned() else {
+        return;
+    };
+    let config = MdViewConfig {
+        reading: file.md_reading,
+        ..config
+    };
+    let linked = file.layout == ViewLayout::Split;
+    let view = cx.new(|cx| {
+        let mut view = MdView::new(buffer, config, cx);
+        view.set_linked(linked);
+        view
+    });
+    let base = file.path.clone();
+    // Links are the tab's; everything else is the annotation surface's while this view is the
+    // open document's (`ViewLayout::Annotation`), and ignored otherwise.
+    let events = cx.subscribe(
+        &view,
+        move |this, view, event: &MdViewEvent, cx| match event {
+            MdViewEvent::LinkClicked(target) => this.follow_link(&base, target, cx),
+            _ => this.document_md_event(&view, event, cx),
+        },
+    );
+    file.set_md(view, events);
 }
 
 /// The bytes one tab writes, and the in-flight text its acknowledgement rebases against.

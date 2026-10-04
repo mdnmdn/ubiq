@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's opt-in DB mode — the project's saved database connections (PostgreSQL, MySQL/MariaDB, SQLite, SQL Server) and the Databases section that edits them, the explorer tree, table tabs that page, filter and edit rows, SQL tabs with a timer, Stop, Explain and a read-only guard enforced in three layers by the host, the DBML export, where `db.toml` and the sealed passwords live, and the `ubiq-db` engine and host sessions behind it.
 read_when: you are changing the DB mode — the explorer, a table or SQL tab, the connection form, the Databases settings section, the host's database sessions, how a password is kept, or the `ubiq-db` engine
-updated: 2026-10-02
-verified: 2026-10-01
+updated: 2026-10-04
+verified: 2026-10-04
 code_anchors: [crates/ubiq-db/src/lib.rs, crates/ubiq-db/src/sql/readonly.rs, crates/ubiq-db/src/edit.rs, crates/ubiq-db/src/driver/mod.rs, crates/ubiq-db/src/dbml.rs, crates/ubiq-db/src/driver/structure.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-host/src/db/mod.rs, crates/ubiq-host/src/db/session.rs, crates/ubiq-host/src/db/jobs.rs, crates/ubiq-host/src/db/store.rs, crates/ubiq-host/src/db/secrets.rs, crates/ubiq-host/src/db/agent.rs, crates/ubiq-host/src/db/editors.rs, crates/ubiq/src/state/db/mod.rs, crates/ubiq/src/state/db/tree.rs, crates/ubiq/src/state/db/table.rs, crates/ubiq/src/state/db/sql.rs, crates/ubiq/src/state/db/pending.rs, crates/ubiq/src/app/db/mod.rs, crates/ubiq/src/app/db/table.rs, crates/ubiq/src/app/db/sql.rs, crates/ubiq/src/ui/db/mod.rs, crates/ubiq/src/ui/db/explorer.rs, crates/ubiq/src/ui/db/table.rs, crates/ubiq/src/ui/db/sql.rs, crates/ubiq/src/ui/db/conn_form.rs, crates/ubiq/src/ui/db/settings.rs]
 depends_on: [feat-workbench, tech-transport, tech-ui, tech-architecture]
 review_cycle: monthly
@@ -78,6 +78,10 @@ cell holding an object or array, or one forced with the `{ }` button) opens a JS
 Format, Minify and Set NULL. Edits are pending, never sent as typed: an edited cell is bold and its
 row tinted by its mark (edited, inserted, deleted), the **SQL preview** shows the statements Apply
 will run, and Apply sends them as one batch. A table with no primary key says so with a badge ("edits match on all columns"). Paging, refresh and filtering refuse while edits are pending.
+
+**`⌘W` closes the displayed SQL or table tab.** A SQL tab closes at once (its text is kept as a
+draft); a table tab with pending edits first asks on the file tabs' "Unsaved changes" confirm, and
+Discard closes it.
 
 **Read-only is visible, and enforced elsewhere.** A table tab is read-only when its connection is,
 when it shows a view or synonym, or when its lock is on; the lock toggles on a read-write
@@ -194,7 +198,8 @@ keystore, connection states, the open tabs and the password prompt), `tree.rs` (
 the filter and `db_menu_entries`, all pure), `table.rs`, `sql.rs` (including `pick`, the pure Run
 rule), `pending.rs` (the edit buffer) and `form.rs`. `app/db/` holds the handlers: `mod.rs` is
 the only place a `Db*` message is built and `receive_db` the only place its replies arrive, called
-from `app/wire.rs`; `explorer.rs`, `table.rs`, `sql.rs` and `settings.rs` own their gestures.
+from `app/wire.rs`; `close_active_db_tab()` answers `⌘W` (`close_active_editor()` asks it first) and
+raises `FileDialog::DiscardChanges` for a tab with pending edits; `explorer.rs`, `table.rs`, `sql.rs` and `settings.rs` own their gestures.
 `ui/db/` draws: `explorer.rs`, `table.rs` with `grid.rs`, `cell_input.rs` and `json.rs`, `sql.rs`
 with `results.rs` and `plan.rs`, `conn_form.rs`, `settings.rs`, and `keys.rs` for the actions and
 bindings in the `DbTable` and `DbSql` key contexts. Widgets that need a `Window` are queued and built

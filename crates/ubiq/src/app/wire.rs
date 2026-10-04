@@ -1862,13 +1862,15 @@ impl AppState {
                         plan.set_annotations(crate::state::document::AnnotationsBody::Loaded {
                             blocks: Vec::new(),
                             annotations: Vec::new(),
+                            highlights: Vec::new(),
                         });
                         // And so did the provenance: a plan that is gone has no lines anybody
                         // changed.
                         plan.set_changes(Vec::new(), ubiq_proto::plan::PlanChangeStats::default());
                         plan.composer = None;
-                        plan.thread = None;
+                        plan.focused = None;
                     }
+                    self.refresh_document_decor(cx);
                 }
                 cx.notify();
             }
@@ -1931,6 +1933,7 @@ impl AppState {
                 doc,
                 blocks,
                 annotations,
+                highlights,
             } => {
                 // Kept for a file document independent of whether the surface stays the one open
                 // below — `AppState::has_annotations()`'s own read once it does not
@@ -1952,7 +1955,10 @@ impl AppState {
                     plan.set_annotations(crate::state::document::AnnotationsBody::Loaded {
                         blocks,
                         annotations,
+                        highlights,
                     });
+                    // The margin follows the threads at once, not on the next frame.
+                    self.refresh_document_decor(cx);
                 }
                 cx.notify();
             }

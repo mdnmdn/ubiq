@@ -29,7 +29,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{AnnotationId, BlockId, ProjectId, TaskId};
-use crate::work::{Comment, CommentAuthor};
+use crate::work::{Addressee, Comment, CommentAuthor};
 
 /// Which document the annotation family is talking about.
 ///
@@ -275,6 +275,36 @@ impl AnnotationState {
     }
 }
 
+/// A flag on a thread: what it is waiting on. Several may stand at once.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnnotationMark {
+    /// An agent is asked to act on it.
+    Agent,
+    /// Something to do.
+    Todo,
+    /// A question that wants an answer.
+    Question,
+}
+
+/// The colour of a block's highlight.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HighlightColour {
+    Yellow,
+    Green,
+    Blue,
+    Red,
+    Purple,
+}
+
+/// A colour on a whole block, independent of any thread. Dropped when its block vanishes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct BlockHighlight {
+    pub block_id: BlockId,
+    pub colour: HighlightColour,
+}
+
 /// One annotation on a plan, with its whole thread.
 ///
 /// The thread is never empty: the comment that opened the annotation is its first entry, and a
@@ -297,6 +327,9 @@ pub struct Annotation {
     pub orphaned: bool,
     pub thread: Vec<Comment>,
     pub created_at: DateTime<Utc>,
+    /// The flags standing on the thread, each at most once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<AnnotationMark>,
 }
 
 impl Annotation {
@@ -315,12 +348,35 @@ impl Annotation {
             orphaned: false,
             thread: vec![Comment::new(author, text, now)],
             created_at: now,
+            marks: Vec::new(),
         }
     }
 
     /// Append to the thread.
     pub fn reply(&mut self, author: CommentAuthor, text: String, now: DateTime<Utc>) {
         self.thread.push(Comment::new(author, text, now));
+    }
+
+    /// Append to the thread, addressed to someone.
+    pub fn reply_to(
+        &mut self,
+        author: CommentAuthor,
+        text: String,
+        now: DateTime<Utc>,
+        to: Option<Addressee>,
+    ) {
+        self.thread.push(Comment::addressed(author, text, now, to));
+    }
+
+    /// Set or clear a mark. True when the marks changed.
+    pub fn set_mark(&mut self, mark: AnnotationMark, on: bool) -> bool {
+        let has = self.marks.contains(&mark);
+        match (on, has) {
+            (true, false) => self.marks.push(mark),
+            (false, true) => self.marks.retain(|m| *m != mark),
+            _ => return false,
+        }
+        true
     }
 
     /// What the annotation asked, for a list that draws one line per thread.

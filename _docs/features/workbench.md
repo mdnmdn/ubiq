@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-10-01
-verified: 2026-10-02
+updated: 2026-10-04
+verified: 2026-10-04
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -1350,9 +1350,9 @@ active preset — `Size — <preset>` or `Size — Custom`.** Clicking it opens 
 anchored menu rather than a modal — no scrim, dismissed by an outside click or by Escape through
 `MenuId::Size` — holding a row of preset pills, the interface slider over `ui_scale`, the text
 slider over `text_ratio`, and a `Save preset…` / `Reset` pair of `kit::ghost_button`s; no number and
-no unit appears anywhere in it. It works with no project open. `cmd-=` and `cmd-shift-=` nudge the
-content family's own trim up and `cmd--` down, by ±0.05 within the range the chrome admits,
-independently of the popover — the content trim pill ladder is one of the three the Size settings
+no unit appears anywhere in it. It works with no project open. `cmd-=` and `cmd-shift-=` move the
+text-size slider one stop up and `cmd--` one down (`AppState::nudge_text_ratio`, ±0.05, clamped,
+the slider follows) — the content trim pill ladder is one of the three the Size settings
 section draws instead.
 
 **An explorer row is sized from its text, not from a constant.** The row's height and the tree's
@@ -1502,7 +1502,7 @@ inverse computed from a mode. Which family, which accent and how tight the grid 
 interface rather than to any one project: all three are written into `InterfacePrefs` as they change
 and are what a second window opens in, and so are the chrome and conversation text bases
 (`chrome_font_size`, `conversation_font_size`). The project keeps one size of its own, the content
-family's, nudged by `cmd-=` / `cmd-shift-=` / `cmd--` and set from the Size settings section's
+family's, set from the Size settings section's
 content trim pills. The token set, the palette registry and the four axes
 belong to the UI and design document, linked below.
 
@@ -1601,7 +1601,7 @@ saying no file is open, because the files are panels of their own:
 | New agent form | `ui/new_agent.rs` | A modal over the whole window, above the settings overlay | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::new_agent`, or the settings page's `definition_form` — one `NewAgentForm` either way |
 | Add KB source form | `ui/kb/source_form.rs` | A modal over the whole window, above the project settings overlay that raises it | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::kb_source`, one `KbSourceForm` |
 | Database connection form | `ui/db/conn_form.rs` | A modal over the whole window, above the project settings overlay that raises it, under its own `Layer::DbForm` dismissal guard | `MODAL_WIDTH`; its body scrolls inside it | `DbState::form`, one `DbConnForm` |
-| Plan editor | `ui/plan.rs` over `ui/document.rs` | A surface over the whole window, raised from a mission's task panel — **a dialog by decision**, and the one frame of the shared annotation surface that is one | `MINIMAP_WIDTH` + `DOC_WIDTH` + `RAIL_WIDTH` by `DOC_HEIGHT`; the minimap, the document and the thread rail each scroll (or, for the minimap, position marks) inside it, arranged left-to-right by `UiSettings::md_minimap_side` | `WorkbenchState::plan`, one `DocumentEditor`, over the window's `plan_editor` buffer; the minimap's own show/hide is `UiSettings::md_minimap` |
+| Plan editor | `ui/plan.rs` over `ui/document.rs` | A surface over the whole window, raised from a mission's task panel — **a dialog by decision**, and the one frame of the shared annotation surface that is one | `DOC_WIDTH` + `RAIL_WIDTH` by `DOC_HEIGHT`; the document's `MdView` (its minimap inside it, on the side `UiSettings::md_minimap_side` names) and the thread rail each scroll inside it | `WorkbenchState::plan`, one `DocumentEditor`, its `md` view over the window's `plan_editor` buffer; the minimap's own show/hide is `UiSettings::md_minimap` |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
 | KB document | `ui/kb/` | The centre panel in `KB` mode | A flush header naming the document, then the body fills the rest and scrolls | `KbState::doc`, the one document the explorer selected |
@@ -1699,7 +1699,7 @@ for a window with no project without a caller having to check, and `work_mut()`,
 `graph_mut()` and `board_mut()` are the writing twins of the four over the work. `drop_project()` writes the project's blob, parks a copy against a
 reopen in the same session, kills its panes and unloads every conversation whose harness is up. The content family's live text
 size is `theme::content_base()`, a trim over `theme::TEXT_BASE` held in `InterfacePrefs`, not the
-project; `nudge_content_trim()` is how it changes, reconfiguring every already-open emulator in
+project; `set_trim()` is how it changes, reconfiguring every already-open emulator in
 every project the window holds through `redress_terminals()`, debounced behind `settle_metrics`, so
 a zoom reaches panes that are on screen with no project open required. `toggle_editor_wrap()` flips a project's wrap and brings every open buffer into line, and
 `remember()` writes the explorer's filter down with the rest of the view prefs, alongside a

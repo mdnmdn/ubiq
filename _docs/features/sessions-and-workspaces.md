@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-09-25
-verified: 2026-09-24
+updated: 2026-10-04
+verified: 2026-10-04
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/agent-manager/src/session.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -117,6 +117,10 @@ resume (`ResumeConversation`, or the next `PromptAgent`) needs to start the harn
 same `agent_id`, continuing the same message sequence rather than starting a new one. Delete
 (`EndConversation`) is still what removes the run directory and its credentials, and takes the
 conversation with it.
+
+**A harness that exits on its own is parked, not ended.** The coordinator's `reap_conversations()`
+puts a conversation whose process died unasked — a crash, an auth or API error, or a one-shot
+turn finishing — back as unloaded, so Unload, Resume and Close keep working from the errored state.
 
 **An abort is an unload that does not ask.** `UnloadConversation` asks the harness to shut down
 and waits for it to; `AbortConversation` kills its process and reaps it afterwards, for the harness

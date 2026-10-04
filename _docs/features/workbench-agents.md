@@ -32,7 +32,8 @@ off `state::status::agent_status(agent, conversation)`: the outer hexagon reads 
 inner core the activity or the result, and the core pulses only while the lifecycle is `Working`.
 The dock's own tab strip wears the same mark for a chat tab (`TabInfo::dot_status`), so a column's
 tab and a chat tab agree pixel for pixel; a tab with no live conversation reads `agent_status`'s
-record fallback rather than nothing. The one first line `ui::conversation::lifecycle_header` draws
+record fallback rather than nothing. A column tab's name is capped at `TAB_NAME_MAX_WIDTH` and
+ellipsised, the full name leading its tooltip. The one first line `ui::conversation::lifecycle_header` draws
 — the three-dots menu and, flush against the strip's right edge, the current-action `status_chip`
 — is where a reader scanning for *what* an agent is doing looks now; the hexagon on the tab says
 *whether* it still can. A grouped column's tabs and its `lifecycle_header` read the same

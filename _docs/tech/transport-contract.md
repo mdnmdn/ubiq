@@ -1098,10 +1098,12 @@ The names stayed `Plan*` because the records the family carries are (`PlanBlock`
 | `PlanExported` | host → UI | `doc`, `rel_path` | — |
 | `PlanChanged` | host → UI | `doc`, `revision`, `origin` | — |
 | `ListPlanAnnotations` | UI → host | `doc` | `PlanAnnotations` or `PlanError` |
-| `AnnotatePlan` | UI → host | `doc`, `block_id`, `quote?`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
-| `ReplyToAnnotation` | UI → host | `doc`, `annotation_id`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `AnnotatePlan` | UI → host | `doc`, `block_id`, `quote?`, `text`, `marks`, `to?` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `ReplyToAnnotation` | UI → host | `doc`, `annotation_id`, `text`, `to?` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `MarkAnnotation` | UI → host | `doc`, `annotation_id`, `mark`, `on` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `SetBlockHighlight` | UI → host | `doc`, `block_ids`, `colour?` (absent clears) | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
 | `ResolveAnnotation` | UI → host | `doc`, `annotation_id`, `resolved` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
-| `PlanAnnotations` | host → UI | `doc`, `blocks`, `annotations` | — |
+| `PlanAnnotations` | host → UI | `doc`, `blocks`, `annotations`, `highlights` | — |
 | `PlanAnnotationsChanged` | host → UI | `doc` | — |
 | `ListPlanChanges` | UI → host | `doc`, `since_revision?` | `PlanChanges` or `PlanError` |
 | `PlanChanges` | host → UI | `doc`, `regions`, `stats` | — |
@@ -1169,6 +1171,17 @@ and an annotation it already holds is unreadable without the block index to name
 `PlanError` rather than creating an annotation orphaned on arrival. Every mutation is answered like
 `SavePlan`: the current whole to the asker as `PlanAnnotations`, and `PlanAnnotationsChanged` —
 carrying nothing — to every other window.
+
+**Marks, addressing and highlights.** An annotation carries `marks`, a set of `Agent`, `Todo` and
+`Question` flags (absent on the wire when empty, so a sidecar written before they existed loads).
+`AnnotatePlan` may open a thread with marks already standing, and `to: Some(Agent)` — also available
+on `ReplyToAnnotation`, and stored on the `Comment` as `to` — addresses that comment to an agent and
+sets the `Agent` mark; `MarkAnnotation` sets or clears one mark. Delivering an addressed comment to
+an agent is not part of this contract yet. `SetBlockHighlight` colours blocks (`Yellow`, `Green`,
+`Blue`, `Red`, `Purple`) independently of any thread, or clears them with no colour; an id the plan
+does not have is refused. Highlights live in the sidecar and are returned as `highlights` on
+`PlanAnnotations`; a save that drops a block drops its highlight, and any save that changes the block
+index sends `PlanAnnotationsChanged`.
 
 **Edit provenance is a second sub-family, and it counts lines rather than blocks.** A plan carries
 a monotonic `revision` bumped on every save of its body, and every save records whether it was a

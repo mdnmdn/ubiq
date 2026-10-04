@@ -89,8 +89,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // the explorer's Escape and every field's Enter are untouched.
         .on_action(cx.listener(AppState::confirm_dialog))
         .on_action(cx.listener(AppState::cancel_dialog))
-        .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.nudge_content_trim(1, cx)))
-        .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.nudge_content_trim(-1, cx)))
+        .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.nudge_text_ratio(1, window, cx)))
+        .on_action(
+            cx.listener(|this, _: &ZoomOut, window, cx| this.nudge_text_ratio(-1, window, cx)),
+        )
         // ⌘1..⌘9 jump to the Nth project the rail's badges show; ⌃1..⌃9 jump to the Nth rail
         // mode enabled for the current project. Both no-op past the last one.
         .on_action(cx.listener(|this, _: &ProjectSlot1, window, cx| {

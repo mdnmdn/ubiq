@@ -14,10 +14,6 @@ pub type Action = Rc<dyn Fn(&mut Window, &mut App)>;
 /// The same, for the callbacks that carry the row or tab that was clicked.
 pub type IndexedAction = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
-/// The same, for a callback that carries a fraction down a continuous strip — `kit::minimap`'s
-/// scrub, `0.0` at the top and `1.0` at the bottom.
-pub type ScrubAction = Rc<dyn Fn(f32, &mut Window, &mut App)>;
-
 /// Which [`UbiqIcon`] draws a harness — matched on the library's own id (`AgentTypeInfo::id`,
 /// e.g. `"claude-code"`) where that reached the call site, or on the display name the host minted
 /// for a live conversation (`AgentTypeInfo::label`) where only that did. Answers
@@ -46,9 +42,7 @@ pub mod colour;
 pub mod controls;
 pub mod files;
 pub mod icons;
-pub mod md_navigator;
 pub mod menu;
-pub mod minimap;
 pub mod overlay;
 pub mod panel;
 pub mod popover;
@@ -67,12 +61,10 @@ pub use files::{
     file_row, filter_bar, kind_icon, row_font, row_height, row_indent, twisty, view_switch,
 };
 pub use icons::UbiqIcon;
-pub use md_navigator::{MdNavEntry, md_navigator};
 pub use menu::{
     ContextItem, MultiPicker, Picker, PickerStyle, context_menu, context_panel, multi_label,
     multi_order,
 };
-pub use minimap::{MinimapMark, MinimapTick, MinimapViewport, minimap};
 pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;

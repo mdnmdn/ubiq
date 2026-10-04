@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
-updated: 2026-10-02
-verified: 2026-10-02
-code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
+updated: 2026-10-04
+verified: 2026-10-04
+code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -195,10 +195,9 @@ qualifies, filtered alongside every other board filter, so the status bar's coun
 
 **A mission's panel offers its plan; an ordinary task's does not.** The affordance is drawn only for
 a task carrying a `level` — a task with `level: None` has no plan and the panel offers no route to
-one. Opening it raises the document over the whole window, three columns: a thin minimap down the
-left, the plan as an ordinary markdown preview — no source view, no layout toggle, the page drawn
-section by section with a gutter down its right where each section reports its threads — and beside
-it the rail of threads, plus an Export action that writes an explicit, one-shot copy into the
+one. Opening it raises the document over the whole window, two columns: the plan as a markdown view
+with its annotation layer on — no source view, the page drawn block by block with a margin where
+each row reports its threads and offers its actions — and beside it the rail of threads, plus an Export action that writes an explicit, one-shot copy into the
 project's working tree at a path the user picks, never a continuous mirror. A mission nobody has
 planned says so instead of reporting an error, the same way a task with no sub-tasks does.
 
@@ -371,111 +370,31 @@ mission* row sets the same filter. It is saved with the board's view state per p
 every other filter on the toolbar (`T-169`), and is cleared rather than left pointing at nothing
 when the mission it names is deleted or demoted off `Level::Mission`.
 
-**The minimap is a miniature of the document's own layout, not a row of identical ticks (T-110).**
-The first cut drew one full-width mark per thread and nothing else, which read as noise rather than
-orientation once there was more than a couple of threads; the rework follows
-`_docs/inbox/markdown-improvement-proposal.md` §8.2's table instead. `kit::minimap`
-(`ui/kit/minimap.rs`) stays the reusable primitive — geometry and colour as data, nothing
-plan-shaped in it — over three inputs: a `&[MinimapMark]` for the document's own shapes, a
-`&[MinimapTick]` for a small coloured mark on the strip's outer edge, and an optional
-`MinimapViewport`, the translucent rectangle standing for the visible region. `on_select` answers a
-tick's click; `on_scrub` answers a click or a drag anywhere on the strip with the fraction it
-landed at, one callback for both because a scrub always recomputes its target from scratch rather
-than tracking a drag anchor.
+**The plan surface is a markdown view with its annotation layer on** (T-302). The page is an
+`MdView` — the same view a markdown tab's preview is: one row per root block of the `ubiq_md`
+parse, virtualized, with its own minimap and heading navigator — and the annotation layer draws in
+its margins without moving a line of text. Every row with threads carries a **count marker** in the
+far margin, in the open colour while any thread on it is still asking and the resolved colour once
+all are settled, with the flags standing on its open threads beside it. Clicking a row selects it,
+and **the selected row gets the action stack**: `⚑` (a mark menu — Agent, Todo, Question), `✓` or
+`↺` (resolve the row's open thread, or reopen a settled one), `+` (a new thread), `●` (a highlight
+menu — five colours and Clear) and, while Edit is on, `✎`. **A highlight colours a block
+independent of any thread** and shows as a dot in the left margin in every layout that draws the
+view. The view decides nothing: each control is an intent the window acts on, and the margin
+redraws from what the host answers. The chrome above the page carries the heading navigator (the
+view's own jump popover), the Edit chip and the minimap toggle — `UiSettings::md_minimap`, shared
+with every markdown view and docked by `UiSettings::md_minimap_side`.
 
-`state::document::minimap_rows` is the pure function behind the shapes: **one mark per block, of
-every kind** (T-134) — a paragraph's or a table's own row-per-source-line drawing once read as a
-barcode against the reference minimap's look, so each is sized to its widest line instead, `length`
-measured in characters against a fixed column-width constant rather than by real glyph width,
-because there is no second layout pass to measure by (§8.5) and the preview's markdown renderer
-exposes no per-line fragment geometry to place one against instead. A paragraph that is a single
-image reference draws as a neutral filled rectangle; there is no image block kind at the host's own
-parsing layer to key this off (an image is phrasing inside a paragraph, not a block), so it is a
-heuristic over the paragraph's text. **`ui/document.rs` places a row by block index over block
-count, not by measured pixels** (T-150). It used to ask `ScrollHandle::bounds_for_item` for a real
-span down the strip once there had been a frame to measure, and spread blocks evenly until then;
-now that the section list is virtualized the only sections with a measured height are the ones
-somebody has scrolled past, so there is no total document height to divide a pixel offset by, and
-mixing measured pixels for the rendered sections against an even spread for the rest would put the
-two halves of the strip in different coordinate systems and make a mark jump as its block came into
-view. Every mark, every thread tick and the viewport rectangle are therefore placed in one space —
-block index — which is stable from the frame the document opens in and is the space a scrub is read
-back into. What that costs is §8.3's real, 1:1 scale for a short document: the strip always spans
-the whole document now, and a mark's height is its share of the block count rather than of the
-page.
-
-`state::document::thread_marks` is still the pure function behind the outer-edge ticks, positioning
-each open thread by the index of the block it anchors to, the same way `heading_sections` positions
-the navigator's rows; an orphaned thread (its block gone from the document) carries no tick, on the
-gutter's own rule. Colour is `theme::info` for an open thread and `theme::success` for a resolved
-one, the gutter's own pairing. Clicking a tick shows its thread exactly the way the rail's own
-**Show** button does; clicking or dragging anywhere else on the strip scrubs the preview's scroll
-position towards wherever the pointer lands, the viewport rectangle following it — there is no
-separate drag-to-resize-viewport gesture, one scrub formula serves a click and a drag alike. The
-strip's own show/hide control sits in the chrome, next to the heading navigator, and is
-`UiSettings::md_minimap` (`state/settings.rs`) — one flag shared with the standard viewer's own
-heading minimap (above), on by default, remembered on the Ui settings layer like every other
-reading habit there. `UiSettings::md_minimap_side` says which edge it docks to, `Left` by default;
-set to `Right`, the strip is drawn between the document and the thread rail rather than past it, so
-the rail stays the modal's outermost column either way. The modal's own width absorbs
-the strip's cost split both ways: `DOC_WIDTH` dropped from `860` to `820`, and the modal grew by the
-remainder to fit `MINIMAP_WIDTH` (`72`) alongside it, whichever side it draws on.
-
-**The one thing above the document is the heading navigator** —
-`kit::md_navigator` (`ui/kit/md_navigator.rs`), a reusable dropdown built for any markdown surface
-with threads on it, not grown inline for the plan alone. The navigator paints above the modal when
-the plan editor is modal, using the kit's existing layer convention: an `above_modal` flag selects
-`MODAL_MENU_LAYER` instead of `MENU_LAYER` (`crates/ubiq/src/ui/kit/menu.rs`). Its trigger is the
-same "N threads open" count the chrome always said; opening it lists every heading in the document,
-indented by depth, each beside how many threads its own section carries — open against settled,
-counted flat rather than rolled into its parents, because a `##`'s count already includes what is
-under it once and a nested rollup would count it again for a second row on screen. Picking one, or
-a thread's own **Show** button in the rail, scrolls the preview to that section —
-`AppState::plan_preview_list`, indexed the same way the list itself is built.
-
-**Frontmatter is a block kind, and the parser is what says so** (T-154). The shared split options
-are `crates/ubiq-proto/src/blocks.rs::options` — `ParseOptions::gfm()` with the frontmatter
-construct turned on — so a document opening with `---` yields one block of kind `frontmatter`,
-delimiters and all, rather than the thematic break plus Setext heading plain GFM produced. Nothing
-downstream needs a special case to keep it out: it has no heading level, so `heading_sections`
-passes it over, and no arm in `minimap_rows`, so it draws no shape. `ui::document::section` reads
-the kind and draws it in the preview's own collapsed-frontmatter typography (mono, faint, dense)
-instead of through the block renderer, because YAML is not prose. This replaced
-`state::document::is_frontmatter_fields`, a positional predicate in the consumer that recognised
-the misparse by its shape and position; the parser telling the truth deleted it outright.
-
-**The section list is virtualized** (T-150). Every section is drawn as its own `TextView` so that
-it can carry its own gutter and its own click target, and an ordinary flex column laid every one of
-them out on every frame whether or not it was on screen — measured on a real window, a 400-block
-document cost roughly forty times per frame what a ten-block one did, which is the whole of "the
-annotation view gets slow". `preview` draws the sections through `gpui::list` against
-`AppState::plan_preview_list`, a `ListState` rather than a `ScrollHandle`: only the sections
-between the scroll top and the bottom of the viewport plus `PLAN_OVERDRAW` reach the row builder,
-and a section off screen contributes its cached height and nothing more. The same measurement after
-the change: a 400-block document is about twenty times cheaper per frame. Two consequences the
-surface has to keep honest: the row builder is kept for the life of the `ListState` rather than for
-one render, so it reads the document fresh off the window's entity rather than borrowing a frame's
-`AppState` (the same shape `ui/board/mod.rs`'s own `render_row` takes, and the reason a section's
-handlers are `window.listener_for` rather than `cx.listener`); and a row's own margin is invisible to
-`gpui::list`, so any gap between sections has to be padding — which costs nothing here, because the
-sections are flush by design.
-
-**The thread rail is virtualized the same way** (T-152). `preview`'s own list left one axis
-ungrown: a thread card costs about as much to lay out as a section does — 1.8ms a card, measured
-in a debug build — and that cost follows the *thread count*, not the document's length, so
-`gpui::list` over the sections never touched it. `ui::document::thread_list` is `preview`'s own
-rule read again, against its own `ListState` (`AppState::plan_thread_list`): only the cards between
-the scroll top and the bottom of the viewport plus `PLAN_OVERDRAW` reach `thread_row`, which reads
-the document fresh off the window's entity the way `section_row` does, for the same reason. A
-row's own margin is invisible to `gpui::list` here too, so the gap the unvirtualized column drew
-with `gap_2` is a `pb_2` on each row instead. The composer, while a fresh thread is being drafted,
-takes item `0` and the rest shift down by one; `DocumentEditor::rail_annotation_ids` is already
-empty in the ordinary case this happens (the composer hides the rest, `hides_other_threads()`), so
-the composer and the list only share the rail together when `thread_focus_override` — the rail's
-own "Show all threads" — is on, which is the one case the original, unvirtualized column drew both
-at once. `kit::minimap` was measured alongside it (~12–18ms at 400 blocks in debug) and left alone:
-it draws one element per block already sized from `state::document::minimap_rows`, no per-frame
-layout pass of its own to cut, so there was nothing here cheap enough to be worth the change.
+**Two block models meet in the margin.** The host indexes the document into `PlanBlock`s and owns
+their ids; the view lays out `ubiq_md` rows. A host block belongs to the row holding the start of
+its text, so a row can carry several — a list is one row and each item a block — and a row sums the
+threads of every block in it. A new thread on a row is about the row's first block; a highlight on
+a row colours every block in it; marking a row flips the mark on its focused thread, else its
+first, and on a row with no thread opens the composer with the mark preset, so marking never posts
+an empty thread. A block typed since the last save has no host id yet, and the surface says to save
+first rather than posting a thread that would be orphaned on arrival (`D203`). Frontmatter is a
+block kind in the host's index (T-154, `ubiq_proto::blocks::options`), so a thread anchors on it
+like on any other block.
 
 **A source edit no longer warns about annotations that do not exist** (T-183). Two independent
 changes. First, `AppState::has_annotations()` — what the header's annotation dot and the
@@ -489,7 +408,7 @@ scratch, refusing the very first annotation ever made on a document. A save's re
 and its provenance layer are the same story: `Plans::save()`'s conflict arbitration is only real
 because a second call reads back what the first one wrote. None of that is about whether the
 document carries a thread, so presence was never an honest signal for it — a document merely
-opened in the annotation surface, or section-edited once, already earns a sidecar with nothing
+opened in the annotation surface, or block-edited once, already earns a sidecar with nothing
 annotated in it. The fix is on the read side instead: a document actually open in the annotation
 surface still answers from its own loaded threads, exactly as before; one that is not — which a
 tab showing raw source always is, since that is exactly what closes it
@@ -510,33 +429,14 @@ It gates `AppState::ask_for_plan_changes` — the request behind `ListPlanChange
 line counts — and nothing on the wire carries it; this half is independent of the warning fix
 above, a purely local choice about what the surface asks for.
 
-**The plan is written here, not only read — one section at a time.** Double-clicking a section, or
-its gutter's edit button, opens that section alone as raw markdown in a field under the rest of the
-page; Confirm splices what was typed back into the document and saves it, and the preview returns.
-**The field's own row takes an explicit width** (T-153): `section_editor`'s `kit::slab` carries
-`.w_full().min_w(px(0.))`, because it is a row inside `gpui::list`, measured through
-`layout_as_root` rather than stretched by a parent flex the way an ordinary section is — without an
-explicit width it measured to roughly its own content's width rather than the section's, a cause
-read off the layout chain rather than confirmed on screen. **When the edited text parses into several blocks, the source block is replaced with all of them.**
-The anchor `block_id` stays on the **first** resulting block; the rest get fresh ids
-(`parse_section_blocks` + `DocumentEditor::replace_cached_block` in
-`crates/ubiq/src/state/document.rs`, called from `confirm_section_edit` in
-`crates/ubiq/src/app/plan.rs`). `parse_section_blocks` is a thin wrapper over
-`ubiq_proto::blocks::blocks` — the host's own walk — so the cache is split by the rules the
-re-index will apply and not by a second copy of them. **Confirming an all-whitespace section removes it** —
-`state::document::splice_section` closes the blank-line gap it would otherwise leave — rather than
-saving an empty paragraph where it stood.
-**The preview does not wait for the host to say the section changed.** Every block the preview
-draws comes from the cached index `PlanAnnotations`/`PlanAnnotationsChanged` last filled in, and the
-host only restates it — `PlanAnnotationsChanged` — when a save's reindex orphans a thread; an edit
-that keeps every anchor, the ordinary case, never earns one. Confirm patches that cache itself with
-what was just written (`DocumentEditor::patch_block_text`, or `remove_cached_block` for a section
-emptied away), so the section shows its own edit immediately instead of only after the surface is
-closed and reopened — the host's own word, whenever it arrives, still settles over it.
-The document is still written whole: the buffer behind the surface holds the body, a section edit
-replaces its slice of it, and `SavePlan` carries the result — so the host re-indexes from a single
-write, an edit that has become several sections simply becomes several sections, and the threads
-stay on the section they were about wherever the block matching still recognises it. ⌘S and the
+**The plan is written here, not only read — one block at a time.** With Edit on, double-clicking
+a block (or the selected row's `✎`) swaps it for a raw-markdown field in place; committing writes it
+back into the document's buffer, and the dialog saves at once, as an ordinary whole-document
+`SavePlan` — the host re-indexes from that single write, an edit that has become several blocks
+simply becomes several blocks, and the threads stay on the block they were about wherever the block
+matching still recognises it. The view reparses the buffer itself, so the page shows the edit before
+the host answers. In a markdown tab the same commit is an edit to the tab, saved the way every tab
+is. ⌘S and the
 Save button send `SavePlan` with the whole
 buffer; the host answers with the document it stored, which is what settles the surface clean. An
 edit is never thrown away to win a race: a plan that changed elsewhere — another window's save, an
@@ -563,29 +463,35 @@ a plan an agent wrote from nothing read as agent lines throughout with the human
 out against them — and the footer counts what changed beside the saved/unsaved word: lines added,
 removed and modified, how many blocks were touched, with a dot for each origin that is actually
 there. Counts, not a report: the revision split `PlanChangeStats` also carries stays off the status
-line. **The per-line underlines that drew those runs are off screen**, not gone: they are painted
-into the document buffer, and the buffer is no longer drawn (`G332`).
+line. **The per-line runs have no mark on the page** (`G332`): the footer's counts are the whole of
+what is drawn.
 
-**A section is the unit the reader acts on.** Hovering one lifts it and reveals two buttons in its
-gutter — start a thread on it, or edit it — and the gutter carries a count of the threads it
-already has whether or not the pointer is there, in the open colour while any is still asking and
-the resolved colour once they are all settled. Clicking a section claims it for a fresh thread, and
-the composer opens in the rail on that block; the rail lists every thread, hides the resolved ones
-behind a count, and its Show marks the section a thread is anchored to **and scrolls the preview
-there** — the same `plan_preview_scroll` the heading navigator's own rows use. **While composing a
-new thread, the other threads are hidden and the rail header shows a `Show all threads` button.**
-This is view state only (`thread_focus_override` on `DocumentEditor`), reset on every fresh
-composer. The granularity is a block, because a rendered document has no offsets to select a passage
-inside one — the anchor is the block, whose id is the host's, so a section the host has not indexed
-yet says to save first rather than posting a thread that would be orphaned on arrival.
-A thread shows the passage it names, its replies, and one composer to add another —
-resolving or reopening it is one button, offered to anyone looking, not gated to whoever opened it.
+**The threads live in the rail beside the page, never inline in it.** The rail is a chat-like
+list in document order — by row, then by age — virtualized (T-152), with resolved threads behind a
+count until asked for. Every thread is collapsed to its block's first line, its comment count and
+state, its mark badges and its first comment on one line, **except the focused one**, which is
+expanded: every comment, a chip per mark to flip it, Resolve, and Reply. **The focus follows the
+page**: as the reader scrolls, it moves to the first open thread on a row on screen, and keeps the
+current one while its row is still visible; clicking a collapsed thread, or a row's count marker,
+focuses it and scrolls its block into view. A resolved thread is always drawn collapsed, with
+Reopen. A fresh thread is written in the composer at the rail's foot, which names the block and
+carries its own mark chips and — like a reply — an **"@agent" toggle** that addresses the comment to
+the agent, as a leading `@agent` in the text does; the tag itself is not posted. Each comment shows
+who wrote it — an agent's on the agent's own ground, in its own ink — and a `→ agent` badge when it
+was addressed to one. Resolving or reopening is offered to anyone looking, not gated to whoever
+opened the thread.
 **A thread that has lost its block is marked, never dropped**: an orphan banner says so, and the
 thread keeps its replies and its state exactly as they were, because a passage rewritten out of
 existence is not the same fact as an answered question. An agent answers what the user opened
 through the `ubiq-plan` MCP server's `list_annotations`, `reply_annotation` and
-`resolve_annotation` — there is no tool that opens one, so a thread always starts on this side of
-the glass.
+`resolve_annotation`, and opens one with `annotate_plan` (anchored by a unique quote or a block id,
+optional marks, author Agent).
+**A comment addressed to `Agent` is delivered once it is saved** (T-303): on a plan or a mission
+document the coordinator sends the mission's coordinator — else the task's assignee, when that names
+an agent — a prompt from `Plans::agent_prompt` (annotation id, document, block excerpt, the comment,
+and the instruction to answer with `reply_annotation` / `resolve_annotation`) through the path a
+typed line takes. A file document, a refused mutation or nobody to tell delivers nothing, logged at
+debug; the comment and its Agent mark stand either way.
 
 **The task panel reports one task whole, and edits it in place.** Where it has got to and how much
 it matters share the top line, the first written where a column is named and the second right up
@@ -1044,8 +950,12 @@ is and puts the surface back where a third party's save would have put it: stale
 the copy, and asking the overwrite question again about the revision the host just stated.
 
 **The surface has two frames and one implementation** (T-124). `ui/document.rs::surface()` draws the
-notices, the minimap, the document and the thread rail, and knows nothing about which frame it is
-in; `DocumentEditor::presentation` is the only thing that differs. `Presentation::Modal` is the plan
+notices, the page — `DocumentEditor::md`, an `Entity<MdView>` with `set_annotating(true)` — and the
+thread rail, and knows nothing about which frame it is in; `DocumentEditor::presentation` is the only
+thing that differs. The dialog builds its view in `AppState::open_document()` over the window's
+`plan_editor` and subscribes to it; a tab lends its own `OpenFile::md`, whose subscription in
+`app/editor.rs::attach_md_view()` forwards every event but a link click to the same
+`AppState::document_md_event()`. `Presentation::Modal` is the plan
 editor, which **stays a dialog** — `ui/plan.rs` is now its title, its chrome strip, its footer and
 nothing else — and is the only one that takes `Layer::Plan`, so Escape and ⌘S still mean the dialog
 while it is up and mean the tab underneath otherwise. `Presentation::Viewer` is a markdown tab in
@@ -1055,22 +965,22 @@ while it is up and mean the tab underneath otherwise. `Presentation::Viewer` is 
 putting it away on the way out, and standing aside while the dialog is up. A second markdown tab
 left in that layout says so rather than drawing another file's threads. Two things are warned about
 in the tab and nowhere else: a mode that shows the buffer for editing says that editing the source
-can orphan a thread — never for a file with no annotations to orphan (T-183) — and a tab holding
-unsaved edits says the surface is showing the saved file instead. The header's annotation button
+can orphan a thread — never for a file with no annotations to orphan (T-183). The surface is the
+tab's own view over the tab's own buffer, so it waits for the tab's bytes and shows its unsaved
+edits; a block committed there dirties the tab, which saves the way every tab does. The header's annotation button
 carries a dot when the file is annotated and the reader is elsewhere, on
 `AppState::has_annotations()`'s own answer — the real count this window last heard for the path,
 where it has heard one, rather than the sidecar's mere presence (T-183, see below). The heading
-navigator is
-offered in all four positions: the open document's own indexed headings, with their thread counts,
-where there is one, and `markdown::heading_marks()` off the buffer otherwise.
+navigator and the Edit chip are the tab's markdown view's own in `Preview`, `Split` and
+`Annotation` (`ui/document.rs::heading_control()`, `::edit_chip()`), and `Source` offers neither
+(`_docs/features/workbench-ide.md`).
 
 The buffer itself is the
 window's `plan_editor`, one `EditorState` built in `app/boot.rs` with `ui::editor::SlashCommands`
-installed as its completion provider; `settle_plan_editor()` seeds it and repaints its decorations
-in `render`, where there is a `Window`, for the reason `attach_arrived_files` does. `ui/document.rs::surface()`
-draws the document over `ui::viewer::markdown::render_block()`, section by section — a preview with
-no source view and no layout toggle (T-101), so the `buffer()` and `half()` routes that split
-Source, Split and Preview are gone — and `open_export_plan_dialog()` raises `FileDialog::ExportPlan`
+installed as its completion provider; `settle_plan_editor()` seeds it in `render`, where there is
+a `Window`, then tells the dialog's view to reparse at once (`MdView::resync`, since `set_value`
+raises no change event), focuses a composer an event opened, and remaps a stale margin.
+`open_export_plan_dialog()` raises `FileDialog::ExportPlan`
 over it, `SaveAs`'s own route. The
 `ubiq-plan` MCP server (`crates/ubiq-host/src/mcp/plan.rs`, catalogued as `mcp::catalogue::UBIQ_PLAN`)
 carries `read_plan` and `write_plan` over the same `Plans`, reached through `PlanReach`, which holds
@@ -1088,6 +998,12 @@ index has to survive between one call and the next for a `BlockId` to mean anyth
 revision watermark is only real once a second read finds it (T-183, `Plans::write_sidecar`). Its
 mere presence beside a project file is therefore not "carries a thread" and `AppState` reads that
 fact a different way; see the annotation surface's own section, above.
+
+The sidecar also holds `highlights` (a colour per block, dropped when the block vanishes) and each
+annotation carries `marks` (`Agent`, `Todo`, `Question`) and each comment an optional `to`
+addressee (`Plans::annotate`, `reply_to`, `set_mark`, `set_highlights`; the wire is in
+`_docs/tech/transport-contract.md`). A save that changes the block index always announces
+`PlanAnnotationsChanged`.
 **What a document splits into is `crates/ubiq-proto/src/blocks.rs`, and there is exactly one copy of
 it.** The walk — container nodes walked through so a list annotates per item, a table one block, a
 block's text its own trimmed source at `blocks::options()`, GFM plus the frontmatter construct —
@@ -1102,23 +1018,26 @@ annotations `orphaned` rather than drop them. `Plans::annotations()`, `::annotat
 and `::resolve()` answer `ListPlanAnnotations`, `AnnotatePlan`, `ReplyToAnnotation` and
 `ResolveAnnotation` with `Message::PlanAnnotations`, broadcasting `PlanAnnotationsChanged` to every
 other window. On the interface side, `crate::state::document::AnnotationsBody` and `ComposerTarget`
-track the block index, the threads and which composer (if any) is open. The block ids are the
-host's and the offsets are the buffer's, so `state::document::block_ranges()` joins them with a
-forward scan in document order and `annotation_range()` narrows a thread to its quote where the
-quote is still there — the mapping a section's thread count in `ui/document.rs::gutter()` is counted
-over. `app/plan.rs::paint_annotation_marks()` and `::paint_change_marks()` still build their two
-`TextDecorationCollection`s over the buffer the same way, but the buffer is never drawn (T-101,
-`G332`), so what a reader sees instead is `gutter()`'s own count, in the open colour while any
-thread is still asking and the resolved colour once they are all settled (`thread_count()`).
-Clicking a section calls `compose_annotation()`, which opens the rail's composer against that
-block; double-clicking, or the gutter's edit button, calls `begin_section_edit()` instead, and
-`section_editor()` is the raw-markdown field that opens in the section's place —
-`confirm_section_edit()` splices what was typed back into the buffer and saves it, and
-`cancel_section_edit()` drops the edit. `::compose_reply()` and `::set_annotation_resolved()` send
-the rail's other two mutating messages. The `ubiq-plan` MCP server adds
-`list_annotations`, `reply_annotation` and `resolve_annotation`
-(`crates/ubiq-host/src/mcp/plan.rs`) over the same `Plans` — no tool opens an annotation; an agent
-only answers or closes one a window already started.
+track the block index, the threads, the highlights and which composer (if any) is open. The block
+ids are the host's and the rows are the view's, so `state::document::row_map()` places each block in
+the row holding the start of its source range — `block_ranges()`'s forward scan in document order,
+then `ubiq_md::Document::block_at_offset` — into a `RowMap` (`D203`). `row_decor()` sums each row's
+threads, marks and highlight into the `RowDecor` list `AppState::refresh_document_decor()` pushes
+through `MdView::set_decor`, on every reparse (`MdViewEvent::DocumentChanged`), every fresh block
+index and every focus change. `AppState::document_md_event()` turns the view's intents into the
+family's verbs over that map: `AddThread` opens the composer on `target_block()`, `MarkRequested`
+sends `MarkAnnotation` on `mark_target()` or opens the composer with the mark preset,
+`ResolveRequested` sends `ResolveAnnotation` on `resolve_target()`, `HighlightRequested` sends
+`SetBlockHighlight` for every block in the row, `ThreadsClicked` focuses `mark_target()`,
+`BlockEdited` saves the dialog's document, and `Scrolled` moves `DocumentEditor::focused` by
+`follow_target()`. The rail is `ui/document.rs::rail()`: `thread_list()` over
+`DocumentEditor::rail_threads()` (`ordered()`, filtered by `show_resolved`), `collapsed()` and
+`expanded()` per row, and `foot()`'s composer, whose post goes through
+`submit_annotation_composer()` and `state::document::addressed()` for the `@agent` tag. The `ubiq-plan` MCP server adds
+`list_annotations` (with `marks`, per-comment `to` and a `mark` filter), `annotate_plan`,
+`reply_annotation` and `resolve_annotation` (`crates/ubiq-host/src/mcp/plan.rs`) over the same
+`Plans`; `annotate_plan` resolves its block through `Plans::block_for_quote` and refuses a quote
+that matches no block or several.
 
 The new-mission dialog is three modules on the New agent form's own division: `state/new_mission.rs`'s
 `NewMissionForm` holds what was typed and `ready()`, plus `assistants()` — agent definitions filtered to
@@ -1455,7 +1374,7 @@ first call of a fresh host run answers with everything since the mission began.
 - [`workbench-teams.md`](./workbench-teams.md) — the graph's tasks drawer over the same set
 - [`workbench-agents.md`](./workbench-agents.md) — the New agent form a task assignment raises
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the work and plan families on the wire
-- [`../tech/decisions.md`](../tech/decisions.md) — `D157` through `D161`, the planning flow's own
+- [`../tech/decisions.md`](../tech/decisions.md) — `D157` through `D161`, and `D203`, the planning flow's own
   choices; `D164`, readiness derived rather than stored; `D165` through `D169`, the mission's own;
   `D170` through `D172`, the spawn relay, the scheduler's own loop and a handoff briefed by pointer;
   `D176`, feedback that finds no coordinator spawning one; `D179`, the catalogue and task stores'

@@ -933,9 +933,32 @@ pub const SERVERS: &[ServerSpec] = &[
                         "include_resolved": {
                             "type": "boolean",
                             "description": "Also return annotations already resolved. Defaults to false."
+                        },
+                        "mark": {
+                            "type": "string",
+                            "enum": ["agent", "todo", "question"],
+                            "description": "Only annotations carrying this mark."
                         }
                     },
                     "required": ["task_id"]
+                }"#,
+            },
+            ToolSpec {
+                name: "annotate_plan",
+                description: "Open a new annotation thread on the plan, as this agent. Say where with quote (a passage that appears in exactly one block; refused if none or several) or block_id (from list_annotations or read), which wins over quote.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "text": {"type": "string"},
+                        "quote": {"type": "string"},
+                        "block_id": {"type": "string"},
+                        "marks": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["agent", "todo", "question"]}
+                        }
+                    },
+                    "required": ["task_id", "text"]
                 }"#,
             },
             ToolSpec {

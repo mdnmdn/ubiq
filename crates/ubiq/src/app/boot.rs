@@ -1844,8 +1844,6 @@ impl AppState {
             task_prerequisite_query,
             annotation_composer_input,
             plan_editor,
-            plan_marks: None,
-            plan_change_marks: None,
             command_input,
             project_search,
             all_projects_search,
@@ -1950,11 +1948,6 @@ impl AppState {
             agents_scroll: ScrollHandle::new(),
             task_reference_scroll: ScrollHandle::new(),
             task_prerequisite_scroll: ScrollHandle::new(),
-            plan_preview_list: gpui::ListState::new(
-                0,
-                gpui::ListAlignment::Top,
-                gpui::px(crate::ui::document::PLAN_OVERDRAW),
-            ),
             plan_thread_list: gpui::ListState::new(
                 0,
                 gpui::ListAlignment::Top,

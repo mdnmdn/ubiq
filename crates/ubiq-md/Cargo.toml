@@ -1,0 +1,12 @@
+[package]
+name = "ubiq-md"
+version = "0.1.0"
+edition = "2024"
+description = "The markdown engine: a source-ranged block table. A leaf — no Ubiq crate, no GPUI. Ported from the markdown-viewer spike."
+publish = false
+
+[dependencies]
+# `offset_iter()` gives every event its source byte range, which is the one fact the block table
+# rests on.
+pulldown-cmark = "0.13"
+serde = { version = "1.0", features = ["derive"] }

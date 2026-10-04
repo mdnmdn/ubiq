@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-09-29
-verified: 2026-10-02
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
+updated: 2026-10-04
+verified: 2026-10-04
+code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -89,7 +89,8 @@ a palette swap changes every surface consistently.
 | Status | `danger`, `success`, `warning`, `info`, each with a `_soft` variant | Agent and process states, and the fills behind them — a diff line, a status chip, a state dot's ring |
 | Provenance | `edit_human`, `edit_agent`, `edit_origin(is_human)` | Who last rewrote a line of an annotated document — the underline under a changed run in the plan editor, and the legend for it in that editor's footer. Two hues nothing else on that surface uses, because the annotated passages under the same text take `info_soft` and `success_soft` |
 | Ribbon | `ribbon_alpha`, `ribbon_beta`, `ribbon_ink`, `ribbon_experimental`, `ribbon_experimental_ink` | The build-channel ribbon in the window's bottom-left corner, and the Git screen's experimental ribbon in its top-left — the same values in every palette, because they mark the build or the screen rather than the mood |
-| Database | `db_row_edited`, `db_row_inserted`, `db_row_deleted`, `db_statement_active`, `db_read_only`, `db_read_only_soft`, `db_plan_hot`, `agent_controlled`, `agent_controlled_soft` | DB mode: the three fills a pending edit tints its grid row with (solid, because the grid paints them under the cells), the ground behind the statement the cursor is in, the ink and soft ground of anything that cannot write, the plan node that cost the most, and the edge, tab mark and chip of a query panel an agent controls (with its soft ground) |
+| Highlight | `highlight(colour)`, `highlight_ink(colour)` | A block highlight on an annotated document (`HighlightColour`): the soft fill, and the full-strength ink of the margin dot and the `●` chip. Derived from the status group — yellow `warning`, green `success`, blue `info`, red `danger` — with purple mixed halfway between red and blue, so every palette has all five without a written value |
+| Database | `db_row_edited`, `db_row_inserted`, `db_row_deleted`, `db_statement_active`, `db_read_only`, `db_read_only_soft`, `db_plan_hot`, `agent_controlled`, `agent_controlled_soft` | DB mode: the three fills a pending edit tints its grid row with (solid, because the grid paints them under the cells), the ground behind the statement the cursor is in, the ink and soft ground of anything that cannot write, the plan node that cost the most, and the edge, tab mark and chip of a query panel an agent controls (with its soft ground) — the same pair an annotated document's rail draws an agent's comment, the Agent mark and the `@agent` toggle in |
 | Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(...)`, `mark_dark(...)` | The identity of one project, wherever it appears |
 
 The `_soft` variants are declared with their own alpha in `theme.rs` rather than computed at a call
@@ -228,7 +229,7 @@ never names the host. The digit is load-bearing: `text_size(px(font))`, where th
 `conversation_trim`, each `serde(default)` at 1.0), written by `AppState::remember_interface` and
 read back by `apply_preferences` through `theme::set_metrics`. `D151` moved the content family's size here too: `ViewPrefs.content_font_size` is parsed and
 ignored, `ui::shell::render` pushes nothing into the scale at the top of a paint, and `⌘=` / `⌘-`
-(`AppState::nudge_content_trim`) move `content_trim` by ±0.05, which works with no project open. The
+(`AppState::nudge_text_ratio`) move `text_ratio` — the status bar's text-size slider — by one ±0.05 stop, which works with no project open. The
 status bar's control is the size popover — an icon-only trigger opening `ui::size::panel` — and it
 names no point size at all; the content family's own trim pills live in the Size settings section
 instead. `EDITOR_FONT_MIN` and `EDITOR_FONT_MAX` remain in `theme.rs` with no caller.
@@ -591,51 +592,16 @@ go on the **field**, not on the panel, because the keyboard is in the input insi
 deferred panel is nowhere on the focus path — which is why each of its keys is bound twice, for
 `Navigator` and for `Navigator > Input`, by the rule below.
 
-**A heading-and-thread navigator is a kit primitive because a second markdown-with-threads surface
-would want the same shape, not the same meaning.** `kit::md_navigator` (`ui/kit/md_navigator.rs`)
-draws the same anchored-list device as `kit::menu`'s dropdown and the ⌘K navigator above it — no
-scrim, dismissed by an outside click this time, because unlike the ⌘K field this trigger is not
-something the user is mid-keystroke in. It does not go through `kit::Picker`: a row needs an indent
-by heading depth and two independent counts — open threads, settled ones — that `Picker`'s
-plain-label rows have no place for, so it owns its row instead of forcing one shape to answer two
-questions. `crate::ui::plan` is the first caller, over `state::document::heading_sections`'s pure
-data; a second annotated document reuses the component, not a copy of it.
-
-**A minimap is geometry and colour, nothing else — no plan-specific type crosses into it.**
-`kit::minimap` (`ui/kit/minimap.rs`) is a fixed-width strip that fills whatever height its parent
-gives it, over three plain-data shapes: a `MinimapMark` (a block's own shape — a heading's bar, a
-paragraph's or a table's line at its own length, a code block's or an image's rectangle — `top`,
-`height` and `length` all `0.0`–`1.0` fractions of the strip's own box, a `dotted` flag for the
-table-row shape, and an `Rgba` the caller resolved from a token), a `MinimapTick` (a small coloured
-mark on the strip's outer edge — a thread's open/resolved state today), and an optional
-`MinimapViewport` (the translucent, draggable rectangle standing for the visible region). The
-primitive names no thread, no plan and no block either way — T-110's rework of the first cut (one
-full-width tick per thread and nothing else) added the shapes and the viewport without teaching the
-kit what a block kind is.
-
-The plan editor's own strip is built from two pure functions in `state::document`:
-`minimap_rows` for the shapes — a heading or a code block draws one row, a paragraph or a table
-draws one per real source line, `length` measured in characters against a fixed column-width
-constant rather than real glyph width, because there is no second layout pass to measure by and the
-markdown renderer exposes no per-line fragment geometry to place one against instead — and
-`thread_marks` for the ticks, the same pure-data shape as `heading_sections`, so either can be
-tested and resolved back to what it stands for without a `Window` in reach. `ui/document.rs` turns
-a row's `block_index` into a real span down the strip from `ScrollHandle::bounds_for_item` once the
-preview has a painted frame to measure, spreading a block's several rows evenly across that span
-(no per-line pixel position exists either), and falls back to spreading blocks evenly for the frame
-a document opens in, before there is one. A short document draws at a real, 1:1 scale rather than
-being stretched to fill the strip. `on_scrub` is the strip's one interaction callback beyond a
-tick's own `on_select`: a click or a drag anywhere hands back the fraction the pointer landed at,
-and the plan editor answers by scrolling the preview so that point lands roughly centred — one
-formula for a click and a drag alike, recomputed from scratch each time rather than tracked from a
-drag anchor.
-
-The standard viewer's own strip (T-118, `ui/viewer/mod.rs`'s `markdown_preview`) is the primitive's
-second caller, and stays the simpler shape T-110 did not touch: one `TextView` rather than a block
-per heading means there is no per-heading layout to measure at all, so `markdown::heading_marks`
-positions each mark by its heading's byte offset over the document's length, drawn as a full-width
-tick (no ticks, no viewport, no `on_scrub` wired up — it answers with nothing). Both callers answer
-to the one `UiSettings` pair — `md_minimap` (generalised from the plan-only `plan_minimap`) and
+**Every markdown surface draws its strip and its navigator through `MdView`**, the plan surface
+included (`D203`): `ui/mdview/minimap.rs` is the structural strip — heading bars, prose line stacks,
+code and table shapes, placed by the list's measured row heights, painted as one canvas in
+`md_minimap_*` tokens — and `ui/mdview/outline.rs`'s jump popover is the heading navigator, a
+`deferred` occluding layer over the view, keys bound under `MdJump > Input`. A header opens it
+through `ui/document.rs::heading_control()`, which the plan dialog's chrome and a markdown tab's
+header share with `::edit_chip()`. **The annotation layer is the view's margins, never its text**:
+`ui/mdview/annotation.rs` draws the count marker and the action stack absolutely in the far margin,
+which `theme::MD_ACTION_MARGIN` floors while the view is annotating, and `ui/mdview/highlight.rs`
+the left-margin dot, so no decorator changes a row's measured height. The strip answers to the one `UiSettings` pair — `md_minimap` (generalised from the plan-only `plan_minimap`) and
 `md_minimap_side` — set from the Markdown header's own popover, `ui/viewer/md_options.rs`,
 `kit::popover` over `kit::choice_pill` rows and a `kit::check_box`, the same width preset and
 density pills T-116 first drew loose.

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
+use ubiq_proto::plan::HighlightColour;
 
 // ── Design constants ────────────────────────────────────────────────
 
@@ -20,6 +21,10 @@ pub const MONO_FONT: &str = "Menlo";
 pub const MONO_FONT: &str = "Cascadia Mono";
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub const MONO_FONT: &str = "DejaVu Sans Mono";
+
+/// The proportional family the block-list markdown view (`ui/mdview/`) sets a document in: the
+/// platform's own UI face, by the name GPUI reserves for it, so it resolves with no bundled font.
+pub const BODY_FONT: &str = ".SystemUIFont";
 
 // **Every pixel dimension here is a `pub const` base plus a `scaled()` accessor**, and a call site
 // reads the accessor. The base is the size at `ui_scale = 1.0`; the accessor is that size in the
@@ -441,6 +446,17 @@ impl MdMinimapSide {
 /// `Window`, only a `Context<AppState>` — so this is a documented estimate, not a measurement.
 pub const MD_AVG_CHAR_WIDTH_EM: f32 = 0.55;
 
+/// The side of one control in the markdown view's annotation stack — the far-margin column of
+/// `+`, `⚑`, `✓`, `●`, `✎` and the thread count (`ui/mdview/annotation.rs`).
+pub const MD_ACTION_SIZE: f32 = 20.0;
+
+/// The narrowest the page's side margin may be while the view is annotating: one action control
+/// plus a little air on each side, so the stack never lands on text.
+pub const MD_ACTION_MARGIN: f32 = MD_ACTION_SIZE + 8.0;
+
+/// The highlight dot in the page's left margin (`ui/mdview/highlight.rs`).
+pub const MD_HIGHLIGHT_DOT: f32 = 8.0;
+
 /// The column's target width for a preset, at the current body size. `None` (Full) leaves the
 /// column unconstrained — the pane's own width is the limit.
 pub fn md_measure_width(width: MdWidth, body: Pixels) -> Option<Pixels> {
@@ -658,6 +674,50 @@ pub struct TerminalColors {
     pub link_underline_hover: Rgba,
 }
 
+/// What the block-list markdown view (`ui/mdview/`) paints beyond the shared tokens: the code
+/// chip, the quote rule, the table band, the list marker, the minimap's weights and the search
+/// hits.
+///
+/// **Derived, never declared.** Not a field any palette definition writes and not in
+/// [`EDITABLE_TOKENS`]: [`Palette::markdown`] computes every one of these from the tokens a palette
+/// (or a custom theme's overrides) already holds, so ten built-in palettes and every custom theme
+/// get a coherent set without a single hand-picked value to keep in step.
+#[derive(Clone, Copy, Debug)]
+pub struct MarkdownColors {
+    /// The ground behind front matter and an image placeholder — halfway between the surface and
+    /// the pane.
+    pub gutter: Rgba,
+    /// A code fence's ground.
+    pub code_bg: Rgba,
+    /// Inline code's ink.
+    pub code_text: Rgba,
+    /// Inline code's flat fill (the `StyledText` path) and its chip (the native prose element),
+    /// with the chip's hairline edge.
+    pub code_chip: Rgba,
+    pub code_chip_strong: Rgba,
+    pub code_chip_border: Rgba,
+    /// A block quote's left rule, and the receded prose beside it.
+    pub quote_rule: Rgba,
+    pub quote_text: Rgba,
+    /// A table's header band.
+    pub table_head: Rgba,
+    /// The bullet or number in a list's marker column.
+    pub marker: Rgba,
+    /// The minimap's weights: running prose, an H1/H2 bar, an H3 bar, a code fence, a figure, and
+    /// a table grid or rule. Text and rule colours mixed toward the ground, so the strip reads as
+    /// structure rather than as text.
+    pub minimap_line: Rgba,
+    pub minimap_heading: Rgba,
+    pub minimap_heading_faint: Rgba,
+    pub minimap_code: Rgba,
+    pub minimap_figure: Rgba,
+    pub minimap_grid: Rgba,
+    /// A search hit's fill, and the fill of the one the find bar is on. Both sit under running
+    /// prose, so both keep `text` legible over them.
+    pub search_match: Rgba,
+    pub search_match_current: Rgba,
+}
+
 // ── Palette ─────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug)]
@@ -669,6 +729,40 @@ pub struct Palette {
     pub status: StatusColors,
     pub project: ProjectColors,
     pub terminal: TerminalColors,
+}
+
+impl Palette {
+    /// The markdown group, from the tokens this palette already holds — see [`MarkdownColors`].
+    pub fn markdown(&self) -> MarkdownColors {
+        let ground = self.surface.pane_bg;
+        let text = self.text.primary;
+        let rule = self.border.default;
+        MarkdownColors {
+            gutter: mix(self.surface.base, ground, 0.5),
+            code_bg: self.surface.raised,
+            // A warm shade of the body ink, pushed back off the ground if the mix lost contrast.
+            code_text: readable_at(
+                mix(text, self.status.warning, 0.45),
+                ground,
+                TEXT_MIN_CONTRAST,
+            ),
+            code_chip: fade(text, 0.08),
+            code_chip_strong: fade(text, 0.12),
+            code_chip_border: rule,
+            quote_rule: rule,
+            quote_text: self.text.muted,
+            table_head: self.surface.raised,
+            marker: self.text.faint,
+            minimap_line: mix(text, ground, 0.6),
+            minimap_heading: mix(text, ground, 0.2),
+            minimap_heading_faint: mix(text, ground, 0.45),
+            minimap_code: mix(rule, ground, 0.3),
+            minimap_figure: rule,
+            minimap_grid: mix(rule, self.text.faint, 0.5),
+            search_match: self.status.warning_soft,
+            search_match_current: fade(self.status.warning, 0.5),
+        }
+    }
 }
 
 // ── Theme ───────────────────────────────────────────────────────────
@@ -808,7 +902,7 @@ pub fn font_display() -> Pixels {
 /// furniture, which is the only thing that changes a proportion.
 ///
 /// The three trims are a per-family nudge for a reader who wants a transcript larger than the
-/// chrome around it. `content_trim` is the one `cmd-=` moves.
+/// chrome around it. `content_trim` is set from the Size settings section.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Metrics {
     pub ui_scale: f32,
@@ -1878,6 +1972,35 @@ pub fn edit_origin(human: bool) -> Rgba {
     if human { edit_human() } else { edit_agent() }
 }
 
+/// A block highlight's tint: the status group's soft fills — yellow is `warning_soft`, green
+/// `success_soft`, blue `info_soft`, red `danger_soft` — and purple, which the status group does
+/// not have, mixed halfway between red and blue. Derived, so every palette (and every fork of one)
+/// has all five without a hand-written value.
+pub fn highlight(colour: HighlightColour) -> Rgba {
+    let status = &Theme::current().palette.status;
+    match colour {
+        HighlightColour::Yellow => status.warning_soft,
+        HighlightColour::Green => status.success_soft,
+        HighlightColour::Blue => status.info_soft,
+        HighlightColour::Red => status.danger_soft,
+        HighlightColour::Purple => mix(status.danger_soft, status.info_soft, 0.5),
+    }
+}
+
+/// The same hue at full strength — what the margin dot and the `●` chip are inked in, where a soft
+/// fill would vanish against the page. The soft tokens are these colours faded; purple is mixed the
+/// same way [`highlight`]'s is.
+pub fn highlight_ink(colour: HighlightColour) -> Rgba {
+    let status = &Theme::current().palette.status;
+    match colour {
+        HighlightColour::Yellow => status.warning,
+        HighlightColour::Green => status.success,
+        HighlightColour::Blue => status.info,
+        HighlightColour::Red => status.danger,
+        HighlightColour::Purple => mix(status.danger, status.info, 0.5),
+    }
+}
+
 /// How full a plan reads, as a colour: fine under 75%, warning from 75, danger from 90.
 ///
 /// A status colour rather than the accent, because a quota is something *reported* about the
@@ -1927,6 +2050,11 @@ pub fn project_colour_count() -> usize {
 /// The tint a temporary project is drawn in — one grey, not a swatch.
 pub fn project_temporary() -> Rgba {
     Theme::current().palette.project.temporary
+}
+
+/// The markdown view's derived group, for the current theme — [`MarkdownColors`].
+pub fn markdown() -> MarkdownColors {
+    Theme::current().palette.markdown()
 }
 
 /// The tint a project is identified by, whichever kind it is.
@@ -2955,6 +3083,11 @@ fn with_accent(mut p: Palette, seed: Rgba) -> Palette {
 /// palette, a dark one lifted on a dark palette. A seed that already clears the floor is
 /// untouched, which is why every built-in palette resolves to the accent it declares.
 fn readable_on(seed: Rgba, ground: Rgba) -> Rgba {
+    readable_at(seed, ground, ACCENT_MIN_CONTRAST)
+}
+
+/// [`readable_on`] against any floor — [`TEXT_MIN_CONTRAST`] for a colour text is set in.
+fn readable_at(seed: Rgba, ground: Rgba, floor: f64) -> Rgba {
     let toward = if relative_luminance(ground) < 0.5 {
         WHITE
     } else {
@@ -2962,7 +3095,7 @@ fn readable_on(seed: Rgba, ground: Rgba) -> Rgba {
     };
     let mut out = seed;
     for _ in 0..10 {
-        if contrast(out, ground) >= ACCENT_MIN_CONTRAST {
+        if contrast(out, ground) >= floor {
             break;
         }
         out = mix(out, toward, 0.1);
@@ -3152,6 +3285,33 @@ mod tests {
         }
     }
 
+    /// Every palette has five distinct highlight hues, tint and ink alike, and none is invisible:
+    /// the colours are derived, so a palette whose status group collapsed two hues would collapse
+    /// two highlights, and this is what says so.
+    #[test]
+    fn every_palette_draws_five_distinct_highlights() {
+        const ALL: [HighlightColour; 5] = [
+            HighlightColour::Yellow,
+            HighlightColour::Green,
+            HighlightColour::Blue,
+            HighlightColour::Red,
+            HighlightColour::Purple,
+        ];
+        for id in ThemeId::all() {
+            Theme::set(resolve(id, None));
+            for paint in [highlight as fn(HighlightColour) -> Rgba, highlight_ink] {
+                let colours: Vec<Rgba> = ALL.into_iter().map(paint).collect();
+                for (i, a) in colours.iter().enumerate() {
+                    assert!(a.a > 0.0, "{}: {:?} is transparent", id.0, ALL[i]);
+                    for (j, b) in colours.iter().enumerate().skip(i + 1) {
+                        assert_ne!(a, b, "{}: {:?} and {:?} agree", id.0, ALL[i], ALL[j]);
+                    }
+                }
+            }
+        }
+        Theme::set(resolve(ThemeId::DARK, None));
+    }
+
     /// The slug is what prefs carry, and the two enum spellings a blob written before the registry
     /// used still read.
     #[test]
@@ -3239,6 +3399,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The markdown group is derived for every palette, built-in or custom: inline code reads as
+    /// text, the two search fills differ, and the translucent fills stay translucent.
+    #[test]
+    fn the_markdown_group_derives_for_every_palette() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert("surface.pane_bg".to_string(), 0x304050);
+        overrides.insert("text.primary".to_string(), 0xfafafa);
+        set_custom_themes(vec![CustomTheme {
+            id: "custom-md".to_string(),
+            name: "Md".to_string(),
+            base: ThemeId::DARK,
+            overrides,
+        }]);
+
+        let ids: Vec<ThemeId> = ThemeId::all().chain([ThemeId("custom-md")]).collect();
+        for id in ids {
+            let p = resolve(id, None).palette;
+            let md = p.markdown();
+            assert!(
+                contrast(md.code_text, p.surface.pane_bg) >= TEXT_MIN_CONTRAST,
+                "{}: inline code does not read",
+                id.0
+            );
+            assert_ne!(md.search_match, md.search_match_current, "{}", id.0);
+            assert!(md.code_chip.a > 0.0 && md.code_chip.a < 1.0, "{}", id.0);
+            assert!(md.code_chip_strong.a > md.code_chip.a, "{}", id.0);
+            assert_eq!(md.code_bg, p.surface.raised);
+            assert_eq!(md.quote_text, p.text.muted);
+        }
+
+        // An override reaches the derived group: it is computed, not stored.
+        let custom = resolve(ThemeId("custom-md"), None).palette;
+        assert_eq!(custom.markdown().code_chip.r, rgba_of(0xfafafa).r);
+        assert!(
+            !EDITABLE_TOKENS.iter().any(|spec| spec.key.starts_with("markdown.")),
+            "the derived group is not editable"
+        );
+
+        set_custom_themes(Vec::new());
     }
 
     /// An accent slug round-trips, and an unknown one falls back rather than failing the blob.

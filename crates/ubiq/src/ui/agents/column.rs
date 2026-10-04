@@ -150,6 +150,10 @@ pub fn render(
     }
 }
 
+/// The widest an agent's name may draw on a tab before it is ellipsised; the full name stays on
+/// the drag ghost and leads the tooltip.
+const TAB_NAME_MAX_WIDTH: f32 = 160.;
+
 /// One tab: a state hexagon, the agent's name, and the close that benches it.
 fn tab(
     app: &AppState,
@@ -167,7 +171,9 @@ fn tab(
     let name = label.title.clone();
     let ghost = name.clone();
     // The standard agent tooltip: what it is about, who it is, its task, its handle.
-    let summary: Option<SharedString> = (!label.tooltip.is_empty()).then_some(label.tooltip);
+    let summary: Option<SharedString> = (!label.tooltip.is_empty())
+        .then(|| SharedString::from(format!("{name}\n{}", label.tooltip)))
+        .or_else(|| Some(name.clone()));
     // The same reading the title carries, so a grouped column's tabs and its title agree. A
     // record with no live conversation behind it reads `agent_status`'s own record fallback
     // rather than nothing — the hexagon draws whatever the record can say either way.
@@ -208,6 +214,8 @@ fn tab(
     .child(
         div()
             .id(eid("agents-tab-name", id))
+            .max_w(px(TAB_NAME_MAX_WIDTH))
+            .truncate()
             .child(name)
             .when_some(summary, |this, summary| {
                 this.tooltip(move |window, cx| {

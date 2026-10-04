@@ -1,28 +1,28 @@
-//! The annotated-document surface: the document's markdown, the threads anchored to passages of
-//! it, the section opened for editing, and the handle that says *which* document is on screen.
+//! The annotated-document surface: the document's markdown, the threads anchored to its blocks,
+//! and the handle that says *which* document is on screen.
 //!
-//! **The surface reads the document and writes one section at a time.** There is no source view
-//! and no layout: the body is drawn as a markdown preview, a section opened for editing is a field
-//! over that section alone ([`SectionEdit`]), and confirming it splices back into the same buffer
-//! the whole document is saved from. Every fact below about revisions, staleness and dirtiness is
-//! unchanged by that — a section edit is an ordinary whole-document save.
+//! **The surface is an [`MdView`] with its annotation layer on.** The body is drawn by
+//! `crate::ui::mdview` — one row per `ubiq_md` root block — and written through that view's own
+//! block editor, which commits into the same buffer the whole document is saved from. Every fact
+//! below about revisions, staleness and dirtiness is unchanged by that: a block commit is an
+//! ordinary whole-document save.
 //!
-//! **This module is generic over a document on purpose.** Slice 6 builds one writing surface, not
-//! a plan screen: the editor, the decorations, the thread popover and the `/` menu all read
-//! [`DocumentEditor`], which names a [`DocumentHandle`] rather than a `TaskId`. A plan is the
-//! handle's first variant and an ordinary markdown file in the project's tree is the second; the
-//! surface cannot tell them apart, which is the point.
+//! **Two block models meet here, and [`RowMap`] is the join.** The host indexes a document into
+//! `PlanBlock`s and owns their ids — a window never mints one, because matching blocks across a
+//! save is what keeps a thread anchored. The view lays out `ubiq_md` rows. [`row_map`] places each
+//! host block in the row holding the start of its source range ([`block_ranges`]), and everything
+//! the margin draws ([`row_decor`]) and every intent it raises ([`target_block`], [`mark_target`],
+//! [`resolve_target`]) goes through that map. Thread notes live only in the rail, never inline.
 //!
-//! **The handle is [`ubiq_proto::plan::DocumentHandle`], and it lives in the contract** rather
-//! than here: every message in the family carries it, so a type the window owned would have to be
-//! translated on the way out and matched back on the way in. Two variants today — a task's plan,
-//! and an ordinary markdown file in the project's tree, annotated in place. What either one
-//! answers for is the same three things:
+//! **This module is generic over a document on purpose.** [`DocumentEditor`] names a
+//! [`DocumentHandle`] rather than a `TaskId`: a plan, a mission document and an ordinary markdown
+//! file in the project's tree are the handle's variants, and the surface cannot tell them apart.
+//! The handle lives in the contract, because every message in the family carries it. What any
+//! variant answers for is the same three things:
 //!
 //! 1. **A body source and a save target** — `LoadPlan`/`SavePlan`, naming the handle.
-//! 2. **An annotation source** — the blocks and their threads, and the three verbs that open,
-//!    answer and close one. The block ids are the *host's*: a window never mints one, because
-//!    matching blocks across a save is what keeps a thread anchored.
+//! 2. **An annotation source** — the blocks, their threads and highlights, and the verbs that open,
+//!    answer, mark, colour and close them.
 //! 3. **A store for both, on the host side.** A plan's is under the config root; a file's body is
 //!    the file itself, with its sidecar at `<file>.md.annotation.json` beside it.
 //!
@@ -30,14 +30,18 @@
 //! `crate::app::plan`'s, which carries the `impl DocumentHandle` that turns a handle into the
 //! family's messages.
 
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
-use gpui::Entity;
-use gpui_component::input::TextareaState;
+use gpui::{Entity, Subscription};
 use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::plan::{
-    Annotation, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
+    Annotation, AnnotationMark, AnnotationState, BlockHighlight, HighlightColour, PlanBlock,
+    PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
 };
+use ubiq_proto::work::Addressee;
+
+use crate::ui::mdview::view::MdView;
 
 pub use ubiq_proto::plan::DocumentHandle;
 
@@ -60,6 +64,8 @@ pub enum AnnotationsBody {
     Loaded {
         blocks: Vec<PlanBlock>,
         annotations: Vec<Annotation>,
+        /// The colours on whole blocks, independent of any thread.
+        highlights: Vec<BlockHighlight>,
     },
     Failed(String),
 }
@@ -78,6 +84,13 @@ impl AnnotationsBody {
             _ => &[],
         }
     }
+
+    pub fn highlights(&self) -> &[BlockHighlight] {
+        match self {
+            AnnotationsBody::Loaded { highlights, .. } => highlights,
+            _ => &[],
+        }
+    }
 }
 
 /// The outcome of a one-shot action the surface reports where the user is looking — a save that
@@ -87,27 +100,13 @@ pub enum Notice {
     Err(String),
 }
 
-/// What the composer beside the document is answering — one at a time.
+/// What the composer in the rail is answering — one at a time.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComposerTarget {
-    /// A fresh annotation on this block, quoting whatever passage of it was selected.
+    /// A fresh annotation on this block.
     Block(BlockId),
     /// A reply appended to this thread.
     Reply(AnnotationId),
-}
-
-/// One section opened for editing in place, and the field holding its raw markdown.
-///
-/// The field's entity lives here rather than on `AppState` because **the widget's state is the
-/// model**: a section edit exists only while a document is open, and which section is being edited
-/// is the same fact as which buffer is on screen. It is built when the edit starts and dropped
-/// when it is confirmed or cancelled, so nothing subscribes to it — the confirming press reads the
-/// value.
-pub struct SectionEdit {
-    /// The block the edit replaces. The host's id, never one the window minted.
-    pub block_id: BlockId,
-    /// The section's markdown source, as typed.
-    pub input: Entity<TextareaState>,
 }
 
 /// Which frame the one annotated-document surface is drawn in.
@@ -123,17 +122,35 @@ pub enum Presentation {
     Viewer,
 }
 
+/// Whether a freshly opened document of this kind asks the host where it was edited (T-183).
+///
+/// A file document is markdown in the user's own repository, most often prose nobody but its one
+/// editor ever touches; a plan (or a mission document, on the same footing) is the kind this
+/// surface exists to referee between a human and an agent, so it defaults to knowing which lines
+/// are whose.
+pub fn tracks_updates_by_default(doc: &DocumentHandle) -> bool {
+    !matches!(doc, DocumentHandle::File { .. })
+}
+
 /// One annotated document, while its surface is open. One at a time per window: opening another
 /// replaces it, the way the rest of the window's overlays behave.
 pub struct DocumentEditor {
     pub doc: DocumentHandle,
-    /// Where the surface is drawn. **The surface itself is the same either way** — the columns, the
-    /// rail, the gutter and every action on them are `crate::ui::document`'s, and neither arm knows
-    /// which one it is in. What this decides is who frames it: [`Presentation::Modal`] is the plan
-    /// dialog (`ui/plan.rs`, raised over the window, peeled by Escape at `Layer::Plan`), and
-    /// [`Presentation::Viewer`] is a markdown tab in `ViewLayout::Annotation`, drawn inside the
-    /// panel with no scrim and no rung of its own.
+    /// Where the surface is drawn. **The surface itself is the same either way** — the view, the
+    /// rail and every action on them are `crate::ui::document`'s. What this decides is who frames
+    /// it, and whose buffer [`Self::md`] is over: [`Presentation::Modal`] is the plan dialog over
+    /// `AppState::plan_editor`, [`Presentation::Viewer`] is a markdown tab's own view over the
+    /// tab's own buffer.
     pub presentation: Presentation,
+    /// The markdown view the document is drawn in, its annotation layer on. A dialog's is built
+    /// for the document and dropped with it; a tab's is the tab's `OpenFile::md`, borrowed.
+    pub md: Entity<MdView>,
+    /// The view's events, for a view built for this document — `None` for a tab's view, which
+    /// the tab already subscribes to (`app::editor::attach_md_view`).
+    pub md_events: Option<Subscription>,
+    /// The host blocks placed in the view's rows, as of the last remap — rebuilt whenever either
+    /// side moves: a reparse, or a fresh block index.
+    pub rows: RowMap,
     pub body: DocumentBody,
     /// The text as the host last stated it. The buffer is seeded from this, and `dirty` is the
     /// buffer differing from it.
@@ -158,77 +175,64 @@ pub struct DocumentEditor {
     /// The user has been shown what a stale save would overwrite and asked again anyway.
     ///
     /// **This is a confirmation, not the guard.** The guard is on the wire: `SavePlan` names the
-    /// revision it expects to replace and the host refuses it with `PlanConflict` otherwise, so a
-    /// save landing between the question and the answer cannot be overwritten by it. What this
-    /// decides is only whether the next press names `revision` or `host_revision`. Cleared
-    /// whenever the host's copy moves again, so one confirmation covers one revision and never
-    /// the next one.
+    /// revision it expects to replace and the host refuses it with `PlanConflict` otherwise. What
+    /// this decides is only whether the next press names `revision` or `host_revision`. Cleared
+    /// whenever the host's copy moves again, so one confirmation covers one revision.
     pub confirm_overwrite: bool,
     /// A save is in flight: the surface waits for the host's answer before calling itself clean.
     pub saving: bool,
     /// Escape was pressed over an unsaved edit once. The second one means it.
     pub confirm_close: bool,
-    /// The decorations no longer match the text or the threads — recomputed in the frame that
-    /// notices, never on every frame, because the join is a scan over the whole document.
+    /// The margin decor no longer matches the threads — remapped in the frame that notices.
     pub decor_stale: bool,
     /// Where the document was edited since the beginning, and by whom — the host's answer to
-    /// `ListPlanChanges`, in *current* line numbers, painted as the second decoration layer.
+    /// `ListPlanChanges`, in *current* line numbers.
     pub changes: Vec<PlanChangedRegion>,
     /// How much changed, for the footer. Zeroed until the host has answered once.
     pub change_stats: PlanChangeStats,
-    /// The change decorations no longer match the text — `decor_stale`'s twin, kept apart because
-    /// the two layers are refreshed by different answers.
-    pub change_decor_stale: bool,
-    /// The section opened for editing in place, if any. **The surface has no source view**: the
-    /// document is read as a markdown preview and written one section at a time, so this is the
-    /// only writing surface it offers.
-    pub section_edit: Option<SectionEdit>,
     pub annotations: AnnotationsBody,
-    /// A thread shown in the popover anchored to its passage, rather than only in the rail.
-    pub thread: Option<AnnotationId>,
+    /// The thread the rail has expanded — set by a click in the rail or on a row's count marker,
+    /// and moved by the preview's scroll to the first open thread on screen ([`follow_target`]).
+    /// Never a resolved thread for long: the rail draws resolved threads collapsed.
+    pub focused: Option<AnnotationId>,
     /// Resolved threads are hidden in the rail until this is on. They are never dropped.
     pub show_resolved: bool,
     pub composer: Option<ComposerTarget>,
-    /// The passage the composer is quoting, when the selection gave one.
-    pub composer_quote: Option<String>,
+    /// The marks a fresh thread is opened with — preset by marking a row that has no thread yet
+    /// (`MdViewEvent::MarkRequested`), toggled by the composer's own chips.
+    pub composer_marks: Vec<AnnotationMark>,
+    /// The composer's "@agent" toggle: the next post is addressed to the agent. One-shot — a post
+    /// or a cancel clears it.
+    pub composer_to_agent: bool,
     /// Mirrored out of `AppState::annotation_composer_input`: the entity behind the field is the
     /// window's, what was typed is the document's.
     pub composer_text: String,
+    /// The composer was opened from somewhere with no `Window` (a view event); the next frame
+    /// clears and focuses the field.
+    pub composer_needs_focus: bool,
     pub notice: Option<Notice>,
-    /// The heading navigator's own dropdown, down or not — a fact about this document alone, the
-    /// same way `composer` and `thread` are, rather than the window's single `MenuId`: it opens off
-    /// the document's own chrome, not the titlebar or a panel header the rest of that system reads.
-    pub nav_open: bool,
-    /// While composing a *new* thread, the rail hides every other thread so the one being written
-    /// is the only thing beside the field — the user pressed the section's own affordance for a
-    /// reason, and a long list of settled threads is noise against that. `true` overrides the hide,
-    /// which is what the rail's "Show all threads" button sets; never persisted, and reset the
-    /// moment the composer leaves the new-thread shape (cancelled, sent, or a reply opened instead).
-    pub thread_focus_override: bool,
     /// Whether the surface asks the host where this document has been edited and shows the
     /// footer's line counts and human/agent split from the answer — `ListPlanChanges`,
-    /// `AppState::ask_for_plan_changes` (T-183).
-    ///
-    /// **Per document, not a global setting**, and defaulted by the document's own kind in
-    /// [`Self::loading`]: a plan defaults to tracking it, because telling an agent's lines from a
-    /// human's is the reason the feature exists; an ordinary file defaults away from it, since
-    /// most of them are never touched by anything but the person editing them and asking anyway
-    /// is a round trip nobody reads the answer to. `AppState::toggle_track_updates` is the one
-    /// way either default changes, and it changes only this document's.
+    /// `AppState::ask_for_plan_changes` (T-183). **Per document**, defaulted by
+    /// [`tracks_updates_by_default`]; `AppState::toggle_track_updates` changes only this one's.
     pub track_updates: bool,
 }
 
 impl DocumentEditor {
-    /// A freshly opened surface, waiting on the host's two answers.
-    pub fn loading(doc: DocumentHandle, presentation: Presentation) -> Self {
-        // A file document is markdown in the user's own repository, most often prose nobody but
-        // its one editor ever touches; a plan (or a mission document, on the same footing) is the
-        // kind this surface exists to referee between a human and an agent, so it defaults to
-        // knowing which lines are whose (T-183).
-        let track_updates = !matches!(doc, DocumentHandle::File { .. });
+    /// A freshly opened surface over `md`, waiting on the host's two answers.
+    pub fn loading(
+        doc: DocumentHandle,
+        presentation: Presentation,
+        md: Entity<MdView>,
+        md_events: Option<Subscription>,
+    ) -> Self {
+        let track_updates = tracks_updates_by_default(&doc);
         Self {
             doc,
             presentation,
+            md,
+            md_events,
+            rows: RowMap::default(),
             body: DocumentBody::Loading,
             saved: String::new(),
             needs_seed: false,
@@ -243,17 +247,15 @@ impl DocumentEditor {
             decor_stale: false,
             changes: Vec::new(),
             change_stats: PlanChangeStats::default(),
-            change_decor_stale: false,
-            section_edit: None,
             annotations: AnnotationsBody::Loading,
-            thread: None,
+            focused: None,
             show_resolved: false,
             composer: None,
-            composer_quote: None,
+            composer_marks: Vec::new(),
+            composer_to_agent: false,
             composer_text: String::new(),
+            composer_needs_focus: false,
             notice: None,
-            nav_open: false,
-            thread_focus_override: false,
             track_updates,
         }
     }
@@ -267,16 +269,8 @@ impl DocumentEditor {
     }
 
     /// The stable string that scopes every element id this surface draws — `ubiq_proto`'s own
-    /// `DocumentHandle::key`, named again here because it is `ui::document` that reads it (T-125).
-    /// Every `plan-*` id that has no other unique part of its own (a block id, an annotation id —
-    /// both host-minted and already unique across documents) is scoped by this, so a second
-    /// surface open on a different document does not collide with the first one's chrome.
-    ///
-    /// **This does not yet make two surfaces independently editable.** `AppState` still holds one
-    /// `workbench.plan` slot, one shared buffer (`plan_editor`) and one shared composer field —
-    /// opening a second annotated document still replaces the first rather than adding beside it.
-    /// Only the id collision this method fixes is what's done; `_docs/backlog.md` carries the rest
-    /// of "a `DocumentEditor` per surface rather than per window" as its own row.
+    /// `DocumentHandle::key` (T-125). An id with a unique part of its own (a block id, an
+    /// annotation id) needs no scope; the surface's chrome does.
     pub fn surface_key(&self) -> String {
         self.doc.key()
     }
@@ -301,13 +295,9 @@ impl DocumentEditor {
         self.saving = false;
         let moved = revision != self.host_revision;
         self.host_revision = revision;
-        // The buffer is shared across whichever document is open (`ui::document`'s note on
-        // `plan_editor`), so on a document's *first* answer it still holds whatever the surface
-        // last showed — a previous document's text, or the launch default — and comparing that
-        // against `self.saved` (always `""` for a document that has never loaded) reads as an
-        // edit that was never made. Nothing has been typed into a document that has not loaded
-        // yet, so there is nothing to protect: this body is taken unconditionally instead, and
-        // the buffer is reseeded from it below like any other fresh load.
+        // The dialog's buffer is shared across whichever document is open, so on a document's
+        // *first* answer it still holds whatever the surface last showed. Nothing has been typed
+        // into a document that has not loaded yet, so this body is taken unconditionally.
         let edited = !matches!(self.body, DocumentBody::Loading) && typed != self.saved;
         if edited && typed != body {
             // A *newer* third-party save is a new question: what was confirmed was confirmed
@@ -340,8 +330,7 @@ impl DocumentEditor {
     ///
     /// The surface is put back where a third-party save would have put it: stale, holding an
     /// unsaved edit, naming who moved the copy, and with the confirmation cleared so the question
-    /// is asked again about *this* revision. `revision` is taken as the host's word, so the press
-    /// that follows names it rather than something already overtaken.
+    /// is asked again about *this* revision.
     pub fn save_refused(&mut self, revision: PlanRevision, origin: SaveOrigin) {
         self.saving = false;
         self.host_revision = revision;
@@ -351,20 +340,24 @@ impl DocumentEditor {
         self.confirm_overwrite = false;
     }
 
-    /// The host restated the block index and the threads: the decorations are the join of the
-    /// two, so they are recomputed on the next frame.
+    /// The host restated the block index, the threads and the highlights: the row map and the
+    /// decor are the join of those with the view's rows, so they are recomputed.
     pub fn set_annotations(&mut self, annotations: AnnotationsBody) {
         self.annotations = annotations;
+        // A thread that went away takes the focus with it.
+        if let Some(id) = self.focused
+            && self.annotation(id).is_none()
+        {
+            self.focused = None;
+        }
         self.decor_stale = true;
     }
 
     /// The host stated where the document has been edited and by how much — the answer to
-    /// `ListPlanChanges`. The regions are in current line numbers, so they are a decoration the
-    /// next frame paints rather than anything to reconcile here.
+    /// `ListPlanChanges`.
     pub fn set_changes(&mut self, regions: Vec<PlanChangedRegion>, stats: PlanChangeStats) {
         self.changes = regions;
         self.change_stats = stats;
-        self.change_decor_stale = true;
     }
 
     /// Whether any run in the current answer was left by the origin asked about — what the
@@ -383,11 +376,6 @@ impl DocumentEditor {
         }
     }
 
-    /// The block currently open as a raw-markdown field, if any.
-    pub fn editing_block(&self) -> Option<BlockId> {
-        self.section_edit.as_ref().map(|edit| edit.block_id)
-    }
-
     /// The block the composer is drafting a fresh annotation about.
     pub fn composer_block(&self) -> Option<BlockId> {
         match self.composer {
@@ -396,27 +384,12 @@ impl DocumentEditor {
         }
     }
 
-    /// Whether the rail should hide every thread but the one being composed — a new thread in
-    /// progress, and the user has not asked to see the rest anyway.
-    pub fn hides_other_threads(&self) -> bool {
-        self.composer_block().is_some() && !self.thread_focus_override
-    }
-
-    /// The annotation ids the rail lists, in the document's own order — every open thread, plus
-    /// every resolved one once `show_resolved` is on. Empty while [`Self::hides_other_threads`]
-    /// says so, which is when the composer is drawn instead — never both, unless the user asked
-    /// to see the rest anyway, in which case the composer and this list are drawn together.
-    ///
-    /// A pure read over the loaded annotations (`heading_sections`'s and `thread_marks`'s own
-    /// footing), which is what lets the rail's virtualized list (T-152) ask it fresh for every
-    /// index rather than caching a snapshot the row builder would have to keep in step by hand.
-    pub fn rail_annotation_ids(&self) -> Vec<AnnotationId> {
-        if self.hides_other_threads() {
-            return Vec::new();
-        }
-        self.annotations
-            .annotations()
-            .iter()
+    /// The threads the rail lists, in document order ([`ordered`]) — every open thread, plus every
+    /// resolved one once `show_resolved` is on. A pure read, so the rail's virtualized list asks
+    /// it fresh for every index (T-152).
+    pub fn rail_threads(&self) -> Vec<AnnotationId> {
+        ordered(&self.rows, self.annotations.annotations())
+            .into_iter()
             .filter(|annotation| self.show_resolved || annotation.is_open())
             .map(|annotation| annotation.id)
             .collect()
@@ -437,364 +410,41 @@ impl DocumentEditor {
             .find(|annotation| annotation.id == annotation_id)
     }
 
-    /// A section edit was confirmed and saved: patch the cached block(s) so the preview shows
-    /// them now, rather than waiting on the host.
-    ///
-    /// **The host only restates the block index — `Message::PlanAnnotationsChanged` — when a save
-    /// orphans a thread.** An edit that keeps every anchor (the ordinary case) never re-sends it,
-    /// so `preview`'s per-section render, which reads this cache rather than the live buffer, kept
-    /// showing what the section said before the edit until the surface was closed and reopened.
-    /// This is the fix: the window already knows exactly what it just wrote, so it says so here
-    /// instead of waiting for a round trip that may never come. The host's own word, whenever it
-    /// does arrive, overwrites this again — this is only ever ahead of it, never in conflict.
-    ///
-    /// `parsed` is the edited text's own blocks — [`parse_section_blocks`]'s answer — so **a section
-    /// that parsed into several blocks (a paragraph split by a blank line, say) is cached as several
-    /// blocks**, never as one block holding embedded newlines: the gutter, the double-click-to-edit
-    /// affordance and every other per-block thing in `ui::plan` reads this cache at block
-    /// granularity, and a single lumped block would answer all of them for the whole span at once.
-    /// An empty `parsed` is a section edited down to nothing, and the block is dropped outright — the
-    /// preview should say so immediately rather than keep drawing a row for text no longer there.
-    ///
-    /// The id `block_id` carried is kept on the **first** resulting block and nowhere else, so a
-    /// thread anchored here stays anchored to the part of the split it is still about, the same
-    /// rule the host's own matcher applies when a block turns into several.
-    pub fn replace_cached_block(&mut self, block_id: BlockId, parsed: Vec<(String, String)>) {
-        let AnnotationsBody::Loaded { blocks, .. } = &mut self.annotations else {
-            return;
-        };
-        let Some(pos) = blocks.iter().position(|block| block.id == block_id) else {
-            return;
-        };
-        if parsed.is_empty() {
-            blocks.remove(pos);
-            return;
-        }
-        let replacement: Vec<PlanBlock> = parsed
-            .into_iter()
-            .enumerate()
-            .map(|(index, (kind, text))| PlanBlock {
-                id: if index == 0 {
-                    block_id
-                } else {
-                    BlockId::generate()
-                },
-                kind,
-                text,
-            })
-            .collect();
-        blocks.splice(pos..=pos, replacement);
+    /// The view row a thread sits in, `None` when it is orphaned or its block is not in the body.
+    pub fn row_of_annotation(&self, annotation_id: AnnotationId) -> Option<usize> {
+        row_of_annotation(&self.rows, self.annotation(annotation_id)?)
+    }
+
+    /// Rebuild the row map against the view's current parse.
+    pub fn remap(&mut self, parsed: &ubiq_md::Document) {
+        self.rows = row_map(parsed, self.annotations.blocks(), &parsed.source);
+        self.decor_stale = false;
+    }
+
+    /// What the view's margins carry, as of the last [`Self::remap`].
+    pub fn decor(&self) -> Vec<RowDecor> {
+        row_decor(
+            &self.rows,
+            self.annotations.annotations(),
+            self.annotations.highlights(),
+            self.focused,
+        )
     }
 }
 
-/// The blocks a section's edited markdown parses into, kind and text alike.
-///
-/// **The walk is [`ubiq_proto::blocks`]**, which is the one the host's own indexer runs
-/// (`crates/ubiq-host/src/plan/blocks.rs` matches ids on top of it). It lives in the contract
-/// crate rather than being mirrored here because the window does not depend on the host crate and
-/// the two splits have to agree exactly: this exists only to patch the local block cache
-/// optimistically, ahead of the host's re-index, which remains authoritative and overwrites
-/// whatever this guessed the moment it answers — and a cache split by different rules than the
-/// index would disagree with it silently (T-114).
-///
-/// Pairs rather than [`ubiq_proto::blocks::Block`]s because that is what
-/// [`DocumentEditor::replace_cached_block`] takes: the ids are minted there, not here.
-pub fn parse_section_blocks(text: &str) -> Vec<(String, String)> {
-    ubiq_proto::blocks::blocks(text)
-        .into_iter()
-        .map(ubiq_proto::blocks::Block::into_pair)
-        .collect()
-}
-
-/// One heading in a document, indented by its own depth, and how many threads sit under it — open
-/// against settled — for a navigator that lists a document's structure hierarchically.
-///
-/// **"Under it" is every block from this heading up to, but not including, the next heading of any
-/// depth.** Not a nested rollup: a `##`'s count including every `###` beneath it would count the
-/// same thread again for a second row on screen, and a flat count is what each row's own label
-/// actually names.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HeadingEntry {
-    pub block_id: BlockId,
-    /// `1` for `#`, up to `6`.
-    pub level: u8,
-    /// The heading's own text, with its `#`s taken off — what the row says, not what it was
-    /// written as.
-    pub label: String,
-    pub open: usize,
-    pub resolved: usize,
-}
-
-/// The document's headings, in order, each carrying the open and resolved counts of the section it
-/// starts — the data a markdown navigator draws, kept apart from the drawing so it can be tested
-/// on its own.
-pub fn heading_sections(blocks: &[PlanBlock], annotations: &[Annotation]) -> Vec<HeadingEntry> {
-    fn heading_level(kind: &str) -> Option<u8> {
-        kind.strip_prefix("heading:")?.parse().ok()
+/// The composer's text read as an addressed comment: a leading `@agent` (then `:`, whitespace or
+/// the end) addresses it to the agent and is stripped, and so does the composer's "@agent" toggle
+/// (`to_agent`). Returns the addressee and the body left to post — possibly empty.
+pub fn addressed(text: &str, to_agent: bool) -> (Option<Addressee>, String) {
+    let text = text.trim();
+    let tagged = text
+        .strip_prefix("@agent")
+        .filter(|rest| rest.is_empty() || rest.starts_with(|c: char| c == ':' || c.is_whitespace()))
+        .map(|rest| rest.trim_start_matches([':', ' ', '\t', '\n']).trim());
+    match tagged {
+        Some(rest) => (Some(Addressee::Agent), rest.to_string()),
+        None => (to_agent.then_some(Addressee::Agent), text.to_string()),
     }
-
-    let mut out: Vec<HeadingEntry> = Vec::new();
-    for block in blocks.iter() {
-        // Frontmatter needs no special case here: it is a block of kind `frontmatter` (T-154), so
-        // it has no heading level and takes the "before the first heading" arm like any other
-        // block the navigator has nothing to say about.
-        match heading_level(&block.kind) {
-            Some(level) => {
-                let label = block.text.trim_start_matches('#').trim().to_string();
-                let mut entry = HeadingEntry {
-                    block_id: block.id,
-                    level,
-                    label,
-                    open: 0,
-                    resolved: 0,
-                };
-                count_into(&mut entry, block.id, annotations);
-                out.push(entry);
-            }
-            // A block before the first heading has nowhere to add its count — a document that
-            // opens with prose rather than a title, which the navigator simply has nothing to say
-            // about yet.
-            None => {
-                if let Some(last) = out.last_mut() {
-                    count_into(last, block.id, annotations);
-                }
-            }
-        }
-    }
-    out
-}
-
-fn count_into(entry: &mut HeadingEntry, block_id: BlockId, annotations: &[Annotation]) {
-    for annotation in annotations {
-        if annotation.block_id != block_id {
-            continue;
-        }
-        if annotation.is_open() {
-            entry.open += 1;
-        } else {
-            entry.resolved += 1;
-        }
-    }
-}
-
-/// What the minimap draws a block as — a shape rather than shrunken text, in the spirit of
-/// `_docs/inbox/markdown-improvement-proposal.md` §8.2's table. Every block kind the host indexes
-/// today (`crates/ubiq-host/src/plan/blocks.rs::kind_of`) resolves to one of these except a
-/// thematic break, raw HTML, a definition and frontmatter, which draw nothing — there is no shape
-/// in the proposal's table for them and a mark for every block would be noise, not orientation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MinimapBlockKind {
-    Heading,
-    Paragraph,
-    Code,
-    Table,
-    /// A paragraph that is a single image reference and nothing else — the host's parser has no
-    /// block kind of its own for an image (it is phrasing inside a paragraph, not a block level
-    /// node), so this is a heuristic over a paragraph's text rather than a fact the host states.
-    Image,
-}
-
-/// One row the minimap draws for a block — exactly one per block, of every kind (T-134). A
-/// paragraph or a table once drew one row per real source line; against the reference minimap's
-/// own look that read as a barcode, a wall of same-height ticks with nothing to tell one block
-/// from the next. One mark per block, sized to its widest line, is what keeps "short line, short
-/// mark" (T-110) without losing the block-level shape a minimap is for. `row_index`/`row_count`
-/// stay on the type for `ui/document.rs`'s own use — every row built today carries `(0, 1)`.
-///
-/// **`length` is measured in characters, not pixels.** There is no second layout pass to place a
-/// mark by real glyph widths (proposal §8.5 asks that there not be one), and the preview's own
-/// renderer (`ui::viewer::markdown`) exposes no per-line fragment geometry to measure instead —
-/// character count against [`LINE_LENGTH_CHARS`] is the real content the line carries, only
-/// approximated by count rather than by width. This is the divergence from proposal §8.2's own
-/// wording ("shapes are legible at any scale", said of a native text system with line fragments
-/// on hand); a monospace-ish approximation is what is reachable here.
-#[derive(Clone, Debug, PartialEq)]
-pub struct MinimapRow {
-    pub block_index: usize,
-    /// Which row of this block this is, and how many the block has. There is no per-line pixel
-    /// position either — `ui/document.rs` spreads `row_count` rows evenly across the block's own
-    /// *measured* height (from `ScrollHandle::bounds_for_item`), so the rows stay anchored to the
-    /// block's real vertical span even though their position inside it is interpolated.
-    pub row_index: usize,
-    pub row_count: usize,
-    pub kind: MinimapBlockKind,
-    /// `0.0..=1.0`, this row's own share of a full column width.
-    pub length: f32,
-}
-
-/// Roughly how many characters of body text fill the document column at its own width
-/// (`ui::document::DOC_WIDTH`-ish, at the content body size) — the normalising constant a real
-/// line's character count is measured against, so "short line, short mark" is relative to what
-/// the column can actually hold rather than to the longest line in the file.
-pub(crate) const LINE_LENGTH_CHARS: f32 = 90.0;
-
-/// The document's blocks, drawn as the minimap sees them — one entry per block for a heading, a
-/// code block or an image, one per real line for a paragraph or a table row.
-pub fn minimap_rows(blocks: &[PlanBlock]) -> Vec<MinimapRow> {
-    let mut out = Vec::new();
-    for (block_index, block) in blocks.iter().enumerate() {
-        if block.kind.starts_with("heading:") {
-            out.push(MinimapRow {
-                block_index,
-                row_index: 0,
-                row_count: 1,
-                kind: MinimapBlockKind::Heading,
-                length: 0.85,
-            });
-            continue;
-        }
-        match block.kind.as_str() {
-            "paragraph" if is_image_reference(&block.text) => out.push(MinimapRow {
-                block_index,
-                row_index: 0,
-                row_count: 1,
-                kind: MinimapBlockKind::Image,
-                length: 0.55,
-            }),
-            "paragraph" => out.extend(text_rows(
-                block_index,
-                &block.text,
-                MinimapBlockKind::Paragraph,
-            )),
-            "code" | "math" => out.push(MinimapRow {
-                block_index,
-                row_index: 0,
-                row_count: 1,
-                kind: MinimapBlockKind::Code,
-                length: 1.0,
-            }),
-            "table" => out.extend(table_rows(block_index, &block.text)),
-            _ => {}
-        }
-    }
-    out
-}
-
-/// A paragraph that is nothing but a Markdown image reference — `![alt](url)` alone on the line,
-/// no surrounding prose. The host's parser folds an image into its paragraph as phrasing content
-/// rather than giving it a block kind of its own, so this is the only way to tell one from an
-/// ordinary paragraph at this layer.
-pub(crate) fn is_image_reference(text: &str) -> bool {
-    let t = text.trim();
-    t.starts_with("![") && t.ends_with(')') && t.matches("![").count() == 1
-}
-
-/// A paragraph's or a heading-less prose block's shape, as **one** mark rather than one per source
-/// line (T-134). A mark per real line read as a barcode — a wall of identical-height ticks with no
-/// air between them — against the reference minimap's own look (a handful of legible bars with
-/// room around each). One mark per block, sized to its longest line, keeps the shape a block-level
-/// map is for: where the headings, the prose and the code sit, not a transcription of every line.
-fn text_rows(block_index: usize, text: &str, kind: MinimapBlockKind) -> Vec<MinimapRow> {
-    let widest = text
-        .lines()
-        .map(|line| line.trim().len())
-        .max()
-        .unwrap_or(0);
-    let length = if widest == 0 {
-        0.3
-    } else {
-        (widest as f32 / LINE_LENGTH_CHARS).clamp(0.08, 1.0)
-    };
-    vec![MinimapRow {
-        block_index,
-        row_index: 0,
-        row_count: 1,
-        kind,
-        length,
-    }]
-}
-
-/// A table's shape, as **one** dotted mark rather than one per row — the same barcode problem
-/// [`text_rows`] fixes, for the same reason. Sized to the widest row, so a wide table still reads
-/// as wider than a narrow one.
-fn table_rows(block_index: usize, text: &str) -> Vec<MinimapRow> {
-    let widest = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !is_separator_row(line))
-        .map(|line| line.trim_matches('|').len())
-        .max();
-    let Some(widest) = widest else {
-        return Vec::new();
-    };
-    vec![MinimapRow {
-        block_index,
-        row_index: 0,
-        row_count: 1,
-        kind: MinimapBlockKind::Table,
-        length: (widest as f32 / LINE_LENGTH_CHARS).clamp(0.15, 1.0),
-    }]
-}
-
-fn is_separator_row(line: &str) -> bool {
-    line.trim_matches('|')
-        .chars()
-        .all(|c| matches!(c, '-' | ':' | '|' | ' '))
-}
-
-/// One thread, positioned by where its block sits among the document's blocks — the data a
-/// minimap draws, kept apart from the drawing on `heading_sections`'s own rule so it can be
-/// tested on its own and so a mark clicked in the strip can be resolved back to an annotation the
-/// same way a picked row in the navigator resolves back to a heading.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ThreadMark {
-    pub annotation_id: AnnotationId,
-    /// The mark's position among `blocks` — an index, not a pixel: the caller with a real
-    /// `ScrollHandle` turns it into one, and a caller with none (a test) can still assert on the
-    /// ordering alone.
-    pub block_index: usize,
-    pub open: bool,
-}
-
-/// Every thread whose block is still in the document, in the blocks' own order — **an orphaned
-/// thread (`annotation.block_id` matching no block) carries no position and is left out**, the
-/// same as the gutter's own count: there is nothing on the page to mark it against.
-pub fn thread_marks(blocks: &[PlanBlock], annotations: &[Annotation]) -> Vec<ThreadMark> {
-    annotations
-        .iter()
-        .filter_map(|annotation| {
-            let block_index = blocks
-                .iter()
-                .position(|block| block.id == annotation.block_id)?;
-            Some(ThreadMark {
-                annotation_id: annotation.id,
-                block_index,
-                open: annotation.is_open(),
-            })
-        })
-        .collect()
-}
-
-/// Splice a section's edited text into the body. **An all-whitespace replacement removes the
-/// section outright** — its blank-line gap with it — rather than saving an empty paragraph where
-/// it stood: item 2 of the section-edit revamp is "a block edited down to nothing goes away", not
-/// "a block edited down to nothing is kept, empty".
-///
-/// The gap absorbed is whichever side has one: forward first, so a section removed from the middle
-/// of the document closes up against the one that follows it, and backward only when there is
-/// nothing after it to close up against — the last block in the document.
-pub fn splice_section(body: &str, range: Range<usize>, typed: &str) -> String {
-    let typed = typed.trim();
-    if typed.is_empty() {
-        let mut start = range.start;
-        let mut end = range.end;
-        let kept_after = body[end..].trim_start_matches('\n').len();
-        let gap_after = body[end..].len() - kept_after;
-        if gap_after > 0 {
-            end += gap_after;
-        } else {
-            start = body[..start].trim_end_matches('\n').len();
-        }
-        let mut next = String::with_capacity(body.len() - (end - start));
-        next.push_str(&body[..start]);
-        next.push_str(&body[end..]);
-        return next;
-    }
-    let mut next = String::with_capacity(body.len() + typed.len());
-    next.push_str(&body[..range.start]);
-    next.push_str(typed);
-    next.push_str(&body[range.end..]);
-    next
 }
 
 /// Where each of the host's blocks sits in the text on screen.
@@ -872,30 +522,6 @@ pub fn change_ranges(body: &str, regions: &[PlanChangedRegion]) -> Vec<(SaveOrig
             (start < end).then_some((region.origin, start..end))
         })
         .collect()
-}
-
-/// The range a thread points at: its quoted passage where it has one and the passage is still
-/// there, and the whole block otherwise.
-pub fn annotation_range(
-    body: &str,
-    ranges: &[(BlockId, Range<usize>)],
-    annotation: &Annotation,
-) -> Option<Range<usize>> {
-    let block = ranges
-        .iter()
-        .find(|(id, _)| *id == annotation.block_id)
-        .map(|(_, range)| range.clone())?;
-    let Some(quote) = annotation.quote.as_deref() else {
-        return Some(block);
-    };
-    let quote = quote.trim();
-    if quote.is_empty() {
-        return Some(block);
-    }
-    match body.get(block.clone()).and_then(|text| text.find(quote)) {
-        Some(at) => Some(block.start + at..block.start + at + quote.len()),
-        None => Some(block),
-    }
 }
 
 /// One entry in the `/` menu.
@@ -994,6 +620,227 @@ pub fn slash_prefix(text: &str, offset: usize) -> Option<&str> {
     Some(word)
 }
 
+// ── Rows: the join between the host's blocks and the renderer's ─────
+
+/// Which `ubiq_md` root row each of the host's blocks sits in, and the reverse.
+///
+/// The host indexes blocks its own way (`PlanBlock`), the renderer lays out rows its own way
+/// (`ubiq_md::Document::blocks`); the join is [`block_ranges`] for block → source range and
+/// `Document::block_at_offset` for offset → row. Several host blocks can share a row (a list is
+/// one row and each item a block), and a block whose text the body no longer holds belongs to no
+/// row and is simply left out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RowMap {
+    /// Per row, its host blocks in document order. Always as long as the document's row count.
+    row_blocks: Vec<Vec<BlockId>>,
+    /// Each mapped block's row and source range.
+    placed: HashMap<BlockId, (usize, Range<usize>)>,
+}
+
+impl RowMap {
+    /// The row a block sits in, or `None` for a block the body does not hold.
+    pub fn row_of(&self, block: BlockId) -> Option<usize> {
+        self.placed.get(&block).map(|(row, _)| *row)
+    }
+
+    /// The host blocks in a row, in document order.
+    pub fn blocks_in(&self, row: usize) -> &[BlockId] {
+        self.row_blocks.get(row).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn rows(&self) -> usize {
+        self.row_blocks.len()
+    }
+}
+
+/// Map each host block to the row containing the start of its source range.
+pub fn row_map(doc: &ubiq_md::Document, blocks: &[PlanBlock], body: &str) -> RowMap {
+    let mut map = RowMap {
+        row_blocks: vec![Vec::new(); doc.blocks.len()],
+        placed: HashMap::new(),
+    };
+    for (id, range) in block_ranges(body, blocks) {
+        let Some(row) = doc.block_at_offset(range.start) else {
+            continue;
+        };
+        map.row_blocks[row].push(id);
+        map.placed.insert(id, (row, range));
+    }
+    map
+}
+
+/// What a row carries in the margin: its threads, the flags standing on its open ones, its
+/// highlight, and whether the focused thread is one of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RowDecor {
+    pub row: usize,
+    pub open: usize,
+    pub resolved: usize,
+    /// The union of the marks on the row's open threads, in `AnnotationMark` declaration order.
+    pub marks: Vec<AnnotationMark>,
+    pub highlight: Option<HighlightColour>,
+    pub focused: bool,
+}
+
+/// One entry per row that has a thread, a highlight or the focus, in row order. A row sums the
+/// threads of every block in it; orphaned threads and those on unmapped blocks have no row.
+pub fn row_decor(
+    map: &RowMap,
+    annotations: &[Annotation],
+    highlights: &[BlockHighlight],
+    focused: Option<AnnotationId>,
+) -> Vec<RowDecor> {
+    let mut rows: BTreeMap<usize, RowDecor> = BTreeMap::new();
+    fn entry(rows: &mut BTreeMap<usize, RowDecor>, row: usize) -> &mut RowDecor {
+        rows.entry(row).or_insert(RowDecor {
+            row,
+            open: 0,
+            resolved: 0,
+            marks: Vec::new(),
+            highlight: None,
+            focused: false,
+        })
+    }
+    for annotation in annotations.iter().filter(|a| !a.orphaned) {
+        let Some(row) = map.row_of(annotation.block_id) else {
+            continue;
+        };
+        let decor = entry(&mut rows, row);
+        match annotation.state {
+            AnnotationState::Open => {
+                decor.open += 1;
+                for mark in &annotation.marks {
+                    if !decor.marks.contains(mark) {
+                        decor.marks.push(*mark);
+                    }
+                }
+            }
+            AnnotationState::Resolved => decor.resolved += 1,
+        }
+        if focused == Some(annotation.id) {
+            decor.focused = true;
+        }
+    }
+    for highlight in highlights {
+        if let Some(row) = map.row_of(highlight.block_id) {
+            entry(&mut rows, row).highlight = Some(highlight.colour);
+        }
+    }
+    let mut out: Vec<RowDecor> = rows.into_values().collect();
+    for decor in &mut out {
+        decor.marks.sort_by_key(|mark| match mark {
+            AnnotationMark::Agent => 0,
+            AnnotationMark::Todo => 1,
+            AnnotationMark::Question => 2,
+        });
+    }
+    out
+}
+
+/// The host block a new thread on `row` targets: the one whose source range contains `offset`,
+/// else the row's first. `None` for a row with no host block.
+pub fn target_block(map: &RowMap, row: usize, offset: Option<usize>) -> Option<BlockId> {
+    let blocks = map.blocks_in(row);
+    offset
+        .and_then(|at| {
+            blocks.iter().find(|id| {
+                map.placed
+                    .get(id)
+                    .is_some_and(|(_, range)| range.contains(&at))
+            })
+        })
+        .or_else(|| blocks.first())
+        .copied()
+}
+
+/// The row of an annotation, `None` when it is orphaned or its block is not in the body.
+fn row_of_annotation(map: &RowMap, annotation: &Annotation) -> Option<usize> {
+    if annotation.orphaned {
+        return None;
+    }
+    map.row_of(annotation.block_id)
+}
+
+/// The threads on a row, oldest first.
+fn threads_on<'a>(map: &RowMap, annotations: &'a [Annotation], row: usize) -> Vec<&'a Annotation> {
+    let mut here: Vec<&Annotation> = annotations
+        .iter()
+        .filter(|a| row_of_annotation(map, a) == Some(row))
+        .collect();
+    here.sort_by_key(|a| a.created_at);
+    here
+}
+
+/// Every thread in document order, by row then creation, which is the side list's order so that
+/// scrolling the document walks the list. Threads with no row sort last.
+pub fn ordered<'a>(map: &RowMap, annotations: &'a [Annotation]) -> Vec<&'a Annotation> {
+    let mut out: Vec<&Annotation> = annotations.iter().collect();
+    out.sort_by_key(|a| {
+        (
+            row_of_annotation(map, a).unwrap_or(usize::MAX),
+            a.created_at,
+        )
+    });
+    out
+}
+
+/// Which thread the side list focuses, given the rows now on screen: `current` while its row is
+/// still visible, else the first open thread (in [`ordered`] order) on a visible row. `None`
+/// leaves the focus where it is. Resolved threads are never focused.
+pub fn follow_target(
+    map: &RowMap,
+    annotations: &[Annotation],
+    visible: Range<usize>,
+    current: Option<AnnotationId>,
+) -> Option<AnnotationId> {
+    let here = |a: &Annotation| {
+        a.state == AnnotationState::Open
+            && row_of_annotation(map, a).is_some_and(|row| visible.contains(&row))
+    };
+    current
+        .filter(|id| annotations.iter().any(|a| a.id == *id && here(a)))
+        .or_else(|| {
+            ordered(map, annotations)
+                .into_iter()
+                .find(|a| here(a))
+                .map(|a| a.id)
+        })
+}
+
+/// Which thread marking `row` toggles: the focused one when it sits on the row, else the row's
+/// first. `None` when the row has no thread, where marking makes one.
+pub fn mark_target(
+    map: &RowMap,
+    annotations: &[Annotation],
+    row: usize,
+    focused: Option<AnnotationId>,
+) -> Option<AnnotationId> {
+    let here = threads_on(map, annotations, row);
+    focused
+        .filter(|id| here.iter().any(|a| a.id == *id))
+        .or_else(|| here.first().map(|a| a.id))
+}
+
+/// What a row's resolve control does: resolve (`true`) the focused thread if it is open on the
+/// row, else the row's first open one; with none open, reopen (`false`) the
+/// [`mark_target`]. `None` when the row has no thread.
+pub fn resolve_target(
+    map: &RowMap,
+    annotations: &[Annotation],
+    row: usize,
+    focused: Option<AnnotationId>,
+) -> Option<(AnnotationId, bool)> {
+    let open: Vec<&Annotation> = threads_on(map, annotations, row)
+        .into_iter()
+        .filter(|a| a.state == AnnotationState::Open)
+        .collect();
+    focused
+        .and_then(|id| open.iter().find(|a| a.id == id))
+        .or_else(|| open.first())
+        .map(|a| (a.id, true))
+        .or_else(|| mark_target(map, annotations, row, focused).map(|id| (id, false)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1013,16 +860,6 @@ mod tests {
         PlanBlock {
             id: BlockId::generate(),
             kind: format!("heading:{depth}"),
-            text: text.to_string(),
-        }
-    }
-
-    /// A document's opening `---` fence and its fields, as the host now indexes them (T-154): one
-    /// block of kind `frontmatter`, delimiters and all.
-    fn frontmatter(text: &str) -> PlanBlock {
-        PlanBlock {
-            id: BlockId::generate(),
-            kind: "frontmatter".to_string(),
             text: text.to_string(),
         }
     }
@@ -1066,38 +903,6 @@ mod tests {
         let body = "nothing of the sort\n";
         let ranges = block_ranges(body, &[block("gone")]);
         assert!(ranges.is_empty());
-    }
-
-    #[test]
-    fn a_quote_narrows_the_range_to_the_passage() {
-        let body = "Ship the thing by Friday.\n";
-        let blocks = vec![block("Ship the thing by Friday.")];
-        let ranges = block_ranges(body, &blocks);
-        let annotation = Annotation::new(
-            blocks[0].id,
-            Some("by Friday".to_string()),
-            CommentAuthor::User,
-            "is that real?".to_string(),
-            Utc::now(),
-        );
-        let range = annotation_range(body, &ranges, &annotation).expect("the block is there");
-        assert_eq!(&body[range], "by Friday");
-    }
-
-    #[test]
-    fn a_quote_that_is_gone_falls_back_to_the_block() {
-        let body = "Ship the thing.\n";
-        let blocks = vec![block("Ship the thing.")];
-        let ranges = block_ranges(body, &blocks);
-        let annotation = Annotation::new(
-            blocks[0].id,
-            Some("by Friday".to_string()),
-            CommentAuthor::User,
-            "is that real?".to_string(),
-            Utc::now(),
-        );
-        let range = annotation_range(body, &ranges, &annotation).expect("the block is there");
-        assert_eq!(&body[range], "Ship the thing.");
     }
 
     fn region(first: u32, last: u32, origin: SaveOrigin) -> PlanChangedRegion {
@@ -1158,217 +963,172 @@ mod tests {
         assert_eq!(slash_prefix("src/state", 9), None);
     }
 
-    #[test]
-    fn headings_carry_their_own_depth_and_the_hash_marks_are_taken_off() {
-        let title = heading(1, "# Title");
-        let scope = heading(2, "## Scope");
-        let blocks = vec![title.clone(), scope.clone()];
-        let entries = heading_sections(&blocks, &[]);
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].level, 1);
-        assert_eq!(entries[0].label, "Title");
-        assert_eq!(entries[1].level, 2);
-        assert_eq!(entries[1].label, "Scope");
-    }
-
-    #[test]
-    fn a_headings_count_is_its_own_section_only() {
-        let title = heading(1, "# Title");
-        let intro = block("Intro paragraph.");
-        let scope = heading(2, "## Scope");
-        let detail = block("A detail.");
-        let blocks = vec![title.clone(), intro.clone(), scope.clone(), detail.clone()];
-        let annotations = vec![
-            annotation(intro.id, true),
-            annotation(scope.id, false),
-            annotation(detail.id, true),
-            annotation(detail.id, false),
-        ];
-        let entries = heading_sections(&blocks, &annotations);
-
-        assert_eq!(entries[0].open, 1, "the paragraph under Title counts there");
-        assert_eq!(entries[0].resolved, 0);
-        // Scope's own thread, plus the detail beneath it — flat, not rolled up into Title.
-        assert_eq!(entries[1].open, 1);
-        assert_eq!(entries[1].resolved, 2);
-    }
-
-    #[test]
-    fn a_block_before_the_first_heading_has_nowhere_to_add_its_count() {
-        let intro = block("No title yet.");
-        let entries = heading_sections(&[intro.clone()], &[annotation(intro.id, true)]);
-        assert!(entries.is_empty());
-    }
-
-    /// T-154: frontmatter is a block kind now, so neither the navigator nor the minimap needs a
-    /// positional guess to keep it out — it simply is not a heading and has no shape.
-    #[test]
-    fn frontmatter_is_neither_a_heading_entry_nor_a_minimap_shape() {
-        let opening = frontmatter("---\nverified: 2026-09-24\nreview_cycle: monthly\n---");
-        let scope = heading(2, "## Scope");
-        let blocks = vec![opening, scope];
-
-        let entries = heading_sections(&blocks, &[]);
-        assert_eq!(entries.len(), 1, "the frontmatter is not a heading entry");
-        assert_eq!(entries[0].label, "Scope");
-
-        let rows = minimap_rows(&blocks);
-        assert_eq!(rows.len(), 1, "only the real heading gets a shape");
-        assert_eq!(rows[0].kind, MinimapBlockKind::Heading);
-    }
-
-    /// The other half of the same fix: a real, mid-document Setext heading shaped like `key: value`
-    /// lines — which the old positional predicate had to work to not mistake — is just a heading.
-    #[test]
-    fn a_setext_heading_shaped_like_fields_is_a_heading() {
-        let title = heading(1, "# Title");
-        let intro = block("Intro paragraph.");
-        let rate = heading(2, "Rate: fast\nCost: cheap");
-        let entries = heading_sections(&[title, intro, rate], &[]);
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[1].label, "Rate: fast\nCost: cheap");
-    }
-
-    #[test]
-    fn thread_marks_position_by_block_index_and_carry_open_state() {
-        let first = block("First.");
-        let second = block("Second.");
-        let third = block("Third.");
-        let blocks = vec![first.clone(), second.clone(), third.clone()];
-        let open = annotation(second.id, true);
-        let resolved = annotation(third.id, false);
-        let annotations = vec![open.clone(), resolved.clone()];
-
-        let marks = thread_marks(&blocks, &annotations);
-
-        assert_eq!(marks.len(), 2);
-        assert_eq!(marks[0].annotation_id, open.id);
-        assert_eq!(marks[0].block_index, 1);
-        assert!(marks[0].open);
-        assert_eq!(marks[1].annotation_id, resolved.id);
-        assert_eq!(marks[1].block_index, 2);
-        assert!(!marks[1].open);
-    }
-
-    #[test]
-    fn an_orphaned_thread_carries_no_mark() {
-        let kept = block("Still here.");
-        let annotations = vec![annotation(BlockId::generate(), true)];
-        let marks = thread_marks(&[kept], &annotations);
-        assert!(marks.is_empty());
-    }
-
-    /// T-183: a file document defaults away from tracking updates, a plan defaults into it — the
-    /// default the checkbox starts from, per document kind rather than a global setting.
+    /// T-183: a file document defaults away from tracking updates, a plan defaults into it.
     #[test]
     fn track_updates_defaults_by_document_kind() {
         let project = ProjectId::generate();
-        let file = DocumentEditor::loading(
-            DocumentHandle::File {
-                project_id: project,
-                rel_path: "notes.md".to_string(),
-            },
-            Presentation::Viewer,
-        );
-        assert!(!file.track_updates, "an ordinary markdown edit opts out");
-
-        let plan = DocumentEditor::loading(
-            DocumentHandle::Plan {
-                project_id: project,
-                task_id: TaskId::generate(),
-            },
-            Presentation::Modal,
-        );
-        assert!(plan.track_updates, "a plan opts in");
-    }
-
-    /// T-152: the rail's own list — every open thread, plus the resolved ones once asked for,
-    /// and nothing while the composer is hiding them.
-    #[test]
-    fn rail_annotation_ids_follow_show_resolved_and_the_composer() {
-        let mut doc = DocumentEditor::loading(
-            DocumentHandle::Plan {
-                project_id: ProjectId::generate(),
-                task_id: TaskId::generate(),
-            },
-            Presentation::Modal,
-        );
-        let a = block("First.");
-        let b = block("Second.");
-        let open = annotation(a.id, true);
-        let resolved = annotation(b.id, false);
-        doc.set_annotations(AnnotationsBody::Loaded {
-            blocks: vec![a, b],
-            annotations: vec![open.clone(), resolved.clone()],
-        });
-
-        assert_eq!(doc.rail_annotation_ids(), vec![open.id]);
-
-        doc.show_resolved = true;
-        assert_eq!(doc.rail_annotation_ids(), vec![open.id, resolved.id]);
-
-        doc.composer = Some(ComposerTarget::Block(BlockId::generate()));
-        assert!(
-            doc.rail_annotation_ids().is_empty(),
-            "a fresh thread hides the rest until the override is on"
-        );
-
-        doc.thread_focus_override = true;
-        assert_eq!(doc.rail_annotation_ids(), vec![open.id, resolved.id]);
+        assert!(!tracks_updates_by_default(&DocumentHandle::File {
+            project_id: project,
+            rel_path: "notes.md".to_string(),
+        }));
+        assert!(tracks_updates_by_default(&DocumentHandle::Plan {
+            project_id: project,
+            task_id: TaskId::generate(),
+        }));
     }
 
     #[test]
-    fn an_emptied_section_closes_the_gap_it_leaves() {
-        let body = "# Title\n\nFirst.\n\nSecond.\n\nThird.\n";
-        let start = body.find("Second.").unwrap();
-        let range = start..start + "Second.".len();
-        let next = splice_section(body, range, "   \n  ");
-        assert_eq!(next, "# Title\n\nFirst.\n\nThird.\n");
-    }
-
-    #[test]
-    fn emptying_the_last_section_closes_the_gap_behind_it() {
-        let body = "# Title\n\nFirst.\n\nSecond.\n";
-        let start = body.find("Second.").unwrap();
-        let range = start..start + "Second.".len();
-        let next = splice_section(body, range, "\n");
-        assert_eq!(next, "# Title\n\nFirst.\n\n");
-    }
-
-    #[test]
-    fn an_ordinary_edit_still_just_replaces_the_range() {
-        let body = "First.\n\nSecond.\n";
-        let start = body.find("Second.").unwrap();
-        let range = start..start + "Second.".len();
-        let next = splice_section(body, range, "Rewritten.");
-        assert_eq!(next, "First.\n\nRewritten.\n");
-    }
-
-    #[test]
-    fn a_section_splits_exactly_as_the_hosts_index_will() {
-        // The wrapper, not the walk — `ubiq_proto::blocks` owns the rules and its own tests pin
-        // them. What this asserts is that the optimistic cache is fed the *same* answer, pair for
-        // pair, so a section edit cannot leave the window showing a different split than the one
-        // the host is about to send back.
-        let text = "## Design\n\nA paragraph.\n\n- one\n- two\n";
+    fn addressed_reads_the_tag_and_the_toggle() {
         assert_eq!(
-            parse_section_blocks(text),
-            ubiq_proto::blocks::blocks(text)
-                .into_iter()
-                .map(|block| (block.kind, block.text))
-                .collect::<Vec<_>>(),
+            addressed("@agent: look here", false),
+            (Some(Addressee::Agent), "look here".to_string())
         );
         assert_eq!(
-            parse_section_blocks("A line.\n\nAnother."),
-            vec![
-                ("paragraph".to_string(), "A line.".to_string()),
-                ("paragraph".to_string(), "Another.".to_string()),
-            ],
-            "a section that parses into several blocks is cached as several blocks",
+            addressed("@agent", false),
+            (Some(Addressee::Agent), String::new())
         );
-        assert!(
-            parse_section_blocks("   \n").is_empty(),
-            "a section edited down to nothing drops the block",
+        assert_eq!(addressed("plain", false), (None, "plain".to_string()));
+        assert_eq!(
+            addressed(" plain ", true),
+            (Some(Addressee::Agent), "plain".to_string())
         );
+        // Not a tag: a word that merely starts with it.
+        assert_eq!(addressed("@agents", false), (None, "@agents".to_string()));
+    }
+
+    // ── Rows ────────────────────────────────────────────────────────
+
+    fn threaded(map_block: &PlanBlock, secs: i64) -> Annotation {
+        let mut a = annotation(map_block.id, true);
+        a.created_at = Utc::now() + chrono::Duration::seconds(secs);
+        a
+    }
+
+    #[test]
+    fn a_list_row_sums_its_items_threads() {
+        let body = "- one\n- two\n\nafter\n";
+        let (one, two, after) = (block("one"), block("two"), block("after"));
+        let doc = ubiq_md::parse(body);
+        let map = row_map(&doc, &[one.clone(), two.clone(), after.clone()], body);
+        assert_eq!(map.row_of(one.id), Some(0));
+        assert_eq!(map.row_of(two.id), Some(0));
+        assert_eq!(map.row_of(after.id), Some(1));
+        assert_eq!(map.blocks_in(0), &[one.id, two.id]);
+
+        let mut done = annotation(two.id, false);
+        done.marks = vec![AnnotationMark::Question];
+        let mut open = annotation(one.id, true);
+        open.marks = vec![AnnotationMark::Agent, AnnotationMark::Question];
+        let decor = row_decor(
+            &map,
+            &[open.clone(), done, annotation(one.id, true)],
+            &[],
+            Some(open.id),
+        );
+        assert_eq!(decor.len(), 1);
+        assert_eq!((decor[0].open, decor[0].resolved), (2, 1));
+        assert_eq!(
+            decor[0].marks,
+            vec![AnnotationMark::Agent, AnnotationMark::Question]
+        );
+        assert!(decor[0].focused);
+    }
+
+    #[test]
+    fn heading_and_paragraph_are_separate_rows_with_highlights() {
+        let body = "# Title\n\nBody text.\n";
+        let (h, p) = (heading(1, "# Title"), block("Body text."));
+        let doc = ubiq_md::parse(body);
+        let map = row_map(&doc, &[h.clone(), p.clone()], body);
+        let highlights = [BlockHighlight {
+            block_id: h.id,
+            colour: HighlightColour::Green,
+        }];
+        let decor = row_decor(&map, &[annotation(p.id, true)], &highlights, None);
+        assert_eq!(decor.len(), 2);
+        assert_eq!(
+            (decor[0].row, decor[0].highlight, decor[0].open),
+            (0, Some(HighlightColour::Green), 0)
+        );
+        assert_eq!(
+            (decor[1].row, decor[1].highlight, decor[1].open),
+            (1, None, 1)
+        );
+        assert!(!decor[1].focused);
+    }
+
+    #[test]
+    fn an_edited_body_shifts_the_rows() {
+        let blocks = [block("First."), block("Second.")];
+        let before = "First.\n\nSecond.\n";
+        let after = "New intro.\n\nFirst.\n\nSecond.\n";
+        let a = row_map(&ubiq_md::parse(before), &blocks, before);
+        let b = row_map(&ubiq_md::parse(after), &blocks, after);
+        assert_eq!(a.row_of(blocks[1].id), Some(1));
+        assert_eq!(b.row_of(blocks[1].id), Some(2));
+        assert_eq!(b.rows(), 3);
+    }
+
+    #[test]
+    fn a_missing_block_has_no_row_and_no_decor() {
+        let body = "Only this.\n";
+        let (here, gone) = (block("Only this."), block("Vanished entirely."));
+        let map = row_map(&ubiq_md::parse(body), &[here.clone(), gone.clone()], body);
+        assert_eq!(map.row_of(gone.id), None);
+        let mut orphan = annotation(here.id, true);
+        orphan.orphaned = true;
+        let decor = row_decor(&map, &[annotation(gone.id, true), orphan], &[], None);
+        assert!(decor.is_empty());
+        assert_eq!(row_map(&ubiq_md::Document::default(), &[], "").rows(), 0);
+    }
+
+    #[test]
+    fn target_block_prefers_the_offset_then_the_first() {
+        let body = "- one\n- two\n";
+        let (one, two) = (block("one"), block("two"));
+        let map = row_map(&ubiq_md::parse(body), &[one.clone(), two.clone()], body);
+        assert_eq!(
+            target_block(&map, 0, Some(body.find("two").unwrap())),
+            Some(two.id)
+        );
+        assert_eq!(target_block(&map, 0, Some(0)), Some(one.id));
+        assert_eq!(target_block(&map, 0, None), Some(one.id));
+        assert_eq!(target_block(&map, 5, None), None);
+    }
+
+    #[test]
+    fn follow_and_resolve_targets() {
+        let body = "a\n\nb\n\nc\n";
+        let blocks = [block("a"), block("b"), block("c")];
+        let map = row_map(&ubiq_md::parse(body), &blocks, body);
+        let c = threaded(&blocks[2], 0);
+        let b1 = threaded(&blocks[1], 1);
+        let b2 = threaded(&blocks[1], 2);
+        let all = vec![c.clone(), b1.clone(), b2.clone()];
+
+        let order: Vec<_> = ordered(&map, &all).iter().map(|a| a.id).collect();
+        assert_eq!(order, vec![b1.id, b2.id, c.id]);
+
+        assert_eq!(follow_target(&map, &all, 0..3, None), Some(b1.id));
+        assert_eq!(follow_target(&map, &all, 2..3, None), Some(c.id));
+        assert_eq!(follow_target(&map, &all, 0..3, Some(c.id)), Some(c.id));
+        assert_eq!(follow_target(&map, &all, 0..1, Some(c.id)), None);
+
+        assert_eq!(mark_target(&map, &all, 1, Some(b2.id)), Some(b2.id));
+        assert_eq!(mark_target(&map, &all, 1, Some(c.id)), Some(b1.id));
+        assert_eq!(mark_target(&map, &all, 0, None), None);
+
+        assert_eq!(
+            resolve_target(&map, &all, 1, Some(b2.id)),
+            Some((b2.id, true))
+        );
+        assert_eq!(resolve_target(&map, &all, 1, None), Some((b1.id, true)));
+        let mut closed = all.clone();
+        closed[1].state = AnnotationState::Resolved;
+        closed[2].state = AnnotationState::Resolved;
+        assert_eq!(resolve_target(&map, &closed, 1, None), Some((b1.id, false)));
+        assert_eq!(resolve_target(&map, &closed, 0, None), None);
+        // Resolved threads are never followed.
+        assert_eq!(follow_target(&map, &closed, 1..2, None), None);
     }
 }

@@ -14,10 +14,10 @@ use chrono::Utc;
 use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
-    Annotation, AnnotationState, DocumentHandle, PlanBlock, PlanChangeStats, PlanChangedRegion,
+    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion,
     PlanRevision, SaveOrigin,
 };
-use ubiq_proto::work::{CommentAuthor, Level};
+use ubiq_proto::work::{Addressee, CommentAuthor, Level};
 
 use crate::reply::Reply;
 use crate::store::mission::MissionStore;
@@ -541,6 +541,12 @@ impl Plans {
                 changed = true;
             }
         }
+        let before = sidecar.highlights.len();
+        sidecar
+            .highlights
+            .retain(|highlight| !matching.vanished.contains(&highlight.block_id));
+        changed |= sidecar.highlights.len() != before;
+        changed |= sidecar.blocks != matching.blocks;
         sidecar.blocks = matching.blocks;
 
         let revision = sidecar.revision + 1;
@@ -622,10 +628,11 @@ impl Plans {
     /// [`Message::ListPlanAnnotations`].
     pub fn annotations(&mut self, target: &Target) -> Vec<Reply> {
         match self.annotation_list(target) {
-            Ok((blocks, annotations)) => vec![Reply::Asker(Message::PlanAnnotations {
+            Ok((blocks, annotations, highlights)) => vec![Reply::Asker(Message::PlanAnnotations {
                 doc: target.handle(),
                 blocks,
                 annotations,
+                highlights,
             })],
             Err(error) => vec![Reply::Asker(doc_error(target, error))],
         }
@@ -637,17 +644,37 @@ impl Plans {
     pub fn annotation_list(
         &mut self,
         target: &Target,
-    ) -> Result<(Vec<PlanBlock>, Vec<Annotation>), String> {
+    ) -> Result<(Vec<PlanBlock>, Vec<Annotation>, Vec<BlockHighlight>), String> {
         if let Some(refusal) = self.refusal(target) {
             return Err(refusal);
         }
         let sidecar = self.sidecar(target)?;
-        Ok((sidecar.blocks, sidecar.annotations))
+        Ok((sidecar.blocks, sidecar.annotations, sidecar.highlights))
+    }
+
+    /// The one block whose text contains `quote`, whitespace-normalised on both sides. Refused
+    /// when no block has it or several do: an agent anchoring by passage must say which block.
+    pub fn block_for_quote(&mut self, target: &Target, quote: &str) -> Result<BlockId, String> {
+        let normalise = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let wanted = normalise(quote);
+        if wanted.is_empty() {
+            return Err("quote must not be empty".to_string());
+        }
+        let (blocks, _, _) = self.annotation_list(target)?;
+        let mut found = blocks
+            .iter()
+            .filter(|block| normalise(&block.text).contains(&wanted));
+        match (found.next(), found.next()) {
+            (Some(block), None) => Ok(block.id),
+            (None, _) => Err("no block of the plan contains that quote".to_string()),
+            _ => Err("more than one block contains that quote: quote more of the passage, or pass block_id".to_string()),
+        }
     }
 
     /// Open an annotation on one block of a task's plan. The block must be one the last save
     /// indexed: an annotation that names a block the plan does not have would arrive orphaned,
     /// which is a state to report, never one to create.
+    #[allow(clippy::too_many_arguments)]
     pub fn annotate(
         &mut self,
         target: &Target,
@@ -655,6 +682,8 @@ impl Plans {
         quote: Option<String>,
         author: CommentAuthor,
         text: String,
+        marks: Vec<AnnotationMark>,
+        to: Option<Addressee>,
     ) -> Vec<Reply> {
         self.mutate(target, |sidecar| {
             let text = text.trim().to_string();
@@ -664,15 +693,24 @@ impl Plans {
             if !sidecar.blocks.iter().any(|indexed| indexed.id == block) {
                 return Err("no such block in this document".to_string());
             }
-            sidecar.annotations.push(Annotation::new(
+            let now = Utc::now();
+            let mut annotation = Annotation::new(
                 block,
                 quote
                     .map(|quote| quote.trim().to_string())
                     .filter(|quote| !quote.is_empty()),
                 author,
                 text,
-                Utc::now(),
-            ));
+                now,
+            );
+            annotation.thread[0].to = to;
+            for mark in marks {
+                annotation.set_mark(mark, true);
+            }
+            if to == Some(Addressee::Agent) {
+                annotation.set_mark(AnnotationMark::Agent, true);
+            }
+            sidecar.annotations.push(annotation);
             Ok(())
         })
     }
@@ -684,6 +722,7 @@ impl Plans {
         annotation: AnnotationId,
         author: CommentAuthor,
         text: String,
+        to: Option<Addressee>,
     ) -> Vec<Reply> {
         self.mutate(target, |sidecar| {
             let text = text.trim().to_string();
@@ -695,7 +734,52 @@ impl Plans {
                 .iter_mut()
                 .find(|existing| existing.id == annotation)
                 .ok_or_else(|| "no such annotation".to_string())?;
-            found.reply(author, text, Utc::now());
+            found.reply_to(author, text, Utc::now(), to);
+            Ok(())
+        })
+    }
+
+    /// Set or clear one mark on an annotation.
+    pub fn set_mark(
+        &mut self,
+        target: &Target,
+        annotation: AnnotationId,
+        mark: AnnotationMark,
+        on: bool,
+    ) -> Vec<Reply> {
+        self.mutate(target, |sidecar| {
+            let found = sidecar
+                .annotations
+                .iter_mut()
+                .find(|existing| existing.id == annotation)
+                .ok_or_else(|| "no such annotation".to_string())?;
+            found.set_mark(mark, on);
+            Ok(())
+        })
+    }
+
+    /// Colour blocks, or clear them with `None`. Blocks the plan does not have are refused.
+    pub fn set_highlights(
+        &mut self,
+        target: &Target,
+        block_ids: &[BlockId],
+        colour: Option<HighlightColour>,
+    ) -> Vec<Reply> {
+        self.mutate(target, |sidecar| {
+            if let Some(missing) = block_ids
+                .iter()
+                .find(|id| !sidecar.blocks.iter().any(|indexed| indexed.id == **id))
+            {
+                return Err(format!("no such block in this document: {missing}"));
+            }
+            sidecar
+                .highlights
+                .retain(|highlight| !block_ids.contains(&highlight.block_id));
+            if let Some(colour) = colour {
+                sidecar
+                    .highlights
+                    .extend(block_ids.iter().map(|&block_id| BlockHighlight { block_id, colour }));
+            }
             Ok(())
         })
     }
@@ -750,11 +834,43 @@ impl Plans {
                 doc: target.handle(),
                 blocks: sidecar.blocks,
                 annotations: sidecar.annotations,
+                highlights: sidecar.highlights,
             }),
             Reply::Everyone(Message::PlanAnnotationsChanged {
                 doc: target.handle(),
             }),
         ]
+    }
+
+    // ── agent delivery ─────────────────────────────────────────
+    /// The prompt that delivers an agent-addressed comment, and the task it belongs to. `None`
+    /// for a file document (an `Agent` mark only, nobody to deliver to), for a missing
+    /// annotation, and when the document cannot be read. `annotation` of `None` is the newest
+    /// annotation, which is what a just-created one is.
+    pub fn agent_prompt(
+        &mut self,
+        target: &Target,
+        annotation: Option<AnnotationId>,
+    ) -> Option<(TaskId, String)> {
+        let (task, label) = match target {
+            Target::Plan { task, .. } => (*task, "the plan".to_string()),
+            Target::MissionDoc { task, name, .. } => (*task, format!("the mission document {name}")),
+            Target::File { .. } => return None,
+        };
+        let (blocks, annotations, _) = self.annotation_list(target).ok()?;
+        let found = match annotation {
+            Some(id) => annotations.iter().find(|existing| existing.id == id)?,
+            None => annotations.last()?,
+        };
+        let comment = found.thread.last()?;
+        let excerpt = blocks
+            .iter()
+            .find(|block| block.id == found.block_id)
+            .map(|block| block.text.as_str());
+        Some((
+            task,
+            agent_prompt_text(&label, found, excerpt, &comment.text),
+        ))
     }
 
     /// A task's plan body, or the reason it may not be read — for a caller that wants the string
@@ -766,6 +882,42 @@ impl Plans {
         }
         self.read_body(target)
     }
+}
+
+/// The agent a comment addressed to `Agent` goes to: the mission's coordinator, else the task's
+/// assignee when that names an agent id. `None` is nobody to tell, and nothing is delivered.
+pub fn choose_agent(
+    coordinator: Option<ubiq_proto::work::AgentId>,
+    assigned_to: Option<&str>,
+) -> Option<ubiq_proto::work::AgentId> {
+    coordinator.or_else(|| assigned_to.and_then(|who| who.trim().parse().ok()))
+}
+
+/// The words an agent is handed for a comment addressed to it.
+fn agent_prompt_text(
+    label: &str,
+    annotation: &Annotation,
+    excerpt: Option<&str>,
+    comment: &str,
+) -> String {
+    let mut text = format!(
+        "A comment on {label} is addressed to you (annotation {}).\n",
+        annotation.id
+    );
+    if let Some(excerpt) = excerpt.map(str::trim).filter(|excerpt| !excerpt.is_empty()) {
+        let clipped: String = excerpt.chars().take(400).collect();
+        let ellipsis = if clipped.len() < excerpt.len() { "…" } else { "" };
+        text.push_str(&format!("Block: {clipped}{ellipsis}\n"));
+    }
+    if let Some(quote) = &annotation.quote {
+        text.push_str(&format!("Quoted: {quote}\n"));
+    }
+    text.push_str(&format!(
+        "Comment: {comment}\n\
+         Answer with the `reply_annotation` tool of the ubiq-plan MCP, and call \
+         `resolve_annotation` once it is dealt with."
+    ));
+    text
 }
 
 /// One failure, named against the document it is about.
@@ -922,6 +1074,8 @@ mod tests {
             Some("Step one".to_string()),
             CommentAuthor::User,
             "  Which one? ".to_string(),
+            Vec::new(),
+            None,
         );
         assert!(replies.iter().any(|reply| matches!(
             reply,
@@ -944,6 +1098,7 @@ mod tests {
             annotation.id,
             CommentAuthor::Agent,
             "The first one.".to_string(),
+            None,
         );
         plans.resolve(&Target::plan(project, task), annotation.id, true);
 
@@ -971,6 +1126,8 @@ mod tests {
             None,
             CommentAuthor::User,
             "a comment".to_string(),
+            Vec::new(),
+            None,
         );
 
         let on_disk = plans.store.load(project, task).unwrap().unwrap();
@@ -998,6 +1155,8 @@ mod tests {
             None,
             CommentAuthor::User,
             "about step two".to_string(),
+            Vec::new(),
+            None,
         );
 
         // A paragraph inserted above, and step two itself reworded: neither moves the anchor.
@@ -1039,6 +1198,8 @@ mod tests {
             Some("Step two".to_string()),
             CommentAuthor::User,
             "about step two".to_string(),
+            Vec::new(),
+            None,
         );
 
         let replies = plans.save(
@@ -1066,6 +1227,85 @@ mod tests {
         assert_eq!(annotations[0].thread.len(), 1, "the thread survived");
     }
 
+    fn highlights_of(plans: &mut Plans, project: ProjectId, task: TaskId) -> Vec<BlockHighlight> {
+        plans
+            .annotation_list(&Target::plan(project, task))
+            .expect("the sidecar reads")
+            .2
+    }
+
+    #[test]
+    fn marks_addressing_and_highlights_round_trip_and_vanish_with_their_block() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let target = Target::plan(project, task);
+        plans.save(
+            &target,
+            "# Plan\n\nStep one.\n\nStep two.".to_string(),
+            &Saver::human(),
+            None,
+        );
+        let ids = block_ids(&mut plans, project, task);
+
+        // Addressing an agent sets the Agent mark; extra marks stack without duplicates.
+        plans.annotate(
+            &target,
+            ids[1],
+            None,
+            CommentAuthor::User,
+            "do it".to_string(),
+            vec![AnnotationMark::Todo, AnnotationMark::Todo],
+            Some(Addressee::Agent),
+        );
+        let a = annotations_of(&mut plans, project, task).remove(0);
+        assert_eq!(a.thread[0].to, Some(Addressee::Agent));
+        assert_eq!(a.marks, vec![AnnotationMark::Todo, AnnotationMark::Agent]);
+
+        plans.reply_to(&target, a.id, CommentAuthor::User, "again".to_string(), None);
+        plans.set_mark(&target, a.id, AnnotationMark::Todo, false);
+        plans.set_mark(&target, a.id, AnnotationMark::Question, true);
+        let a = annotations_of(&mut plans, project, task).remove(0);
+        assert_eq!(a.thread[1].to, None);
+        assert_eq!(a.marks, vec![AnnotationMark::Agent, AnnotationMark::Question]);
+
+        // Highlights: set, recolour, clear; an unknown block is refused.
+        plans.set_highlights(&target, &[ids[1], ids[2]], Some(HighlightColour::Green));
+        plans.set_highlights(&target, &[ids[2]], Some(HighlightColour::Red));
+        let h = highlights_of(&mut plans, project, task);
+        assert_eq!(h.len(), 2);
+        assert!(h.contains(&BlockHighlight { block_id: ids[2], colour: HighlightColour::Red }));
+        let replies = plans.set_highlights(&target, &[BlockId::generate()], None);
+        assert!(matches!(replies[0].message(), Message::PlanError { .. }));
+        plans.set_highlights(&target, &[ids[1]], None);
+        assert_eq!(highlights_of(&mut plans, project, task).len(), 1);
+
+        // The highlighted block vanishes: its highlight goes with it, and the windows hear.
+        let replies = plans.save(&target, "# Plan\n\nStep one.".to_string(), &Saver::human(), None);
+        assert!(highlights_of(&mut plans, project, task).is_empty());
+        assert!(replies.iter().any(|reply| matches!(
+            reply,
+            Reply::Everyone(Message::PlanAnnotationsChanged { .. })
+        )));
+    }
+
+    #[test]
+    fn a_save_that_only_reindexes_blocks_still_announces_it() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let target = Target::plan(project, task);
+        plans.save(&target, "# Plan\n\nStep one.".to_string(), &Saver::human(), None);
+        let replies = plans.save(
+            &target,
+            "# Plan\n\nStep one.\n\nStep two.".to_string(),
+            &Saver::human(),
+            None,
+        );
+        assert!(replies.iter().any(|reply| matches!(
+            reply,
+            Reply::Everyone(Message::PlanAnnotationsChanged { .. })
+        )));
+    }
+
     #[test]
     fn an_annotation_on_a_block_the_plan_does_not_have_is_refused() {
         let (mut plans, work, project, _dir) = plans_with_work();
@@ -1083,6 +1323,8 @@ mod tests {
             None,
             CommentAuthor::User,
             "about nothing".to_string(),
+            Vec::new(),
+            None,
         );
         let error = replies
             .iter()
@@ -1126,6 +1368,8 @@ mod tests {
             None,
             CommentAuthor::User,
             "a comment".to_string(),
+            Vec::new(),
+            None,
         );
 
         plans.delete(&Target::plan(project, task));
@@ -1446,6 +1690,8 @@ mod tests {
             None,
             CommentAuthor::User,
             "a comment".to_string(),
+            Vec::new(),
+            None,
         );
         let sidecar = plans.store.load_sidecar(project, task).unwrap().unwrap();
         let older = serde_json::json!({
@@ -1720,7 +1966,7 @@ mod tests {
         // Nothing of Ubiq's went into the config root for a file document.
         assert!(!_dir.path().join("projects").exists());
 
-        let (blocks, _) = plans
+        let (blocks, _, _) = plans
             .annotation_list(&target)
             .expect("the block index reads");
         assert_eq!(blocks.len(), 2);
@@ -1737,7 +1983,7 @@ mod tests {
         let target = file_target(&repo, project, "notes.md");
         let sidecar = repo.path().join("notes.md.annotation.json");
 
-        let (blocks, annotations) = plans
+        let (blocks, annotations, _) = plans
             .annotation_list(&target)
             .expect("an empty file still answers, with nothing in it");
         assert!(blocks.is_empty());
@@ -1761,7 +2007,7 @@ mod tests {
             &Saver::human(),
             None,
         );
-        let (blocks, _) = plans.annotation_list(&target).unwrap();
+        let (blocks, _, _) = plans.annotation_list(&target).unwrap();
         let second = blocks[2].id;
         plans.annotate(
             &target,
@@ -1769,6 +2015,8 @@ mod tests {
             Some("Second".to_string()),
             CommentAuthor::User,
             "is this still true?".to_string(),
+            Vec::new(),
+            None,
         );
 
         // The passage goes away, and the thread is flagged rather than dropped — the matcher is
@@ -1779,7 +2027,7 @@ mod tests {
             &Saver::human(),
             None,
         );
-        let (_, annotations) = plans.annotation_list(&target).unwrap();
+        let (_, annotations, _) = plans.annotation_list(&target).unwrap();
         assert_eq!(annotations.len(), 1);
         assert!(annotations[0].orphaned);
         assert_eq!(annotations[0].quote.as_deref(), Some("Second"));
@@ -1936,7 +2184,7 @@ mod tests {
             &Saver::agent("agent-1"),
             None,
         );
-        let (blocks, _) = plans.annotation_list(&target).expect("the index reads");
+        let (blocks, _, _) = plans.annotation_list(&target).expect("the index reads");
         let second = blocks[2].id;
 
         let replies = plans.annotate(
@@ -1945,13 +2193,15 @@ mod tests {
             Some("Second".to_string()),
             CommentAuthor::User,
             "is this still true?".to_string(),
+            Vec::new(),
+            None,
         );
         assert!(replies.iter().any(|reply| matches!(
             reply,
             Reply::Everyone(Message::PlanAnnotationsChanged { .. })
         )));
 
-        let (_, annotations) = plans.annotation_list(&target).unwrap();
+        let (_, annotations, _) = plans.annotation_list(&target).unwrap();
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0].quote.as_deref(), Some("Second"));
         assert!(!annotations[0].orphaned);
@@ -2002,5 +2252,45 @@ mod tests {
                 .iter()
                 .any(|reply| matches!(reply.message(), Message::PlanError { error, .. } if error == "no such task"))
         );
+    }
+
+    #[test]
+    fn an_agent_prompt_carries_the_annotation_the_block_and_the_comment() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let target = Target::plan(project, task);
+        plans.save(&target, "# Plan\n\nShip the thing.".to_string(), &Saver::human(), None);
+        let (blocks, _, _) = plans.annotation_list(&target).unwrap();
+        let block = blocks.iter().find(|b| b.text.contains("Ship")).unwrap().id;
+        plans.annotate(
+            &target,
+            block,
+            Some("Ship".to_string()),
+            CommentAuthor::User,
+            "why now?".to_string(),
+            Vec::new(),
+            Some(Addressee::Agent),
+        );
+        let (_, annotations, _) = plans.annotation_list(&target).unwrap();
+        let id = annotations[0].id;
+        let (for_task, prompt) = plans.agent_prompt(&target, None).unwrap();
+        assert_eq!(for_task, task);
+        assert!(prompt.contains(&id.to_string()));
+        assert!(prompt.contains("the plan"));
+        assert!(prompt.contains("Ship the thing."));
+        assert!(prompt.contains("why now?"));
+        assert!(prompt.contains("reply_annotation") && prompt.contains("resolve_annotation"));
+        assert!(plans.agent_prompt(&target, Some(AnnotationId::generate())).is_none());
+    }
+
+    #[test]
+    fn the_coordinator_wins_over_the_assignee() {
+        let coordinator = ubiq_proto::work::AgentId::generate();
+        let assignee = ubiq_proto::work::AgentId::generate();
+        let assigned = assignee.to_string();
+        assert_eq!(choose_agent(Some(coordinator), Some(&assigned)), Some(coordinator));
+        assert_eq!(choose_agent(None, Some(&assigned)), Some(assignee));
+        assert_eq!(choose_agent(None, Some("a person")), None);
+        assert_eq!(choose_agent(None, None), None);
     }
 }

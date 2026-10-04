@@ -452,6 +452,13 @@ struct PendingConversation {
     skills: Vec<String>,
 }
 
+/// Whether a mutation's replies carry a refusal.
+fn failed(replies: &[Reply]) -> bool {
+    replies
+        .iter()
+        .any(|reply| matches!(reply.message(), Message::PlanError { .. }))
+}
+
 /// `base`, then `base 2`, `base 3` … — the first that nothing in `taken` is wearing. A counter
 /// from the second occurrence onward, per project, so the first `claude` is just `claude` and a
 /// closed `claude 2` is reused rather than skipped.
@@ -2968,29 +2975,66 @@ impl Coordinator {
                 block_id,
                 quote,
                 text,
+                marks,
+                to,
             } => {
+                let mut prompt = None;
                 self.plan_job(client, &doc, |plans, target| {
-                    plans.annotate(
+                    let replies = plans.annotate(
                         target,
                         block_id,
                         quote,
                         ubiq_proto::work::CommentAuthor::User,
                         text,
-                    )
+                        marks,
+                        to,
+                    );
+                    if to == Some(ubiq_proto::work::Addressee::Agent) && !failed(&replies) {
+                        prompt = plans.agent_prompt(target, None);
+                    }
+                    replies
                 });
+                self.deliver_to_agent(doc.project_id(), prompt);
             }
             Message::ReplyToAnnotation {
                 doc,
                 annotation_id,
                 text,
+                to,
             } => {
+                let mut prompt = None;
                 self.plan_job(client, &doc, |plans, target| {
-                    plans.reply_to(
+                    let replies = plans.reply_to(
                         target,
                         annotation_id,
                         ubiq_proto::work::CommentAuthor::User,
                         text,
-                    )
+                        to,
+                    );
+                    if to == Some(ubiq_proto::work::Addressee::Agent) && !failed(&replies) {
+                        prompt = plans.agent_prompt(target, Some(annotation_id));
+                    }
+                    replies
+                });
+                self.deliver_to_agent(doc.project_id(), prompt);
+            }
+            Message::MarkAnnotation {
+                doc,
+                annotation_id,
+                mark,
+                on,
+            } => {
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.set_mark(target, annotation_id, mark, on)
+                });
+            }
+            Message::SetBlockHighlight {
+                doc,
+                block_ids,
+                colour,
+            } => {
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.set_highlights(target, &block_ids, colour)
                 });
             }
             Message::ResolveAnnotation {
@@ -4878,10 +4922,9 @@ impl Coordinator {
     /// included — until the window closes. The same shape `active_searches` already uses: a flag
     /// the worker sets on its way out, polled here rather than raced against.
     ///
-    /// **What an exit means depends on the harness.** For a multi-turn one it is the conversation
-    /// over. For a one-shot one it is a turn over, and the two must not be confused: reaping the
-    /// second as the first is what left copilot and opencode looking dead the moment they were
-    /// started (`G95`).
+    /// **Neither kind is ended; both are parked** (`finish_one_shot_turn`). For a one-shot harness
+    /// an exit is a turn over (`G95`); for a multi-turn one it is a crash or error, and ending it
+    /// would drop the owner so the window's Unload, Resume and Close all vanished (`T-296`).
     fn reap_conversations(&mut self) {
         let ended: Vec<AgentId> = self
             .conversations
@@ -4890,16 +4933,13 @@ impl Coordinator {
             .map(|(agent_id, _)| *agent_id)
             .collect();
         for agent_id in ended {
-            let one_shot = self
-                .pending_conversations
-                .get(&agent_id)
-                .is_some_and(|pending| !self.agents.multi_turn(&pending.agent_type));
-            if one_shot {
-                self.finish_one_shot_turn(agent_id);
-                continue;
-            }
-            tracing::debug!("agent {agent_id}'s harness ended on its own; reaping");
-            self.end_conversation(agent_id, StopReason::EndTurn);
+            // **Both kinds are put back, never ended.** A multi-turn harness that exits unasked —
+            // a crash, an auth or API error — used to be ended here, which dropped the owner and
+            // the pending row: the window still held a conversation, but every Unload, Resume and
+            // Close it then sent hit `drives` and vanished (`T-296`). Parked like an unload
+            // instead, the same three controls work from the errored state, and the transcript
+            // (with the pump's own `ConversationEnded`, already sent) stays readable.
+            self.finish_one_shot_turn(agent_id);
         }
     }
 
@@ -5220,6 +5260,34 @@ impl Coordinator {
         };
         let replies = change(&mut self.plans.lock(), &target);
         self.answer(client, replies);
+    }
+
+    /// Hand an agent-addressed comment to its agent, after the mutation succeeded: the mission's
+    /// coordinator, else the task's assignee, through the same path a typed line takes. Nobody to
+    /// tell is not an error — the comment and its `Agent` mark stand on the thread.
+    fn deliver_to_agent(&mut self, project: ProjectId, prompt: Option<(ubiq_proto::ids::TaskId, String)>) {
+        let Some((task, text)) = prompt else {
+            tracing::debug!("agent-addressed comment: nothing to deliver");
+            return;
+        };
+        let coordinator = self
+            .missions
+            .lock()
+            .record(project, task)
+            .and_then(|record| record.coordinator);
+        let (_, tasks) = self.work.lock().tasks(project);
+        let assigned = tasks
+            .iter()
+            .find(|record| record.id == task)
+            .and_then(|record| record.assigned_to.clone());
+        let Some(agent) = crate::plan::choose_agent(coordinator, assigned.as_deref()) else {
+            tracing::debug!("agent-addressed comment on {task}: no coordinator or assignee");
+            return;
+        };
+        let replies = self.work.lock().send_to_agent(project, agent, text);
+        for reply in replies {
+            self.host.send(To::Everyone, reply.into_message());
+        }
     }
 
     /// Write a copy of a task's plan into the project's own working tree, at `rel_path`.

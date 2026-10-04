@@ -145,9 +145,6 @@ const MOVE_UNASKED: Duration = Duration::from_secs(10 * 60);
 /// document, so a held zoom key must not do it once per point.
 const REFLOW_DEBOUNCE: Duration = Duration::from_millis(500);
 
-/// What one press of `cmd-=` or `cmd--` moves the content family's trim by.
-const CONTENT_TRIM_STEP: f32 = 0.05;
-
 /// How long after the last edit the outline is rebuilt. The rebuild parses the whole buffer a
 /// second time, so a held key must not do it once per character.
 const OUTLINE_DEBOUNCE: Duration = Duration::from_millis(200);
@@ -1023,21 +1020,11 @@ pub struct AppState {
     /// `DocumentEditor::composer` says it is answering. One at a time, `new_comment_input`'s own
     /// arrangement.
     pub annotation_composer_input: Entity<InputState>,
-    /// The annotated document's buffer — one per window, because one document is open at a time.
-    /// It is the same `EditorState` a file tab is drawn with, seeded from the host's body and
-    /// written back by `save_document`, so the plan is edited on the tree's own editor rather
-    /// than on a second one built for a modal.
+    /// The plan dialog's buffer — one per window, because one document is open at a time. It is
+    /// the same `EditorState` a file tab holds, seeded from the host's body and written back by
+    /// `save_document`; the dialog's `MdView` (`DocumentEditor::md`) is drawn over it, and its
+    /// block editor commits into it.
     pub plan_editor: Entity<EditorState>,
-    /// The annotated passages, as one decoration collection over that buffer. Kept because the
-    /// library hands a collection out once per buffer; `None` until the first document is drawn.
-    plan_marks: Option<gpui_component::input::TextDecorationCollection>,
-    /// The second layer over the same buffer: per-line edit provenance, from `ListPlanChanges`.
-    /// Its own collection rather than more marks in the first, because the two answer different
-    /// questions and arrive on different messages — and because the library layers collections in
-    /// creation order and lets the first win a property, so the layers must not share one.
-    /// Provenance paints an underline and annotations paint a background, which is what keeps a
-    /// changed line inside an annotated passage readable as both.
-    plan_change_marks: Option<gpui_component::input::TextDecorationCollection>,
     /// The titlebar's command field: shortcuts and search, in the middle of the window.
     pub command_input: Entity<InputState>,
     /// The project menu's own search field.
@@ -1327,24 +1314,10 @@ pub struct AppState {
     pub task_reference_scroll: ScrollHandle,
     /// The prerequisite picker's own result list, `task_reference_scroll`'s sibling.
     pub task_prerequisite_scroll: ScrollHandle,
-    /// The plan surface's section list, **virtualized** — a thread's "Show" button and the heading
-    /// navigator both bring a section into view by scrolling this to its index among the
-    /// document's blocks.
-    ///
-    /// A `ListState` rather than a `ScrollHandle` because every section is a whole `TextView`, and
-    /// an unvirtualized column laid all of them out every frame whether or not one was on screen:
-    /// a 400-block document cost two orders of magnitude more per frame than a ten-block one
-    /// (T-150). `list` hands the renderer only what is between the scroll top and the bottom of
-    /// the viewport, plus [`crate::ui::document::PLAN_OVERDRAW`], and a section off screen
-    /// contributes its cached height and nothing more.
-    pub plan_preview_list: gpui::ListState,
-    /// The thread rail beside it, virtualized the same way and for the same reason (T-152): a
-    /// thread card costs roughly as much to lay out as a section does, and an unvirtualized column
-    /// of them grew with the *thread count* rather than the document's length — the one axis
-    /// `plan_preview_list` does not touch, since `gpui::list` over the sections never draws a
-    /// thread. `ui::document::thread_list` is `preview`'s own re-sync rule read again: a composer
-    /// opening, a reply's field or `show_resolved` all change the count, and this keeps the
-    /// reader's place across it the same way.
+    /// The annotated document's thread rail, **virtualized** (T-152): a thread costs roughly as
+    /// much to lay out as a block does, and an unvirtualized column of them grew with the thread
+    /// count. `ui::document::thread_list` re-syncs its length while keeping the reader's place,
+    /// and focusing a thread scrolls it into view.
     pub plan_thread_list: gpui::ListState,
     /// Incremented on every filter keystroke so a debounce that lost the race does not start a
     /// walk for a query the user has already left.
@@ -1654,8 +1627,7 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("ctrl--", NavBack, Some("Input")),
         gpui::KeyBinding::new("ctrl-shift--", NavForward, Some("Input")),
         // ⌘⌥K writes down the line the caret is on, so it has to be live from inside the buffer.
-        gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Input")),
-        // ⌘K raises the navigator from inside a field too, by the same device. **Not** ⌃K: the
+        gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Input")),        // ⌘K raises the navigator from inside a field too, by the same device. **Not** ⌃K: the
         // component library owns that one inside an input.
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Input")),
         // ⌘⏎ in the titlebar's field skips the navigator and searches for what is typed.
@@ -1681,6 +1653,8 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys(crate::ui::ask::key_bindings());
     cx.bind_keys(crate::ui::db::keys::key_bindings());
     cx.bind_keys(crate::ui::db::explorer::key_bindings());
+    cx.bind_keys(crate::ui::mdview::outline::key_bindings());
+    cx.bind_keys(crate::ui::mdview::blockedit::key_bindings());
     gpui_terminal::install_key_bindings(cx);
 }
 

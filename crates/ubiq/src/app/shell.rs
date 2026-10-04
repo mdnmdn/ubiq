@@ -832,7 +832,7 @@ impl AppState {
 
     /// Nudge one family against the other two. The chrome's reflows the window, the
     /// conversation's re-measures the transcript's row heights on the next frame, and the
-    /// content's is what `cmd-=` moves — see [`Self::nudge_content_trim`].
+    /// content's is set from the Size settings section.
     pub fn set_trim(&mut self, family: theme::Family, trim: f32, cx: &mut Context<Self>) {
         theme::set_trim(family, trim);
         self.settle_metrics(cx);
@@ -1361,15 +1361,16 @@ impl AppState {
         .detach();
     }
 
-    /// `cmd-=` and `cmd--`: nudge the content family's trim up or down.
+    /// `cmd-=` and `cmd--`: move the status bar's **text-size slider** one stop up or down.
     ///
-    /// A step of the trim rather than a whole point, because the trim is a ratio over
-    /// [`theme::TEXT_BASE`] and a point is not a fixed fraction of it once the UI scale has moved.
-    /// It dresses the editor, the viewer, the terminal panes, the explorer tree and search results
-    /// together, in every project — the zoom is the person's, not the folder's (`D151`).
-    pub fn nudge_content_trim(&mut self, direction: i8, cx: &mut Context<Self>) {
-        let next = theme::content_trim() + direction as f32 * CONTENT_TRIM_STEP;
-        self.set_trim(theme::Family::Content, next, cx);
+    /// The same `text_ratio` axis that slider drives, snapped to its [`theme::SIZE_STEP`] ladder
+    /// and clamped by the setter, persisted by the same `settle_metrics` — so there is one text
+    /// size, and the slider is moved with it if the popover or the Size page is open.
+    pub fn nudge_text_ratio(&mut self, direction: i8, window: &mut Window, cx: &mut Context<Self>) {
+        let step = theme::SIZE_STEP;
+        let next = ((theme::text_ratio() / step).round() + direction as f32) * step;
+        self.set_text_ratio(next, cx);
+        self.sync_size_sliders(window, cx);
     }
 
     /// Whether the active project's file editors soft-wrap long lines. `None` is the editor's own

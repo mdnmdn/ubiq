@@ -34,6 +34,7 @@ pub mod kb;
 pub mod kit;
 pub mod logs;
 pub mod mark;
+pub mod mdview;
 pub mod menus;
 pub mod mission;
 pub mod navigator;
@@ -125,17 +126,6 @@ pub fn indexed(
     }
 }
 
-/// The same, for `kit::minimap`'s scrub: a fraction down the strip.
-pub fn scrub(
-    view: &Entity<AppState>,
-    f: impl Fn(&mut AppState, f32, &mut Window, &mut Context<AppState>) + 'static,
-) -> kit::ScrubAction {
-    let view = view.clone();
-    std::rc::Rc::new(move |fraction, window, cx| {
-        view.update(cx, |this, cx| f(this, fraction, window, cx));
-    })
-}
-
 /// The same, for `kit::colour_picker`'s pick: a hue, a saturation and a value.
 pub fn hsv(
     view: &Entity<AppState>,
@@ -193,28 +183,14 @@ pub fn host_check_line(
 /// project root, which is where a chat message and a task description are written from. A target
 /// that names a place is navigated to, the web and mail are handed to the operating system, and
 /// anything else is nothing at all — without this, a clicked `../src/app.rs` is handed to the
-/// operating system as a URL.
+/// operating system as a URL. The policy itself is [`AppState::follow_link`], which a markdown
+/// view's `LinkClicked` reaches directly.
 pub fn on_link(
     app: Entity<AppState>,
     base: Option<SharedString>,
 ) -> impl Fn(&SharedString, &ClickEvent, &mut Window, &mut App) + Send + Sync + 'static {
     move |target, _, _, cx| {
         let base = base.clone().unwrap_or_default();
-        let dest = app
-            .read(cx)
-            .project(cx)
-            .and_then(|project| crate::state::nav::resolve_relative(project, &base, target));
-        match dest {
-            Some(dest) => app.update(cx, |this, cx| this.navigate(dest, cx)),
-            None => {
-                let lower = target.to_ascii_lowercase();
-                if ["http:", "https:", "mailto:"]
-                    .iter()
-                    .any(|scheme| lower.starts_with(scheme))
-                {
-                    cx.open_url(target);
-                }
-            }
-        }
+        app.update(cx, |this, cx| this.follow_link(&base, target, cx));
     }
 }

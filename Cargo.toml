@@ -7,6 +7,7 @@ members = [
     "crates/ubiq-db",
     "crates/ubiq-drone",
     "crates/ubiq-host",
+    "crates/ubiq-md",
     "crates/ubiq-proto",
     "vendor/gpui-terminal",
 ]

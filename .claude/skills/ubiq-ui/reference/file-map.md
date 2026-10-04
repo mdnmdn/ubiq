@@ -17,6 +17,7 @@ Re-exports live in `state/mod.rs`; the work's own records are **not** re-exporte
 | `clone.rs` | Cloning a project, as held while the modal is up |
 | `conversation.rs` | One live agent's conversation (`Conversation`, `ConvBlock`, `Pending`, `Run`) — the largest state module |
 | `diagrams.rs` | Mermaid: source in, picture out, plus the disk tier that stops it being drawn twice |
+| `document.rs` | The annotated-document surface's state (`DocumentEditor`: the handle, body, revision/stale/dirty, threads, highlights, composer, focused thread, and `md`, its `Entity<MdView>`), and the join from host `PlanBlock`s to `ubiq_md` rows — `RowMap`/`row_map`, `RowDecor`/`row_decor`, `target_block`, `ordered`, `follow_target`, `mark_target`, `resolve_target`, `addressed` |
 | `dock.rs` | What a panel is and where it may sit (`PanelKind`, `PanelClass`, `Region`, `ChatId`, `Visibility`) |
 | `editor.rs` | The files open in the centre pane (`OpenFile`, `FileBody`, `FileLanguage`, `SaveState`, `EditorPaneState`). Allowed a component-library type, because the widget's state *is* the model — the same licence `search.rs` and `a2ui/live.rs` hold |
 | `explorer/` | The file tree and each row's git state — `mod.rs` (`ExplorerState`, `FileNode`, `Row`, `GitStatus`), `tree.rs` (listing, merge, expansion), `rows.rs` (flattening to drawable rows), `filter.rs`, `keys.rs`, `menu.rs` |
@@ -66,6 +67,7 @@ this far: a pane is an ID, a title, and an emulator reading one end of the bus.
 | `projects.rs`, `clone.rs` | Opening, switching and cloning projects |
 | `agents.rs` | The agents screen's behaviour: columns, bench, composers |
 | `chat.rs`, `panels.rs` | Chat tabs, and the dock's panels |
+| `plan.rs` | The annotated document: open (dialog or tab), save, the `DocumentWire` trait (every plan-family message), `document_md_event` (each `MdViewEvent` to a verb), `refresh_document_decor`, the composer and the rail's focus |
 | `editor.rs`, `explorer.rs`, `picker.rs`, `nav.rs` | Files: open/save, the tree, the picker, navigation and bookmarks |
 | `git.rs` | The Git screen |
 | `db/` | DB mode's behaviour — `mod.rs` (every `Db*` request has one sender here; `receive_db` is called from `wire.rs`), `explorer.rs`, `table.rs`, `sql.rs`, `settings.rs` (the connection form, Test, New database) |
@@ -124,7 +126,9 @@ process, a path on disk or a file descriptor.
 | `conversation/mod.rs` | One live agent's conversation, drawn once for every surface that shows one. `ConversationView` carries `header`/`footer`/`composer` flags; `lifecycle` and `lifecycle_menu_enabled` are read in exactly one place regardless of caller |
 | `logs.rs` | The log console, a dock panel like any other |
 | `search.rs` | The project search panel |
-| `viewer/` | What draws a file when it is not plain text — `markdown.rs`, `diff.rs`, `image.rs`, `image_edit.rs`, `diagram.rs`, `scene.rs` (paints a scene's own colours straight through), `viewport.rs` (fills its panel, starts fitted, wheel zooms, drag pans) |
+| `document.rs`, `plan.rs` | The annotated-document surface — `document.rs` the page (`DocumentEditor::md`) and the chat-like thread rail with its composer, `plan.rs` the plan dialog's frame, chrome (heading control, Edit chip, minimap toggle) and footer |
+| `mdview/` | **A markdown view — a file tab's Preview/Split/Annotation and the plan dialog's page**: `view.rs` the `MdView` entity (one per tab, `OpenFile::md`, over the tab's shared buffer — reparse, split scroll link, minimap drag, navigator popover), `blocks.rs`/`prose.rs`/`inline.rs` one root block per `list()` row, `blockedit.rs` the in-place block editor, `minimap.rs` the structural strip, `outline.rs` + `structure.rs` the heading navigator, `fences.rs` diagrams and images, `sync.rs` block-index scroll mapping, `annotation.rs` the margin's annotation layer (count marker, action stack, mark menu), `highlight.rs` the highlight dot and `●` menu, `search.rs` find state, `events.rs` `MdViewEvent` |
+| `viewer/` | What draws a file when it is not plain text — `mod.rs` the header (layout toggle, navigator, Edit chip) and dispatch, `markdown.rs` (the `TextView` renderer, left for help, the docs fixture and the non-preview fallback), `diff.rs`, `image.rs`, `image_edit.rs`, `diagram.rs`, `scene.rs` (paints a scene's own colours straight through), `viewport.rs` (fills its panel, starts fitted, wheel zooms, drag pans) |
 | `work.rs` | **What a work record reads as**: the colour an activity or bucket takes, the glyph a role wears. One file, so no screen can disagree |
 
 ### Overlays and menus
@@ -154,3 +158,5 @@ the ones that assert a convention: `dismiss.rs` (every modal has a rung in the E
 `db_agent.rs` drives an agent-controlled SQL tab: the tab a host-side shared editor opens, its text
 adopted without echoing back as an edit, one `DbEditorEdit` in flight at a time (T-292), and its
 placement in the centre.
+`mdview.rs` drives an `MdView` over a buffer (debounced reparse, block commit); `files.rs` holds
+the tab-level half — a block committed in a markdown tab's preview dirties the tab.

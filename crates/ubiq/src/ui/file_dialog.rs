@@ -410,7 +410,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             confirm_modal(
                 "app-file-reload",
                 "Unsaved changes",
-                &format!("{name} has changes that were never written. Reload it from disk and discard them?"),
+                &format!(
+                    "{name} has changes that were never written. Reload it from disk and discard them?"
+                ),
                 "Reload",
                 true,
                 crate::ui::handler(&view, |this, window, cx| {
@@ -421,13 +423,18 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             )
         }
         Some(FileDialog::DiscardChanges { key }) => {
-            let name = app
-                .file(&key, cx)
-                .map_or_else(|| key.clone(), |file| file.name.clone());
+            let name = app.file(&key, cx).map_or_else(
+                || crate::state::db::db_tab_label(&key),
+                |file| file.name.clone(),
+            );
+            let what = match crate::state::db::db_table_from_key(&key) {
+                Some(_) => "pending row edits that were never applied",
+                None => "changes that were never written",
+            };
             confirm_modal(
                 "app-file-discard",
                 "Unsaved changes",
-                &format!("{name} has changes that were never written. Close it anyway?"),
+                &format!("{name} has {what}. Close it anyway?"),
                 "Discard",
                 true,
                 crate::ui::handler(&view, |this, window, cx| {

@@ -3,10 +3,9 @@
 //!
 //! `read_plan` and `write_plan` are staging slice 3. `list_annotations`, `reply_annotation` and
 //! `resolve_annotation` are slice 4 — see `_docs/wip/planning-system.md`'s "The annotation MCP
-//! surface". **Not built here**: an `annotate_plan`-style tool that opens a new annotation (this
-//! slice answers existing ones, it does not add the human's kind), and the `ubiq-ask` parking
-//! trick that would let an agent post an annotation and wait for the reply inside one turn — see
-//! the module-level note in the staging card. Every call talks to [`crate::plan::Plans`] through
+//! surface"; `annotate_plan` opens a thread as the agent, anchored by quote or block id.
+//! **Not built here**: the `ubiq-ask` parking trick that would let an agent post an annotation
+//! and wait for the reply inside one turn. Every call talks to [`crate::plan::Plans`] through
 //! the shared [`super::PlanReach`], which is where the level check lives: a plan belongs to any
 //! task carrying a [`ubiq_proto::work::Level`], and every [`crate::plan::Plans`] method refuses
 //! anything else on its own, the same [`ubiq_proto::messages::Message::PlanError`] path a
@@ -15,7 +14,7 @@
 use serde_json::{Value, json};
 use ubiq_proto::ids::{AnnotationId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
-use ubiq_proto::plan::{Annotation, PlanBlock};
+use ubiq_proto::plan::{Annotation, AnnotationMark, PlanBlock};
 use ubiq_proto::work::CommentAuthor;
 
 use super::PlanReach;
@@ -35,6 +34,7 @@ pub fn call(
         "write_plan" => write_plan(arguments, facts, project, reach),
         "plan_changes" => plan_changes(arguments, facts, project, reach),
         "list_annotations" => list_annotations(arguments, project, reach),
+        "annotate_plan" => annotate_plan(arguments, project, reach),
         "reply_annotation" => reply_annotation(arguments, project, reach),
         "resolve_annotation" => resolve_annotation(arguments, project, reach),
         _ => Err(format!("unknown tool: ubiq-plan/{tool}")),
@@ -185,16 +185,92 @@ fn list_annotations(
 ) -> Result<Value, String> {
     let task = task_id(arguments)?;
     let include_resolved = matches!(arguments.get("include_resolved"), Some(Value::Bool(true)));
-    let (blocks, annotations) = reach
+    let (blocks, annotations, _) = reach
         .plans
         .lock()
         .annotation_list(&Target::plan(project, task))?;
+    let mark = match arguments.get("mark") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(parse_mark(value)?),
+    };
     let annotations: Vec<Value> = annotations
         .iter()
         .filter(|annotation| include_resolved || annotation.is_open())
+        .filter(|annotation| mark.is_none_or(|mark| annotation.marks.contains(&mark)))
         .map(|annotation| annotation_json(annotation, &blocks))
         .collect();
     Ok(json!({"task_id": task.to_string(), "annotations": annotations}))
+}
+
+fn parse_mark(value: &Value) -> Result<AnnotationMark, String> {
+    serde_json::from_value(value.clone())
+        .map_err(|_| "a mark is one of \"agent\", \"todo\", \"question\"".to_string())
+}
+
+/// Open a thread on a block of the plan, as this agent. The block is `block_id` when given, else
+/// the one block containing `quote`; neither is refused, and so is a quote that is ambiguous.
+fn annotate_plan(
+    arguments: &Value,
+    project: ProjectId,
+    reach: &PlanReach,
+) -> Result<Value, String> {
+    let task = task_id(arguments)?;
+    let text = required_str(arguments, "text")?;
+    let quote = match arguments.get("quote") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(quote)) => Some(quote.as_str()),
+        Some(_) => return Err("quote must be a string".to_string()),
+    };
+    let marks = match arguments.get("marks") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items.iter().map(parse_mark).collect::<Result<_, _>>()?,
+        Some(_) => return Err("marks must be an array".to_string()),
+    };
+    let target = Target::plan(project, task);
+    let replies = {
+        let mut plans = reach.plans.lock();
+        let block = match arguments.get("block_id") {
+            None | Some(Value::Null) => match quote {
+                Some(quote) => plans.block_for_quote(&target, quote)?,
+                None => return Err("give a quote or a block_id to say where".to_string()),
+            },
+            Some(_) => required_str(arguments, "block_id")?
+                .parse()
+                .map_err(|_| "not a block id".to_string())?,
+        };
+        plans.annotate(
+            &target,
+            block,
+            quote.map(str::to_string),
+            CommentAuthor::Agent,
+            text.to_string(),
+            marks,
+            None,
+        )
+    };
+    for reply in &replies {
+        if let Reply::Everyone(message) = reply {
+            reach.everyone.send(message.clone());
+        }
+    }
+    for reply in &replies {
+        match reply.message() {
+            Message::PlanAnnotations {
+                blocks,
+                annotations,
+                ..
+            } => {
+                let newest = annotations
+                    .iter()
+                    .max_by_key(|annotation| annotation.created_at)
+                    .ok_or_else(|| "the annotation was not found after the change".to_string())?;
+                return Ok(annotation_json(newest, blocks));
+            }
+            Message::PlanError { error, .. } => return Err(error.clone()),
+            _ => {}
+        }
+    }
+    Err("the annotation was not created".to_string())
 }
 
 fn reply_annotation(
@@ -212,6 +288,7 @@ fn reply_annotation(
             annotation,
             CommentAuthor::Agent,
             text.to_string(),
+            None,
         )
     };
     annotation_result(annotation, &replies, reach)
@@ -282,11 +359,13 @@ fn annotation_json(annotation: &Annotation, blocks: &[PlanBlock]) -> Value {
         "quote": annotation.quote,
         "state": annotation.state.label(),
         "orphaned": annotation.orphaned,
+        "marks": annotation.marks,
         "block_kind": block.map(|block| block.kind.as_str()),
         "block_text": block.map(|block| block.text.as_str()),
         "thread": annotation.thread.iter().map(|comment| json!({
             "author": comment.author.label(),
             "text": comment.text,
+            "to": comment.to,
             "created_at": comment.created_at,
         })).collect::<Vec<_>>(),
         "created_at": annotation.created_at,

@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-10-02
-verified: 2026-10-02
-code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/kit/md_navigator.rs, crates/ubiq/src/ui/kit/minimap.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs]
+updated: 2026-10-04
+verified: 2026-10-04
+code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -380,54 +380,47 @@ sidecar as a side effect. A folder nobody has listed yet takes the setting;
 Mermaid, Excalidraw and draw.io still open in Preview. Already-open tabs keep the layout they were
 left in.
 
-**A Markdown preview scrolls, and YAML frontmatter is a bar above it rather than part of it.** A
-document that opens with a `---` block draws it as a collapsible bar at the head of the preview —
-collapsed to its first few field names, expanded to the raw YAML — and the bar keeps its height
-while the document below it takes the rest of the panel and scrolls inside it. Whether the bar is
-open belongs to the file, like the layout toggle. A document without frontmatter is the same view
-without the bar.
+**A Markdown file's Preview and Split draw a block-list view over the tab's own buffer** — one
+`MdView` per tab (`ui/mdview/`), one `gpui::list()` row per root block of the parsed document. The
+view shares the buffer the Source layout edits, never a copy: an edit in either is the other's
+next frame, and the block table follows the buffer one quiet moment (200ms) after the last
+keystroke, splicing only the rows the edit touched and keeping the viewport on the block it was
+reading. YAML or TOML front matter is a labelled monospaced block at the head of the document. The
+list virtualises, so a long document scrolls at the cost of the rows on screen.
 
-**The preview always scrolls through an external scroll handle, not `TextView`'s internal one.**
-`ui/viewer/mod.rs`'s `markdown_preview` calls `markdown::render_scrollable` unconditionally, whether
-or not the heading minimap is on — `TextView`'s own virtualised scroller clipped the last line, left
-dead space below it, and drew its own scrollbar bound to the centred reading column rather than the
-pane's edge. `render_linked_scrollable` draws `gpui_component::scroll::Scrollbar` as an
-absolutely-positioned sibling of a pane-width scroll `div`, so the bar sits flush at the panel's own
-edge regardless of where the reading column is centred.
+**Split links its two halves by block, not by fraction.** The buffer is on the left and the view
+on the right; scrolling the view puts the editor on the source line of the block (and the point
+inside it) at the top, and scrolling the editor puts the view on the block its top line is in.
+Neither side echoes the other's scroll back.
 
-**Split draws the same way, uncapped, and its two panes stay at the same fraction down the
-document** (T-166). `ui/viewer/mod.rs`'s `markdown_split` gives the preview half `file.md_scroll`
-through `markdown::render_split` rather than the plain `markdown::render` every other viewer
-position calls — the same external-scroll-handle fix `markdown_preview` carries, so the split's
-preview stops leaving dead space below its last line too. `render_split` also does not cap the
-column at the width preset: a half-pane is already narrower than the full viewer, and pinning it to
-the reading measure on top of that left it using less width than it had, not more, so it reflows to
-whatever the pane actually offers. `markdown_split`'s own `sync_markdown_split_scroll` keeps the
-buffer and the preview at the same **fraction** down the document, not a mapped line or block — the
-two lay the same content out at different heights per block, so there is no pixel-honest way to
-line up a byte offset in one against a byte offset in the other. Whichever side moved further since
-the last frame is read as this frame's mover, from `OpenFile::md_split_scroll`'s memory of both
-sides' fractions as of the last reconciliation, and its fraction is copied onto the other side.
+**The header's Edit chip, in Preview and Split, makes the view editable.** With it on, a
+double-click opens an editor in place of the block — a paragraph directly under a heading is
+edited together with it — that commits on ⌘Enter or its Save button and cancels on Escape or its
+Cancel button. A commit writes the tab's buffer: it is an ordinary edit, so the tab goes dirty, a
+temporary tab is promoted, ⌘Z in the source undoes it, and ⌘S saves it. A commit against a block
+that changed underneath it is refused, and the editor stays open with what was typed. Turning the
+chip off commits an open editor first. A link clicked in the prose follows the same policy as a
+link in any other rendered document: a place in the project is navigated to, the web and mail go
+to the operating system.
 
 **A Markdown preview reads at a measured width, and the user picks how wide and how dense.** The
 text column is capped at a width preset — Readable (~75 characters, the default), Wide (~95) or
 Full (the pane's own width) — computed from the body font's average character width rather than a
-fixed pixel figure, so the column stays true at any zoom. The column centres in the pane when
+fixed pixel figure, so the column stays true at any zoom (`MdWidth::measure_ch`, computed by
+`ui/mdview/blocks.rs`'s `Metrics::measure` from the tab's `MdViewConfig`). The column centres in the pane when
 there is room for it plus a margin on both sides, and fills the pane with that same margin as
 padding when there is not, so a resize never leaves a thin, uneven strip on one side. Above it sits
 one body line of top padding, and below it enough bottom padding that the last line scrolls clear
 of the frame rather than sitting flush against it. A table or a fenced code block keeps the
-paragraph's own left edge and content width rather than breaking out to the column's outer frame
-(T-134) — the two read as part of the same prose flow — and scrolls horizontally within its own
-frame (`typography()`'s `Overflow::Scroll` on both, over `node.rs`'s `render_scroll_table` for the
-table) instead of spilling past the column when it is wider than the measure. Inline code draws in
+paragraph's own left edge and may grow toward the far margin (the column's breakout) rather than
+spilling past the pane when it is wider than the measure. Inline code draws in
 a more contrasted chip-like background. Line height
 follows the width
 preset (tighter at Readable, looser at Full) and a separate density toggle — Comfortable, the
 default, or Compact — trims it and the paragraph spacing further for a reader scanning a long
 document. Both the width preset and the density are a window-wide choice, not written down per file
-or per project — see `theme.rs`'s `MdWidth`/`MdDensity` and the note in `ui/viewer/markdown.rs` for
-what the underlying renderer does and does not expose a knob for.
+or per project — see `theme.rs`'s `MdWidth`/`MdDensity`. `AppState::push_md_config` pushes every
+change into each open markdown view, which re-measures its rows only when what it draws with moved.
 `_docs/inbox/markdown-improvement-proposal.md` is the proposal this behaviour implements (§3–§7,
 §12); its §8.2's structure-and-label minimap rendering, §6.2 file-reference links and §6.3 italic-
 face selection are not built by it.
@@ -441,23 +434,18 @@ the layer takes — `md_width`, `md_density`, `md_minimap` and `md_minimap_side`
 now, closing a gap the width/density pills opened with: before this, the two were `AppState` fields
 that moved the preview but were never written down, so a restart always came back on Readable and
 Comfortable regardless of what the reader had picked. `md_minimap` is `plan_minimap` generalised —
-the plan modal's thread strip and the standard viewer's own minimap (below) answer to the one
-flag and the one side setting now, rather than the plan surface alone.
+every markdown view's minimap (below), the plan surface's included, answers to the one flag and
+the one side setting.
 
 **The same popover carries a character-size slider and a four-way text-colour picker, per
 document and in memory only** (T-188) — `OpenFile::md_reading`, a `MdReading { char_scale,
 text_shade }` held on the tab itself rather than in `UiSettings`: closing the tab, or restarting,
 drops it, unlike every other row on this panel. `char_scale` is a multiplier over
-`theme::font(Family::Content, Role::Body)`, never an absolute size of its own, and it does reach
-the document — `markdown.rs::render_linked_scrollable` multiplies the body size by it before
-`typography` ever sees it. `text_shade` is one of four `theme::TextColors` tokens
-(`faint`/`muted`/`primary`/`strong`, the last added by this card), each with a value in both
-palettes — **and it does not reach the rendered prose**: the vendored `TextView`'s own style type
-carries no foreground colour a caller can set per instance, only a window-wide default installed
-once from the active theme, so the picker, the per-document state and the persistence all landed
-but the body still draws in the theme's own colour regardless of which rectangle is picked
-(`markdown.rs::typography`'s own doc comment states this beside the line-height and tracking gaps
-it already reported). A **"Make default, system-wide"** button writes the tab's own pair into
+`theme::font(Family::Content, Role::Body)`, never an absolute size of its own: `Metrics::body` is
+that size times it. `text_shade` is one of four `theme::TextColors` tokens
+(`faint`/`muted`/`primary`/`strong`), each with a value in both palettes, and it is the colour
+running prose is set in (`Metrics::prose`). Both are pushed into the tab's view by
+`set_md_char_scale`/`set_md_text_shade`. A **"Make default, system-wide"** button writes the tab's own pair into
 `UiSettings.md_char_scale_default`/`md_text_shade_default`, through the same
 `Message::SetSettings { layer: Ui }` path every other row on this popover already persists by — no
 new wire message, because that layer is exactly the interface-owned, opaque-to-the-host blob this
@@ -465,48 +453,23 @@ needed. **There is no per-project counterpart.** `ubiq-proto` carries no message
 settings blob to one project, and this card stops at reporting the shape one would need —
 `ui/viewer/md_options.rs`'s own module doc comment — rather than adding it.
 
-**The standard viewer draws the same block-shaped minimap the plan surface does, when `md_minimap`
-is on** — `ui/viewer/mod.rs`'s `markdown_preview`, over `markdown::structure_marks`. Before T-134
-this strip drew a heading-only tick and the plan surface's own minimap drew one mark per source
-line; both read as noise next to the reference minimap's handful of legible bars, so both now draw
-the same block shapes through the same `ui::document::mark_style` palette — `structure_marks` walks
-the source's own top-level blocks directly, since a standard preview is one `TextView` rather than a
-block per heading and has no host block index to read the way the plan surface does. A block's
-fraction down the strip is its own byte offset over the document's length, the same honest
-approximation the plan surface's own minimap places every mark by — there is no per-heading layout
-to measure here in the first place. Clicking or dragging the strip scrubs the tab's
-own `OpenFile::md_scroll`, an external `ScrollHandle` the preview hands to
-`markdown::render_scrollable` in place of the text view's internal one (which the component library
-keeps private and gives no caller a way to move). The strip sits on whichever side
-`md_minimap_side` names, `Left` by default; the plan modal's own minimap answers to the same
-setting, landing between the document and the thread rail rather than past it when set to `Right`,
-so the rail stays the outermost column.
+**A Markdown view draws a structural minimap down its edge when `md_minimap` is on** —
+`ui/mdview/minimap.rs`. It draws the document's shape, not shrunken text: a bar per heading
+weighted by level, line stacks for prose, a tinted rectangle for code, a grid for a table, placed
+by the list's own measured row heights (estimated for rows not yet measured, replaced the moment
+they are). A short document is not stretched; a long one scrolls the strip in proportion. The
+viewport is a translucent rectangle over it, and a click or a drag puts the view where the pointer
+is. The strip sits on whichever side `md_minimap_side` names, `Left` by default, and is only drawn
+when the pane can afford it without squeezing the text column under 60% of its measure — never
+beside a linked buffer in Split. The plan surface draws the same view, so the same strip.
 
-**The navigator's headings and the minimap's shapes come from one cached parse** (T-144).
-`markdown::heading_marks` and `markdown::structure_marks` are two projections of the same mdast,
-and both are read from a render function — so each was running `markdown::to_mdast` over the whole
-buffer on every frame, twice per frame together, for a document that had not changed since the last
-one. That is not a rounding error: `to_mdast` at `ParseOptions::gfm` costs about 7.7ms on a 50KB
-document and 38ms on a 150KB one **in release**, so a markdown tab with the minimap on could not
-reach 60fps on a file of any size no matter what else it did. Both now take the tab's key and read
-`markdown.rs`'s `walks` cache, which fingerprints the source (length plus a hash, the same cheap
-stand-in the fence scan's `SCAN_CACHE` beside it uses) and redoes the parse only when the document
-moved. **They stay two walks, not one**: they read the tree at different depths on purpose —
-`heading_marks` recurses, so a heading inside a list or a quote is still a heading the navigator
-lists, while `structure_marks` reads only the root's own children, because a block nested inside a
-larger one is part of that block's shape as far as a minimap is concerned. What they wanted to
-share was the parse, not the walk. The fence scan is a third walk and stays separate for a reason
-of its own: it needs each fence's exact `Code::value` byte for byte, because that string is the key
-the block renderer later looks its picture up by.
-
-**Every one of those walks runs over the body, after the frontmatter split** (T-155, T-151). The
-preview hands `TextView` the body and draws the frontmatter as its own collapsed bar, so a walk
-over the raw source describes a document nobody is looking at: it put a phantom top-level entry in
-the navigator and a phantom shape in the minimap for every document with frontmatter, and measured
-every fraction against a length the rendered document does not have, so every mark landed short of
-what it points at. `walks` calls `split_frontmatter` first, the same step the preview and the fence
-scan take, and parses the body at `ubiq_proto::blocks::options` — the options the host splits a
-document with, so the navigator and the host's block index cannot disagree about what a block is.
+**The header's heading navigator lists the document's headings** in Preview, Split and Annotation — "N
+headings" opens `MdView`'s jump popover over the parsed outline (`ui/mdview/outline.rs`'s `Jump`,
+over `structure.rs`'s `Outline`): a filter field, the headings indented by level with the section
+on screen marked, ↑/↓/Enter to pick and Escape to close; a pick reveals that heading's block
+(`ui::document::heading_control`, which the plan dialog's chrome draws too). In `Annotation` the
+view is the annotated-document surface's page, with its annotation layer on
+(`_docs/features/workbench-tasks.md`). `Source` draws no document and offers none.
 
 **A diagram is drawn in the interface, on a background thread.** A Mermaid document is just text;
 the bus already carries a file's bytes, so nothing about a diagram crosses it. The window renders it
@@ -539,9 +502,10 @@ handed no `AppState` to read `md_width` from), and read back by both `diagram::d
 `scene::draw_static`. A picture already narrower than the measure is untouched; one wider shrinks
 to it, aspect preserved. Publishing is unconditional on every render — `render_block`'s own single
 blocks (the plan surface's unit) explicitly publish `None`, so a full document rendered earlier in
-the same frame can never leave its measure behind for an unrelated block's fence to pick up — and
-`render_split`'s right-hand pane (already narrower than the full viewer) also publishes `None`, so
-a fence there still draws at its own size exactly as before this card.
+the same frame can never leave its measure behind for an unrelated block's fence to pick up. A
+markdown view publishes the column it laid out at last frame (`MdView::publish_fences`, called by
+`ui/viewer` before the view draws), and re-measures its picture rows when a diagram lands
+(`AppState::diagram_drawn` → `MdView::remeasure_fences`).
 
 **A Mermaid fence, and a standalone Markdown image, carry a corner zoom button** (T-185) — a small
 `Maximize` icon, top-right, that raises `ui::viewer::zoom_modal::render` near-fullscreen with pan,
@@ -551,8 +515,7 @@ does not fight the inline picture's) and a Copy-to-clipboard button
 time on `state::overlay::Layer::ImageZoom`'s rung — above the plan surface, since a fence inside
 its own rendered markdown can raise the same button. The button is built through `window.root`
 rather than `cx.listener`, because a fence's block renderer is handed only a `Window` and an `App`.
-A standalone image is a paragraph holding nothing else — `markdown::ImageBlock`, the same shape
-`state::document::is_image_reference` already told the minimap apart by — intercepted through the
+A standalone image is a paragraph holding nothing else — `markdown::ImageBlock` — intercepted through the
 same `MarkdownExtensions::block_parser`/`block_renderer` hook a fence already used, so it can carry
 the same measure cap; it resizes but **carries no zoom button**, because there is no decoded pixel
 size in hand at parse time to seed the modal's camera with, unlike a diagram's own renderer output.
@@ -860,7 +823,13 @@ random-number crate.
 
 There is no tab strip here — the dock's groups draw those. A body that is not a buffer goes to
 `ui/viewer/`, whose `mod.rs` holds the layout toggle and the frame every viewer's body is drawn in
-and dispatches on `ViewerKind`: `diff.rs`, `markdown.rs`, `diagram.rs`, `scene.rs` and `image.rs`.
+and dispatches on `ViewerKind`: `diff.rs`, `diagram.rs`, `scene.rs` and `image.rs`, and for a
+markdown file in Preview or Split the tab's `OpenFile::md` entity (`ui/mdview/view.rs`'s `MdView`,
+created by `app/editor.rs`'s `attach_md_view` from `attach_file` and `app/kb.rs`'s attach path,
+its `MdViewEvent::LinkClicked` routed to `AppState::follow_link`). The header's navigator and Edit
+chip call `MdView::open_navigator` and `MdView::set_editable`. `markdown.rs` — the `TextView`
+renderer — still draws help pages, the docs fixture and the plan surface's blocks, which is all it
+is called for now.
 The buffer's text is cloned out of its entity only in the branches that read it — the general case,
 `Editor`, draws off the entity — and `markdown.rs` keeps its fence scan and body beside the tab
 key, fingerprinted by the source's length and hash, so a frame that changed nothing rescans
@@ -960,7 +929,7 @@ selection change, a project switch and a `TaskChanged` for the open task each le
 next frame to drain. Its guard is what stops it writing over what is being typed on every frame, and
 it fills from the record the host confirmed rather than from what was typed — never while a field is
 open. `install_key_bindings()` binds `⌘S`, `cmd-w`/`ctrl-w` (`close_active_editor()`, the keyboard
-equivalent of the active tab's ×), `cmd-=` and `cmd-shift-=` (zoom in), `cmd--` (zoom out),
+equivalent of the active tab's ×, which closes a displayed database tab first), `cmd-=` and `cmd-shift-=` (zoom in), `cmd--` (zoom out),
 `ctrl--`, `ctrl-shift--`, `cmd-alt-k` and `cmd-k` for navigation, and `cmd-shift-o` (`OpenOutline` →
 `AppState::open_outline`/`reveal_outline`, bound in both `Workbench` and `Input` contexts, beside
 `OpenSearch` on `cmd-shift-f`), and `cmd-alt-y`/`cmd-alt-n` (`AllowPermission`/`RejectPermission` →

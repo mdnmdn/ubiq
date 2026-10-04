@@ -1273,6 +1273,7 @@ mod tests {
                 "write_plan",
                 "plan_changes",
                 "list_annotations",
+                "annotate_plan",
                 "reply_annotation",
                 "resolve_annotation",
             ]
@@ -1304,7 +1305,7 @@ mod tests {
         // reaches in through the same `Plans` handle the tool used, on `plan/mod.rs`'s own
         // footing, since annotating one is not itself a slice-4 tool.
         let block = {
-            let (blocks, _) = plans
+            let (blocks, _, _) = plans
                 .lock()
                 .annotation_list(&crate::plan::Target::plan(
                     facts().project.id.parse().unwrap(),
@@ -1324,6 +1325,8 @@ mod tests {
                 Some("Step one".to_string()),
                 ubiq_proto::work::CommentAuthor::User,
                 "which one?".to_string(),
+                Vec::new(),
+                None,
             );
             replies
                 .iter()
@@ -1384,7 +1387,7 @@ mod tests {
         let orphan_id = {
             let mut plan_lock = plans.lock();
             let block = {
-                let (blocks, _) = plan_lock
+                let (blocks, _, _) = plan_lock
                     .annotation_list(&crate::plan::Target::plan(
                         facts().project.id.parse().unwrap(),
                         task_id.parse().unwrap(),
@@ -1401,6 +1404,8 @@ mod tests {
                 None,
                 ubiq_proto::work::CommentAuthor::User,
                 "about step two".to_string(),
+                Vec::new(),
+                None,
             );
             replies
                 .iter()
@@ -1435,6 +1440,53 @@ mod tests {
             .unwrap();
         assert_eq!(orphaned["orphaned"], true);
         assert_eq!(orphaned["block_text"], Value::Null);
+    }
+
+    /// `annotate_plan` anchors by a unique quote or a block id, stamps the agent, takes marks, and
+    /// `list_annotations` filters on them.
+    #[test]
+    fn annotate_plan_anchors_by_quote_or_block_and_lists_by_mark() {
+        let (serving, _hub, _host, task_id, _plans, _dir) = running_with_plan();
+        let url = url(&serving, KEY, "ubiq-plan");
+        let task_id = task_id.to_string();
+        answered(&call(
+            &url,
+            "write_plan",
+            json!({"task_id": task_id, "body": "# Plan\n\nStep one is here.\n\nStep two is here."}),
+        ));
+        let refused = |arguments: Value| {
+            let response = call(&url, "annotate_plan", arguments);
+            assert_eq!(response["result"]["isError"], true, "{response}");
+        };
+        refused(json!({"task_id": task_id, "text": "x"}));
+        refused(json!({"task_id": task_id, "text": "x", "quote": "nowhere"}));
+        refused(json!({"task_id": task_id, "text": "x", "quote": "is here"}));
+
+        let made = answered(&call(
+            &url,
+            "annotate_plan",
+            json!({"task_id": task_id, "text": "why?", "quote": "Step  two", "marks": ["question"]}),
+        ));
+        assert_eq!(made["block_text"], "Step two is here.");
+        assert_eq!(made["marks"], json!(["question"]));
+        assert_eq!(made["thread"][0]["author"], "agent");
+        assert_eq!(made["thread"][0]["to"], Value::Null);
+
+        let by_block = answered(&call(
+            &url,
+            "annotate_plan",
+            json!({"task_id": task_id, "text": "do it", "block_id": made["block_id"], "marks": ["todo"]}),
+        ));
+        assert_eq!(by_block["block_id"], made["block_id"]);
+
+        let questions = answered(&call(
+            &url,
+            "list_annotations",
+            json!({"task_id": task_id, "mark": "question"}),
+        ));
+        assert_eq!(questions["annotations"].as_array().unwrap().len(), 1);
+        let all = answered(&call(&url, "list_annotations", json!({"task_id": task_id})));
+        assert_eq!(all["annotations"].as_array().unwrap().len(), 2);
     }
 
     /// The edit-provenance half of the same server: the agent writes, a person edits two places

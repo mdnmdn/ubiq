@@ -226,12 +226,14 @@ impl AppState {
             },
         );
 
+        let config = self.md_view_config();
         if let Some(doc) = self
             .projects
             .get_mut(&project_id)
             .and_then(|open| open.kb.doc_mut(&tab))
         {
             doc.attach(buffer, text, contents.truncated, contents.version, change);
+            super::editor::attach_md_view(doc, config, cx);
         }
         cx.notify();
     }

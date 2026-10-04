@@ -30,6 +30,7 @@ ubiq/
 │   ├── ubiq-proto/      the contract, the bus, the log sink
 │   ├── ubiq-host/       the headless host: processes, pseudo-terminals, projects, the work
 │   ├── ubiq-db/         the database engine: model, SQL analysis, edit rendering, drivers behind a feature
+│   ├── ubiq-md/         the markdown engine: a source-ranged block table, a leaf with no GPUI
 │   ├── ubiq/            the desktop interface (GPUI)
 │   ├── ubiq-app/        the binary, the only thing that names both halves
 │   ├── ubiq-drone/      the windowless binary that serves one machine over a byte stream
@@ -338,6 +339,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/git/` | A project's repository, observed off the coordinator's thread | A write into the repository, including the index stat cache |
 | `ubiq-host/src/repos/` | Listing a remote's repositories, and cloning one into a folder, on a thread of its own per clone | A read of an existing repository — that is `git/` — or a write into one |
 | `ubiq-db/src/` | The database engine: `model.rs`/`plan.rs` (the types the wire carries), `conn.rs`, `value.rs`, `sql.rs`, `edit.rs`, and, behind the `drivers` feature, `driver/` — the four engines | A GPUI type, an Ubiq crate, or a driver outside `driver/` |
+| `ubiq-md/src/` | The markdown engine: `build.rs` (the block table), `find.rs`, `autolink.rs`; every block carries its source byte range | A GPUI type or an Ubiq crate |
 | `ubiq-host/src/db/` | A project's databases, host side: `mod.rs`'s `Db` service, `store.rs` (`db.toml`), `secrets.rs` (the sealed passwords), `session.rs` (a worker thread per tab) and `jobs.rs` (each message as a job, the read-only layers), behind the `db` feature | A call on the coordinator's thread, a decrypted password sent to the interface |
 | `ubiq-host/src/kb/` | A project's knowledge-base roots: `mod.rs`'s `Kb` holds the list (one TOML file per project, in `store.rs`) and derives each root's state; `sync.rs` fetches or refreshes a git root on a thread of its own, behind `git`. Listing and reading still run on `files/`'s worker | A project's own tree — that is `files/` — or a second implementation of the glob `KbRoot::admits` is |
 | `ubiq-host/src/files/browse.rs` | Listing one absolute directory on the host's own filesystem before any project exists — the host browse family's worker logic, with its own 2,000-entry ceiling independent of the file family's | A project-relative path, or the containment `path.rs` enforces once a project's root is known |

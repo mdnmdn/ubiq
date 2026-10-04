@@ -17,7 +17,8 @@ thread-local — a call site never learns which palette answered.
 | Terminal | `selection_background`, `link_underline`, `link_underline_hover` | Selected cells in a pane; the OSC 8 / detected-URL underline |
 | Border | `border`, `border_focus` | Ordinary separation; the focused edge |
 | Status | `danger`, `success`, `warning`, `info` + a `_soft` each | Agent and process states, and the fills behind them |
-| Agent control | `agent_controlled`, `agent_controlled_soft` | What an agent drives: the left edge, tab mark and chip of an agent-controlled SQL panel, and the ground behind the chip |
+| Agent control | `agent_controlled`, `agent_controlled_soft` | What an agent drives: the left edge, tab mark and chip of an agent-controlled SQL panel, an agent's comment, the Agent mark and the `@agent` toggle in the plan rail, and the ground behind the chip |
+| Highlight | `highlight(HighlightColour)`, `highlight_ink(HighlightColour)` | A block highlight on an annotated document: the soft fill, and the ink of the margin dot and `●` chip — derived from the status group, purple mixed from red and blue |
 | Ribbon | `ribbon_alpha`, `ribbon_beta`, `ribbon_ink`, `ribbon_experimental`, `ribbon_experimental_ink` | The build-channel ribbon, and Git mode's experimental ribbon — same values in every palette |
 | Project | `project_colour(n)`, `project_colour_count()`, `project_temporary()`, `project_tint(temporary, colour, custom)`, `mark_dark(colour)` | One project's identity wherever it appears |
 
@@ -76,7 +77,7 @@ Body 1.00, Dense 0.96, Label 0.92, Meta 0.85, Micro 0.80.
 - **Nothing about appearance is per project**, the content size included. `AppState::set_ui_scale`,
   `set_text_ratio` and `set_trim` all move the process-wide cell, and all settle behind
   `AppState::settle_metrics` — re-dressing an emulator emits a `TerminalResize`. `⌘=` / `⌘-`
-  (`nudge_content_trim`) is the only other way in; there is no setter for an outright point size.
+  (`nudge_text_ratio`, one slider stop of `text_ratio`) is the only other way in; there is no setter for an outright point size.
 - **A scale change calls `theme::redress(cx)`**: the library's `font_size` *is* the window's rem
   size, and GPUI's whole Tailwind spacing scale is rem-relative (`D153`).
 
@@ -126,6 +127,8 @@ size, not `ui_scale`-scaled pixels, so they take no `scaled()` accessor. `MD_AVG
 `MD_CODE_LINE_HEIGHT`, `MD_INLINE_CODE_SIZE_EM` and `md_measure_width`, `md_body_line_height`,
 `md_paragraph_gap`, `md_heading_ratio`, `md_min_margin`, `md_top_inset`, `md_bottom_inset` are read
 by `ui/viewer/markdown.rs`; see `_docs/inbox/markdown-improvement-proposal.md` §3–§7.
+`MD_ACTION_SIZE` / `MD_ACTION_MARGIN` size an `MdView`'s annotation action stack and the far margin
+it floors while annotating (`ui/mdview/annotation.rs`).
 
 **Not here**: a *screen's* own furniture lives with its state — `state::git`'s `SIDEBAR_WIDTH`,
 `CHANGES_WIDTH`, `DIFF_HEIGHT`, `LANE_PITCH`; `state::agents`' `COLUMN_MIN_WIDTH`. Only the
@@ -240,26 +243,6 @@ loses when drawn centred instead of docked (`T-263`, `G375`).
 - **Row detail**: `Picker::details(opts)`, `ContextItem::detail(text)` and `MenuEntry::detail(text)`
   draw faint secondary text after a row's own, same line, truncated first (`label_cell` in
   `ui/kit/menu.rs`). Specimen: the `context_menu` one on the style reference.
-
-### `md_navigator.rs` — a markdown document's headings, hierarchically, with thread counts
-
-`md_navigator(id, trigger, open, entries: &[MdNavEntry], on_toggle, on_select, on_dismiss)`,
-`MdNavEntry { level, label, open, resolved }`. The same anchored-list device as `menu.rs`'s
-dropdown, built directly rather than through `Picker`: a row needs an indent by heading depth and
-two independent counts a plain-label row has no place for. `on_select` is handed the row's own
-index into `entries`. First caller: `crate::ui::plan`'s chrome, over
-`state::document::heading_sections`.
-
-### `minimap.rs` — a strip of positioned marks, generic over what they mean
-
-`minimap(id, width, marks: &[MinimapMark], on_select)`, `MinimapMark { fraction, colour }` —
-`fraction` is `0.0`–`1.0` down the strip, `colour` is an `Rgba` the caller already resolved from a
-token. Fills whatever height its parent gives it; a mark is a short absolutely-positioned tick at
-`top(relative(fraction))`, clicked to hand `on_select` its own index into `marks`. Nothing plan- or
-document-shaped lives here — the caller positions and colours every mark. First caller: `crate::ui::
-plan`'s thread minimap, over `state::document::thread_marks`'s pure data, with `ScrollHandle::
-bounds_for_item` turning a block index into a real pixel offset once the preview has painted a
-frame (a proportional spread across the blocks otherwise).
 
 ### `popover.rs` — the anchored panel that is not a list
 

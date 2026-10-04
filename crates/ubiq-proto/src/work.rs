@@ -384,15 +384,38 @@ pub struct Comment {
     pub author: CommentAuthor,
     pub text: String,
     pub created_at: DateTime<Utc>,
+    /// Who the comment is *for*, when it is for someone in particular. Absent on every comment
+    /// written before addressing existed, and on every comment that is simply said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<Addressee>,
+}
+
+/// Who a comment is addressed to. The comment is still on the thread for everyone; this is what
+/// the host acts on, delivering it as a prompt to an agent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Addressee {
+    Agent,
 }
 
 impl Comment {
     pub fn new(author: CommentAuthor, text: String, now: DateTime<Utc>) -> Self {
+        Self::addressed(author, text, now, None)
+    }
+
+    /// A comment with an addressee.
+    pub fn addressed(
+        author: CommentAuthor,
+        text: String,
+        now: DateTime<Utc>,
+        to: Option<Addressee>,
+    ) -> Self {
         Self {
             id: CommentId::generate(),
             author,
             text,
             created_at: now,
+            to,
         }
     }
 }

@@ -9,7 +9,6 @@
 //! avoid once the buffer *is* the file's state. The mapping from a language onto the highlighter's
 //! own enum still lives in `ui/editor.rs`, because that is a drawing decision and this is not.
 
-use std::cell::Cell;
 use std::ops::Range;
 
 use gpui::{Entity, Pixels, Point, Subscription};
@@ -472,7 +471,7 @@ impl TextShade {
 ///
 /// **In memory only, and per document.** Held on the tab itself rather than in `UiSettings` (which
 /// the host writes down) or on the window (which every tab would then share) — closing the tab, or
-/// restarting, drops it, on the same footing `frontmatter_open` already keeps for this file.
+/// restarting, drops it, on the same footing as the tab's layout.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MdReading {
     /// Over [`crate::theme::font`]'s own body size — `1.0` is the system size untouched, never an
@@ -519,7 +518,7 @@ pub struct OpenFile {
     /// `markdown_open` setting, via [`OpenFile::opening`] — and the header's toggle overrides it
     /// for this tab alone. Nothing writes the override down: closing the tab, or restarting,
     /// drops it and the document comes back in the default, on the same footing as
-    /// [`OpenFile::md_reading`] and `frontmatter_open`. It survives a rail-mode switch and a
+    /// [`OpenFile::md_reading`]. It survives a rail-mode switch and a
     /// project switch because the `OpenFile` does; the dock's saved arrangement carries the tab
     /// key and not this (`crate::ui::dock::file_payload`).
     pub layout: ViewLayout,
@@ -543,20 +542,11 @@ pub struct OpenFile {
     /// `guest` and for the same reason — the tab draws differently — and a save on one asks where
     /// to put it rather than sending anything, because the path it carries names nothing on disk.
     pub untitled: bool,
-    /// Whether the YAML frontmatter disclosure is open. Per-tab UI state that defaults to closed
-    /// so newly opened documents start clean.
-    pub frontmatter_open: bool,
-    /// The markdown preview's own scroll position (T-118) — tracked per tab, never shared, so two
-    /// markdown files open side by side cannot steer each other's minimap. Meaningless, and
-    /// harmless, for every other viewer.
-    pub md_scroll: gpui::ScrollHandle,
-    /// The split layout's own proportional scroll sync (T-166): the fraction down the document
-    /// each side was at as of the last frame the sync reconciled — `(source, preview)`. Not the
-    /// scroll position itself, which the buffer and `md_scroll` already own; this is only what
-    /// `ui::viewer`'s split render reads to tell which side moved *since* that frame, because
-    /// whichever fraction changed more is the one the reader is scrolling right now. Interior
-    /// mutability because a render function only ever holds `&OpenFile`.
-    pub md_split_scroll: Cell<(f32, f32)>,
+    /// The markdown preview over this tab's buffer — the block-list view (`ui/mdview`) that draws
+    /// the `Preview` and `Split` layouts and owns their scroll, minimap, navigator and block
+    /// editor. `Some` exactly while a markdown file holds a text buffer: built by
+    /// `AppState::attach_md_view` and dropped with the buffer's own watch.
+    pub md: Option<Entity<crate::ui::mdview::view::MdView>>,
     /// The reading-options popover's per-document memory (T-188) — a character-size multiplier
     /// and a text-colour shade, in memory only for the life of this tab.
     pub md_reading: MdReading,
@@ -570,6 +560,8 @@ pub struct OpenFile {
     /// The buffer's change event, which is what keeps `dirty` current. Held here because it must
     /// live exactly as long as the file does.
     _change: Option<Subscription>,
+    /// The markdown view's events (`MdViewEvent`), for exactly as long as [`OpenFile::md`] lives.
+    _md_events: Option<Subscription>,
     /// Where the cursor and scroll were when an external change sent this tab back to
     /// [`FileBody::Loading`], so the fresh buffer [`OpenFile::attach`] builds can be put back where
     /// the user was looking rather than opening at the top. Set only for a background tab: the tab
@@ -612,13 +604,12 @@ impl OpenFile {
             pinned: false,
             guest: false,
             untitled: false,
-            frontmatter_open: false,
-            md_scroll: gpui::ScrollHandle::new(),
-            md_split_scroll: Cell::new((0.0, 0.0)),
+            md: None,
             md_reading: MdReading::default(),
             image_editing: false,
             dirty: false,
             _change: None,
+            _md_events: None,
             restore: None,
         }
     }
@@ -681,7 +672,7 @@ impl OpenFile {
         self.body = FileBody::Diff(Box::new(diff));
         self.save = SaveState::Idle;
         self.dirty = false;
-        self._change = None;
+        self.unwatch();
     }
 
     /// Put the viewer into one of its layouts. A layout it does not offer is refused rather than
@@ -710,6 +701,8 @@ impl OpenFile {
         };
         self.save = SaveState::Idle;
         self.dirty = false;
+        // A view over the buffer this one replaces would draw the old text.
+        self.unwatch();
         self._change = Some(change);
     }
 
@@ -717,7 +710,7 @@ impl OpenFile {
     pub fn set_binary(&mut self) {
         self.body = FileBody::Binary;
         self.dirty = false;
-        self._change = None;
+        self.unwatch();
     }
 
     /// Give an image tab the file's bytes, as a scene when they decode into one.
@@ -733,7 +726,7 @@ impl OpenFile {
                 self.body = FileBody::ImageEdit(Box::new(edit));
                 self.save = SaveState::Idle;
                 self.dirty = false;
-                self._change = None;
+                self.unwatch();
             }
             None => self.set_bytes(bytes),
         }
@@ -747,7 +740,7 @@ impl OpenFile {
         self.body = FileBody::Bytes(bytes);
         self.save = SaveState::Idle;
         self.dirty = false;
-        self._change = None;
+        self.unwatch();
     }
 
     /// Give an untitled tab clipboard bytes to draw: dirty from the start, because there is
@@ -756,7 +749,7 @@ impl OpenFile {
         self.body = FileBody::Bytes(bytes);
         self.save = SaveState::Idle;
         self.dirty = true;
-        self._change = None;
+        self.unwatch();
     }
 
     /// Give an untitled tab an editable capture scene over its bytes. Bytes with no decodable
@@ -768,7 +761,7 @@ impl OpenFile {
                 self.save = SaveState::Idle;
                 self.dirty = true;
                 self.image_editing = true;
-                self._change = None;
+                self.unwatch();
             }
             None => self.set_bytes_untitled(bytes),
         }
@@ -859,7 +852,7 @@ impl OpenFile {
     pub fn set_failed(&mut self, reason: String) {
         self.body = FileBody::Failed(reason);
         self.dirty = false;
-        self._change = None;
+        self.unwatch();
     }
 
     /// Whether the tab is still waiting for its bytes. A tab that has them is never overwritten by
@@ -1053,7 +1046,7 @@ impl OpenFile {
         self.body = FileBody::Loading;
         self.save = SaveState::Idle;
         self.dirty = false;
-        self._change = None;
+        self.unwatch();
     }
 
     /// Where the cursor and scroll were, for [`OpenFile::reload`] to hand back to whatever buffer
@@ -1073,9 +1066,18 @@ impl OpenFile {
         self.save = SaveState::Failed(reason);
     }
 
-    /// Toggle whether the YAML frontmatter disclosure is open.
-    pub fn toggle_frontmatter(&mut self) {
-        self.frontmatter_open = !self.frontmatter_open;
+    /// Drop the buffer's watch and the markdown view over it — what every body that is no longer
+    /// this tab's buffer does.
+    fn unwatch(&mut self) {
+        self._change = None;
+        self.md = None;
+        self._md_events = None;
+    }
+
+    /// Hang a markdown view over the buffer, with the subscription to its events.
+    pub fn set_md(&mut self, view: Entity<crate::ui::mdview::view::MdView>, events: Subscription) {
+        self.md = Some(view);
+        self._md_events = Some(events);
     }
 }
 

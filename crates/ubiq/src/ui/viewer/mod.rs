@@ -33,10 +33,9 @@ use crate::app::AppState;
 use crate::state::editor::{ViewLayout, ViewerKind};
 use crate::state::{FileBody, OpenFile};
 use crate::theme;
-use crate::ui::kit::{
-    MdNavEntry, MinimapMark, choice_pill, md_navigator, minimap, mono, status_dot,
-};
-use crate::ui::{eid, eid2, indexed, scrub};
+use crate::ui::kit::{choice_pill, mono, status_dot};
+use crate::ui::mdview::view::MdView;
+use crate::ui::{eid, eid2};
 
 /// The strip the layout toggle sits in, above whatever the viewer drew.
 const HEADER: f32 = 32.0;
@@ -82,10 +81,11 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
-        // The navigator is offered in all four of markdown's positions (T-124): the document's
-        // structure is a fact about the file, not about how it is being drawn.
-        .when(markdown, |this| this.child(navigator(app, file, cx)))
+        // The navigator is offered wherever the document is drawn rather than its source: over the
+        // annotation surface's own block index, or over the markdown view's.
+        .children(markdown.then(|| navigator(app, file, cx)).flatten())
         .child(div().flex_1().min_w(px(0.)))
+        .children(markdown.then(|| edit_chip(file, cx)).flatten())
         .when(markdown && current != ViewLayout::Source, |this| {
             this.child(md_options::control(app, file, cx))
         })
@@ -116,42 +116,41 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
         .into_any_element()
 }
 
-/// The header's heading navigator.
-///
-/// Two sources, one control. In [`ViewLayout::Annotation`] the document the surface holds is the
-/// better answer — the host's own block index, with each heading's thread counts beside it — and
-/// picking a row scrolls the section into view. In the other three positions there is no indexed
-/// document, so the headings are parsed out of the buffer and a row scrolls the preview by the
-/// heading's own proportion down the source, which is what the minimap already does.
-fn navigator(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
-    let view = cx.entity();
-    if let Some(doc) = app.annotation_document(file) {
-        return crate::ui::document::navigator(doc, false, &view);
+/// The header's heading navigator: the markdown view's own jump popover over the parsed document,
+/// in every layout that draws the view — `Preview`, `Split` and `Annotation`, where the view is the
+/// annotation surface's page. `Source` draws no document, so it offers none.
+fn navigator(_app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    if !draws_view(file.layout) {
+        return None;
     }
+    let md = file.md.clone()?;
+    Some(crate::ui::document::heading_control(
+        eid("md-nav", file.key()),
+        &md,
+        cx,
+    ))
+}
 
-    let source = match &file.body {
-        FileBody::Text { state, .. } => state.read(cx).value().to_string(),
-        _ => String::new(),
-    };
-    let key = file.key();
-    let entries: Vec<MdNavEntry> = markdown::heading_marks(&key, &source)
-        .iter()
-        .map(|heading| MdNavEntry::new(heading.level, heading.label.clone(), 0, 0))
-        .collect();
-    let pick_key = key.clone();
-
-    md_navigator(
-        eid("md-nav", &key),
-        format!("{} headings", entries.len()),
-        app.workbench.open_menu == Some(crate::state::MenuId::MdNavigator),
-        &entries,
-        false,
-        crate::ui::handler(&view, |this, _, cx| this.open_md_navigator(cx)),
-        std::rc::Rc::new(indexed(&view, move |this, index, _, cx| {
-            this.select_md_nav_heading(&pick_key, index, cx)
-        })),
-        crate::ui::handler(&view, |this, _, cx| this.close_menu(cx)),
+/// The layouts a markdown tab draws its `MdView` in.
+fn draws_view(layout: ViewLayout) -> bool {
+    matches!(
+        layout,
+        ViewLayout::Preview | ViewLayout::Split | ViewLayout::Annotation
     )
+}
+
+/// The markdown view's read-only / editable switch: on, a double-click on a block opens the block
+/// editor in its place. Offered where the view is drawn.
+fn edit_chip(file: &OpenFile, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    if !draws_view(file.layout) {
+        return None;
+    }
+    let md = file.md.clone()?;
+    Some(crate::ui::document::edit_chip(
+        eid("md-edit", file.key()),
+        &md,
+        cx,
+    ))
 }
 
 /// What the file is showing, which is not always what its viewer draws: a tab exists before its
@@ -196,16 +195,17 @@ fn drawn(
             | ViewerKind::Excalidraw
             | ViewerKind::Drawio => {
                 let source = state.read(cx).value().to_string();
-                markdown::render(app, &key, &source, file.frontmatter_open, cx)
+                markdown::render(app, &key, &source, false, cx)
             }
         };
     }
 
     let mut preview = || match file.viewer {
-        ViewerKind::Markdown => {
-            let source = state.read(cx).value().to_string();
-            markdown::render(app, &key, &source, file.frontmatter_open, cx)
-        }
+        ViewerKind::Markdown => match &file.md {
+            Some(md) => document(app, md, cx),
+            // The frame between a viewer switch and the view being built.
+            None => note("Reading\u{2026}", theme::text_faint()),
+        },
         ViewerKind::Mermaid => {
             let source = state.read(cx).value().to_string();
             diagram::render(app, &key, &source, cx)
@@ -226,24 +226,14 @@ fn drawn(
 
     match file.layout {
         ViewLayout::Source => warned(app, file, buf(), cx),
-        // The minimap only draws for a markdown file's own full-pane preview — cramped in half a
-        // `Split`, and Mermaid/Excalidraw/Drawio have no headings to mark in the first place.
-        ViewLayout::Preview if file.viewer == ViewerKind::Markdown => {
-            markdown_preview(app, file, state, cx)
-        }
         ViewLayout::Preview => preview(),
         // Only Excalidraw and Drawio offer it, and only they have a component to host.
         ViewLayout::Edit => web::render(app, file, cx),
         // Only Markdown offers it, and only a file in the project's tree has a document handle.
         ViewLayout::Annotation => annotation(app, file, cx),
-        // Markdown's split gets its own render (T-166): the preview needs the external-scroll
-        // path `markdown_preview` already uses (no dead space below the content, no internal
-        // virtualised scroller of its own to keep in step with anything), and the two panes are
-        // kept at the same fraction down the document. Mermaid/Excalidraw/Drawio have no text
-        // buffer worth scroll-linking to a diagram, so they keep the plain side-by-side split.
-        ViewLayout::Split if file.viewer == ViewerKind::Markdown => {
-            warned(app, file, markdown_split(app, file, state, cx), cx)
-        }
+        // A markdown view scroll-links itself to the buffer beside it, by block index
+        // (`MdView::set_linked`, pushed from `AppState::set_view_layout`); the diagram viewers have
+        // no text worth linking a picture to. Either way this is two halves.
         ViewLayout::Split => warned(
             app,
             file,
@@ -275,25 +265,6 @@ fn annotation(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> An
         );
     }
     match app.annotation_document(file) {
-        // **The surface reads the file from disk, not from this tab's buffer.** They are two
-        // buffers over one file, so a tab holding unsaved edits is told: a section confirmed here
-        // saves the host's copy and the tab's own edits are not in it.
-        Some(doc) if file.dirty() => div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w(px(0.))
-            .min_h(px(0.))
-            .child(crate::ui::document::warning_row(
-                &file.key(),
-                "This tab has unsaved edits \u{2014} the annotation surface is showing the saved \
-                 file. Save the tab first."
-                    .to_string(),
-                None,
-                cx,
-            ))
-            .child(crate::ui::document::surface(app, doc, cx))
-            .into_any_element(),
         Some(doc) => crate::ui::document::surface(app, doc, cx),
         None => note(
             "The annotation surface is showing another document",
@@ -335,212 +306,12 @@ fn warned(
         .into_any_element()
 }
 
-/// The width the markdown minimap draws at, wherever it is drawn — the same figure `ui/plan.rs`'s
-/// own `MINIMAP_WIDTH` uses, kept in step by hand rather than shared, because a screen's own
-/// furniture is not `theme.rs`'s to own (`kit-and-theme.md`'s "Not here" note).
-const MINIMAP_WIDTH: f32 = 72.0;
-
-/// The standard viewer's markdown preview, with the minimap beside it when the setting asks for
-/// one — T-118, proposal §8 reduced to what a single `TextView` (no per-block layout, unlike the
-/// plan surface) can honestly offer: one mark per top-level block, positioned by its proportional
-/// offset in the source rather than a measured pixel position. **The same shapes the annotation
-/// surface draws** (T-134) — [`markdown::structure_marks`] is `ui::document::document_minimap`'s
-/// own shapes computed off the raw source instead of a host block index, drawn through the same
-/// `minimap` primitive and the same `ui::document::mark_style` palette, so a file looks like one
-/// minimap whichever surface it is open in.
-fn markdown_preview(
-    app: &AppState,
-    file: &OpenFile,
-    state: &Entity<EditorState>,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let key = file.key();
-    let source = state.read(cx).value().to_string();
-    let ui = &app.workbench.settings.ui;
-    // T-126: always the external-scroll-handle rendering — the one path that gives a properly
-    // sized, natural-height document plus a scrollbar drawn as the pane's own edge, rather than
-    // TextView's internal virtualised-list scroller, which clipped the last line, left dead
-    // space below it, and drew its own scrollbar off the reading column. The minimap needed this
-    // path already; the fix is offering it whether or not the minimap is on screen.
-    let document = markdown::render_scrollable(
-        app,
-        &key,
-        &source,
-        file.frontmatter_open,
-        &file.md_scroll,
-        cx,
-    );
-    if !ui.md_minimap {
-        return document;
-    }
-
-    let side = ui.md_minimap_side;
-    // One mark per top-level block, in `ui::document::mark_style`'s own palette — see the note
-    // above. A mark never draws shorter than `MIN_MARK_HEIGHT_PX` (`ui/kit/minimap.rs`), which is
-    // what keeps a document with many blocks from thinning its marks into a barcode: each still
-    // reads as its own bar rather than a hairline tick.
-    let structure = markdown::structure_marks(&key, &source);
-    let mark_gap = if structure.is_empty() {
-        0.0
-    } else {
-        (1.0 / structure.len() as f32) * 0.6
-    };
-    let marks: Vec<MinimapMark> = structure
-        .iter()
-        .map(|block| {
-            let (colour, dotted) = crate::ui::document::mark_style(block.kind);
-            MinimapMark::new(block.fraction, mark_gap, block.length, dotted, colour)
-        })
-        .collect();
-
-    let view = cx.entity();
-    let scroll = file.md_scroll.clone();
-    let strip = minimap(
-        eid("md-minimap", &key),
-        MINIMAP_WIDTH,
-        &marks,
-        &[],
-        None,
-        std::rc::Rc::new(indexed(&view, |_, _, _, _| {})),
-        scrub(&view, move |_, fraction, _, cx| {
-            let max_offset = scroll.max_offset();
-            scroll.set_offset(gpui::point(px(0.), -max_offset.y * fraction));
-            cx.notify();
-        }),
-    );
-
-    let row = div().flex().flex_1().min_w(px(0.)).min_h(px(0.));
-    match side {
-        theme::MdMinimapSide::Left => row.child(strip).child(document),
-        theme::MdMinimapSide::Right => row.child(document).child(strip),
-    }
-    .into_any_element()
-}
-
-/// The split layout's own markdown render (T-166): the buffer on the left, the preview on the
-/// right, proportionally scroll-linked.
-///
-/// The preview draws through [`markdown::render_split`] rather than the plain
-/// [`markdown::render`] every other viewer position calls — the same fix `markdown_preview`
-/// already carries for the full-pane `Preview` layout: an external `ScrollHandle` gives a
-/// naturally-sized document with no dead space below its last line, instead of `TextView`'s own
-/// internal virtualised scroller, which leaves exactly that gap. `render_split` also does not cap
-/// the column at the reading-width preset — a half-pane is already narrower than the full viewer,
-/// and pinning it to the measure on top of that left it reading at less than the width it had, not
-/// more.
-fn markdown_split(
-    app: &AppState,
-    file: &OpenFile,
-    state: &Entity<EditorState>,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let key = file.key();
-    let source = state.read(cx).value().to_string();
-
-    sync_markdown_split_scroll(file, state, cx);
-
-    let preview = markdown::render_split(
-        app,
-        &key,
-        &source,
-        file.frontmatter_open,
-        &file.md_scroll,
-        cx,
-    );
-
-    div()
-        .flex()
-        .flex_1()
-        .min_w(px(0.))
-        .min_h(px(0.))
-        .child(
-            half(buffer(state))
-                .border_r_1()
-                .border_color(theme::border()),
-        )
-        .child(half(preview))
-        .into_any_element()
-}
-
-/// Keeps the split layout's two panes at the same fraction down the document (T-166).
-///
-/// **Proportional, not a per-line mapping.** The buffer lays the source out one line per row; the
-/// preview lays the *rendered* document out at whatever height each block takes once drawn — a
-/// heading, a table and a fenced diagram are none of them one source line tall on that side. There
-/// is no shared unit to map a byte offset or a line number between the two in any way that would
-/// still be true after the next edit, so the honest answer is the same fraction down each pane's
-/// own scrollable length, not a claim that a particular line of source lines up with a particular
-/// pixel of preview.
-///
-/// **Which side is "moving" is read off the delta, not an event.** Neither the buffer's own
-/// internal scroll nor the preview's `ScrollHandle` tells this function who the reader just
-/// dragged; both are re-read from scratch every frame. So `file.md_split_scroll` remembers what
-/// each side's fraction was as of the last frame this function reconciled, and whichever side has
-/// moved further since then is this frame's mover — its fraction is copied onto the other side, and
-/// both halves of the memory are set to it so next frame starts from agreement rather than from the
-/// stale, pre-copy pair.
-fn sync_markdown_split_scroll(
-    file: &OpenFile,
-    state: &Entity<EditorState>,
-    cx: &mut Context<AppState>,
-) {
-    // Below this: the source fraction, approximated off row counts because the buffer keeps its
-    // content height to itself the way `TextView` keeps its scroll offset — `EditorState` exposes
-    // `visible_row_range` and `line_height`, not a content height or a max scroll offset, so a row
-    // count over a row count is what is reachable rather than a true pixel measure. Honest, not
-    // exact: a soft-wrapped line counts as one row here same as a bare one.
-    let (line_height, visible_rows, current_offset) = {
-        let editor = state.read(cx);
-        let Some(line_height) = editor.line_height() else {
-            return; // Nothing laid out yet to measure a fraction against.
-        };
-        let Some(visible) = editor.visible_row_range() else {
-            return;
-        };
-        (
-            line_height,
-            (visible.end - visible.start) as f32,
-            editor.scroll_offset(),
-        )
-    };
-    let total_lines = state.read(cx).value().lines().count().max(1) as f32;
-    let max_scroll_rows = (total_lines - visible_rows).max(0.0);
-    let source_fraction = if max_scroll_rows > 0.0 {
-        (-current_offset.y / (max_scroll_rows * line_height)).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-
-    let preview_max = file.md_scroll.max_offset().y;
-    let preview_fraction = if preview_max > px(0.) {
-        (-file.md_scroll.offset().y / preview_max).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-
-    let (last_source, last_preview) = file.md_split_scroll.get();
-    let source_delta = (source_fraction - last_source).abs();
-    let preview_delta = (preview_fraction - last_preview).abs();
-    // Below this both settle to the same value: without a deadband, two fractions that never quite
-    // agree (one is row-quantised, the other continuous) would keep tripping the "moved" branch and
-    // re-notifying forever.
-    const EPSILON: f32 = 0.0005;
-    if source_delta <= EPSILON && preview_delta <= EPSILON {
-        return;
-    }
-
-    if source_delta >= preview_delta {
-        file.md_scroll
-            .set_offset(gpui::point(px(0.), -preview_max * source_fraction));
-        file.md_split_scroll.set((source_fraction, source_fraction));
-    } else {
-        let target = -(max_scroll_rows * line_height) * preview_fraction;
-        state.update(cx, |editor_state, cx| {
-            editor_state.set_scroll_offset(gpui::point(px(0.), target), cx);
-        });
-        file.md_split_scroll
-            .set((preview_fraction, preview_fraction));
-    }
+/// A markdown file's preview: its `MdView`, with the window's diagram cache published for the
+/// fences it draws this frame. The view owns its scroll, minimap, navigator popover and block
+/// editor; the host hands it nothing else.
+fn document(app: &AppState, md: &Entity<MdView>, cx: &gpui::App) -> AnyElement {
+    md.read(cx).publish_fences(app);
+    md.clone().into_any_element()
 }
 
 /// The file's own buffer. Never a copy of it: the source half of a split is the same entity the

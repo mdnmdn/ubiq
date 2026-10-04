@@ -350,6 +350,41 @@ impl AppState {
         cx.notify();
     }
 
+    /// ⌘W over a database tab: close the displayed SQL or table tab. Returns whether one was the
+    /// displayed panel, so the caller knows the key was answered.
+    ///
+    /// A SQL tab holds nothing to lose (its text is kept as a draft as it is typed), so it closes
+    /// at once. A table tab with pending row edits asks first, on the file tabs' discard dialog.
+    pub fn close_active_db_tab(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(kind @ (PanelKind::DbTable(_) | PanelKind::DbSql(_))) =
+            self.workbench.active_panel.clone()
+        else {
+            return false;
+        };
+        let Some(key) = kind.db_key().map(str::to_string) else {
+            return false;
+        };
+        let Some(project) = self.project(cx) else {
+            return false;
+        };
+        let Some(open) = self.projects.get(&project) else {
+            return false;
+        };
+        if open
+            .db
+            .tables
+            .iter()
+            .any(|tab| tab.key == key && tab.leave_blocked())
+        {
+            self.workbench.file_dialog = Some(FileDialog::DiscardChanges { key });
+            cx.notify();
+            return true;
+        }
+        self.pending_panels.push(PanelEdit::Close(kind));
+        cx.notify();
+        true
+    }
+
     /// Close every tab of one connection — it was removed or edited out from under them.
     fn close_db_tabs_of(&mut self, project: ProjectId, conn: DbConnId) {
         let Some(open) = self.projects.get_mut(&project) else {

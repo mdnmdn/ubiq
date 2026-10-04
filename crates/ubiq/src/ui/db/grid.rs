@@ -718,15 +718,12 @@ impl Render for ResultGrid {
                 this.on_key_down(event, window, cx)
             }))
             .child(
-                div()
-                    .flex_1()
-                    .min_h(px(0.))
-                    .child(
-                        DataTable::new(&self.state)
-                            .with_size(GRID_SIZE)
-                            .stripe(true)
-                            .bordered(false),
-                    ),
+                div().flex_1().min_h(px(0.)).child(
+                    DataTable::new(&self.state)
+                        .with_size(GRID_SIZE)
+                        .stripe(true)
+                        .bordered(false),
+                ),
             )
             .when_some(message, |this, (color, text)| {
                 this.child(

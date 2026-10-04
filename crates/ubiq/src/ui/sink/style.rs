@@ -30,15 +30,14 @@ use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, MdNavEntry, MinimapMark, MinimapTick, MinimapViewport, MultiPicker, Picker,
-    PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card, check_box, choice_pill,
-    colour_picker, context_panel, disclosure, file_row, filter_bar, ghost_button, hint_row,
-    icon_button, kind_icon, label_hint, md_navigator, meter, minimap, mono, panel_header, pill,
+    ContextItem, MultiPicker, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card,
+    check_box, choice_pill, colour_picker, context_panel, disclosure, file_row, filter_bar,
+    ghost_button, hint_row, icon_button, kind_icon, label_hint, meter, mono, panel_header, pill,
     primary_button, progress_ring, progress_ring_pair, removable_tag, ribbon, row_font,
     section_label, slab, state_chip, status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
 };
 use crate::ui::kit::{Slider, UbiqIcon};
-use crate::ui::{handler, hsv, indexed, scrub};
+use crate::ui::{handler, hsv, indexed};
 
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     div()
@@ -483,76 +482,6 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         .selected(sink.picked)
                         .style(PickerStyle::Field),
                 )
-                .into_any_element(),
-        ),
-        // `crate::ui::plan`'s heading navigator, drawn with a small hierarchy of its own so the
-        // indent and the two counts — open threads, settled ones — are both on screen at once.
-        labelled(
-            "md_navigator",
-            md_navigator(
-                "sink-md-nav",
-                "2 threads open",
-                app.workbench.open_menu == Some(MenuId::SinkMdNav),
-                &[
-                    MdNavEntry::new(1, "Scope", 0, 1),
-                    MdNavEntry::new(2, "Rollout", 2, 0),
-                    MdNavEntry::new(2, "Rollback", 0, 0),
-                ],
-                false,
-                handler(&cx.entity(), |this, _, cx| {
-                    this.open_menu(MenuId::SinkMdNav, cx)
-                }),
-                std::rc::Rc::new(indexed(&cx.entity(), |this, index, _, cx| {
-                    this.pick_sink_md_nav(index, cx)
-                })),
-                handler(&cx.entity(), |this, _, cx| this.close_menu(cx)),
-            ),
-        ),
-        // `crate::ui::document`'s minimap, drawn in the spirit of a short document: a heading
-        // bar, a few paragraph lines at their own real lengths, a code block's tinted rectangle,
-        // a table's dotted rows and an image's neutral rectangle — plus two thread ticks on the
-        // outer edge and the translucent viewport rectangle T-110 adds. The pick is recorded on
-        // `sink.minimap_picked` so the last tick clicked is visible in the readout above the row.
-        labelled(
-            "minimap",
-            div()
-                .flex()
-                .h(px(160.))
-                .child(minimap(
-                    "sink-minimap",
-                    56.,
-                    &[
-                        MinimapMark::new(0.02, 0.06, 0.8, false, theme::text()),
-                        MinimapMark::new(0.1, 0.03, 0.95, false, theme::text_faint()),
-                        MinimapMark::new(0.14, 0.03, 0.6, false, theme::text_faint()),
-                        MinimapMark::new(0.18, 0.03, 0.8, false, theme::text_faint()),
-                        MinimapMark::new(0.26, 0.1, 1.0, false, theme::border()),
-                        MinimapMark::new(0.4, 0.03, 0.5, true, theme::border()),
-                        MinimapMark::new(0.44, 0.03, 0.7, true, theme::border()),
-                        MinimapMark::new(0.48, 0.03, 0.4, true, theme::border()),
-                        MinimapMark::new(
-                            0.58,
-                            0.08,
-                            0.55,
-                            false,
-                            theme::fade(theme::text_faint(), 0.5),
-                        ),
-                        MinimapMark::new(0.7, 0.03, 0.9, false, theme::text_faint()),
-                        MinimapMark::new(0.74, 0.03, 0.65, false, theme::text_faint()),
-                    ],
-                    &[
-                        MinimapTick::new(0.14, theme::info()),
-                        MinimapTick::new(0.44, theme::success()),
-                    ],
-                    Some(MinimapViewport {
-                        top: 0.55,
-                        height: 0.3,
-                    }),
-                    std::rc::Rc::new(indexed(&cx.entity(), |this, index, _, cx| {
-                        this.pick_sink_minimap(index, cx)
-                    })),
-                    scrub(&cx.entity(), |_, _, _, _| {}),
-                ))
                 .into_any_element(),
         ),
     ]);

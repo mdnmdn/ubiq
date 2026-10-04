@@ -1039,7 +1039,13 @@ impl AppState {
         match dialog {
             FileDialog::DiscardChanges { key } => {
                 self.close_file_dialog(cx);
-                self.force_close_tab(&key, cx);
+                // A table tab's pending edits ask the same question (`close_active_db_tab`).
+                match crate::state::db::db_table_from_key(&key) {
+                    Some(_) => self
+                        .pending_panels
+                        .push(PanelEdit::Close(PanelKind::DbTable(key))),
+                    None => self.force_close_tab(&key, cx),
+                }
                 return;
             }
             FileDialog::ReloadChanges { key } => {

@@ -244,6 +244,7 @@ impl AppState {
                     self.workbench.settings.ui = ui;
                     // The blob can land after a project is open, so the trees are told again.
                     self.sync_explorer_hidden(cx);
+                    self.push_md_config(cx);
                     cx.notify();
                 }
             }
@@ -543,6 +544,7 @@ impl AppState {
     pub fn toggle_md_minimap(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.ui.md_minimap = !self.workbench.settings.ui.md_minimap;
         self.remember_settings();
+        self.push_md_config(cx);
         cx.notify();
     }
 
@@ -554,6 +556,7 @@ impl AppState {
     ) {
         self.workbench.settings.ui.md_minimap_side = side;
         self.remember_settings();
+        self.push_md_config(cx);
         cx.notify();
     }
 

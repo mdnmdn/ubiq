@@ -20,19 +20,21 @@ use gpui_component::input::CompletionProvider as _;
 use ubiq::app::{AppState, BusHub};
 use ubiq::state::WindowRegistry;
 use ubiq::state::document::{
-    AnnotationsBody, ComposerTarget, DocumentBody, Notice, SLASH_COMMANDS, slash_commands,
-    slash_prefix,
+    AnnotationsBody, ComposerTarget, DocumentBody, Notice, RowDecor, SLASH_COMMANDS,
+    slash_commands, slash_prefix,
 };
 use ubiq::ui::editor::SlashCommands;
+use ubiq::ui::mdview::blockedit;
+use ubiq::ui::mdview::view::MdView;
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
-    Annotation, AnnotationState, DocumentHandle, PlanBlock, PlanChangeStats, PlanChangedRegion,
-    SaveOrigin,
+    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocumentHandle, HighlightColour,
+    PlanBlock, PlanChangeStats, PlanChangedRegion, SaveOrigin,
 };
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
-use ubiq_proto::work::{CommentAuthor, Level, Priority, Status, TaskRecord};
+use ubiq_proto::work::{Addressee, CommentAuthor, Level, Priority, Status, TaskRecord};
 
 const PATIENCE: Duration = Duration::from_millis(500);
 
@@ -407,6 +409,7 @@ fn plan_error_lands_on_load_then_on_export(cx: &mut TestAppContext) {
             doc: doc_of(fixture.project, task),
             blocks: Vec::new(),
             annotations: Vec::new(),
+            highlights: Vec::new(),
         },
         cx,
     );
@@ -470,6 +473,7 @@ fn plan_annotations_land_on_the_open_viewer(cx: &mut TestAppContext) {
             doc: doc_of(fixture.project, task),
             blocks: vec![block.clone()],
             annotations: vec![annotation.clone()],
+            highlights: Vec::new(),
         },
         cx,
     );
@@ -479,6 +483,7 @@ fn plan_annotations_land_on_the_open_viewer(cx: &mut TestAppContext) {
             AnnotationsBody::Loaded {
                 blocks,
                 annotations,
+                ..
             } => {
                 assert_eq!(blocks.len(), 1);
                 assert_eq!(blocks[0].id, block.id);
@@ -561,7 +566,7 @@ fn compose_annotation_sends_and_clears(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::AnnotatePlan { doc, block_id: b, quote: None, text }
+        Message::AnnotatePlan { doc, block_id: b, quote: None, text, .. }
             if *doc == doc_of(fixture.project, task) && *b == block_id && text == "Why here?"
     ));
     fixture.state.read_with(cx, |state, _| {
@@ -603,7 +608,7 @@ fn compose_reply_sends_and_clears(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::ReplyToAnnotation { doc, annotation_id: a, text }
+        Message::ReplyToAnnotation { doc, annotation_id: a, text, .. }
             if *doc == doc_of(fixture.project, task) && *a == annotation_id && text == "Agreed."
     ));
     fixture.state.read_with(cx, |state, _| {
@@ -638,140 +643,6 @@ fn cancel_annotation_composer_sends_nothing(cx: &mut TestAppContext) {
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("still open");
         assert!(plan.composer.is_none());
-    });
-}
-
-/// Composing a *new* thread hides every other thread until "Show all threads" is pressed, or the
-/// composer leaves the new-thread shape — a reply never hides anything, and cancelling clears the
-/// override for whatever is composed next.
-#[gpui::test]
-fn composing_a_new_thread_hides_the_others_until_shown(cx: &mut TestAppContext) {
-    let fixture = Fixture::open(cx);
-    let task = fixture.seed_task(Some(Level::Mission), cx);
-    fixture.said();
-    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
-    fixture.said();
-
-    let block_id = BlockId::generate();
-    fixture.with(cx, |state, window, cx| {
-        state.compose_annotation(block_id, window, cx)
-    });
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert!(
-            plan.hides_other_threads(),
-            "a fresh thread starts in focus mode",
-        );
-    });
-
-    fixture.with(cx, |state, _, cx| state.show_all_threads(cx));
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert!(!plan.hides_other_threads(), "the button reveals the rest",);
-    });
-
-    fixture.with(cx, |state, window, cx| {
-        state.cancel_annotation_composer(window, cx)
-    });
-
-    // A reply never hides the rail, and the override from the cancelled thread does not leak into
-    // it either.
-    let annotation_id = AnnotationId::generate();
-    fixture.with(cx, |state, window, cx| {
-        state.compose_reply(annotation_id, window, cx)
-    });
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert!(!plan.hides_other_threads(), "a reply is not a new thread");
-    });
-    fixture.with(cx, |state, window, cx| {
-        state.cancel_annotation_composer(window, cx)
-    });
-
-    // A second fresh thread starts hidden again — the earlier "show all" did not stick.
-    fixture.with(cx, |state, window, cx| {
-        state.compose_annotation(block_id, window, cx)
-    });
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert!(
-            plan.hides_other_threads(),
-            "the override resets between threads",
-        );
-    });
-}
-
-/// Clicking a minimap mark is resolved back to the thread `thread_marks` positioned it from — the
-/// same index discipline `select_plan_nav_heading` uses for the navigator — and shows it exactly
-/// the way the rail's own "Show" button does.
-#[gpui::test]
-fn picking_a_minimap_mark_shows_its_thread(cx: &mut TestAppContext) {
-    let fixture = Fixture::open(cx);
-    let task = fixture.seed_task(Some(Level::Mission), cx);
-    fixture.said();
-    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
-
-    let body = "# The plan\n\nShip the thing by Friday.\n\nThen tell everyone.\n";
-    let heading = PlanBlock {
-        id: BlockId::generate(),
-        kind: "heading:1".to_string(),
-        text: "# The plan".to_string(),
-    };
-    let step = PlanBlock {
-        id: BlockId::generate(),
-        kind: "paragraph".to_string(),
-        text: "Ship the thing by Friday.".to_string(),
-    };
-    let open = Annotation::new(
-        heading.id,
-        None,
-        CommentAuthor::User,
-        "still open".to_string(),
-        Utc::now(),
-    );
-    let mut resolved = Annotation::new(
-        step.id,
-        None,
-        CommentAuthor::User,
-        "settled".to_string(),
-        Utc::now(),
-    );
-    resolved.state = AnnotationState::Resolved;
-
-    fixture.deliver(
-        Message::Plan {
-            doc: doc_of(fixture.project, task),
-            body: body.to_string(),
-            revision: 1,
-        },
-        cx,
-    );
-    fixture.deliver(
-        Message::PlanAnnotations {
-            doc: doc_of(fixture.project, task),
-            blocks: vec![heading.clone(), step.clone()],
-            annotations: vec![open.clone(), resolved.clone()],
-        },
-        cx,
-    );
-    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
-
-    // `thread_marks` walks the annotations in order, so index 1 is the resolved thread.
-    fixture.with(cx, |state, _, cx| state.select_plan_minimap_mark(1, cx));
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert_eq!(plan.thread, Some(resolved.id));
-    });
-
-    // An index past the end of the list is ignored rather than panicking.
-    fixture.with(cx, |state, _, cx| state.select_plan_minimap_mark(9, cx));
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert_eq!(
-            plan.thread,
-            Some(resolved.id),
-            "an out-of-range pick is a no-op"
-        );
     });
 }
 
@@ -872,6 +743,7 @@ fn orphaned_and_resolved_are_independent_facts(cx: &mut TestAppContext) {
             // would have to reconstruct.
             blocks: Vec::new(),
             annotations: vec![annotation.clone()],
+            highlights: Vec::new(),
         },
         cx,
     );
@@ -1013,164 +885,312 @@ fn a_remote_change_never_eats_an_unsaved_edit(cx: &mut TestAppContext) {
     });
 }
 
-/// The annotated passages are decorations over the live text, at the offsets the host's blocks
-/// are actually at — the join between block ids, which are the host's, and buffer offsets, which
-/// are the window's. A quoted passage narrows the range to the quote.
-#[gpui::test]
-fn annotations_decorate_their_passages(cx: &mut TestAppContext) {
-    let fixture = Fixture::open(cx);
+/// A plan's blocks and threads, loaded into an open dialog over `body`: the body seeded into the
+/// buffer (which the view reparses), then the block index the host would send for it.
+fn loaded_plan(
+    fixture: &Fixture,
+    cx: &mut TestAppContext,
+    body: &str,
+    blocks: Vec<PlanBlock>,
+    annotations: Vec<Annotation>,
+    highlights: Vec<BlockHighlight>,
+) -> TaskId {
     let task = fixture.seed_task(Some(Level::Mission), cx);
     fixture.said();
     fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+    fixture.deliver(
+        Message::Plan {
+            doc: doc_of(fixture.project, task),
+            body: body.to_string(),
+            revision: 1,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
+    fixture.deliver(
+        Message::PlanAnnotations {
+            doc: doc_of(fixture.project, task),
+            blocks,
+            annotations,
+            highlights,
+        },
+        cx,
+    );
+    fixture.said();
+    task
+}
 
+fn paragraph(text: &str) -> PlanBlock {
+    PlanBlock {
+        id: BlockId::generate(),
+        kind: "paragraph".to_string(),
+        text: text.to_string(),
+    }
+}
+
+fn thread_on(block: &PlanBlock, text: &str) -> Annotation {
+    Annotation::new(
+        block.id,
+        None,
+        CommentAuthor::User,
+        text.to_string(),
+        Utc::now(),
+    )
+}
+
+/// The open document's view.
+fn md_of(fixture: &Fixture, cx: &mut TestAppContext) -> Entity<MdView> {
+    fixture.state.read_with(cx, |state, _| {
+        state
+            .workbench
+            .plan
+            .as_ref()
+            .expect("a document is open")
+            .md
+            .clone()
+    })
+}
+
+/// The threads, their marks and the highlights reach the view's margin as one `RowDecor` per row,
+/// placed by the join between the host's block ids and the view's rows. Clicking a row's count
+/// marker focuses its thread, and the decor says so.
+#[gpui::test]
+fn annotations_decorate_their_rows(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
     let body = "# The plan\n\nShip the thing by Friday.\n\nThen tell everyone.\n";
     let heading = PlanBlock {
         id: BlockId::generate(),
         kind: "heading:1".to_string(),
         text: "# The plan".to_string(),
     };
-    let step = PlanBlock {
-        id: BlockId::generate(),
-        kind: "paragraph".to_string(),
-        text: "Ship the thing by Friday.".to_string(),
-    };
-    let quoted = Annotation::new(
-        step.id,
-        Some("by Friday".to_string()),
-        CommentAuthor::User,
-        "is that real?".to_string(),
-        Utc::now(),
-    );
-    let whole = Annotation::new(
-        heading.id,
-        None,
-        CommentAuthor::Agent,
-        "renamed?".to_string(),
-        Utc::now(),
+    let step = paragraph("Ship the thing by Friday.");
+    let mut open = thread_on(&step, "is that real?");
+    open.marks = vec![AnnotationMark::Question];
+    let mut settled = thread_on(&heading, "renamed?");
+    settled.state = AnnotationState::Resolved;
+    loaded_plan(
+        &fixture,
+        cx,
+        body,
+        vec![heading.clone(), step.clone()],
+        vec![open.clone(), settled.clone()],
+        vec![BlockHighlight {
+            block_id: step.id,
+            colour: HighlightColour::Yellow,
+        }],
     );
 
-    fixture.deliver(
-        Message::Plan {
-            doc: doc_of(fixture.project, task),
-            body: body.to_string(),
-            revision: 1,
-        },
-        cx,
-    );
-    fixture.deliver(
-        Message::PlanAnnotations {
-            doc: doc_of(fixture.project, task),
-            blocks: vec![heading.clone(), step.clone()],
-            annotations: vec![quoted.clone(), whole.clone()],
-        },
-        cx,
-    );
-    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
-
-    fixture.state.read_with(cx, |state, cx| {
-        let ranges = state.annotation_ranges(cx);
-        assert_eq!(ranges.len(), 2);
-        let for_quote = ranges
-            .iter()
-            .find(|(id, _)| *id == quoted.id)
-            .map(|(_, range)| range.clone())
-            .expect("the quoted thread has a range");
-        assert_eq!(&body[for_quote], "by Friday");
-        let for_block = ranges
-            .iter()
-            .find(|(id, _)| *id == whole.id)
-            .map(|(_, range)| range.clone())
-            .expect("the whole-block thread has a range");
-        assert_eq!(&body[for_block], "# The plan");
+    let md = md_of(&fixture, cx);
+    md.read_with(cx, |view, _| {
+        assert!(view.annotating(), "the dialog's view carries the layer");
+        assert_eq!(
+            view.decor(),
+            &[
+                RowDecor {
+                    row: 0,
+                    open: 0,
+                    resolved: 1,
+                    marks: Vec::new(),
+                    highlight: None,
+                    focused: false,
+                },
+                RowDecor {
+                    row: 1,
+                    open: 1,
+                    resolved: 0,
+                    marks: vec![AnnotationMark::Question],
+                    highlight: Some(HighlightColour::Yellow),
+                    focused: false,
+                },
+            ]
+        );
     });
 
-    // Clicking inside a decorated passage is what opens its thread over that passage.
-    fixture.with(cx, |state, _, cx| {
-        let editor = state.plan_editor.clone();
-        let at = body.find("by Friday").expect("the passage is in the body");
-        editor.update(cx, |buffer, cx| buffer.set_selected_range(at..at, cx));
-        state.document_clicked(cx);
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| view.threads_clicked(1, cx))
     });
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("still open");
-        assert_eq!(plan.thread, Some(quoted.id));
+        assert_eq!(plan.focused, Some(open.id));
+        // The rail lists threads in document order, resolved ones only on request.
+        assert_eq!(plan.rail_threads(), vec![open.id]);
     });
-
-    // A click in unannotated text closes it again rather than leaving a popover behind.
-    fixture.with(cx, |state, _, cx| {
-        let editor = state.plan_editor.clone();
-        let at = body.find("Then tell").expect("the tail is in the body");
-        editor.update(cx, |buffer, cx| buffer.set_selected_range(at..at, cx));
-        state.document_clicked(cx);
-    });
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert!(plan.thread.is_none());
+    md.read_with(cx, |view, _| {
+        assert!(view.decor_at(1).is_some_and(|decor| decor.focused));
     });
 }
 
-/// Annotating a selection anchors on the block the selection is in and quotes the passage — the
-/// character-range selection slice 4 could not offer. A selection in text the host has no block
-/// for is refused where the user is looking rather than posted as a thread that would be
-/// orphaned on arrival.
+/// `+` on a row opens the composer on that row's block. `⚑` on a row with a thread flips the mark
+/// on it; on a row with none it opens the composer with the mark preset, so marking never posts an
+/// empty thread.
 #[gpui::test]
-fn annotating_a_selection_quotes_the_passage(cx: &mut TestAppContext) {
+fn marking_a_row_marks_its_thread_or_starts_one(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let (first, second) = (paragraph("First."), paragraph("Second."));
+    let mut thread = thread_on(&first, "why?");
+    thread.marks = vec![AnnotationMark::Todo];
+    let task = loaded_plan(
+        &fixture,
+        cx,
+        "First.\n\nSecond.\n",
+        vec![first.clone(), second.clone()],
+        vec![thread.clone()],
+        Vec::new(),
+    );
+    let md = md_of(&fixture, cx);
+
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| {
+            view.request_mark(0, AnnotationMark::Agent, cx)
+        })
+    });
+    let said = fixture.said();
+    assert!(matches!(
+        &said[..],
+        [Message::MarkAnnotation { annotation_id, mark: AnnotationMark::Agent, on: true, .. }]
+            if *annotation_id == thread.id
+    ));
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| {
+            view.request_mark(0, AnnotationMark::Todo, cx)
+        })
+    });
+    assert!(matches!(
+        &fixture.said()[..],
+        [Message::MarkAnnotation {
+            mark: AnnotationMark::Todo,
+            on: false,
+            ..
+        }]
+    ));
+
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| {
+            view.request_mark(1, AnnotationMark::Question, cx)
+        })
+    });
+    assert!(
+        fixture.said().is_empty(),
+        "no thread is posted by the mark alone"
+    );
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert_eq!(plan.composer, Some(ComposerTarget::Block(second.id)));
+        assert_eq!(plan.composer_marks, vec![AnnotationMark::Question]);
+    });
+    fixture.with(cx, |state, window, cx| {
+        if let Some(plan) = state.workbench.plan.as_mut() {
+            plan.composer_text = "open question".to_string();
+        }
+        state.submit_annotation_composer(window, cx)
+    });
+    assert!(matches!(
+        &fixture.said()[..],
+        [Message::AnnotatePlan { doc, block_id, marks, to: None, text, .. }]
+            if *doc == doc_of(fixture.project, task)
+                && *block_id == second.id
+                && *marks == vec![AnnotationMark::Question]
+                && text == "open question"
+    ));
+
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| view.add_thread(0, cx))
+    });
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert_eq!(plan.composer, Some(ComposerTarget::Block(first.id)));
+        assert!(plan.composer_marks.is_empty());
+    });
+
+    // `✓` on the row resolves its open thread.
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| view.request_resolve(0, cx))
+    });
+    assert!(matches!(
+        &fixture.said()[..],
+        [Message::ResolveAnnotation { annotation_id, resolved: true, .. }]
+            if *annotation_id == thread.id
+    ));
+}
+
+/// `●` colours every host block in the row — a list is one row and each item a block — and the
+/// menu's clear sends `None`.
+#[gpui::test]
+fn highlighting_a_row_colours_all_its_blocks(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let (one, two) = (paragraph("one"), paragraph("two"));
+    loaded_plan(
+        &fixture,
+        cx,
+        "- one\n- two\n",
+        vec![one.clone(), two.clone()],
+        Vec::new(),
+        Vec::new(),
+    );
+    let md = md_of(&fixture, cx);
+
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| {
+            view.request_highlight(0, Some(HighlightColour::Green), cx)
+        })
+    });
+    assert!(matches!(
+        &fixture.said()[..],
+        [Message::SetBlockHighlight { block_ids, colour: Some(HighlightColour::Green), .. }]
+            if *block_ids == vec![one.id, two.id]
+    ));
+    fixture.with(cx, |_, _, cx| {
+        md.update(cx, |view, cx| view.request_highlight(0, None, cx))
+    });
+    assert!(matches!(
+        &fixture.said()[..],
+        [Message::SetBlockHighlight { colour: None, .. }]
+    ));
+}
+
+/// A leading `@agent`, or the composer's "@agent" chip, addresses the post to the agent — on a
+/// fresh thread and on a reply alike — and the tag itself is not posted.
+#[gpui::test]
+fn the_agent_toggle_addresses_the_comment(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
     let task = fixture.seed_task(Some(Level::Mission), cx);
     fixture.said();
     fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
-
-    let body = "Ship the thing by Friday.\n";
-    let block = PlanBlock {
-        id: BlockId::generate(),
-        kind: "paragraph".to_string(),
-        text: "Ship the thing by Friday.".to_string(),
-    };
-    fixture.deliver(
-        Message::Plan {
-            doc: doc_of(fixture.project, task),
-            body: body.to_string(),
-            revision: 1,
-        },
-        cx,
-    );
-    fixture.deliver(
-        Message::PlanAnnotations {
-            doc: doc_of(fixture.project, task),
-            blocks: vec![block.clone()],
-            annotations: Vec::new(),
-        },
-        cx,
-    );
-    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
     fixture.said();
 
-    let at = body.find("by Friday").expect("the passage is in the body");
+    let block_id = BlockId::generate();
     fixture.with(cx, |state, window, cx| {
-        let editor = state.plan_editor.clone();
-        editor.update(cx, |buffer, cx| {
-            buffer.set_selected_range(at..at + "by Friday".len(), cx)
-        });
-        state.annotate_selection(window, cx);
-    });
-    fixture.with(cx, |state, _, _| {
+        state.compose_annotation(block_id, window, cx);
         if let Some(plan) = state.workbench.plan.as_mut() {
-            plan.composer_text = "is that real?".to_string();
+            plan.composer_text = "@agent: please check this".to_string();
         }
-    });
-    fixture.with(cx, |state, window, cx| {
         state.submit_annotation_composer(window, cx)
     });
-
-    let said = fixture.said();
-    assert_eq!(said.len(), 1);
     assert!(matches!(
-        &said[0],
-        Message::AnnotatePlan { block_id, quote: Some(quote), text, .. }
-            if *block_id == block.id && quote == "by Friday" && text == "is that real?"
+        &fixture.said()[..],
+        [Message::AnnotatePlan { to: Some(Addressee::Agent), text, .. }]
+            if text == "please check this"
     ));
-}
 
+    let annotation_id = AnnotationId::generate();
+    fixture.with(cx, |state, window, cx| {
+        state.compose_reply(annotation_id, window, cx);
+        state.toggle_composer_agent(cx);
+        if let Some(plan) = state.workbench.plan.as_mut() {
+            plan.composer_text = "and this".to_string();
+        }
+        state.submit_annotation_composer(window, cx)
+    });
+    assert!(matches!(
+        &fixture.said()[..],
+        [Message::ReplyToAnnotation { annotation_id: a, to: Some(Addressee::Agent), text, .. }]
+            if *a == annotation_id && text == "and this"
+    ));
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("still open");
+        assert!(!plan.composer_to_agent, "the toggle is one-shot");
+    });
+}
 /// The `/` menu is a `CompletionProvider` against the editor's own popover: the trigger fires on
 /// the typed character, and what it offers is filtered by the `/word` behind the caret. Nothing
 /// here draws a menu, which is the point of doing it this way.
@@ -1489,267 +1509,51 @@ fn a_refused_save_keeps_the_edit_and_asks_again(cx: &mut TestAppContext) {
     ));
 }
 
-/// The card's own bug: "when updating a text block I don't see the changes, I need to close and
-/// reopen the plan to see the difference". The host only restates the block index —
-/// `Message::PlanAnnotationsChanged` — when a save orphans a thread, so an edit that keeps every
-/// anchor never earns one; the preview draws from the cached index rather than the live buffer, so
-/// it kept showing the section's old text until the surface was closed and reopened. Confirming a
-/// section edit now patches the cache itself, before the host answers at all.
+/// A block committed in the dialog's view is an ordinary whole-document save: the buffer holds
+/// the edit, and `SavePlan` goes out with it against the revision the buffer was seeded from. The
+/// host re-indexes and re-matches the blocks from there.
 #[gpui::test]
-fn confirming_a_section_edit_patches_the_preview_before_the_host_answers(cx: &mut TestAppContext) {
+fn a_block_commit_saves_the_plan(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
-    let task = fixture.seed_task(Some(Level::Mission), cx);
-    fixture.said();
-    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
-    fixture.said();
-
-    fixture.deliver(
-        Message::Plan {
-            doc: doc_of(fixture.project, task),
-            body: "# Title\n\nFirst.\n\nSecond.\n".to_string(),
-            revision: 1,
-        },
+    let task = loaded_plan(
+        &fixture,
         cx,
+        "# The plan\n\nFirst.\n\nSecond.\n",
+        vec![paragraph("First."), paragraph("Second.")],
+        Vec::new(),
+        Vec::new(),
     );
-    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
-    fixture.said();
+    let md = md_of(&fixture, cx);
 
-    let second = PlanBlock {
-        id: BlockId::generate(),
-        kind: "paragraph".to_string(),
-        text: "Second.".to_string(),
-    };
-    fixture.deliver(
-        Message::PlanAnnotations {
-            doc: doc_of(fixture.project, task),
-            blocks: vec![
-                PlanBlock {
-                    id: BlockId::generate(),
-                    kind: "heading:1".to_string(),
-                    text: "# Title".to_string(),
-                },
-                PlanBlock {
-                    id: BlockId::generate(),
-                    kind: "paragraph".to_string(),
-                    text: "First.".to_string(),
-                },
-                second.clone(),
-            ],
-            annotations: Vec::new(),
-        },
-        cx,
-    );
-
-    fixture.with(cx, |state, window, cx| {
-        state.begin_section_edit(second.id, window, cx)
-    });
-    fixture.with(cx, |state, window, cx| {
-        let input = state
-            .workbench
-            .plan
-            .as_ref()
-            .expect("still open")
-            .section_edit
-            .as_ref()
-            .expect("editing the section")
-            .input
-            .clone();
-        input.update(cx, |field, cx| {
-            field.set_value("Second, revised.", window, cx)
+    fixture.with(cx, |_, window, cx| {
+        md.update(cx, |view, cx| {
+            view.set_editable(true, window, cx);
+            // The last paragraph: one under a heading is edited together with it.
+            blockedit::open(view, 2, window, cx);
         });
-        state.confirm_section_edit(window, cx);
+        let edit = md
+            .read(cx)
+            .editing()
+            .map(|edit| edit.state.clone())
+            .expect("the block editor opened");
+        edit.update(cx, |state, cx| {
+            state.set_value("Second, revised.", window, cx)
+        });
+        assert!(md.update(cx, |view, cx| blockedit::commit(view, window, cx)));
     });
-
-    // No `Message::Plan` and no `Message::PlanAnnotationsChanged` has come back — the point is
-    // that the preview does not need either of them to show what was just written.
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        let patched = plan
-            .annotations
-            .blocks()
-            .iter()
-            .find(|block| block.id == second.id)
-            .expect("the block is still indexed");
-        assert_eq!(patched.text, "Second, revised.");
-        assert!(plan.section_edit.is_none(), "the field closed on confirm");
-    });
+    cx.run_until_parked();
 
     let said = fixture.said();
     assert!(
-        said.iter()
-            .any(|message| matches!(message, Message::SavePlan { .. })),
-        "the edit still went out as an ordinary whole-document save",
+        said.iter().any(|message| matches!(
+            message,
+            Message::SavePlan { doc, body, expected }
+                if *doc == doc_of(fixture.project, task)
+                    && body == "# The plan\n\nFirst.\n\nSecond, revised.\n"
+                    && *expected == 1
+        )),
+        "the commit went out as a save: {said:?}",
     );
-}
-
-/// A section edited into more than one paragraph becomes more than one cached block — never one
-/// block holding an embedded blank line — and the id it carried in stays on the first of them, so
-/// a thread anchored there is still anchored to something.
-#[gpui::test]
-fn a_section_edited_into_several_paragraphs_becomes_several_blocks(cx: &mut TestAppContext) {
-    let fixture = Fixture::open(cx);
-    let task = fixture.seed_task(Some(Level::Mission), cx);
-    fixture.said();
-    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
-    fixture.said();
-
-    fixture.deliver(
-        Message::Plan {
-            doc: doc_of(fixture.project, task),
-            body: "# Title\n\nFirst.\n\nSecond.\n".to_string(),
-            revision: 1,
-        },
-        cx,
-    );
-    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
-    fixture.said();
-
-    let second = PlanBlock {
-        id: BlockId::generate(),
-        kind: "paragraph".to_string(),
-        text: "Second.".to_string(),
-    };
-    fixture.deliver(
-        Message::PlanAnnotations {
-            doc: doc_of(fixture.project, task),
-            blocks: vec![
-                PlanBlock {
-                    id: BlockId::generate(),
-                    kind: "heading:1".to_string(),
-                    text: "# Title".to_string(),
-                },
-                PlanBlock {
-                    id: BlockId::generate(),
-                    kind: "paragraph".to_string(),
-                    text: "First.".to_string(),
-                },
-                second.clone(),
-            ],
-            annotations: Vec::new(),
-        },
-        cx,
-    );
-
-    fixture.with(cx, |state, window, cx| {
-        state.begin_section_edit(second.id, window, cx)
-    });
-    fixture.with(cx, |state, window, cx| {
-        let input = state
-            .workbench
-            .plan
-            .as_ref()
-            .expect("still open")
-            .section_edit
-            .as_ref()
-            .expect("editing the section")
-            .input
-            .clone();
-        input.update(cx, |field, cx| {
-            field.set_value("Second, part one.\n\nSecond, part two.", window, cx)
-        });
-        state.confirm_section_edit(window, cx);
-    });
-
-    fixture.state.read_with(cx, |state, _| {
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        let blocks = plan.annotations.blocks();
-        assert_eq!(blocks.len(), 4, "the split section added one block");
-        let first_half = blocks
-            .iter()
-            .find(|block| block.id == second.id)
-            .expect("the anchor stayed on the first half");
-        assert_eq!(first_half.text, "Second, part one.");
-        let position = blocks
-            .iter()
-            .position(|block| block.id == second.id)
-            .expect("still indexed");
-        let second_half = &blocks[position + 1];
-        assert_eq!(second_half.text, "Second, part two.");
-        assert_ne!(
-            second_half.id, second.id,
-            "the second half is a block of its own",
-        );
-    });
-}
-
-/// "if a block became empty (nothing / only spaces and newlines) remove it" — confirming a
-/// section edited down to nothing removes it from the buffer and from the cached index, rather
-/// than saving an empty paragraph where it stood.
-#[gpui::test]
-fn confirming_an_emptied_section_removes_it(cx: &mut TestAppContext) {
-    let fixture = Fixture::open(cx);
-    let task = fixture.seed_task(Some(Level::Mission), cx);
-    fixture.said();
-    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
-    fixture.said();
-
-    fixture.deliver(
-        Message::Plan {
-            doc: doc_of(fixture.project, task),
-            body: "# Title\n\nFirst.\n\nSecond.\n".to_string(),
-            revision: 1,
-        },
-        cx,
-    );
-    fixture.with(cx, |state, window, cx| state.settle_plan_editor(window, cx));
-    fixture.said();
-
-    let second = PlanBlock {
-        id: BlockId::generate(),
-        kind: "paragraph".to_string(),
-        text: "Second.".to_string(),
-    };
-    fixture.deliver(
-        Message::PlanAnnotations {
-            doc: doc_of(fixture.project, task),
-            blocks: vec![
-                PlanBlock {
-                    id: BlockId::generate(),
-                    kind: "heading:1".to_string(),
-                    text: "# Title".to_string(),
-                },
-                PlanBlock {
-                    id: BlockId::generate(),
-                    kind: "paragraph".to_string(),
-                    text: "First.".to_string(),
-                },
-                second.clone(),
-            ],
-            annotations: Vec::new(),
-        },
-        cx,
-    );
-
-    fixture.with(cx, |state, window, cx| {
-        state.begin_section_edit(second.id, window, cx)
-    });
-    fixture.with(cx, |state, window, cx| {
-        let input = state
-            .workbench
-            .plan
-            .as_ref()
-            .expect("still open")
-            .section_edit
-            .as_ref()
-            .expect("editing the section")
-            .input
-            .clone();
-        input.update(cx, |field, cx| field.set_value("   \n  ", window, cx));
-        state.confirm_section_edit(window, cx);
-    });
-
-    fixture.state.read_with(cx, |state, cx| {
-        let body = state.plan_editor.read(cx).value().to_string();
-        assert!(!body.contains("Second."), "the section is gone: {body:?}");
-        let plan = state.workbench.plan.as_ref().expect("still open");
-        assert!(
-            plan.annotations
-                .blocks()
-                .iter()
-                .all(|block| block.id != second.id),
-            "the cache dropped it too, rather than showing an empty row",
-        );
-    });
 }
 
 // ── T-124: markdown's fourth mode ────────────────────────────────────────────
@@ -1793,6 +1597,25 @@ fn annotation_mode_opens_the_files_document(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| {
         state.select_file("notes.md".to_string(), cx)
     });
+    // The surface draws the tab's own view, which the tab builds once its bytes are here.
+    let bytes = b"# Notes\n\nalpha\n";
+    fixture.deliver(
+        Message::ProjectFileContents {
+            project_id: fixture.project,
+            rel_path: "notes.md".to_string(),
+            contents: ubiq_proto::files::FileContents {
+                bytes: bytes.to_vec(),
+                len: bytes.len() as u64,
+                truncated: false,
+                is_binary: false,
+                version: Some(ubiq_proto::files::FileVersion {
+                    len: bytes.len() as u64,
+                    modified: None,
+                }),
+            },
+        },
+        cx,
+    );
     fixture.said(); // drain the read the tab asked for
 
     fixture.with(cx, |state, _, cx| {
@@ -1815,11 +1638,18 @@ fn annotation_mode_opens_the_files_document(cx: &mut TestAppContext) {
         ),
         "the threads were asked for: {said:?}",
     );
+    let tab_md = fixture
+        .with(cx, |state, _, cx| {
+            state.file("notes.md", cx).and_then(|file| file.md.clone())
+        })
+        .expect("the tab has a view");
     fixture.state.read_with(cx, |state, _| {
         let doc = state.workbench.plan.as_ref().expect("a document is open");
         assert_eq!(doc.doc, handle);
         assert!(!doc.is_modal(), "a tab's document is not the dialog");
+        assert!(doc.md == tab_md, "the surface is the tab's own view");
     });
+    tab_md.read_with(cx, |view, _| assert!(view.annotating()));
 
     // Leaving the mode puts the document away: the tab is reading again, and nothing is holding a
     // surface nobody is looking at.
@@ -1828,5 +1658,9 @@ fn annotation_mode_opens_the_files_document(cx: &mut TestAppContext) {
     });
     fixture.state.read_with(cx, |state, _| {
         assert!(state.workbench.plan.is_none(), "the document was put away");
+    });
+    tab_md.read_with(cx, |view, _| {
+        assert!(!view.annotating(), "the tab's view is reading again");
+        assert!(view.decor().is_empty());
     });
 }

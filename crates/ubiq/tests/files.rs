@@ -20,6 +20,7 @@ use gpui_component::Root;
 use gpui_component::input::InputEvent;
 use ubiq::app::{AppState, BusHub, CloseEditor};
 use ubiq::state::{FileDialog, WindowRegistry};
+use ubiq::ui::mdview::blockedit;
 use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::files::{DirEntry, DirListing, EntryKind, ImportMode, PathOp, RelatedFile};
 use ubiq_proto::git::{GitHead, GitNested};
@@ -1221,6 +1222,70 @@ fn closing_a_tab_still_lets_the_markdown_tab_behind_it_close(cx: &mut TestAppCon
         open_paths(&fixture, cx),
         vec!["src/main.rs".to_string()],
         "the Markdown preview tab closed like any other"
+    );
+}
+
+/// A markdown tab's preview is an `MdView` over the tab's own buffer, so a block committed in the
+/// preview is an edit to the file: the tab goes dirty exactly as if the source had been typed into.
+#[gpui::test]
+fn a_block_commit_in_the_preview_dirties_the_tab(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let bytes = b"# Notes\n\nalpha\n\nbeta\n";
+    fixture.with(cx, |state, _, cx| {
+        state.select_file("docs/notes.md".to_string(), cx)
+    });
+    fixture.deliver(
+        Message::ProjectFileContents {
+            project_id: fixture.project,
+            rel_path: "docs/notes.md".to_string(),
+            contents: ubiq_proto::files::FileContents {
+                bytes: bytes.to_vec(),
+                len: bytes.len() as u64,
+                truncated: false,
+                is_binary: false,
+                version: Some(ubiq_proto::files::FileVersion {
+                    len: bytes.len() as u64,
+                    modified: None,
+                }),
+            },
+        },
+        cx,
+    );
+    let md = fixture
+        .with(cx, |state, _, cx| {
+            state
+                .file("docs/notes.md", cx)
+                .and_then(|file| file.md.clone())
+        })
+        .expect("a markdown tab holding text has a markdown view");
+
+    fixture.with(cx, |_, window, cx| {
+        md.update(cx, |view, cx| {
+            view.set_editable(true, window, cx);
+            // The last paragraph: one under a heading is edited together with it.
+            blockedit::open(view, 2, window, cx);
+        });
+        let edit = md
+            .read(cx)
+            .editing()
+            .map(|edit| edit.state.clone())
+            .expect("the block editor opened");
+        edit.update(cx, |state, cx| state.set_value("beta, edited", window, cx));
+        assert!(md.update(cx, |view, cx| blockedit::commit(view, window, cx)));
+    });
+    cx.run_until_parked();
+
+    let (dirty, text) = fixture.with(cx, |state, _, cx| {
+        let file = state.file("docs/notes.md", cx).expect("the tab is open");
+        let text = file
+            .buffer()
+            .map(|buffer| buffer.read(cx).value().to_string());
+        (file.dirty(), text)
+    });
+    assert_eq!(text.as_deref(), Some("# Notes\n\nalpha\n\nbeta, edited\n"));
+    assert!(
+        dirty,
+        "the commit wrote the tab's buffer, which is an unsaved edit"
     );
 }
 

@@ -3,11 +3,11 @@
 **Ubiq** — agentic workspace. A desktop application that hosts several interactive AI coding
 agents (Claude Code, Codex, Gemini CLI, opencode, Copilot CLI) side by side, each in a real terminal
 pane, under one window. Think tmux, with the panes specialised for agent harnesses. Rust throughout:
-five crates — `crates/ubiq-proto` (the contract, the bus, the log sink), `crates/ubiq-host` (the
+six crates — `crates/ubiq-proto` (the contract, the bus, the log sink), `crates/ubiq-host` (the
 headless host: processes, pseudo-terminals, the project catalogue), `crates/ubiq` (the GPUI
-interface), `crates/ubiq-app` (the binary, the only thing that names both halves) and
-`crates/ubiq-db` (the database engine, a leaf) — plus the harness-management library they embed in
-`crates/agent-manager`.
+interface), `crates/ubiq-app` (the binary, the only thing that names both halves),
+`crates/ubiq-db` (the database engine, a leaf) and `crates/ubiq-md` (the markdown engine, a leaf)
+— plus the harness-management library they embed in `crates/agent-manager`.
 
 ## Finding things
 

@@ -52,7 +52,7 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::{ProjectId, TaskId};
-use ubiq_proto::plan::{Annotation, PlanRevision, SaveOrigin};
+use ubiq_proto::plan::{Annotation, BlockHighlight, PlanRevision, SaveOrigin};
 
 use super::StoreError;
 use crate::atomic::{preserve_aside, write_atomic, write_atomic_with};
@@ -77,6 +77,9 @@ pub struct PlanSidecar {
     pub blocks: Vec<IndexedBlock>,
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    /// Block colours, independent of any thread. Dropped when the block vanishes.
+    #[serde(default)]
+    pub highlights: Vec<BlockHighlight>,
     /// How many times the body has been saved. `0` for a plan whose body has never been written,
     /// and for every sidecar written before this field existed — which is why a watermark of `0`
     /// has to mean "everything", and why [`Self::provenance`] being empty is a legible state

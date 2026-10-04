@@ -1315,8 +1315,6 @@ pub struct SinkState {
     pub disclosed: bool,
     /// Which row of the demo menu was picked.
     pub picked: usize,
-    /// Which mark of the demo minimap was last clicked.
-    pub minimap_picked: usize,
     /// Which rows of the demo multi-select are ticked. Indices into [`MENU_ITEMS`], and the
     /// specimen's preselection: the page opens with two of them already on, because a control
     /// that only ever starts empty never shows the state a form loads it in.
@@ -1359,7 +1357,6 @@ impl Default for SinkState {
             level: 60,
             disclosed: true,
             picked: 0,
-            minimap_picked: 0,
             multi: vec![0, 2],
             files_tree: true,
             picker: PickerDemo::default(),

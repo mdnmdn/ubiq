@@ -1,10 +1,11 @@
 //! The plan editor: the annotated-document surface, framed as a dialog.
 //!
-//! **The surface itself is `crate::ui::document`'s** — the preview, the per-section gutter, the
-//! thread rail, the composer and the section editor, shared with the markdown viewer's fourth
-//! layout (`ViewLayout::Annotation`, T-124). What is left here is what is true of *this* frame and
-//! of nothing else: the modal, its title, the chrome strip above the document and the footer
-//! beneath it, where a plan is saved and exported from.
+//! **The surface itself is `crate::ui::document`'s** — the `MdView` with its annotation layer on,
+//! the thread rail and its composer, shared with the markdown viewer's fourth layout
+//! (`ViewLayout::Annotation`, T-124). What is left here is what is true of *this* frame and of
+//! nothing else: the modal, its title, the chrome strip above the document (the heading navigator,
+//! the Edit chip, the minimap toggle) and the footer beneath it, where a plan is saved and
+//! exported from.
 //!
 //! **The plan editor stays a dialog** — a user ruling, not an accident of history: a plan is
 //! raised from a task and answered, rather than kept open beside the code the way a file's
@@ -15,7 +16,7 @@
 //! handle rather than assuming.
 
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, ParentElement, SharedString,
+    AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement as _, Styled, Window, div, px,
 };
 use gpui_component::IconName;
@@ -25,16 +26,16 @@ use crate::state::Layer;
 use crate::state::document::DocumentEditor;
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::document::{MINIMAP_WIDTH, RAIL_WIDTH};
+use crate::ui::document::RAIL_WIDTH;
+use crate::ui::eid;
 use crate::ui::kit::{
     UbiqIcon, ghost_button, icon_button, modal_sized, primary_button, status_dot,
 };
 use ubiq_proto::plan::SaveOrigin;
 
-/// Wide enough to write in beside the thread rail — a writing surface, not a dialog. Forty
-/// narrower than before the minimap: the strip's own cost is split between the two, not loaded
-/// onto the document alone.
-const DOC_WIDTH: f32 = 820.0;
+/// Wide enough to read and write in beside the thread rail — a writing surface, not a dialog. The
+/// view's own minimap and annotation margin come out of this.
+const DOC_WIDTH: f32 = 892.0;
 /// Both columns need a real height to scroll inside — `modal_sized`'s `fill_height`.
 const DOC_HEIGHT: f32 = 700.0;
 /// The chrome strip above the document, the file viewer's own header height.
@@ -60,14 +61,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(chrome(app, doc, &view))
+        .child(chrome(app, doc, &view, cx))
         .child(crate::ui::document::surface(app, doc, cx))
         .into_any_element();
 
     modal_sized(
         "plan-modal",
         theme::accent(),
-        DOC_WIDTH + RAIL_WIDTH + MINIMAP_WIDTH,
+        DOC_WIDTH + RAIL_WIDTH,
         Some(DOC_HEIGHT),
         &title,
         None,
@@ -78,13 +79,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     )
 }
 
-/// The strip above the document: what the document is holding, and the one thing to press — the
-/// heading navigator, which is also how many threads are open at a glance.
+/// The strip above the document: the heading navigator, the Edit chip, and the minimap toggle.
 ///
-/// **There is no `+ annotation` here.** Annotating is a section's own affordance, beside the
-/// section it is about, and there is only one way to draw the document. The minimap's show/hide
-/// control is the one layout toggle this strip carries — a reading habit, not a document fact.
-fn chrome(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState>) -> AnyElement {
+/// **There is no `+ annotation` here.** Annotating is a block's own affordance, in the margin
+/// beside the block it is about. The minimap's show/hide control is the one layout toggle this
+/// strip carries — a reading habit, not a document fact.
+fn chrome(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState>, cx: &App) -> AnyElement {
+    let key = doc.surface_key();
     let annotating = doc.composer_block().is_some();
 
     div()
@@ -95,9 +96,16 @@ fn chrome(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState>) -> AnyE
         .gap_2()
         .px_2()
         .bg(theme::pane_bg())
-        // `above_modal`: this trigger sits inside a modal, so its panel paints over the modal's
-        // own overlay rather than under it.
-        .child(crate::ui::document::navigator(doc, true, view))
+        .child(crate::ui::document::heading_control(
+            eid("plan-nav", &key),
+            &doc.md,
+            cx,
+        ))
+        .child(crate::ui::document::edit_chip(
+            eid("plan-edit", &key),
+            &doc.md,
+            cx,
+        ))
         .child(div().flex_1().min_w(px(0.)))
         .children(annotating.then(|| {
             div()
@@ -116,8 +124,7 @@ fn chrome(app: &AppState, doc: &DocumentEditor, view: &Entity<AppState>) -> AnyE
                 },
             )
             .tooltip(|window, cx| {
-                gpui_component::tooltip::Tooltip::new("Show or hide the thread minimap")
-                    .build(window, cx)
+                gpui_component::tooltip::Tooltip::new("Show or hide the minimap").build(window, cx)
             })
         })
         .into_any_element()

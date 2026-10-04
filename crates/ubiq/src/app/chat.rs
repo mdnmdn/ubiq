@@ -390,6 +390,16 @@ impl AppState {
             Err(reason) => DiagramEntry::Failed(reason),
         };
         self.diagrams.borrow_mut().insert(answer.key, entry);
+        // A markdown view measured its fence rows at the placeholder's height.
+        let views: Vec<_> = self
+            .projects
+            .values()
+            .flat_map(|open| open.editor.open.iter().chain(open.kb.docs.iter()))
+            .filter_map(|file| file.md.clone())
+            .collect();
+        for md in views {
+            md.update(cx, |md, cx| md.remeasure_fences(cx));
+        }
         cx.notify();
     }
 

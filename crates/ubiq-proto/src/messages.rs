@@ -46,7 +46,7 @@ use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
 use crate::plan::{
-    Annotation, DocumentHandle, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision,
+    Annotation, AnnotationMark, BlockHighlight, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision,
     SaveOrigin,
 };
 use crate::projects::{
@@ -63,7 +63,7 @@ use crate::tasksrc::{
 };
 use crate::tools::{ListedTool, ToolDef};
 use crate::work::{
-    AgentId, Complexity, Kind, Label, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession,
+    Addressee, AgentId, Complexity, Kind, Label, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession,
 };
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
@@ -2370,12 +2370,33 @@ pub enum Message {
         block_id: BlockId,
         quote: Option<String>,
         text: String,
+        /// Flags to stand on the new thread from the start.
+        #[serde(default)]
+        marks: Vec<AnnotationMark>,
+        /// `Some(Agent)` addresses the opening comment to an agent, and sets the `Agent` mark.
+        #[serde(default)]
+        to: Option<Addressee>,
     },
     /// Append to an annotation's thread.
     ReplyToAnnotation {
         doc: DocumentHandle,
         annotation_id: AnnotationId,
         text: String,
+        #[serde(default)]
+        to: Option<Addressee>,
+    },
+    /// Set or clear one mark on an annotation.
+    MarkAnnotation {
+        doc: DocumentHandle,
+        annotation_id: AnnotationId,
+        mark: AnnotationMark,
+        on: bool,
+    },
+    /// Colour blocks, or clear their colour with `None`. Independent of threads.
+    SetBlockHighlight {
+        doc: DocumentHandle,
+        block_ids: Vec<BlockId>,
+        colour: Option<HighlightColour>,
     },
     /// Close an annotation, or reopen one. **Anyone may resolve an annotation, including an
     /// agent** — a planning assistant that answers a comment can close it — so there is no author
@@ -2452,6 +2473,8 @@ pub enum Message {
         doc: DocumentHandle,
         blocks: Vec<PlanBlock>,
         annotations: Vec<Annotation>,
+        #[serde(default)]
+        highlights: Vec<BlockHighlight>,
     },
     /// A task's annotations changed by some route other than this window's own request — another
     /// window's comment, an agent's reply through `ubiq-plan`, or a [`Message::SavePlan`] whose
@@ -3500,6 +3523,8 @@ impl Message {
             | Message::AnnotatePlan { doc, .. }
             | Message::ReplyToAnnotation { doc, .. }
             | Message::ResolveAnnotation { doc, .. }
+            | Message::MarkAnnotation { doc, .. }
+            | Message::SetBlockHighlight { doc, .. }
             | Message::ListPlanChanges { doc, .. }
             | Message::Plan { doc, .. }
             | Message::PlanAnnotations { doc, .. }

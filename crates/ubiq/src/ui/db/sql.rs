@@ -25,9 +25,9 @@ use gpui::{
     Window, div, px, relative,
 };
 use gpui_component::input::Editor;
-use gpui_component::{Icon, IconName};
 use gpui_component::table::DataTable;
 use gpui_component::tooltip::Tooltip;
+use gpui_component::{Icon, IconName};
 use gpui_component::{Sizable as _, Size, resizable_panel, v_resizable};
 
 use crate::app::AppState;
@@ -239,7 +239,13 @@ fn toolbar(
                     .child(SharedString::from(agent.chip())),
             )
         })
-        .child(div().w(px(theme::hairline())).h_full().flex_none().bg(theme::border()))
+        .child(
+            div()
+                .w(px(theme::hairline()))
+                .h_full()
+                .flex_none()
+                .bg(theme::border()),
+        )
         .child(button(
             "db-sql-run",
             IconName::Play,
@@ -382,7 +388,11 @@ fn read_only_toggle(
         .cursor_pointer()
         .when_some(bg, |this, bg| this.bg(bg))
         .hover(|this| this.bg(if on { theme::warning() } else { theme::hover() }))
-        .child(Icon::new(IconName::Eye).with_size(Size::XSmall).text_color(fg))
+        .child(
+            Icon::new(IconName::Eye)
+                .with_size(Size::XSmall)
+                .text_color(fg),
+        )
         .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
         .on_click(click(cx, move |this, cx| {
             this.db_sql_toggle_read_only(session, cx)

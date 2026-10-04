@@ -333,9 +333,6 @@ pub enum MenuId {
     /// The style reference's demo multi-select. Its own id beside `SinkPicker` because both are
     /// drawn on the same page and only one menu in the window is open at a time.
     SinkMulti,
-    /// The style reference's demo heading navigator — `kit::md_navigator`'s own specimen, its id
-    /// beside `SinkPicker` and `SinkMulti` for the same reason.
-    SinkMdNav,
     /// The A2UI page's example picker: which surface the preview draws.
     SinkA2ui,
     /// The script page's example picker: which starter the buffers are seeded from.
@@ -454,11 +451,6 @@ pub enum MenuId {
     /// density, minimap visibility and side. `kit::popover`, not a modal — the same Escape and
     /// outside click every other anchored panel takes.
     MdOptions,
-    /// The markdown viewer header's heading navigator (T-124) — the document's structure, offered
-    /// in all four of markdown's layouts. `kit::md_navigator`'s anchored panel, on `MdOptions`'s
-    /// own terms. The plan dialog's own navigator is *not* this: it is a fact about the document
-    /// on screen (`DocumentEditor::nav_open`), raised inside a modal.
-    MdNavigator,
 }
 
 /// The file a chip on a sent turn was clicked to look at, and what has arrived of it.

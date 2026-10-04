@@ -12,15 +12,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 use std::sync::OnceLock;
 
 use gpui::{
     AnyElement, HighlightStyle, ImageSource, InteractiveElement, IntoElement, Overflow,
-    ParentElement, Pixels, Resource, SharedString, SharedUri, StatefulInteractiveElement,
-    StyleRefinement, Styled, div, img, px, relative,
+    ParentElement, Pixels, Resource, SharedString, SharedUri, StyleRefinement, Styled, div, img,
+    px, relative,
 };
-use gpui_component::scroll::Scrollbar;
 use gpui_component::text::{
     MarkdownExtensions, MarkdownNode, TextView, TextViewStyle, markdown_ast,
 };
@@ -34,8 +32,7 @@ use crate::ui::{eid, eid2, on_link};
 const FENCE: &str = "ubiq-diagram-fence";
 
 /// The name the standalone-image parser gives its nodes (T-185) — a paragraph holding nothing but
-/// one `![alt](url)`, the same shape `state::document::is_image_reference` already tells the
-/// minimap apart by. Its own block, rather than left to the text view's built-in inline image,
+/// one `![alt](url)`. Its own block, rather than left to the text view's built-in inline image,
 /// because only a block this module owns can carry the reading-measure cap and the zoom button —
 /// the same treatment a fenced diagram gets, and for the same reason: T-185 asks for both.
 const IMAGE_BLOCK: &str = "ubiq-image-block";
@@ -44,17 +41,16 @@ const IMAGE_BLOCK: &str = "ubiq-image-block";
 /// the same `img(...)` element the library's own inline image would, plus a title for the zoom
 /// modal.
 #[derive(Clone)]
-struct ImageBlock {
-    url: String,
-    alt: String,
+pub(crate) struct ImageBlock {
+    pub(crate) url: String,
+    pub(crate) alt: String,
 }
 
 impl ImageBlock {
     /// A paragraph that is nothing but one image is a block of its own; a paragraph carrying an
     /// image beside any other inline content — prose before or after it, a second image — is left
     /// to the text view's own inline rendering, which draws it as part of the running text it
-    /// actually is. Mirrors `state::document::is_image_reference`'s own rule, read off the AST
-    /// directly rather than off the rendered text it inspects.
+    /// actually is. Read off the AST directly rather than off the rendered text.
     fn of(node: &markdown_ast::Node) -> Option<Self> {
         let markdown_ast::Node::Paragraph(paragraph) = node else {
             return None;
@@ -289,67 +285,7 @@ pub fn render(
         cx.entity(),
         Some(crate::state::editor::from_tab_key(key).0.into()),
     );
-    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, true, cx)
-}
-
-/// The same document, scrolled by the caller's own handle rather than the text view's internal
-/// one — what the standard viewer's minimap (T-118) needs to jump to a heading: `TextView` keeps
-/// its scroll position to itself (`state.rs`'s `scroll_offset` is `pub(super)`), so there is no
-/// way to move it from outside. The text view grows to its natural height instead, and an outer
-/// scrollable frame carries `scroll`, the same shape `ui/plan.rs`'s empty-document fallback
-/// wraps a single `TextView` in.
-pub fn render_scrollable(
-    app: &AppState,
-    key: &str,
-    source: &str,
-    frontmatter_open: bool,
-    scroll: &gpui::ScrollHandle,
-    cx: &mut gpui::Context<AppState>,
-) -> AnyElement {
-    let follow = on_link(
-        cx.entity(),
-        Some(crate::state::editor::from_tab_key(key).0.into()),
-    );
-    render_linked_scrollable(
-        app,
-        key,
-        source,
-        frontmatter_open,
-        follow,
-        Some(scroll),
-        true,
-        cx,
-    )
-}
-
-/// The same document again, for the split layout's right-hand pane (T-166): an external scroll
-/// handle exactly like [`render_scrollable`]'s, but uncapped — a half-pane is already narrower
-/// than the full viewer, so pinning it to the reading measure on top of that left it using less
-/// width than it had, not more. The split's own pane already bounds the line length; the measure
-/// preset is what the full-width preview needs to keep an unbounded window from reading like a
-/// newspaper, and does not apply here.
-pub fn render_split(
-    app: &AppState,
-    key: &str,
-    source: &str,
-    frontmatter_open: bool,
-    scroll: &gpui::ScrollHandle,
-    cx: &mut gpui::Context<AppState>,
-) -> AnyElement {
-    let follow = on_link(
-        cx.entity(),
-        Some(crate::state::editor::from_tab_key(key).0.into()),
-    );
-    render_linked_scrollable(
-        app,
-        key,
-        source,
-        frontmatter_open,
-        follow,
-        Some(scroll),
-        false,
-        cx,
-    )
+    render_linked_scrollable(app, key, source, frontmatter_open, follow, cx)
 }
 
 /// The same document, with a caller's own answer to a clicked link.
@@ -370,7 +306,7 @@ pub fn render_linked(
     + 'static,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
-    render_linked_scrollable(app, key, source, frontmatter_open, follow, None, true, cx)
+    render_linked_scrollable(app, key, source, frontmatter_open, follow, cx)
 }
 
 fn render_linked_scrollable(
@@ -382,11 +318,6 @@ fn render_linked_scrollable(
     + Send
     + Sync
     + 'static,
-    scroll: Option<&gpui::ScrollHandle>,
-    // Whether the document is capped at the preset's reading measure (§5.1). Every caller but
-    // [`render_split`] wants it; a half-pane is narrower already and reflowing to what width it
-    // actually has is the split layout's own fix (T-166).
-    cap_width: bool,
     cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
     let (frontmatter, body) = scan_and_publish(app, key, source);
@@ -403,17 +334,11 @@ fn render_linked_scrollable(
     let line_height_px = body_size * line_height;
 
     // T-185: every fence and every standalone image in this document scales down to fit the same
-    // measure the column itself is capped at — never published when this call does not cap the
-    // column (the split layout's right pane), so a picture there keeps drawing at its own size,
-    // scrolling horizontally past it exactly as it always has. A fence's block renderer is handed
-    // no `AppState`, so this is a hand-off exactly like `scan_and_publish`'s own `diagram::publish`
-    // a few lines below, and it is published unconditionally so a stale measure from whichever
-    // document rendered last in this frame can never bleed into this one.
-    super::diagram::publish_measure(if cap_width {
-        measure.map(f32::from)
-    } else {
-        None
-    });
+    // measure the column itself is capped at. A fence's block renderer is handed no `AppState`, so
+    // this is a hand-off exactly like `scan_and_publish`'s own `diagram::publish`, and it is
+    // published unconditionally so a stale measure from whichever document rendered last in this
+    // frame can never bleed into this one.
+    super::diagram::publish_measure(measure.map(f32::from));
 
     // Keyed on the settled point size as well as the file: the text view keeps the height it
     // measured each block at and only reconsiders when its width changes, so a zoom needs a new
@@ -437,16 +362,13 @@ fn render_linked_scrollable(
         .px(theme::md_min_margin())
         .pt(theme::md_top_inset(line_height_px))
         .pb(theme::md_bottom_inset(line_height_px))
-        // An external `scroll` owns the position instead: the text view grows to its content's
-        // full height and the outer frame below scrolls it, because its own internal scroll
-        // offset is `pub(super)` in the component library and cannot be read or moved from here.
-        .scrollable(scroll.is_none())
+        .scrollable(true)
         .selectable(true);
-    if cap_width && let Some(measure) = measure {
+    if let Some(measure) = measure {
         document = document.max_w(measure);
     }
 
-    let content = match frontmatter {
+    match frontmatter {
         None => document.into_any_element(),
         // The bar keeps its own height and the document takes what is left: a scrollable text
         // view fills the box it is given, so the box has to be bounded or it scrolls nothing.
@@ -468,65 +390,7 @@ fn render_linked_scrollable(
                     .child(document),
             )
             .into_any_element(),
-    };
-
-    let Some(scroll) = scroll else {
-        return content;
-    };
-    // T-126: the scrollbar is an absolutely-positioned sibling of the scroll area (the
-    // `ubiq-ui` rule), sized to the whole pane rather than the centred reading column, so it
-    // sits flush at the viewport's own edge and draws through the same `Scrollbar` the rest of
-    // the app uses — not TextView's own internal one, which this call site never turns on.
-    div()
-        .relative()
-        .flex()
-        .flex_1()
-        .min_w(px(0.))
-        .min_h(px(0.))
-        .child(
-            div()
-                .id(eid("md-scroll", key))
-                .size_full()
-                .overflow_y_scroll()
-                .track_scroll(scroll)
-                .child(content),
-        )
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .child(Scrollbar::vertical(scroll)),
-        )
-        .into_any_element()
-}
-
-/// One block's own markdown, drawn standalone rather than as part of a whole document.
-///
-/// The plan annotation panel's own unit (`ui/plan.rs`): a task's plan arrives from the host
-/// already split into [`ubiq_proto::plan::PlanBlock`]s, and each is rendered through this rather
-/// than through [`render`] so that a block can be its own clickable, hit-testable element — the
-/// granularity `_docs/wip/planning-system.md` (staging slice 4) settles for, in place of a
-/// character-range selection model. It shares [`render`]'s fence support: a block that is itself a
-/// ` ```mermaid ` fence still resolves and draws through `super::diagram`, keyed on its own id so
-/// it does not collide with the whole document's scan.
-///
-/// Not scrollable and not padded like a full document — a block is short by construction, and it
-/// sits inside a container the caller already gives padding and a click target.
-pub fn render_block(app: &AppState, key: &str, text: &str) -> AnyElement {
-    // T-185: a block draws at its own natural size, same as before this card — no measure to cap
-    // it at here, and published explicitly so a full document rendered earlier this frame cannot
-    // leave its own measure behind for this block's fence to pick up.
-    super::diagram::publish_measure(None);
-    let (_, body) = scan_and_publish(app, key, text);
-    let body_size = theme::font(theme::Family::Content, theme::Role::Body);
-    let (style, line_height) = typography(app, body_size);
-    TextView::markdown(eid("md-block", key), body)
-        .markdown_extensions(extensions().clone())
-        .style(style)
-        .text_size(body_size)
-        .line_height(relative(line_height))
-        .selectable(true)
-        .into_any_element()
+    }
 }
 
 /// Split YAML frontmatter from the Markdown body.
@@ -573,13 +437,15 @@ fn frontmatter_summary(raw_yaml: &str) -> String {
     }
 }
 
-/// A collapsible monospaced block that sits at the head of a Markdown preview when the document
-/// carries YAML frontmatter.
+/// The monospaced summary that sits at the head of a Markdown preview when the document carries
+/// YAML frontmatter. Every caller left on this renderer (help, the docs fixture, the plan
+/// surface) draws it closed and holds no per-document state to open it with; a file tab's
+/// preview is `ui/mdview`, which draws the front matter as a block of its own.
 fn frontmatter_bar(
     key: &str,
     raw_yaml: &str,
     open: bool,
-    cx: &mut gpui::Context<AppState>,
+    _cx: &mut gpui::Context<AppState>,
 ) -> AnyElement {
     let key = key.to_string();
     let summary = mono(frontmatter_summary(raw_yaml), theme::text_faint())
@@ -594,7 +460,7 @@ fn frontmatter_bar(
             "Frontmatter",
             summary,
             open,
-            cx.listener(move |this, _, _, cx| this.toggle_frontmatter(&key, cx)),
+            |_, _, _| {},
         ))
         .children(open.then(|| {
             div()
@@ -662,7 +528,7 @@ fn extensions() -> &'static MarkdownExtensions {
 /// draws, and there is no width or height in hand at parse time to publish one with. So this block
 /// gets the resize half of T-185 and not the modal — reading its decoded size back out to raise one
 /// is a card of its own.
-fn render_image_block(block: &ImageBlock) -> AnyElement {
+pub(crate) fn render_image_block(block: &ImageBlock) -> AnyElement {
     let mut picture = img(image_source(&block.url)).flex_none();
     if let Some(measure) = super::diagram::current_measure() {
         picture = picture.max_w(px(measure));
@@ -709,203 +575,6 @@ fn collect(node: &markdown_ast::Node, found: &mut Vec<Fence>) {
         for child in children {
             collect(child, found);
         }
-    }
-}
-
-/// One heading, positioned proportionally down the document it was found in.
-///
-/// The standard viewer's minimap (T-118, proposal §8.2's structure strip, reduced to what is
-/// reachable here) draws one of these per heading. `fraction` is the heading's own byte offset
-/// over the document's total length — the same honest approximation `ui/plan.rs`'s
-/// `proportional_fraction` falls back to when there is nothing painted yet to measure against,
-/// promoted to the only answer here because the standard viewer draws one `TextView` rather than
-/// a block per heading, so there is no per-heading layout to measure in the first place.
-pub struct HeadingMark {
-    pub level: u8,
-    pub fraction: f32,
-    /// The heading's own text, with its markup gone — what the header's navigator (T-124) lists.
-    /// The minimap has no use for it and pays nothing for it: one string per heading, built on the
-    /// same walk.
-    pub label: String,
-}
-
-/// Every heading in a document, in document order, positioned by character offset.
-///
-/// Off the shared, cached parse — see [`walks`].
-pub fn heading_marks(key: &str, source: &str) -> Rc<Vec<HeadingMark>> {
-    walks(key, source).0
-}
-
-fn collect_headings(node: &markdown_ast::Node, len: f32, found: &mut Vec<HeadingMark>) {
-    if let markdown_ast::Node::Heading(heading) = node {
-        let offset = heading
-            .position
-            .as_ref()
-            .map(|position| position.start.offset as f32)
-            .unwrap_or(0.0);
-        found.push(HeadingMark {
-            level: heading.depth,
-            fraction: (offset / len).clamp(0.0, 1.0),
-            label: node.to_string(),
-        });
-    }
-    if let Some(children) = node.children() {
-        for child in children {
-            collect_headings(child, len, found);
-        }
-    }
-}
-
-/// One block's own shape for the minimap — the same shapes `state::document::minimap_rows` draws
-/// for an annotated document's host-indexed blocks, computed here straight off the raw source
-/// instead. **This is the one minimap** (T-134): the standard viewer's own preview had a second,
-/// heading-only strip and the annotation surface a third, denser one drawn one mark per source
-/// line; both read as a barcode next to the reference minimap's handful of legible bars. Now both
-/// surfaces draw the same shapes, through the same `kit::minimap` primitive and the same
-/// `ui::document::mark_style` palette — this walk is the ordinary-tab half, for a buffer with no
-/// host block index to read; `ui::document::document_minimap` is the annotated half.
-pub struct StructureMark {
-    pub kind: crate::state::document::MinimapBlockKind,
-    /// The block's own byte offset over the document's total length, `0.0..=1.0` — the same honest
-    /// approximation [`HeadingMark::fraction`] uses, for the reason given there.
-    pub fraction: f32,
-    /// `0.0..=1.0`, this block's own share of a full column width — the widest line it holds
-    /// against [`crate::state::document::LINE_LENGTH_CHARS`], mirroring
-    /// `state::document::text_rows`'s measure so a file draws the same shape whichever surface
-    /// reads it.
-    pub length: f32,
-}
-
-/// Every top-level block the minimap draws a shape for, in document order. Only the root's own
-/// children are read — a fence or a heading nested in a list or a blockquote is prose inside a
-/// larger block as far as the minimap is concerned, the same granularity `minimap_rows` reads off
-/// the host's own top-level block index.
-///
-/// Off the shared, cached parse — see [`walks`].
-pub fn structure_marks(key: &str, source: &str) -> Rc<Vec<StructureMark>> {
-    walks(key, source).1
-}
-
-/// What one document's structural walk produced, kept until its source changes.
-struct Walked {
-    len: usize,
-    hash: u64,
-    headings: Rc<Vec<HeadingMark>>,
-    structure: Rc<Vec<StructureMark>>,
-}
-
-thread_local! {
-    /// One entry per open document, on [`SCAN_CACHE`]'s own terms and for its own reason.
-    static WALK_CACHE: RefCell<HashMap<String, Walked>> = RefCell::new(HashMap::new());
-}
-
-/// The navigator's headings and the minimap's block shapes, from **one** parse of the document,
-/// kept until the document changes (T-144).
-///
-/// Both are projections of the same mdast, and both are read from a render function — so each was
-/// running `to_mdast` over the whole buffer on every frame, twice per frame together, for a
-/// document that had not changed since the last one. That is not a rounding error:
-/// `markdown::to_mdast` at `ParseOptions::gfm` costs about 7.7ms on a 50KB document and 38ms on a
-/// 150KB one **in release**, so a markdown tab with the minimap on could not reach 60fps on a file
-/// of any size no matter what else it did. The fix is the same one [`SCAN_CACHE`] already applies
-/// to the fence scan beside it: fingerprint the source, and redo the walk only when it moved.
-///
-/// **They are still two projections, not one.** They read the tree at different depths on
-/// purpose — [`heading_marks`] recurses, so a heading inside a list or a quote is still a heading
-/// the navigator lists, while [`structure_marks`] reads only the root's own children, because a
-/// block nested inside a larger one is part of that block's shape as far as a minimap is
-/// concerned. What they wanted to share was the parse, not the walk.
-///
-/// **Both run over the body, not the source** — [`split_frontmatter`] first, exactly as the
-/// preview and [`fences`] already do. Walking the raw source instead put a phantom top-level entry
-/// in the navigator and a phantom shape in the minimap for every document with frontmatter (T-155),
-/// and measured every fraction against a length the rendered document does not have, so every mark
-/// landed short of the thing it points at (T-151).
-fn walks(key: &str, source: &str) -> (Rc<Vec<HeadingMark>>, Rc<Vec<StructureMark>>) {
-    let (len, hash) = fingerprint(source);
-    WALK_CACHE.with_borrow_mut(|cache| {
-        let stale =
-            !matches!(cache.get(key), Some(cached) if cached.len == len && cached.hash == hash);
-        if stale {
-            let (_, body) = split_frontmatter(source);
-            let ast = markdown::to_mdast(body, &ubiq_proto::blocks::options()).ok();
-            let source_len = body.len().max(1) as f32;
-            let mut headings = Vec::new();
-            let mut structure = Vec::new();
-            if let Some(ast) = &ast {
-                collect_headings(ast, source_len, &mut headings);
-                if let Some(children) = ast.children() {
-                    structure.extend(
-                        children
-                            .iter()
-                            .filter_map(|node| structure_mark_of(node, source_len)),
-                    );
-                }
-            }
-            cache.insert(
-                key.to_string(),
-                Walked {
-                    len,
-                    hash,
-                    headings: Rc::new(headings),
-                    structure: Rc::new(structure),
-                },
-            );
-        }
-        let cached = cache.get(key).expect("just inserted, or already fresh");
-        (cached.headings.clone(), cached.structure.clone())
-    })
-}
-
-fn structure_mark_of(node: &markdown_ast::Node, len: f32) -> Option<StructureMark> {
-    use crate::state::document::{LINE_LENGTH_CHARS, MinimapBlockKind, is_image_reference};
-
-    let fraction = node
-        .position()
-        .map(|position| (position.start.offset as f32 / len).clamp(0.0, 1.0))
-        .unwrap_or(0.0);
-    let widest = |text: &str| -> f32 {
-        let widest = text
-            .lines()
-            .map(|line| line.trim().len())
-            .max()
-            .unwrap_or(0);
-        (widest as f32 / LINE_LENGTH_CHARS).clamp(0.08, 1.0)
-    };
-
-    match node {
-        markdown_ast::Node::Heading(_) => Some(StructureMark {
-            kind: MinimapBlockKind::Heading,
-            fraction,
-            length: 0.85,
-        }),
-        markdown_ast::Node::Paragraph(_) => {
-            let text = node.to_string();
-            if is_image_reference(&text) {
-                Some(StructureMark {
-                    kind: MinimapBlockKind::Image,
-                    fraction,
-                    length: 0.55,
-                })
-            } else {
-                Some(StructureMark {
-                    kind: MinimapBlockKind::Paragraph,
-                    fraction,
-                    length: widest(&text),
-                })
-            }
-        }
-        markdown_ast::Node::Code(_) => Some(StructureMark {
-            kind: MinimapBlockKind::Code,
-            fraction,
-            length: 1.0,
-        }),
-        markdown_ast::Node::Table(_) => Some(StructureMark {
-            kind: MinimapBlockKind::Table,
-            fraction,
-            length: widest(&node.to_string()),
-        }),
-        _ => None,
     }
 }
 
@@ -1018,81 +687,8 @@ mod tests {
         assert_eq!(fences("``` mermaid \ngraph TD;\n```\n").len(), 1);
     }
 
-    /// Headings are found in document order, at increasing fractions, each carrying its own
-    /// level — the standard viewer minimap's data (T-118).
-    #[test]
-    fn heading_marks_are_ordered_and_leveled() {
-        let source = "# One\n\nbody\n\n## Two\n\nmore body\n\n### Three\n";
-        let marks = heading_marks("ordered-and-leveled", source);
-        assert_eq!(marks.len(), 3);
-        assert_eq!([marks[0].level, marks[1].level, marks[2].level], [1, 2, 3]);
-        assert!(marks[0].fraction < marks[1].fraction);
-        assert!(marks[1].fraction < marks[2].fraction);
-        assert_eq!(marks[0].fraction, 0.0);
-    }
-
-    /// No headings, no marks — a document with none draws an empty strip rather than erroring.
-    #[test]
-    fn heading_marks_of_a_headingless_document_is_empty() {
-        assert!(heading_marks("headingless", "just a paragraph, nothing more.\n").is_empty());
-    }
-
-    /// The cache is keyed on the source as well as the document: the same key asked twice about
-    /// two different documents answers about the second one, not about the first (T-144).
-    #[test]
-    fn a_changed_document_is_walked_again() {
-        let key = "one-key-two-documents";
-        assert_eq!(heading_marks(key, "# One\n").len(), 1);
-        assert_eq!(heading_marks(key, "# One\n\n## Two\n").len(), 2);
-        assert!(heading_marks(key, "no headings here\n").is_empty());
-    }
-
-    /// One parse, two projections, at two depths on purpose: a heading inside a list is a heading
-    /// the navigator lists and *not* a shape of its own on the minimap, which reads only the
-    /// root's own children (T-144).
-    #[test]
-    fn the_two_walks_read_the_tree_at_different_depths() {
-        let source = "# Top\n\n- item\n\n  ## Nested\n";
-        assert_eq!(heading_marks("depths", source).len(), 2);
-        let structure = structure_marks("depths", source);
-        assert_eq!(structure.len(), 1);
-        assert_eq!(
-            structure[0].kind,
-            crate::state::document::MinimapBlockKind::Heading
-        );
-    }
-
-    /// Frontmatter is split off before the structural walk, so it contributes no navigator entry
-    /// and no minimap shape (T-155) — and every fraction is measured against the body, which is
-    /// what the document draws, so the first heading of a document with frontmatter still sits at
-    /// the top of the strip rather than partway down it (T-151).
-    #[test]
-    fn frontmatter_is_split_before_the_document_is_walked() {
-        let with = "---\ntitle: x\nstatus: draft\n---\n\n# One\n\nbody\n\n## Two\n";
-        let without = "# One\n\nbody\n\n## Two\n";
-
-        let marks = heading_marks("walk-with-frontmatter", with);
-        let bare = heading_marks("walk-without-frontmatter", without);
-        assert_eq!(marks.len(), 2, "the YAML is not a heading");
-        assert_eq!(marks[0].label, "One");
-        // The YAML is most of this document's bytes, so measuring against the whole source put
-        // the first heading past the middle of the strip. Against the body it opens it — not at
-        // exactly `0.0`, because `split_frontmatter` leaves the blank line after the closing
-        // fence, and that blank line is in what the view draws too.
-        assert!(marks[0].fraction < 0.1, "{}", marks[0].fraction);
-        assert!((marks[1].fraction - bare[1].fraction).abs() < 0.1);
-
-        let structure = structure_marks("walk-with-frontmatter", with);
-        assert_eq!(
-            structure.len(),
-            structure_marks("walk-without-frontmatter", without).len(),
-            "the YAML draws no shape of its own",
-        );
-        assert!(structure[0].fraction < 0.1);
-    }
-
     /// A paragraph that is nothing but one image is the standalone-image block T-185's resize and
-    /// zoom button reach — the same shape `state::document::is_image_reference` names.
+    /// zoom button reach.
     #[test]
     fn a_paragraph_holding_only_an_image_is_the_image_block() {
         let ast = markdown::to_mdast("![a cat](cat.png)\n", &markdown::ParseOptions::gfm())

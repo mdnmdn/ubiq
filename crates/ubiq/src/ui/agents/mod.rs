@@ -220,7 +220,11 @@ pub fn new_agent_menu(app: &AppState, window: &Window, cx: &mut Context<AppState
         // covers it.
         let picker = kit::Picker::new("agents-attach-menu", "")
             .items(rows.items.iter().map(|(_, name, _)| name.clone()))
-            .details(rows.items.iter().map(|(_, _, identity)| Some(identity.clone())))
+            .details(
+                rows.items
+                    .iter()
+                    .map(|(_, _, identity)| Some(identity.clone())),
+            )
             // Already shown by another panel of this surface: drawn, not dropped — a row that
             // vanishes reads as a conversation that ended rather than one taken.
             .disabled(rows.disabled.clone())
