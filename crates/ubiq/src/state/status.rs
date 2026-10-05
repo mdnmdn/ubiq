@@ -178,6 +178,32 @@ impl Status {
     }
 }
 
+/// Whether an agent linked to a task can be talked to now, brought back, or neither — what the
+/// task panel's footer decides its offer from (T-321).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Reach {
+    /// Running: its chat is the way in, and nothing more is offered.
+    Live,
+    /// Not running, but this window holds its conversation, so a prompt relaunches it under the
+    /// same id.
+    Resumable,
+    /// Ended, or nothing here can relaunch it: the work needs a new agent.
+    Gone,
+}
+
+impl Reach {
+    /// `held` is whether this window holds the agent's conversation — the host relaunches only a
+    /// conversation the asking window drives.
+    pub fn of(status: Status, held: bool) -> Self {
+        match status.lifecycle {
+            Lifecycle::Ended => Reach::Gone,
+            Lifecycle::Unloaded | Lifecycle::Ready if held => Reach::Resumable,
+            Lifecycle::Unloaded => Reach::Gone,
+            _ => Reach::Live,
+        }
+    }
+}
+
 /// A live conversation's pair, read off the fields it already carries.
 ///
 /// Order matters, and it is the order a reader needs: ended outranks everything (a harness taking
@@ -280,6 +306,21 @@ mod tests {
             activity: None,
             doing,
         }
+    }
+
+    #[test]
+    fn a_linked_agent_is_continued_only_when_this_window_can_relaunch_it() {
+        let unloaded = Status::new(Lifecycle::Unloaded, Doing::Unknown);
+        assert_eq!(Reach::of(unloaded, true), Reach::Resumable);
+        assert_eq!(Reach::of(unloaded, false), Reach::Gone);
+        let ended = Status::new(Lifecycle::Ended, Doing::Failed);
+        assert_eq!(Reach::of(ended, true), Reach::Gone);
+        let working = Status::new(Lifecycle::Working, Doing::Tools);
+        assert_eq!(Reach::of(working, false), Reach::Live);
+        assert_eq!(
+            Reach::of(Status::new(Lifecycle::Idle, Doing::Unknown), true),
+            Reach::Live
+        );
     }
 
     /// The card this model exists for: a delegate that came back is *ended*, whatever else the

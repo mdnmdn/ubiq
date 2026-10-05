@@ -2347,15 +2347,18 @@ pub(crate) fn definition_row(
         .into_any_element()
 }
 
-/// The badges a row wears for what the record says about itself: the two roles, and the off
-/// switch. Colour, not wording alone — "Off" is a status, and the status group is what says so.
+/// The badges a row wears for what the record says about itself: its tags, and the off switch.
+/// The two role tags take the colours the roles always had; any other tag is a plain label. Colour,
+/// not wording alone — "Off" is a status, and the status group is what says so.
 fn definition_marks(definition: &AgentDefinition) -> Vec<AnyElement> {
     let mut marks = Vec::new();
-    if definition.mission_coordinator {
-        marks.push(badge("Coordinator", theme::accent()).into_any_element());
-    }
-    if definition.mission_worker {
-        marks.push(badge("Worker", theme::info()).into_any_element());
+    for tag in &definition.tags {
+        let colour = match tag.as_str() {
+            ubiq_proto::messages::TAG_COORDINATOR => theme::accent(),
+            ubiq_proto::messages::TAG_WORKER => theme::info(),
+            _ => theme::text_muted(),
+        };
+        marks.push(badge(tag, colour).into_any_element());
     }
     if definition.disabled {
         marks.push(badge("Off", theme::warning()).into_any_element());

@@ -86,15 +86,23 @@ pub struct Profile {
     /// the "not mentioned" and "said no" distinction existing only so a leaf can un-mention it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mission_assistant: Option<bool>,
-    /// Whether this profile runs the coordinator side of a mission or a task. Recorded only,
-    /// never read by the library — the same posture as `mission_assistant`: what the flag implies
-    /// (which servers a coordinator needs) is the embedder's answer, not this crate's.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mission_coordinator: Option<bool>,
-    /// Whether this profile runs the worker side of a mission or a task. Recorded only, exactly
-    /// as `mission_coordinator` is.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mission_worker: Option<bool>,
+    /// Free-form labels saying what this profile is for — `coordinator`, `worker`, anything the
+    /// embedder likes. Recorded only, never read by the library — the same posture as
+    /// `mission_assistant`: what a tag implies (which servers a coordinator needs) is the
+    /// embedder's answer, not this crate's. Empty means "not mentioned" and inherits; a non-empty
+    /// list replaces the parent's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// The `mission_coordinator = true` key profiles were written with before [`Self::tags`].
+    /// Read, never written: [`FsProfileStore`] folds it into `tags` as `coordinator` on load, so
+    /// nothing outside this crate ever sees it set. Public only so `..Default::default()` works.
+    #[doc(hidden)]
+    #[serde(default, rename = "mission_coordinator", skip_serializing)]
+    pub legacy_coordinator: Option<bool>,
+    /// The legacy `mission_worker = true` key, folded into `tags` as `worker` the same way.
+    #[doc(hidden)]
+    #[serde(default, rename = "mission_worker", skip_serializing)]
+    pub legacy_worker: Option<bool>,
     /// Whether the embedder has switched this profile off. Recorded only: a disabled profile is
     /// still stored, still readable and still resolvable — what "off" means is the embedder's
     /// question, and for Ubiq it means "not offered anywhere a run is started from".
@@ -111,6 +119,26 @@ pub struct Profile {
     /// the parent's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_rw: Vec<String>,
+}
+
+impl Profile {
+    /// Fold the legacy `mission_coordinator` / `mission_worker` keys into [`Self::tags`] as
+    /// `coordinator` / `worker`, then forget them, so the next save writes only `tags`. A
+    /// profile that already names tags keeps them as they are.
+    fn fold_legacy_roles(&mut self) {
+        let legacy = [
+            (self.legacy_coordinator.take(), "coordinator"),
+            (self.legacy_worker.take(), "worker"),
+        ];
+        if !self.tags.is_empty() {
+            return;
+        }
+        for (flag, tag) in legacy {
+            if flag == Some(true) {
+                self.tags.push(tag.to_string());
+            }
+        }
+    }
 }
 
 /// The `[defaults]` sub-table of a profile: the composition a run overlays.
@@ -415,6 +443,7 @@ impl ProfileStore for FsProfileStore {
             if profile.id.is_empty() {
                 profile.id = name;
             }
+            profile.fold_legacy_roles();
 
             if !seen_ids.insert(profile.id.clone()) {
                 bail!(
@@ -622,11 +651,8 @@ pub fn flatten(chain: &[Profile]) -> Profile {
         if profile.mission_assistant.is_some() {
             acc.mission_assistant = profile.mission_assistant;
         }
-        if profile.mission_coordinator.is_some() {
-            acc.mission_coordinator = profile.mission_coordinator;
-        }
-        if profile.mission_worker.is_some() {
-            acc.mission_worker = profile.mission_worker;
+        if !profile.tags.is_empty() {
+            acc.tags = profile.tags.clone();
         }
         if profile.disabled.is_some() {
             acc.disabled = profile.disabled;
@@ -765,6 +791,29 @@ instructions = "/etc/work-instructions.md"
         let store = FsProfileStore::new(root);
         let legacy = store.profile("legacy")?.expect("legacy profile");
         assert_eq!(legacy.mission_assistant, None);
+        temp.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn fs_profile_store_folds_legacy_role_flags_into_tags() -> Result<()> {
+        let temp = tempfile::TempDir::new()?;
+        let root = temp.path();
+        write_profile(
+            root,
+            "old",
+            "harness = \"claude\"\nmission_coordinator = true\nmission_worker = true\n",
+        );
+
+        let store = FsProfileStore::new(root);
+        let old = store.profile("old")?.expect("legacy profile");
+        assert_eq!(old.tags, vec!["coordinator", "worker"]);
+
+        // The next save writes `tags` and no longer the legacy keys.
+        store.save(&old)?;
+        let written = std::fs::read_to_string(root.join("old").join("profile.toml"))?;
+        assert!(written.contains("tags"), "{written}");
+        assert!(!written.contains("mission_coordinator"), "{written}");
         temp.close()?;
         Ok(())
     }

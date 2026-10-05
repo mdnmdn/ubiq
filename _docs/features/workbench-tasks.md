@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
-updated: 2026-10-04
-verified: 2026-10-04
+updated: 2026-10-05
+verified: 2026-10-05
 code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -658,17 +658,46 @@ agent, and the conversation is a column. There was a second button here that poi
 whoever was doing the task; it went because the graph answers "who is doing what" and a user reading
 one task is not asking that — the rail reaches the graph in one click for the user who is.
 
-**A task nobody is on yet offers `Assign to an agent` in its place** (`ui::board::detail::footer`,
-`AppState::assign_task_to_agent`, `T-64`). It raises the same New agent modal every other `+` in the
-window does — never a second dialog — and overlays three things onto it: the board and feedback
-MCPs (`manage-ubiq-tasks`, `ubiq-ask`) preselected onto the checklist, two checkboxes drawn only on
-this path (`NewAgentForm::for_task`, `ask_for_feedback`, `plan_mode`), and an opening prompt
-composed from the task's key and both checkboxes (`state::new_agent::task_assignment_prompt`).
-Ticking *Ask for feedback* tells the agent to ask when it needs to; unticked, to assume as much as
-it reasonably can instead. *Plan mode* is a sentence in the prompt only — no `ubiq-plan` server is
-ticked for it, since this form attaches no plan tool yet. The start is aimed at the chat surface
-(`NewAgentSurface::Chat`), so the agent lands in a `Chat` tab in the right dock next to the task
-that named it, the same region the `+` below reaches.
+**The footer offers what the task's status asks for next** (`ui::board::detail::footer`, `T-321`).
+Above its buttons, a task with a linked agent shows the **agent row**: the shared hexagon
+`status_mark`, the agent's name (the task's key, once renamed), its status and `Open`. `Open` works
+for an agent that is no longer loaded, which is what the row is for.
+
+| Status | Footer |
+|---|---|
+| Backlog, Ready | `Assign to an agent`; `Continue with an agent` instead when the linked agent is stopped |
+| In progress | `Continue with an agent` when the linked agent is stopped; nothing but `Open` while it runs |
+| In review | `Complete` (moves the task to done) and `Feedback to an agent` |
+| Blocked, Done, Abandoned | the agent row only |
+
+`Open plan` and Delete stand on every status. **`Feedback to an agent`** opens the linked agent's
+chat with its composer holding `Task {key} was reviewed. Feedback: `, focused and not sent
+(`AppState::feedback_task_to_agent`); with nobody linked who can take it, the assignment dialog
+opens with the same line after its opening prompt. **`Continue`** (`AppState::continue_task_with_agent`)
+on an agent that is unloaded and still held in this window sends one `Continue working on task…`
+prompt, which the host relaunches it for, and opens its chat; in any other case it is the
+assignment dialog.
+
+**`Assign to an agent`** (`AppState::assign_task_to_agent`, `T-64`) raises the same New agent modal
+every other `+` in the window does — never a second dialog — and overlays three things onto it: the
+board and feedback MCPs (`manage-ubiq-tasks`, `ubiq-ask`) preselected onto the checklist, two
+checkboxes drawn only on this path (`NewAgentForm::for_task`, `ask_for_feedback`, `plan_mode`), and
+an initial prompt (sent as the first user message, so the agent starts on its own) composed from the
+task's key and both checkboxes (`state::new_agent::task_assignment_prompt`). Ticking *Ask for
+feedback* tells the agent to ask when it needs to; unticked, to assume as much as it reasonably
+can instead. *Plan mode* is a sentence in the prompt only — no `ubiq-plan` server is ticked for it,
+since this form attaches no plan tool yet. The prompt also tells the agent to keep the task's
+status and comments updated through `manage-ubiq-tasks`. A toggle recomposes the prompt; the
+feedback line of a *Feedback* assignment (`NewAgentForm::prompt_suffix`) is kept across it, other
+edits are not. The start is aimed at the chat surface (`NewAgentSurface::Chat`), so the agent lands
+in a `Chat` tab in the right dock next to the task that named it.
+
+**The dialog offers only task-fit agents.** The definition list is filtered to those tagged
+`coordinator` or `worker`, and where none matches the list says `No agent tagged coordinator or
+worker — tag one in Settings › Agent definitions.` rather than showing an empty dropdown; there is
+no fallback to other definitions. **Start links and renames**: on `ConversationStarted` the window
+sends `AssignAgent` for the task and renames the agent to the task's key, both before the opening
+prompt. The mission's *Any agent* does the same, with no tag filter.
 
 **A board can be a mirror of a board somewhere else, and a card says what that made of it** — a
 Trello board, a work-item query, a column of issues. What the binding is and how it is configured

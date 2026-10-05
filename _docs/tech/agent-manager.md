@@ -135,6 +135,12 @@ agent definition because a saved setup has to remember what it asked for, and it
 on them. `thinking` is an ordinary default, on the same terms as `model`. The agent definition named
 `default` is what a run with no explicit selection resolves to.
 
+A `Profile` also carries `tags`, a list of free strings the library records and never reads, on the
+same terms as `max_subagents`; a child's non-empty list replaces its parent's. The legacy
+`mission_coordinator` and `mission_worker` booleans are still read from a stored profile and folded
+into the `coordinator` and `worker` tags, and never written. Ubiq owns what the tags mean
+([Transport contract](./transport-contract.md)).
+
 **A reference in an agent definition that resolves to nothing degrades the run rather than refusing
 it** — an mcp, skill, account or hook id nothing answers to, or a `mode` the harness's own
 `Harness::modes()` does not list, is dropped, and named, on

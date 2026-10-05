@@ -2,6 +2,8 @@ use super::*;
 
 use crate::state::board::PendingTask;
 use crate::state::explorer::Presence;
+use crate::state::new_agent::{task_continue_prompt, task_feedback_prefix};
+use crate::state::status::{Reach, Status as AgentStatus};
 use ubiq_proto::messages::TaskField;
 use ubiq_proto::projects::LanePref;
 use ubiq_proto::work::{Attachment, Complexity, Kind, Label, Level};
@@ -1393,6 +1395,107 @@ impl AppState {
             return;
         };
         self.navigate(Destination::new(project, View::Agents { agent }), cx);
+    }
+
+    /// The agent linked to a task — [`Work::now`](crate::state::work) — with its status and what
+    /// the task panel can do with it. `None` when nobody was ever put on the task.
+    pub fn task_agent_link(
+        &self,
+        task_id: TaskId,
+        cx: &App,
+    ) -> Option<(AgentId, AgentStatus, Reach)> {
+        let work = self.work(cx)?;
+        let agent = work.now(work.task(task_id)?)?;
+        let conversation = self.conversation(agent.id, cx);
+        let status = crate::state::status::agent_status(agent, conversation);
+        Some((agent.id, status, Reach::of(status, conversation.is_some())))
+    }
+
+    /// *Continue with an agent*: a linked agent this window can relaunch is told to carry on — one
+    /// prompt, which the host relaunches it for — and its chat is opened; anything else is a
+    /// new assignment (T-321).
+    pub fn continue_task_with_agent(
+        &mut self,
+        task_id: TaskId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(task) = self.work(cx).and_then(|work| work.task(task_id)) else {
+            return;
+        };
+        let label = task.key.clone().unwrap_or_else(|| task_id.to_string());
+        match self.task_agent_link(task_id, cx) {
+            Some((agent, _, Reach::Resumable)) => {
+                self.send_prompt(agent, task_continue_prompt(&label));
+                self.open_task_chat(agent, cx);
+            }
+            Some((agent, _, Reach::Live)) => self.open_task_chat(agent, cx),
+            _ => self.assign_task_to_agent(task_id, window, cx),
+        }
+    }
+
+    /// *Feedback to an agent*, on a task in review: the linked agent's chat with its composer
+    /// holding the review line, focused and unsent — or, with nobody to take it, the assignment
+    /// dialog carrying the same line (T-321).
+    pub fn feedback_task_to_agent(
+        &mut self,
+        task_id: TaskId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(task) = self.work(cx).and_then(|work| work.task(task_id)) else {
+            return;
+        };
+        let label = task.key.clone().unwrap_or_else(|| task_id.to_string());
+        let agent = match self.task_agent_link(task_id, cx) {
+            Some((agent, _, Reach::Live | Reach::Resumable)) => agent,
+            _ => return self.assign_task_with_feedback(task_id, window, cx),
+        };
+        self.open_task_chat(agent, cx);
+        let slot = self.agents(cx).and_then(|agents| {
+            let (column, _) = agents.holds(agent)?;
+            agents.columns.get(column).map(|column| column.slot)
+        });
+        let (Some(slot), Some(input)) = (
+            slot,
+            slot.and_then(|slot| self.column_inputs.get(slot).cloned()),
+        ) else {
+            return;
+        };
+        let text = task_feedback_prefix(&label);
+        if let Some(agents) = self.agents_mut(cx) {
+            agents.set_draft(slot, text.clone());
+        }
+        self.remember_conversation_draft(agent, text.clone(), cx);
+        input.update(cx, |state, cx| {
+            state.set_value(&text, window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// *Complete*, on a task in review: move it to done, the way a drop on the Done column does.
+    pub fn complete_task(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        // A pull-only task's column is the remote's lane — the card cannot be dragged either.
+        if self.task_pull_only(task_id) {
+            return;
+        }
+        if let Some(board) = self.board_mut(cx) {
+            board.moving = Some((task_id, Status::Done));
+        }
+        if let Some(work) = self.work_mut(cx) {
+            work.place(task_id, Status::Done, None);
+        }
+        self.bus.send(Message::MoveTask {
+            project_id,
+            task_id,
+            status: Status::Done,
+            before: None,
+        });
+        cx.notify();
     }
 
     /// A drag that ended anywhere but a column never reaches a drop handler, so a carry with no

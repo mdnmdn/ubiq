@@ -327,11 +327,11 @@ fn cmd_create(opts: CreateOpts) -> Result<()> {
         mode: None,
         max_subagents: None,
         mission_assistant: None,
-        mission_coordinator: None,
-        mission_worker: None,
+        tags: Vec::new(),
         disabled: None,
         description: None,
         extra_rw: Vec::new(),
+        ..Default::default()
     };
 
     let path = store.save(&profile)?;

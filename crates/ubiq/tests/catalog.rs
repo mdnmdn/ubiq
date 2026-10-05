@@ -194,7 +194,7 @@ fn the_start_dialog_asks_for_both_layers_and_offers_them_merged(cx: &mut TestApp
     let fixture = Fixture::open(cx);
     let _ = fixture.said();
 
-    fixture.with(cx, |state, window, cx| state.open_new_agent(window, cx));
+    fixture.with(cx, |state, window, cx| state.open_new_agent(Default::default(), window, cx));
     let asked: Vec<Option<ProjectId>> = fixture
         .said()
         .into_iter()

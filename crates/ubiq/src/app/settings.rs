@@ -35,6 +35,7 @@ impl AppState {
             size_presets: self.workbench.size_presets.clone(),
             custom_themes: self.workbench.custom_themes.clone(),
             last_start: self.workbench.last_start.clone(),
+            last_start_by_project: self.workbench.last_start_by_project.clone(),
             // Whatever the blob carried that this build does not name, put back as it was found.
             rest: self.workbench.interface_rest.clone(),
         };
@@ -1628,6 +1629,8 @@ impl AppState {
             .update(cx, |state, cx| state.set_value(&id, window, cx));
         self.set_new_agent_prompt(&prompt, window, cx);
         self.set_new_agent_description(&description, window, cx);
+        self.new_agent_tag_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
         self.workbench.settings.definition_form = Some(form);
         self.workbench.settings.error = None;
         self.ask_catalog_for_form(cx);

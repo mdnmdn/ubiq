@@ -386,13 +386,21 @@ impl AppState {
         });
         let new_mission_task_query =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search tasks\u{2026}"));
-        // The opening prompt, for the New agent modal and the definition form alike. Seeded when
-        // either opens: empty for a bare harness, the definition's own words when one is picked.
+        // The definition form's agent prompt: folded in front of the first turn of every run
+        // started from the definition. Seeded with the definition's own words when it opens.
         let new_agent_prompt = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .placeholder("What should this agent do first?\u{2026}")
+                .placeholder("Standing instructions this agent always starts with\u{2026}")
                 .auto_grow(3, 8)
         });
+        // The New agent modal's initial prompt: the first user turn, sent right after the start.
+        let new_agent_initial_prompt = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("What should this agent do first? (optional)\u{2026}")
+                .auto_grow(3, 8)
+        });
+        let new_agent_tag_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Add a tag\u{2026}"));
         // The definition form's own free-form field: what this setup is for, read by another
         // agent through the mission MCP rather than by the host. Seeded the same way the opening
         // prompt is, and only ever drawn under `Purpose::AgentDefinition`.
@@ -1146,6 +1154,15 @@ impl AppState {
                 }
             },
         ));
+        subscriptions.push(cx.subscribe_in(
+            &new_agent_tag_input,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.add_new_agent_tag(window, cx);
+                }
+            },
+        ));
 
         // The application-wide mission term, on the same rule as `agent_home_input`.
         subscriptions.push(cx.subscribe_in(
@@ -1585,6 +1602,8 @@ impl AppState {
             login_command_input.read(cx).focus_handle(cx),
             definition_id_input.read(cx).focus_handle(cx),
             new_agent_prompt.read(cx).focus_handle(cx),
+            new_agent_initial_prompt.read(cx).focus_handle(cx),
+            new_agent_tag_input.read(cx).focus_handle(cx),
             new_agent_description.read(cx).focus_handle(cx),
             new_mission_title_input.read(cx).focus_handle(cx),
             new_mission_description_input.read(cx).focus_handle(cx),
@@ -1902,6 +1921,8 @@ impl AppState {
             definition_id_input,
             catalog_inputs,
             new_agent_prompt,
+            new_agent_initial_prompt,
+            new_agent_tag_input,
             new_agent_description,
             new_agent_grant_input,
             new_mission_title_input,

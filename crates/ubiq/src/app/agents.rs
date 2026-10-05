@@ -1497,7 +1497,7 @@ impl AppState {
     /// `+ New agent` reaches this in Tasks, and a chat panel in the right dock is where it lands.
     pub fn open_new_agent_direct(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear_aim();
-        self.open_new_agent(window, cx);
+        self.open_new_agent(Default::default(), window, cx);
     }
 
     /// What the `+` menu's second stage offers: every conversation in this project that no other
@@ -1573,7 +1573,7 @@ impl AppState {
                         self.workbench.open_menu = None;
                         self.workbench.new_agent_menu = None;
                         self.aim_start(menu.surface, cx);
-                        self.open_new_agent(window, cx);
+                        self.open_new_agent(Default::default(), window, cx);
                     }
                     // *Attach existing agent*: the same menu, second stage. Nothing else may be
                     // open at once, so the menu stays where it is rather than reopening somewhere
@@ -1694,11 +1694,14 @@ impl AppState {
         }
     }
 
-    /// Write down what a conversation was just started on, so the next form opens offering
-    /// it. Interface scope: which harnesses this machine has is a fact about the machine, not
-    /// about the project that happened to use one.
+    /// Write down what a conversation was just started on in `project`, so the next form there
+    /// opens offering it. Kept twice: per project — the definitions on offer are the project's
+    /// own — and machine-wide, which is what a project with no start of its own yet falls back to.
+    /// Both live in the interface blob.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn remember_harness_choice(
         &mut self,
+        project: ProjectId,
         agent_type: &str,
         account: Option<&str>,
         definition: Option<&str>,
@@ -1706,16 +1709,32 @@ impl AppState {
         max_subagents: Option<u8>,
         _cx: &mut Context<Self>,
     ) {
+        // Which root the definition came from, read the way the pick resolved it.
+        let definition_project = definition.and_then(|id| {
+            self.workbench
+                .settings
+                .definitions_in(Some(project))
+                .into_iter()
+                .find(|it| it.id == id)
+                .and_then(|it| it.project)
+        });
         let last = crate::state::prefs::LastStart {
             agent_type: agent_type.to_string(),
             account: account.map(str::to_string),
             definition: definition.map(str::to_string),
+            definition_project,
             mode: mode.map(str::to_string),
             max_subagents,
         };
-        if self.workbench.last_start.as_ref() == Some(&last) {
+        let key = project.to_string();
+        if self.workbench.last_start.as_ref() == Some(&last)
+            && self.workbench.last_start_by_project.get(&key) == Some(&last)
+        {
             return;
         }
+        self.workbench
+            .last_start_by_project
+            .insert(key, last.clone());
         self.workbench.last_start = Some(last);
         self.remember_interface();
     }

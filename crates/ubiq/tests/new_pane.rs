@@ -753,10 +753,9 @@ fn starting_in_a_terminal_stashes_no_preamble(cx: &mut TestAppContext) {
                     window,
                     cx,
                 );
-                // Both halves of what `preamble()` would fold: an opening prompt, and a subagent
-                // ceiling — the latter already defaults to `Some(_)` on a fresh form, so leaving
-                // it untouched still exercises it.
-                state.new_agent_prompt.clone().update(cx, |input, cx| {
+                // An initial prompt, and a subagent ceiling for the preamble — the latter already
+                // defaults to `Some(_)` on a fresh form, so leaving it untouched still exercises it.
+                state.new_agent_initial_prompt.clone().update(cx, |input, cx| {
                     input.set_value("look at the parser", window, cx);
                 });
                 state.pick_new_agent_subagents(Some(3), window, cx);
@@ -771,6 +770,12 @@ fn starting_in_a_terminal_stashes_no_preamble(cx: &mut TestAppContext) {
             .state
             .read_with(cx, |state, _| state.workbench.agent_preambles.is_empty()),
         "a preamble was held for a pane with no composer to fold it into"
+    );
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.workbench.agent_initial_prompts.is_empty()),
+        "nor an initial prompt for a pane with no conversation to say it to"
     );
 }
 

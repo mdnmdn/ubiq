@@ -181,6 +181,7 @@ fn the_interface_blob_carries_the_palette() {
         size_presets: Vec::new(),
         custom_themes: Vec::new(),
         last_start: None,
+        last_start_by_project: Default::default(),
         rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
@@ -247,13 +248,26 @@ fn the_interface_blob_carries_the_last_start() {
             agent_type: "claude-code".to_string(),
             account: Some("mdn".to_string()),
             definition: None,
+            definition_project: None,
             mode: Some("bypass".to_string()),
             max_subagents: Some(3),
         }),
+        last_start_by_project: [(
+            "01HZZZZZZZZZZZZZZZZZZZZZZZ".to_string(),
+            prefs::LastStart {
+                agent_type: "codex".to_string(),
+                definition: Some("review".to_string()),
+                definition_project: Some(ubiq_proto::ids::ProjectId::generate()),
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
         rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
     assert_eq!(back.last_start, prefs_in.last_start);
+    assert_eq!(back.last_start_by_project, prefs_in.last_start_by_project);
 
     let older = format!(r#"{{"schema":{},"theme":"Dark"}}"#, prefs::SCHEMA);
     let back: InterfacePrefs = prefs::decode(&older).expect("a blob without the field decodes");

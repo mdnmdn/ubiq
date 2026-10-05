@@ -110,15 +110,23 @@ fetched stay where they are.
 
 **Agents** lists the agent definitions and nothing else, one row each, read as
 `reviewer — Codex · gpt-5 · high`: the name, then what it runs on, because that is the question
-this tab does not ask again. It offers the global definitions plus the ones saved inside the
-project this start is aimed at, those labelled `· this project`, and a project definition of the
-same name as a global one stands in its place here and in no other project (`D158`). **A disabled
+this tab does not ask again. It offers the project definitions first, a separator, then the global
+ones; when both exist the two runs carry `This project` and `Global` headings. A project definition
+of the same name as a global one stands in its place here and in no other project (`D158`).
+**The dialog remembers its last pick per project**, as a scope-qualified definition, and falls back
+to the machine-wide last start when the project has none. **A disabled
 definition is not a row** (`AgentDefinition::disabled`, read through
 `SettingsState::startable_definitions_in`): it is listed on the settings screens and offered
 nowhere a run begins. Under the dropdown sits the line of what the chosen definition runs on and a
 **Customize** button, which turns the harness, model, thinking-effort and mode rows back on so
 this one start can override them; until it is pressed those rows are not drawn, because the
 definition has already answered them.
+
+**A caller can narrow the dialog.** `AppState::open_new_agent` takes a `NewAgentOpen { tags,
+autostart, initial_prompt }`. `tags` keeps only the definitions carrying at least one of them and
+hides the Harness tab. `autostart` starts at once, without drawing the dialog, when a target
+resolves — the project's last pick if it passes the tags, else the first definition that does — and
+shows the dialog when none does. `initial_prompt` is what the Initial prompt field opens holding.
 
 **Harness** is the other question and draws what the form always drew, minus any way to pick a
 definition. `WorkbenchState::harness_choices` offers it: the same `ListAgentTypes` answer the
@@ -221,8 +229,9 @@ arrives as a pane, drawing its own screen under a pseudo-terminal. Everything th
 out either way — the identity, the saved setup, the model, the level, the permission mode and the
 ticked MCP servers and extra folders are one `AgentPicks` record on both messages, and isolation is a host setting
 applied to both faces alike, so the two buttons differ in the face the run wears and in nothing
-else. The terminal button carries no preamble: a subagent ceiling and an opening prompt are folded
-into a first turn by a composer, and a pane has none — the user types into the harness itself. A
+else. The terminal button carries no preamble and ignores the initial prompt: a subagent ceiling,
+the agent prompt and the initial prompt are folded into a first turn by a composer, and a pane has
+none — the user types into the harness itself. A
 non-chat harness is not on offer here at all, which is `G230`.
 
 **Nothing is created until the conversation lands.** The `+` writes down *where* a start is aimed
@@ -240,10 +249,12 @@ promise: a harness uninstalled or an agent definition deleted since answers noth
 form on a start that would fail.
 
 **A subagent ceiling is said to the agent, not passed as a flag.** No harness has such an option,
-so the only way to ask for one is to say so, and the form writes it — with the opening prompt, if
-there is one — into a preamble held against the conversation rather than sent as a turn of its own.
-A transcript that opened on a directive the user never wrote would read as the conversation
-beginning with someone else's words. `AppState::send_prompt`, the one place `PromptAgent` is built,
+so the only way to ask for one is to say so, and the form writes it — with the definition's agent
+prompt, if there is one — into a preamble held against the conversation rather than sent as a turn
+of its own. The definition's `prompt` is labelled **Agent prompt** in the editor; the New agent
+dialog does not show it and always uses it as the preamble. A transcript that opened on a directive
+the user never wrote would read as the conversation beginning with someone else's words.
+`AppState::send_prompt`, the one place `PromptAgent` is built,
 folds the preamble in front of the **first** turn the user actually sends and tells the conversation
 what it folded in; the harness echoes the turn it received, verbatim, and `Conversation` takes the
 preamble back off that echo, so the harness reads the directive and the transcript never shows it.
@@ -257,7 +268,12 @@ form: the flag lives on a row keyed by the conversation, which does not exist un
 been answered. Wiring the checkbox means carrying the intent through the start and setting the flag
 once the row is written, which is `G223`.
 
-**The opening prompt is the form's keyboard rest.** The form opens with the keyboard in it, which
+**The initial prompt is sent for the user.** The dialog's optional `Initial prompt` field is held
+until `Message::ConversationStarted` and then sent as the conversation's first user message, the
+preamble folded in front of it, so the agent starts working without a keystroke. The assign-to-agent
+and mission-spawn briefings prefill it, which is why those agents begin on their own.
+
+**The initial prompt is the form's keyboard rest.** The form opens with the keyboard in it, which
 is also what puts the modal on the focus path — `⌘⏎` confirms the form from inside a field, and
 Escape reaches `AppState::cancel_dialog`, only because a focused element inside the modal is what
 the key is dispatched from. Every one of the form's lists takes the keyboard while it is open, for

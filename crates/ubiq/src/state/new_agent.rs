@@ -7,7 +7,9 @@
 
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{ProjectId, TaskId};
-use ubiq_proto::messages::{AgentDefinition, AgentTypeInfo, CatalogueModel};
+use ubiq_proto::messages::{
+    AgentDefinition, AgentTypeInfo, CatalogueModel, TAG_COORDINATOR, TAG_WORKER,
+};
 use ubiq_proto::settings::Grant;
 
 /// What the form is for. The same fields answer both questions, so the same form asks them.
@@ -129,13 +131,10 @@ pub struct NewAgentForm {
     /// Drawn only under [`Purpose::AgentDefinition`]: a bare start has nothing to save the flag onto, and
     /// the new-mission dialog's picker is what reads it back.
     pub mission_assistant: bool,
-    /// Whether this definition runs the coordinator side of a mission or a task —
-    /// [`AgentDefinition::mission_coordinator`]. The host re-asserts the MCP servers the role
+    /// What this definition is tagged as — [`AgentDefinition::tags`], in the order they were
+    /// added. `coordinator` and `worker` are roles: the host re-asserts the MCP servers each
     /// implies on every save, so the form never has to hold that set itself.
-    pub mission_coordinator: bool,
-    /// Whether this definition runs the worker side of one — [`AgentDefinition::mission_worker`],
-    /// on the same terms.
-    pub mission_worker: bool,
+    pub tags: Vec<String>,
     /// Whether the definition is switched off — [`AgentDefinition::disabled`]. Carried through a
     /// round trip so saving an edit never quietly switches one back on.
     pub disabled: bool,
@@ -162,8 +161,11 @@ pub struct NewAgentForm {
     pub policies: bool,
     /// Whether the last path typed into that dialog was refused, for the line under the field.
     pub grant_invalid: bool,
-    /// The opening prompt. Typed into a textarea the window owns, and copied in here when the
-    /// form is read — the same way the definition form reads its name field at save time.
+    /// The **agent prompt** — [`AgentDefinition::prompt`]: standing instructions folded in front
+    /// of a run's first turn ([`Self::preamble`]). On the definition form it is typed into a
+    /// textarea the window owns and copied in here when the form is read; on a start it is the
+    /// chosen definition's own, never edited — what a start says first is its separate initial
+    /// prompt, which the window holds and sends as a turn.
     pub prompt: String,
     pub open: Option<OpenList>,
     /// Whether the "what should this be called" prompt is up over the form. Only a start form
@@ -192,6 +194,34 @@ pub struct NewAgentForm {
     /// The task assignment's "plan mode" checkbox. A prompt instruction only, for now — see
     /// [`task_assignment_prompt`].
     pub plan_mode: bool,
+    /// Text appended after the composed opening prompt — the review line of a *Feedback to an
+    /// agent* assignment — so a checkbox toggle's recomposition keeps it.
+    pub prompt_suffix: String,
+    /// The tags a start was opened narrowed to ([`NewAgentOpen::tags`]): only definitions carrying
+    /// at least one of them are offered, and the Harness tab is not drawn. Empty is no narrowing.
+    /// Belongs to how the form was opened, so it survives every re-pick and tab change.
+    pub tag_filter: Vec<String>,
+}
+
+/// How the New agent modal is asked to open — `AppState::open_new_agent`'s one argument.
+/// `Default` is the plain dialog, so a caller with nothing to say stays a one-liner.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NewAgentOpen {
+    /// Offer only definitions carrying at least one of these tags, and no bare harness.
+    pub tags: Option<Vec<String>>,
+    /// Start at once, without showing the dialog, when a target resolves — the last one used in
+    /// this project if it passes [`Self::tags`], else the first definition that does. The dialog
+    /// is shown when nothing resolves.
+    pub autostart: bool,
+    /// What the initial-prompt field opens holding — said as the first user turn of the start.
+    pub initial_prompt: Option<String>,
+}
+
+impl NewAgentForm {
+    /// Whether `definition` passes the form's [`Self::tag_filter`].
+    pub fn offers(&self, definition: &AgentDefinition) -> bool {
+        self.tag_filter.is_empty() || definition.has_any_tag(&self.tag_filter)
+    }
 }
 
 /// Whether `path` is one a grant may name: absolute, or `~`-prefixed — what the host resolves.
@@ -244,7 +274,32 @@ pub fn task_assignment_prompt(task_label: &str, ask_for_feedback: bool, plan_mod
     if plan_mode {
         prompt.push_str(" Work in plan mode: write out your plan before making changes.");
     }
+    prompt.push_str(&format!(" {}", task_tracking_instruction(task_label)));
     prompt
+}
+
+/// The sentence every task-linked turn carries: keep the card in step with the work, through the
+/// board's own MCP server — the status words are the ones `manage-ubiq-tasks` reads.
+pub fn task_tracking_instruction(task_label: &str) -> String {
+    format!(
+        "Keep task {task_label} updated as you go with the manage-ubiq-tasks tools: move it to \
+         \"in progress\" when you start, add a comment when you make progress, and move it to \
+         \"in review\" when you are done."
+    )
+}
+
+/// The turn the task panel's *Continue with an agent* sends an agent already linked to the task.
+pub fn task_continue_prompt(task_label: &str) -> String {
+    format!(
+        "Continue working on task {task_label}. {}",
+        task_tracking_instruction(task_label)
+    )
+}
+
+/// What the task panel's *Feedback to an agent* puts in front of the reviewer's own words — left
+/// ending on `Feedback: `, so the user types straight after it.
+pub fn task_feedback_prefix(task_label: &str) -> String {
+    format!("Task {task_label} was reviewed. Feedback: ")
 }
 
 impl NewAgentForm {
@@ -262,8 +317,7 @@ impl NewAgentForm {
             mode: None,
             persistent: false,
             mission_assistant: false,
-            mission_coordinator: false,
-            mission_worker: false,
+            tags: Vec::new(),
             disabled: false,
             max_subagents: Some(DEFAULT_SUBAGENTS),
             mcps: Vec::new(),
@@ -280,6 +334,8 @@ impl NewAgentForm {
             for_task: None,
             ask_for_feedback: true,
             plan_mode: false,
+            prompt_suffix: String::new(),
+            tag_filter: Vec::new(),
         }
     }
 
@@ -306,8 +362,7 @@ impl NewAgentForm {
             grants: definition.grants.clone(),
             prompt: definition.prompt.clone().unwrap_or_default(),
             mission_assistant: definition.mission_assistant.unwrap_or(false),
-            mission_coordinator: definition.mission_coordinator,
-            mission_worker: definition.mission_worker,
+            tags: definition.tags.clone(),
             disabled: definition.disabled,
             // Editing keeps the scope it was found in: a project definition saved from its own
             // project's settings goes back where it came from, and the global form never
@@ -338,10 +393,9 @@ impl NewAgentForm {
             // read the same to every filter, and `None` is the ordinary "says nothing" shape every
             // other optional field here already uses.
             mission_assistant: self.mission_assistant.then_some(true),
-            // The two role flags and the off switch are plain booleans: what they imply is the
-            // host's answer (it re-adds the role's MCP servers on save), not the form's.
-            mission_coordinator: self.mission_coordinator,
-            mission_worker: self.mission_worker,
+            // What the role tags imply is the host's answer (it re-adds the role's MCP servers
+            // on save), not the form's.
+            tags: self.tags.clone(),
             disabled: self.disabled,
             // Which root the host writes it into. The scope is not a field the user picks; it
             // is the surface the form was opened from.
@@ -402,11 +456,38 @@ impl NewAgentForm {
         }
     }
 
-    /// Whether one of the two role flags already asks for this server. Such a server is drawn
-    /// ticked and inert: what it is ticked by is the flag, not the checklist.
+    /// Whether the form carries `tag`.
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|it| it == tag)
+    }
+
+    /// Add `tag` if it is not there, take it off if it is. Order is kept, like [`Self::mcps`].
+    pub fn toggle_tag(&mut self, tag: &str) {
+        match self.tags.iter().position(|it| it == tag) {
+            Some(at) => {
+                self.tags.remove(at);
+            }
+            None => self.tags.push(tag.to_string()),
+        }
+    }
+
+    /// Add one tag as typed — trimmed, and taken once. Returns whether there was anything to add.
+    pub fn add_tag(&mut self, tag: &str) -> bool {
+        let tag = tag.trim();
+        if tag.is_empty() {
+            return false;
+        }
+        if !self.has_tag(tag) {
+            self.tags.push(tag.to_string());
+        }
+        true
+    }
+
+    /// Whether one of the two role tags already asks for this server. Such a server is drawn
+    /// ticked and inert: what it is ticked by is the tag, not the checklist.
     pub fn implies_mcp(&self, name: &str) -> bool {
-        (self.mission_coordinator && COORDINATOR_MCPS.contains(&name))
-            || (self.mission_worker && WORKER_MCPS.contains(&name))
+        (self.has_tag(TAG_COORDINATOR) && COORDINATOR_MCPS.contains(&name))
+            || (self.has_tag(TAG_WORKER) && WORKER_MCPS.contains(&name))
     }
 
     /// Whether this server is ticked at all, by hand or by a role.
@@ -666,8 +747,7 @@ mod tests {
             mcps: Vec::new(),
             skills: Vec::new(),
             mission_assistant,
-            mission_coordinator: false,
-            mission_worker: false,
+            tags: Vec::new(),
             disabled: false,
             project: None,
             grants: Vec::new(),
@@ -739,6 +819,24 @@ mod tests {
         let planning = task_assignment_prompt("T-64", true, true);
         assert!(planning.contains("Ask for feedback"));
         assert!(planning.contains("plan mode"));
+
+        // Whatever the checkboxes say, the agent is told to keep the card in step.
+        for prompt in [&ask, &assume, &planning] {
+            assert!(prompt.contains("\"in progress\""));
+            assert!(prompt.contains("\"in review\""));
+            assert!(prompt.contains("manage-ubiq-tasks"));
+        }
+    }
+
+    #[test]
+    fn continue_and_feedback_name_the_task() {
+        let next = task_continue_prompt("T-320");
+        assert!(next.starts_with("Continue working on task T-320."));
+        assert!(next.contains("\"in review\""));
+        assert_eq!(
+            task_feedback_prefix("T-320"),
+            "Task T-320 was reviewed. Feedback: "
+        );
     }
 
     /// A role flag ticks its own servers and holds them ticked: the host re-adds them on every
@@ -749,7 +847,12 @@ mod tests {
         form.toggle_mcp("test");
         assert!(!form.wants_mcp("ubiq-plan"), "no role, no implied server");
 
-        form.mission_coordinator = true;
+        form.toggle_tag("planner");
+        assert!(
+            !form.implies_mcp("ubiq-plan"),
+            "a plain tag implies nothing"
+        );
+        form.toggle_tag("coordinator");
         assert!(form.implies_mcp("ubiq-plan"));
         assert!(form.wants_mcp("ubiq-plan"));
         form.toggle_mcp("ubiq-plan");
@@ -760,7 +863,7 @@ mod tests {
         assert_eq!(form.mcp_count(), 1 + COORDINATOR_MCPS.len());
 
         // `ubiq-kb` is in both role sets, and it is one server.
-        form.mission_worker = true;
+        form.toggle_tag("worker");
         assert_eq!(
             form.mcp_count(),
             1 + COORDINATOR_MCPS.len() + WORKER_MCPS.len() - 1

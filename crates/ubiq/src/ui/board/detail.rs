@@ -17,10 +17,11 @@ use gpui::{
 };
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::work::{CommentAuthor, Level, StepState, TaskRecord};
+use ubiq_proto::work::{CommentAuthor, Level, Status, StepState, TaskRecord};
 
 use crate::app::AppState;
 use crate::state::board::Field;
+use crate::state::status::Reach;
 use crate::state::work;
 use crate::theme;
 use crate::theme::{Family, Role};
@@ -30,7 +31,7 @@ use crate::ui::handler;
 use crate::ui::kit::{
     ghost_button, icon_button, meter, modal_sized, mono, panel, pill, section_label,
 };
-use crate::ui::work::{activity_colour, bucket_colour};
+use crate::ui::work::{bucket_colour, lifecycle_colour};
 
 pub fn render(
     app: &AppState,
@@ -155,37 +156,7 @@ fn body(
         .tasks
         .iter()
         .any(|other| other.prerequisites.contains(&task.id));
-    let started = work.now(task).is_some();
     let drawn = |filled: bool| app.task_show_empty || filled;
-
-    let now = match work.now(task) {
-        Some(agent) => {
-            let agent_colour = activity_colour(agent.activity);
-            let label = app.agent_label(agent);
-            div()
-                .flex()
-                .items_center()
-                .gap_1p5()
-                .child(
-                    div()
-                        .size(px(6.))
-                        .flex_none()
-                        .rounded_full()
-                        .bg(agent_colour),
-                )
-                .child(mono(label.title.clone(), agent_colour))
-                .children((!label.identity.is_empty()).then(|| {
-                    div()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .text_size(theme::font(Family::Chrome, Role::Label))
-                        .text_color(theme::text_muted())
-                        .child(SharedString::from(format!("\u{2014} {}", label.identity)))
-                }))
-                .into_any_element()
-        }
-        None => mono("nobody has started this", theme::text_faint()).into_any_element(),
-    };
 
     let steps: Vec<AnyElement> = task
         .steps
@@ -373,7 +344,6 @@ fn body(
                     drawn(task.colour.is_some())
                         .then(|| fact("Colour", form::colour(task, cx)).into_any_element()),
                 )
-                .children(drawn(started).then(|| fact("Now", now).into_any_element())),
         )
         .child(form::description(app, task, window, cx))
         .children((total > 0).then(|| {
@@ -576,45 +546,133 @@ fn tag(label: impl Into<SharedString>, colour: gpui::Rgba) -> impl IntoElement {
 /// A conversation is what a user who wants to intervene is after, and the columns are where one is
 /// had. The graph is the map, and a button that only moved the selection onto it answered a
 /// question nobody had asked from here.
+///
+/// **Two lines, by the task's status** (T-321). The first is the linked agent, when there is one —
+/// the shared hexagon, its status and its name, and `Open` — which is the task's lifecycle
+/// tracking. The second is what the status asks for next: an assignment, or *Continue with an
+/// agent* when the linked one is not running, while the task is to do or under way; *Complete*
+/// and *Feedback to an agent* while it is in review; nothing more once it is blocked, done or
+/// abandoned. Open plan and Delete stand on every status.
 fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl IntoElement {
-    let now = app
-        .work(cx)
-        .and_then(|work| work.now(task))
-        .map(|agent| (agent.id, app.agent_label(agent).title));
-    let nobody_yet = now.is_none();
+    let task_id = task.id;
+    let link = app
+        .task_agent_link(task_id, cx)
+        .map(|(agent, status, reach)| {
+            let name = app
+                .work(cx)
+                .and_then(|work| work.agent(agent))
+                .map(|record| app.agent_label(record).title)
+                .unwrap_or_else(|| "an agent".into());
+            (agent, status, reach, name)
+        });
+    let reach = link.as_ref().map(|(_, _, reach, _)| *reach);
+
+    let mut actions: Vec<AnyElement> = Vec::new();
+    match task.status {
+        Status::Backlog | Status::Ready | Status::InProgress => match reach {
+            Some(Reach::Live) => {}
+            // A linked agent that is not running: carried on where it can be relaunched, a new
+            // assignment where it cannot — the button is the same either way.
+            Some(Reach::Resumable | Reach::Gone) => actions.push(
+                ghost_button(
+                    "board-continue-agent",
+                    Some(IconName::Play),
+                    "Continue with an agent",
+                    cx.listener(move |this, _, window, cx| {
+                        this.continue_task_with_agent(task_id, window, cx)
+                    }),
+                )
+                .into_any_element(),
+            ),
+            // Nobody is on this task yet — the way in is the New agent dialog, pre-filled with
+            // this task's key, the board and feedback MCPs, and the two checkboxes `T-64` asks for.
+            None => actions.push(
+                ghost_button(
+                    "board-assign-agent",
+                    Some(IconName::Plus),
+                    "Assign to an agent",
+                    cx.listener(move |this, _, window, cx| {
+                        this.assign_task_to_agent(task_id, window, cx)
+                    }),
+                )
+                .into_any_element(),
+            ),
+        },
+        Status::InReview => {
+            actions.push(
+                ghost_button(
+                    "board-complete-task",
+                    Some(IconName::Check),
+                    "Complete",
+                    cx.listener(move |this, _, _, cx| this.complete_task(task_id, cx)),
+                )
+                .into_any_element(),
+            );
+            actions.push(
+                ghost_button(
+                    "board-feedback-agent",
+                    Some(IconName::Undo),
+                    "Feedback to an agent",
+                    cx.listener(move |this, _, window, cx| {
+                        this.feedback_task_to_agent(task_id, window, cx)
+                    }),
+                )
+                .into_any_element(),
+            );
+        }
+        Status::Blocked | Status::Done | Status::Abandoned => {}
+    }
 
     div()
         .flex()
+        .flex_col()
         .flex_none()
+        .bg(theme::pane_bg())
+        .border_t_1()
+        .border_color(theme::border())
+        .children(link.map(|(agent, status, _, name)| {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .pt_2()
+                .child(crate::ui::teams::status::status_mark(
+                    status,
+                    14.0,
+                    crate::ui::eid("board-agent-mark", agent),
+                ))
+                .child(div().flex_1().min_w(px(0.)).child(crate::ui::kit::elided(
+                    crate::ui::eid("board-agent-name", agent),
+                    name,
+                    theme::text(),
+                    theme::font(Family::Chrome, Role::Label),
+                )))
+                .child(mono(status.label(), lifecycle_colour(status.lifecycle)))
+                .child(ghost_button(
+                    "board-open-chat",
+                    Some(IconName::Inbox),
+                    "Open",
+                    cx.listener(move |this, _, _, cx| this.open_task_chat(agent, cx)),
+                ))
+        }))
+        .child(footer_actions(app, task, actions, cx))
+}
+
+/// The footer's second line: the status's own offer, then Open plan, then Delete at the far end.
+fn footer_actions(
+    app: &AppState,
+    task: &TaskRecord,
+    actions: Vec<AnyElement>,
+    cx: &mut Context<AppState>,
+) -> impl IntoElement {
+    div()
+        .flex()
         .items_center()
         .gap_2()
         .px_3()
         .py_2()
-        .bg(theme::pane_bg())
-        .border_t_1()
-        .border_color(theme::border())
-        .children(now.map(|(agent, name)| {
-            ghost_button(
-                "board-open-chat",
-                Some(IconName::Inbox),
-                format!("Open {name}'s chat"),
-                cx.listener(move |this, _, _, cx| this.open_task_chat(agent, cx)),
-            )
-        }))
-        // Nobody is on this task yet — the way in is the New agent dialog, pre-filled with this
-        // task's id, the board and feedback MCPs, and the two checkboxes `T-64` asks for. Once an
-        // agent is on it, "Open ⟨name⟩'s chat" above is the way back in, and this steps aside.
-        .children(nobody_yet.then(|| {
-            let task_id = task.id;
-            ghost_button(
-                "board-assign-agent",
-                Some(IconName::Plus),
-                "Assign to an agent",
-                cx.listener(move |this, _, window, cx| {
-                    this.assign_task_to_agent(task_id, window, cx)
-                }),
-            )
-        }))
+        .children(actions)
         // A plan belongs to any task carrying a `level` — not to an ordinary task, and not to
         // some special mission subtype. A task with no `level` has no plan and offers none, the
         // affordance's own posture rather than a click the host would refuse.

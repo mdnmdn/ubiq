@@ -888,7 +888,7 @@ fn cancelling_the_form_forgets_the_project_it_was_aimed_at(cx: &mut TestAppConte
         ._window
         .update(cx, |_, window, cx| {
             fixture.state.update(cx, |state, cx| {
-                state.open_new_agent(window, cx);
+                state.open_new_agent(Default::default(), window, cx);
                 state.pick_new_agent_target(
                     Target::Harness {
                         agent_type: "claude-code".to_string(),

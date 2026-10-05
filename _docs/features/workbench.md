@@ -1235,10 +1235,12 @@ opened agent definition so a save never silently clears a flag already set. `Non
 "not an assistant" to every filter over the field — the distinction exists only so an agent definition
 extending one that is ticked can un-mention it.
 
-**Three more checkboxes sit under it, and they are the record's own answers**: `Mission/task
-coordinator`, `Mission/task worker` and `Disabled`. The two roles are not labels — the host holds
-the MCP set each implies and re-adds it on every save, so a definition carrying a role cannot be
-left without the servers the role needs, however the checklist was edited. The MCPs panel draws
+**A `Tags` block and a `Disabled` checkbox sit under it, and they are the record's own answers.**
+The block draws the standard tags (`coordinator`, `planner`, `worker`) as toggle pills, any custom
+tag as a removable chip, and a free-text `Add`; the settings rows of the definitions list show a
+badge per tag. `coordinator` and `worker` are not labels — the host holds the MCP set each implies
+and re-adds it on every save, so a definition carrying one cannot be left without the servers the
+role needs, however the checklist was edited. The `prompt` field is labelled `Agent prompt`. The MCPs panel draws
 that: a server a role implies is ticked, says `Required by this agent's role` under its name, and
 takes no click, because a tick the next save would put straight back is not the checklist's to
 remove. The slugs are mirrored in `state::new_agent::{COORDINATOR_MCPS, WORKER_MCPS}` the way

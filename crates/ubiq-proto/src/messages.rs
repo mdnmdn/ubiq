@@ -3842,8 +3842,9 @@ pub struct AgentDefinition {
     /// one: the interface writes it into the conversation's opening prompt as a directive, and
     /// this is only where the number is remembered.
     pub max_subagents: Option<u8>,
-    /// An opening prompt to send as the conversation's first turn. It is a turn like any other,
-    /// which is why it is text here rather than anything the run is composed from.
+    /// The **agent prompt**: standing instructions the interface folds in front of the first turn
+    /// of every conversation started from this definition. It travels inside a turn, which is
+    /// why it is text here rather than anything the run is composed from.
     pub prompt: Option<String>,
     /// What this definition is for and what it carries, in prose — free-form, may be several
     /// lines. This is the one field written for another agent to read rather than for the host to
@@ -3869,19 +3870,16 @@ pub struct AgentDefinition {
     /// on disk, so an inherited definition can un-mention it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mission_assistant: Option<bool>,
-    /// Whether this definition runs the **coordinator** side of a mission or a task: it runs the
-    /// mission, writes the plan, and manages the tasks.
+    /// Labels saying what this definition is for — the [`STANDARD_AGENT_TAGS`] or anything the
+    /// user typed. A filter reads them (a surface may offer only `worker` definitions); empty is
+    /// the normal case.
     ///
-    /// The flag is not a label. The host holds the MCP set it implies and **re-adds that set on
-    /// every save**, so a definition carrying the flag cannot be left without the servers the
-    /// role needs, however it was edited — see [`Message::SaveAgentDefinition`].
-    #[serde(default)]
-    pub mission_coordinator: bool,
-    /// Whether this definition runs the **worker** side of a mission or a task: it reads the
-    /// mission, works a task, and reports progress. Implies its own MCP set, re-asserted on save
-    /// exactly as [`Self::mission_coordinator`]'s is. Both flags together imply both sets.
-    #[serde(default)]
-    pub mission_worker: bool,
+    /// Two tags are not only labels. `coordinator` (runs the mission, writes the plan, manages the
+    /// tasks) and `worker` (reads the mission, works a task, reports progress) each imply an MCP
+    /// set the host **re-adds on every save**, so a definition carrying one cannot be left without
+    /// the servers the role needs, however it was edited — see [`Message::SaveAgentDefinition`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     /// Whether the user has switched this definition off. A disabled definition is still listed
     /// and still editable — it is simply not offered anywhere a run is started from. Nothing
     /// about a run already under way changes when its definition is disabled.
@@ -3908,6 +3906,28 @@ pub struct AgentDefinition {
     /// screen lists only the global ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<ProjectId>,
+}
+
+/// The tag a definition carries to run the coordinator side of a mission or a task.
+pub const TAG_COORDINATOR: &str = "coordinator";
+/// The tag for a definition that plans.
+pub const TAG_PLANNER: &str = "planner";
+/// The tag a definition carries to run the worker side of a mission or a task.
+pub const TAG_WORKER: &str = "worker";
+/// The tags the definition editor offers as toggles, in the order it draws them. Any other tag is
+/// free text the user typed.
+pub const STANDARD_AGENT_TAGS: [&str; 3] = [TAG_COORDINATOR, TAG_PLANNER, TAG_WORKER];
+
+impl AgentDefinition {
+    /// Whether this definition carries `tag`.
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|it| it == tag)
+    }
+
+    /// Whether this definition carries at least one of `tags`.
+    pub fn has_any_tag(&self, tags: &[String]) -> bool {
+        tags.iter().any(|tag| self.has_tag(tag))
+    }
 }
 
 /// Secret material as it crosses the bus.

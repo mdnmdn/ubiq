@@ -673,6 +673,9 @@ pub struct WorkbenchState {
     /// written whenever one starts, so an empty chat tab opens on the last thing that worked
     /// rather than on whatever happens to be first in the list.
     pub last_start: Option<crate::state::prefs::LastStart>,
+    /// The same, per project — see `InterfacePrefs::last_start_by_project`. The form opens on its
+    /// project's entry, and on [`Self::last_start`] where the project has none.
+    pub last_start_by_project: std::collections::BTreeMap<String, crate::state::prefs::LastStart>,
     /// The size presets the user saved. The built-ins are not in it — they are code, so a build
     /// that retunes one moves it for everybody. See `state/prefs.rs`.
     pub size_presets: Vec<crate::state::prefs::SizePreset>,
@@ -771,6 +774,11 @@ pub struct WorkbenchState {
     /// One entry per conversation, taken on first use and never re-added: it is a preamble, not a
     /// standing prefix.
     pub agent_preambles: std::collections::HashMap<AgentId, String>,
+    /// The New agent modal's initial prompt, by the agent it was typed for — the user's own first
+    /// turn, unlike [`Self::agent_preambles`]. Parked for [`Self::agent_assignments`]' reason: the
+    /// conversation the turn is said to does not exist on this side until `ConversationStarted`
+    /// lands, and that arm sends it (with the preamble folded in front) and spends the entry.
+    pub agent_initial_prompts: std::collections::HashMap<AgentId, String>,
     /// The task a conversation is to be assigned to the moment it exists, by the agent it will be
     /// (M13's spawn, and the mission panel's own *Spawn ▾*).
     ///
@@ -779,6 +787,11 @@ pub struct WorkbenchState {
     /// none, and the record is made by the host as the conversation starts — so the assignment
     /// goes out from the `ConversationStarted` arm, where there is certainly something to assign.
     pub agent_assignments: std::collections::HashMap<AgentId, (ProjectId, TaskId)>,
+    /// The name a conversation is to be given the moment it exists — a task assignment's task
+    /// key (T-320), so the agent reads as the card it is working on. Parked and spent in the
+    /// `ConversationStarted` arm for [`Self::agent_assignments`]' reason, and sent before the
+    /// initial prompt so the host's naming pass never runs over it.
+    pub agent_names: std::collections::HashMap<AgentId, String>,
     /// The "Connect to a remote host" modal, while it is up. Beside `clone_project` for the same
     /// reason: raised from the titlebar rather than from settings, and answering a question that
     /// has nothing to do with any project on screen.
@@ -986,6 +999,7 @@ impl Default for WorkbenchState {
             theme_id: ThemeId::DARK,
             interface_rest: Default::default(),
             last_start: None,
+            last_start_by_project: Default::default(),
             size_presets: Vec::new(),
             size_prompt: None,
             custom_themes: Vec::new(),
@@ -1010,7 +1024,9 @@ impl Default for WorkbenchState {
             new_mission: None,
             kb_source: None,
             agent_preambles: Default::default(),
+            agent_initial_prompts: Default::default(),
             agent_assignments: Default::default(),
+            agent_names: Default::default(),
             remote_connect: None,
             remote_manager: RemoteManagerState::default(),
             settings: SettingsState::default(),
@@ -1300,8 +1316,7 @@ mod tests {
             mcps: Vec::new(),
             skills: Vec::new(),
             mission_assistant: None,
-            mission_coordinator: false,
-            mission_worker: false,
+            tags: Vec::new(),
             disabled: false,
             project: None,
             grants: Vec::new(),

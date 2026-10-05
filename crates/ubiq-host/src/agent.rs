@@ -33,7 +33,10 @@ use agent_manager::spec::{ConfigStrategy, IoModes, Isolation, McpRef, Policy};
 use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{PaneId, ProjectId};
-use ubiq_proto::messages::{AccountInfo, AgentDefinition, AgentTypeInfo, LoginStatus};
+use ubiq_proto::messages::{
+    AccountInfo, AgentDefinition, AgentTypeInfo, LoginStatus, TAG_COORDINATOR, TAG_PLANNER,
+    TAG_WORKER,
+};
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
 
@@ -89,11 +92,13 @@ fn may_write_definition(exists: bool, has_harness: bool) -> Result<()> {
     Ok(())
 }
 
-/// Merge back the MCP servers this definition's role flags imply, keeping what it already names
-/// and its order. The rule the flags exist for: a coordinator without the coordinator's servers
-/// is not a coordinator, whatever a checklist was left saying.
+/// Merge back the MCP servers this definition's role tags (`coordinator`, `worker`) imply,
+/// keeping what it already names and its order. The rule the tags exist for: a coordinator
+/// without the coordinator's servers is not a coordinator, whatever a checklist was left saying.
 fn apply_role_mcps(definition: &mut AgentDefinition) {
-    for name in catalogue::role_mcps(definition.mission_coordinator, definition.mission_worker) {
+    let coordinator = definition.has_tag(TAG_COORDINATOR);
+    let worker = definition.has_tag(TAG_WORKER);
+    for name in catalogue::role_mcps(coordinator, worker) {
         if !definition.mcps.contains(&name) {
             definition.mcps.push(name);
         }
@@ -703,8 +708,7 @@ impl Agents {
                     mcps: record.defaults.mcps.unwrap_or_default(),
                     skills: record.defaults.skills.unwrap_or_default(),
                     mission_assistant: record.mission_assistant,
-                    mission_coordinator: record.mission_coordinator.unwrap_or(false),
-                    mission_worker: record.mission_worker.unwrap_or(false),
+                    tags: record.tags,
                     disabled: record.disabled.unwrap_or(false),
                     grants: record
                         .extra_rw
@@ -805,9 +809,9 @@ impl Agents {
     /// Two rules are enforced here rather than in a screen, so they hold however the definition
     /// was edited:
     ///
-    /// - **A role flag re-asserts its MCP servers.** `mission_coordinator` and `mission_worker`
-    ///   each imply a set ([`role_mcps`]), and the set is merged back in on every save — a user
-    ///   who unticks one of them by hand gets it back with the flag still on, because the flag is
+    /// - **A role tag re-asserts its MCP servers.** `coordinator` and `worker` each imply a set
+    ///   ([`role_mcps`]), and the set is merged back in on every save — a user who unticks one of
+    ///   them by hand gets it back with the tag still on, because the tag is
     ///   what the role means and a half-equipped coordinator is a broken one.
     /// - **A new definition needs a harness.** With no harness available on this machine there is
     ///   nothing a definition could name, so creating one is refused rather than left to a hidden
@@ -837,8 +841,7 @@ impl Agents {
             mode: definition.mode,
             max_subagents: definition.max_subagents,
             mission_assistant: definition.mission_assistant,
-            mission_coordinator: definition.mission_coordinator.then_some(true),
-            mission_worker: definition.mission_worker.then_some(true),
+            tags: definition.tags,
             disabled: definition.disabled.then_some(true),
             extra_rw: definition
                 .grants
@@ -931,23 +934,21 @@ impl Agents {
         else {
             return Ok(false);
         };
-        for (id, description, coordinator, worker, mcps) in [
+        for (id, description, tags, mcps) in [
             (
                 "Coordinator",
                 "Runs a mission end to end: writes the plan, breaks it into tasks and hands \
                  them to workers, then tracks progress to completion. Carries ubiq-mission \
                  (mission lifecycle), ubiq-plan (the plan document), manage-ubiq-tasks (create, \
                  assign and update tasks) and ubiq-kb (the shared knowledge base).",
-                true,
-                false,
+                vec![TAG_COORDINATOR, TAG_PLANNER],
                 Vec::new(),
             ),
             (
                 "Ubiq helper",
                 "Answers questions about Ubiq itself — its features, screens and settings — by \
                  reading Ubiq's own documentation. Carries ubiq-help.",
-                false,
-                false,
+                Vec::new(),
                 vec![catalogue::UBIQ_HELP.to_string()],
             ),
             (
@@ -956,8 +957,7 @@ impl Agents {
                  was assigned, reports progress, and looks up project facts as needed. Carries \
                  use-mission (read the mission), use-task (read and update the assigned task), \
                  project-info (facts about the project) and ubiq-kb (the shared knowledge base).",
-                false,
-                true,
+                vec![TAG_WORKER],
                 Vec::new(),
             ),
         ] {
@@ -974,8 +974,7 @@ impl Agents {
                 mcps,
                 skills: Vec::new(),
                 mission_assistant: None,
-                mission_coordinator: coordinator,
-                mission_worker: worker,
+                tags: tags.into_iter().map(str::to_string).collect(),
                 disabled: false,
                 project: None,
                 grants: Vec::new(),
@@ -2589,18 +2588,21 @@ mod tests {
         );
     }
 
-    /// The whole point of the two role flags: the servers the role needs come back on save, even
+    /// The whole point of the two role tags: the servers the role needs come back on save, even
     /// when the definition that arrived had them stripped out by hand.
     #[test]
-    fn a_role_flag_re_adds_its_mcp_servers_on_save() {
+    fn a_role_tag_re_adds_its_mcp_servers_on_save() {
         let root = tempfile::TempDir::new().unwrap();
         let agents = with_a_harness(root.path());
 
         agents
             .save_definition(AgentDefinition {
-                mission_coordinator: true,
-                mission_worker: true,
-                // Ticked off by hand, which is what the flags outrank.
+                tags: vec![
+                    TAG_COORDINATOR.to_string(),
+                    TAG_WORKER.to_string(),
+                    "reviewer".to_string(),
+                ],
+                // Ticked off by hand, which is what the tags outrank.
                 mcps: vec!["ubiq-help".to_string()],
                 ..a_definition("both")
             })
@@ -2618,7 +2620,7 @@ mod tests {
                 "a coordinator-and-worker definition carries {implied}"
             );
         }
-        assert!(saved.mission_coordinator && saved.mission_worker);
+        assert_eq!(saved.tags, vec!["coordinator", "worker", "reviewer"]);
     }
 
     /// `description` round-trips like every other optional field: written, read back verbatim,
@@ -2676,7 +2678,7 @@ mod tests {
         agents
             .save_definition(AgentDefinition {
                 mcps: vec!["ubiq-kb".to_string()],
-                mission_worker: true,
+                tags: vec![TAG_WORKER.to_string()],
                 ..a_definition("worker")
             })
             .unwrap();
@@ -2690,7 +2692,7 @@ mod tests {
         let copy = saved.iter().find(|it| it.id == "worker copy").unwrap();
         let source = saved.iter().find(|it| it.id == "worker").unwrap();
         assert_eq!(copy.mcps, source.mcps, "the servers came with it");
-        assert!(copy.mission_worker, "and so did the role");
+        assert!(copy.has_tag(TAG_WORKER), "and so did the role");
 
         assert!(
             agents.clone_definition("worker", "worker", None).is_err(),
@@ -2752,6 +2754,9 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(by_id("Ubiq helper").mcps, vec!["ubiq-help".to_string()]);
+        assert_eq!(by_id("Coordinator").tags, vec!["coordinator", "planner"]);
+        assert_eq!(by_id("Worker").tags, vec!["worker"]);
+        assert!(by_id("Ubiq helper").tags.is_empty());
 
         for id in ["Coordinator", "Worker", "Ubiq helper"] {
             assert!(
@@ -2846,8 +2851,7 @@ mod tests {
             mcps: Vec::new(),
             skills: Vec::new(),
             mission_assistant: None,
-            mission_coordinator: false,
-            mission_worker: false,
+            tags: Vec::new(),
             disabled: false,
             project: None,
             grants: Vec::new(),

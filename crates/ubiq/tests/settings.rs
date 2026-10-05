@@ -966,8 +966,7 @@ fn a_definition(id: &str, project: Option<ProjectId>) -> ubiq_proto::messages::A
         mcps: Vec::new(),
         skills: Vec::new(),
         mission_assistant: None,
-        mission_coordinator: false,
-        mission_worker: false,
+        tags: Vec::new(),
         disabled: false,
         project,
         grants: Vec::new(),
@@ -1088,6 +1087,195 @@ fn a_disabled_definition_is_listed_and_not_offered(cx: &mut TestAppContext) {
     assert_eq!(
         free, "standard copy 2",
         "a clone never overwrites, so the interface picks a name that is free"
+    );
+}
+
+/// A definition carrying `tags`, in the scope it was found in.
+fn a_tagged_definition(
+    id: &str,
+    project: Option<ProjectId>,
+    tags: &[&str],
+) -> ubiq_proto::messages::AgentDefinition {
+    ubiq_proto::messages::AgentDefinition {
+        tags: tags.iter().map(|it| it.to_string()).collect(),
+        ..a_definition(id, project)
+    }
+}
+
+/// The Agents tab lists the project's own setups, a hairline, then the global ones — each under a
+/// heading when both are there — and a start opened narrowed to tags offers only the definitions
+/// carrying one, with no Harness tab to fall back to.
+#[gpui::test]
+fn the_agents_list_is_grouped_by_scope_and_narrowed_by_tags(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let project = fixture
+        .state
+        .read_with(cx, |state, cx| state.project(cx))
+        .expect("the window holds a project");
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentDefinitions {
+            definitions: vec![
+                a_tagged_definition("standard", None, &[]),
+                a_tagged_definition("runner", None, &["worker"]),
+                a_tagged_definition("reviewer", Some(project), &["planner"]),
+            ],
+        },
+    );
+    cx.run_until_parked();
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_new_agent(Default::default(), window, cx)
+    });
+    let labels = |cx: &mut TestAppContext| {
+        fixture.state.read_with(cx, |state, cx| {
+            let form = state.new_agent_form().expect("the form is up");
+            target_control(state, form, cx)
+                .0
+                .into_iter()
+                .map(|(label, _)| label.split(" \u{2014} ").next().unwrap_or("").to_string())
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(
+        labels(cx),
+        vec!["This project", "reviewer", "", "Global", "standard", "runner"],
+        "the project's own first, then the global ones"
+    );
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_new_agent(
+            ubiq::state::new_agent::NewAgentOpen {
+                tags: Some(vec!["worker".to_string()]),
+                ..Default::default()
+            },
+            window,
+            cx,
+        )
+    });
+    assert_eq!(
+        labels(cx),
+        vec!["runner"],
+        "only what carries the tag, and no heading over a single group"
+    );
+    fixture.with(cx, |state, window, cx| {
+        state.set_new_agent_tab(ubiq::state::new_agent::NewAgentTab::Harness, window, cx)
+    });
+    fixture.state.read_with(cx, |state, _| {
+        let form = state.new_agent_form().expect("the form is up");
+        assert_eq!(
+            form.tab,
+            ubiq::state::new_agent::NewAgentTab::Agents,
+            "a narrowed start has no Harness tab"
+        );
+        assert_eq!(
+            form.target,
+            Some(Target::AgentDefinition("runner".to_string())),
+            "and opens on the first definition that passes the filter"
+        );
+    });
+}
+
+/// The last start is remembered per project, scope included, and `autostart` starts it without
+/// the dialog. A project with no start of its own falls back to the machine-wide one; with nothing
+/// that resolves, the dialog is what the user gets.
+#[gpui::test]
+fn autostart_starts_this_projects_last_definition_without_the_dialog(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let project = fixture
+        .state
+        .read_with(cx, |state, cx| state.project(cx))
+        .expect("the window holds a project");
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![a_shared_home_harness("claude-code", "Claude Code")],
+        },
+    );
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentDefinitions {
+            definitions: vec![
+                a_tagged_definition("standard", None, &[]),
+                a_tagged_definition("reviewer", Some(project), &["worker"]),
+            ],
+        },
+    );
+    cx.run_until_parked();
+
+    // The machine-wide start names a global definition; this project's names its own.
+    fixture.state.update(cx, |state, _| {
+        state.workbench.last_start = Some(prefs::LastStart {
+            agent_type: "claude-code".to_string(),
+            definition: Some("standard".to_string()),
+            ..Default::default()
+        });
+        state.workbench.last_start_by_project.insert(
+            project.to_string(),
+            prefs::LastStart {
+                agent_type: "claude-code".to_string(),
+                definition: Some("reviewer".to_string()),
+                definition_project: Some(project),
+                ..Default::default()
+            },
+        );
+    });
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_new_agent(
+            ubiq::state::new_agent::NewAgentOpen {
+                autostart: true,
+                ..Default::default()
+            },
+            window,
+            cx,
+        )
+    });
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.new_agent_form().is_none()),
+        "a target resolved, so no dialog was left up"
+    );
+    let started: Vec<Option<String>> = fixture
+        .said()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::StartConversation { definition, .. } => Some(definition),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        started,
+        vec![Some("reviewer".to_string())],
+        "this project's last start, not the machine-wide one"
+    );
+
+    // Narrowed to a tag nothing carries: nothing resolves, and the dialog is shown instead.
+    fixture.with(cx, |state, window, cx| {
+        state.open_new_agent(
+            ubiq::state::new_agent::NewAgentOpen {
+                tags: Some(vec!["coordinator".to_string()]),
+                autostart: true,
+                ..Default::default()
+            },
+            window,
+            cx,
+        )
+    });
+    assert!(
+        fixture
+            .state
+            .read_with(cx, |state, _| state.new_agent_form().is_some()),
+        "nothing resolved, so the dialog is up"
+    );
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::StartConversation { .. })),
+        "and nothing was started"
     );
 }
 

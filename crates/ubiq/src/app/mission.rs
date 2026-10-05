@@ -1169,14 +1169,15 @@ impl AppState {
     ///
     /// **The form, not a second composition.** `assign_task_to_agent` is the board's own pre-fill
     /// and this is the mission's: the same open, with the mission's MCP set ticked and the
-    /// briefing in the opening prompt.
+    /// briefing in the initial prompt.
     pub fn spawn_any_mission_agent(
         &mut self,
         task_id: TaskId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.assign_task_to_agent(task_id, window, cx);
+        // No tag filter: *Any agent* means any.
+        self.prefill_task_assignment(task_id, None, None, window, cx);
         if let Some(form) = self.new_agent_form_mut() {
             for mcp in WORKER_MCPS {
                 if !form.mcps.iter().any(|held| held == mcp) {
@@ -1185,7 +1186,7 @@ impl AppState {
             }
         }
         let briefing = worker_briefing(task_id, "worker", Some(task_id), "", "");
-        self.set_new_agent_prompt(&briefing, window, cx);
+        self.set_new_agent_initial_prompt(&briefing, window, cx);
     }
 
     // ── the agent-kinds table (M13) ─────────────────────────────────

@@ -1182,9 +1182,15 @@ pub struct AppState {
     /// The linked-task picker's filter field. The task panel's references picker has one of these
     /// too; the dialog's is separate because both can be up at once.
     pub new_mission_task_query: Entity<InputState>,
-    /// The opening prompt, shared by the New agent modal and the definition form — only one of the
-    /// two is ever up, and a second field would be a second thing to keep in step.
+    /// The definition's **agent prompt** ([`AgentDefinition::prompt`]) — drawn only on the
+    /// definition form. A start never edits it: it folds the definition's own as the preamble.
     pub new_agent_prompt: Entity<TextareaState>,
+    /// The New agent modal's optional **initial prompt** — sent as the conversation's first user
+    /// turn right after the start, so the agent begins working at once. Never on the definition
+    /// form: a definition has no first turn to remember.
+    pub new_agent_initial_prompt: Entity<TextareaState>,
+    /// The definition form's free-text tag field, beside the standard tag toggles.
+    pub new_agent_tag_input: Entity<InputState>,
     /// The definition form's description field — [`AgentDefinition::description`]. On the same
     /// footing as `new_agent_prompt`, and only ever drawn under `Purpose::AgentDefinition`: a bare
     /// start has no definition to write the field onto.

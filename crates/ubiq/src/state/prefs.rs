@@ -114,6 +114,11 @@ pub struct LastStart {
     /// `alias` reads a blob written while this was called `profile` (`D174`).
     #[serde(default, alias = "profile")]
     pub definition: Option<String>,
+    /// Which scope [`Self::definition`] was found in: `None` a global definition, `Some` that
+    /// project's own. A project's `review` and the global `review` are two definitions, so the
+    /// name alone does not say which one was started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition_project: Option<ubiq_proto::ids::ProjectId>,
     /// What the last start was allowed to do without asking. `None` is "the harness's own", which
     /// is a real answer as well as what a blob written before this field carried.
     #[serde(default)]
@@ -239,6 +244,12 @@ pub struct InterfacePrefs {
     /// like every field added after the first release — see [`ViewPrefs`].
     #[serde(default)]
     pub last_start: Option<LastStart>,
+    /// What the last conversation started *in each project* was started on, by project id. The
+    /// New agent form opens on its project's entry and falls back to [`Self::last_start`] — the
+    /// machine-wide one, and all a blob written before this field carried — when the project has
+    /// none yet.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub last_start_by_project: std::collections::BTreeMap<String, LastStart>,
     /// Every key in the blob this build does not know, kept as it was found and written back out.
     ///
     /// Serde drops what a struct does not name, so without this a blob carrying more than this
@@ -264,6 +275,7 @@ impl Default for InterfacePrefs {
             size_presets: Vec::new(),
             custom_themes: Vec::new(),
             last_start: None,
+            last_start_by_project: Default::default(),
             rest: Default::default(),
         }
     }

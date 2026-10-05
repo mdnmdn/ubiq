@@ -1259,6 +1259,7 @@ impl AppState {
                 {
                     self.workbench.interface_rest = prefs.rest;
                     self.workbench.last_start = prefs.last_start;
+                    self.workbench.last_start_by_project = prefs.last_start_by_project;
                     self.workbench.size_presets = prefs.size_presets;
                     // The whole size axis, the content family's included — one setting for all of
                     // Ubiq, so nothing here is per project any more (`D151`).

@@ -20,7 +20,7 @@ use gpui::{
 };
 use gpui_component::input::Textarea;
 use ubiq_proto::mcp::McpInfo;
-use ubiq_proto::messages::AgentTypeInfo;
+use ubiq_proto::messages::{AgentTypeInfo, STANDARD_AGENT_TAGS, TAG_COORDINATOR, TAG_WORKER};
 
 use crate::app::{AppState, DialogConfirm, SubmitSearch};
 use crate::state::Layer;
@@ -32,6 +32,7 @@ use crate::ui::kit::menu::{MENU_ANCHOR_UP, MODAL_MENU_LAYER};
 use crate::ui::kit::{
     Picker, PickerStyle, check_box, choice_pill, elided, field, ghost_button, hint_row, label_hint,
     modal, modal_note, primary_button, prompt_modal, removable_tag, section_label, slab,
+    toggle_pill,
 };
 use crate::ui::{eid, handler, indexed};
 
@@ -644,8 +645,8 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
 
     // 0 ─ the two questions, as two tabs. *Which saved agent* and *which tool, as whom* are
     // different questions, and one list with a hairline in it made the second read as a footnote
-    // to the first.
-    if tabbed {
+    // to the first. A start narrowed to tags asks only the first, so it draws no tabs.
+    if tabbed && form.tag_filter.is_empty() {
         rows = rows.child(tab_strip(form.tab, cx));
     }
 
@@ -701,16 +702,21 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
                     .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
                     .text_color(theme::text_faint())
                     .child(match on_agents {
-                        true => {
-                            "No agent definitions to start from. Settings \u{203a} Agent \
-                             definitions is where one is written; Harness starts one without a \
-                             setup."
-                        }
+                        // A start narrowed to tags says which tags found nothing.
+                        true if !form.tag_filter.is_empty() => format!(
+                            "No agent tagged {} \u{2014} tag one in Settings \u{203a} Agent \
+                             definitions.",
+                            form.tag_filter.join(" or ")
+                        ),
+                        true => "No agent definitions to start from. Settings \u{203a} Agent \
+                                 definitions is where one is written; Harness starts one without \
+                                 a setup."
+                            .to_string(),
                         // The other tab, and the definition form. Which of the three things is
                         // wrong is `AppState::no_harness_reason`'s answer — the same sentence the
                         // settings screen's disabled `Add agent` shows, because it is the same
                         // question and only one of the three has a fix behind it.
-                        false => app.no_harness_reason(),
+                        false => app.no_harness_reason().to_string(),
                     })
             })),
     );
@@ -916,35 +922,10 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
             )),
         );
 
-        // 5c ─ the two roles and the off switch. A role is not a label: the host holds the MCP
-        // servers it implies and re-adds them on every save, so the checklist below draws them
-        // ticked and takes no click on them — see `NewAgentForm::implies_mcp`.
-        rows = rows.child(flag_row(
-            "new-agent-mission-coordinator",
-            "Mission/task coordinator",
-            "Runs the mission, writes the plan, manages the tasks. Ticking it adds the servers \
-             the role needs, and they cannot be unticked while it is on.",
-            form.mission_coordinator,
-            live,
-            cx.listener(move |this, _, _, cx| {
-                if live {
-                    this.toggle_new_agent_mission_coordinator(cx);
-                }
-            }),
-        ));
-        rows = rows.child(flag_row(
-            "new-agent-mission-worker",
-            "Mission/task worker",
-            "Reads the mission, works a task, reports progress. Adds its own servers on the same \
-             terms.",
-            form.mission_worker,
-            live,
-            cx.listener(move |this, _, _, cx| {
-                if live {
-                    this.toggle_new_agent_mission_worker(cx);
-                }
-            }),
-        ));
+        // 5c ─ the tags, then the off switch. Two tags are not only labels: `coordinator` and
+        // `worker` each imply MCP servers the host re-adds on every save, so the checklist below
+        // draws them ticked and takes no click on them — see `NewAgentForm::implies_mcp`.
+        rows = rows.child(tags_block(app, &form, live, window, cx));
         rows = rows.child(flag_row(
             "new-agent-disabled",
             "Disabled",
@@ -984,14 +965,14 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
 
     // 6b ─ the two checkboxes the board's "Assign to an agent" button asks — drawn only there
     // ([`NewAgentForm::for_task`]): an ordinary start has no task to be assigned to, so nothing
-    // here answers for it. Both recompose the opening prompt below on every flip — see
+    // here answers for it. Both recompose the initial prompt below on every flip — see
     // `AppState::toggle_new_agent_ask_feedback` / `toggle_new_agent_plan_mode`.
     if form.for_task.is_some() {
         rows = rows.child(
             div().when(!live, |this| this.opacity(0.5)).child(hint_row(
                 "new-agent-ask-feedback-hint",
                 "Ask for feedback",
-                "Ticked, the opening prompt tells the agent to ask when it needs to. Unticked, it \
+                "Ticked, the initial prompt tells the agent to ask when it needs to. Unticked, it \
                  is told to assume as much as it reasonably can instead.",
                 div()
                     .flex()
@@ -1035,13 +1016,28 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         );
     }
 
-    // 7 ─ the opening words. The one control too tall to sit beside its label, so its label sits
-    // above it.
-    let prompt_focused = app
-        .new_agent_prompt
-        .read(cx)
-        .focus_handle(cx)
-        .is_focused(window);
+    // 7 ─ the words. The one control too tall to sit beside its label, so its label sits above
+    // it. A definition carries its **agent prompt** — standing instructions folded, unseen, in
+    // front of every run's first turn. A start never edits that (it uses the definition's own);
+    // it asks instead for an optional **initial prompt**, the first user turn, sent the moment the
+    // conversation exists so the agent starts working on it.
+    let (prompt_input, prompt_id, prompt_label, prompt_hint) = match form.purpose {
+        Purpose::AgentDefinition => (
+            &app.new_agent_prompt,
+            "new-agent-prompt-hint",
+            "Agent prompt",
+            "Standing instructions folded in front of the first turn of every run started from \
+             this agent, under the subagent directive. Neither is shown in the transcript.",
+        ),
+        Purpose::Start => (
+            &app.new_agent_initial_prompt,
+            "new-agent-initial-prompt-hint",
+            "Initial prompt",
+            "Optional. Sent as the first message as soon as the agent starts, so it begins \
+             working on it at once. The agent's own prompt is folded in front of it, unseen.",
+        ),
+    };
+    let prompt_focused = prompt_input.read(cx).focus_handle(cx).is_focused(window);
     rows = rows.child(
         div()
             .flex()
@@ -1049,19 +1045,14 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
             .gap_1()
             .pt_1()
             .when(!live, |this| this.opacity(0.5))
-            .child(label_hint(
-                "new-agent-prompt-hint",
-                "Initial prompt",
-                "Said to the agent first, under the subagent directive. Neither is shown in the \
-                 transcript.",
-            ))
+            .child(label_hint(prompt_id, prompt_label, prompt_hint))
             .child(
                 field(theme::border(), prompt_focused)
                     .flex_col()
                     .items_stretch()
                     .child(
                         div().px_2().py_1p5().cursor_text().child(
-                            Textarea::new(&app.new_agent_prompt)
+                            Textarea::new(prompt_input)
                                 .appearance(false)
                                 .bordered(false)
                                 .w_full()
@@ -1145,6 +1136,119 @@ fn harness_label<'a>(app: &'a AppState, agent_type: &'a str) -> &'a str {
 }
 
 /// One labelled row holding one tick box — the shape every yes/no answer on this form takes.
+/// The definition form's tags: the standard ones as switches, every other tag the definition
+/// carries as a removable chip, and a field to type a new one into.
+fn tags_block(
+    app: &AppState,
+    form: &NewAgentForm,
+    live: bool,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let mut chips: Vec<AnyElement> = STANDARD_AGENT_TAGS
+        .iter()
+        .map(|tag| {
+            let colour = match *tag {
+                TAG_COORDINATOR => theme::accent(),
+                TAG_WORKER => theme::info(),
+                _ => theme::text_muted(),
+            };
+            let name = tag.to_string();
+            toggle_pill(
+                ElementId::Name(format!("new-agent-tag-{tag}").into()),
+                *tag,
+                colour,
+                form.has_tag(tag),
+                cx.listener(move |this, _, _, cx| {
+                    if live {
+                        this.toggle_new_agent_tag(name.clone(), cx);
+                    }
+                }),
+            )
+            .into_any_element()
+        })
+        .collect();
+    chips.extend(
+        form.tags
+            .iter()
+            .enumerate()
+            .filter(|(_, tag)| !STANDARD_AGENT_TAGS.contains(&tag.as_str()))
+            .map(|(index, tag)| {
+                let name = tag.clone();
+                removable_tag(
+                    eid("new-agent-custom-tag", index),
+                    eid("new-agent-custom-tag-drop", index),
+                    tag.clone(),
+                    tag.clone(),
+                    theme::surface(),
+                    theme::border(),
+                    theme::text(),
+                    false,
+                    |_, _, _| {},
+                    cx.listener(move |this, _, _, cx| {
+                        if live {
+                            this.toggle_new_agent_tag(name.clone(), cx);
+                        }
+                    }),
+                )
+                .into_any_element()
+            }),
+    );
+    let focused = app
+        .new_agent_tag_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .when(!live, |this| this.opacity(0.5))
+        .child(label_hint(
+            "new-agent-tags-hint",
+            "Tags",
+            "What this agent is for. A surface may offer only agents carrying a tag. \
+             coordinator and worker are roles too: each adds the MCP servers the role needs, \
+             and they cannot be unticked while the tag is on.",
+        ))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .flex_wrap()
+                .children(chips),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    field(theme::border(), focused)
+                        .h(px(30.))
+                        .flex_1()
+                        .px_2()
+                        .child(
+                            gpui_component::input::Input::new(&app.new_agent_tag_input)
+                                .appearance(false),
+                        ),
+                )
+                .child(ghost_button(
+                    "new-agent-tag-add",
+                    None,
+                    "Add",
+                    cx.listener(move |this, _, window, cx| {
+                        if live {
+                            this.add_new_agent_tag(window, cx);
+                        }
+                    }),
+                )),
+        )
+        .into_any_element()
+}
+
 fn flag_row(
     id: &'static str,
     label: &str,
@@ -1194,25 +1298,27 @@ pub fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String
     // other tab's answer — so it builds its own rows rather than asking `harness_choices` for a
     // grouped list with one group in it. Each row says what the setup runs on, which is the
     // question the tab does not ask again.
+    //
+    // The project's own setups come first, then a hairline, then the global ones, each under its
+    // heading — but only when there are both: a single group needs no heading to say which it is.
+    // A start narrowed to tags offers only the definitions carrying one.
     if on_agents_tab(form) {
-        return definitions
-            .iter()
-            .map(|it| {
-                let mut parts = vec![harness_label(app, &it.agent_type).to_string()];
-                parts.extend(it.model.clone().filter(|model| !model.is_empty()));
-                parts.extend(it.thinking.clone().filter(|level| !level.is_empty()));
-                // A project's own setup says so in the row: the same name may mean a different
-                // definition in the next project, and "visible only in the project it was created
-                // in" is only readable if the row admits which one it is.
-                if it.project.is_some() {
-                    parts.push("this project".to_string());
-                }
-                (
-                    format!("{} \u{2014} {}", it.id, parts.join(" \u{b7} ")),
-                    Some(Target::AgentDefinition(it.id.clone())),
-                )
-            })
-            .collect();
+        let (own, global): (Vec<_>, Vec<_>) = definitions
+            .into_iter()
+            .filter(|it| form.offers(it))
+            .partition(|it| it.project.is_some());
+        let headed = !own.is_empty() && !global.is_empty();
+        let mut rows = Vec::new();
+        if headed {
+            rows.push(("This project".to_string(), None));
+        }
+        rows.extend(own.iter().map(|it| definition_row(app, it)));
+        if headed {
+            rows.push((String::new(), None));
+            rows.push(("Global".to_string(), None));
+        }
+        rows.extend(global.iter().map(|it| definition_row(app, it)));
+        return rows;
     }
 
     // Everything else — the Harness tab and the definition form — asks which tool, as whom. No
@@ -1258,6 +1364,27 @@ pub fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String
             HarnessChoice::AgentDefinition(_) => None,
         })
         .collect()
+}
+
+/// One definition on the Agents tab: its name, then what it runs on — the question the tab does
+/// not ask again.
+fn definition_row(
+    app: &AppState,
+    it: &ubiq_proto::messages::AgentDefinition,
+) -> (String, Option<Target>) {
+    let mut parts = vec![harness_label(app, &it.agent_type).to_string()];
+    parts.extend(it.model.clone().filter(|model| !model.is_empty()));
+    parts.extend(it.thinking.clone().filter(|level| !level.is_empty()));
+    // A project's own setup says so in the row: the same name may mean a different definition in
+    // the next project, and "visible only in the project it was created in" is only readable if
+    // the row admits which one it is.
+    if it.project.is_some() {
+        parts.push("this project".to_string());
+    }
+    (
+        format!("{} \u{2014} {}", it.id, parts.join(" \u{b7} ")),
+        Some(Target::AgentDefinition(it.id.clone())),
+    )
 }
 
 /// A harness and the identity it runs as — the pair the first row offers, and the one thing the

@@ -2456,7 +2456,7 @@ fn the_dialog_start_sends_a_start_conversation_and_closes_the_form(cx: &mut Test
         .window
         .update(cx, |_, window, cx| {
             fixture.state.update(cx, |state, cx| {
-                state.open_new_agent(window, cx);
+                state.open_new_agent(Default::default(), window, cx);
                 state.pick_new_agent_target(
                     ubiq::state::new_agent::Target::Harness {
                         agent_type: "claude-code".to_string(),
@@ -2487,4 +2487,182 @@ fn the_dialog_start_sends_a_start_conversation_and_closes_the_form(cx: &mut Test
         matches!(message, Message::StartConversation { agent_id: id, .. } if id == agent_id)
     });
     assert!(started, "Start must put a `StartConversation` on the bus");
+}
+
+/// The dialog's initial prompt is the first user turn: nothing goes out with the start, and the
+/// moment the conversation exists it is sent — the held preamble folded in front of it — so the
+/// agent begins working without the user typing anything else.
+#[gpui::test]
+fn an_initial_prompt_is_sent_once_the_conversation_exists(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![AgentTypeInfo {
+                id: "claude-code".to_string(),
+                label: "Claude Code".to_string(),
+                command: "claude".to_string(),
+                available: true,
+                chat: true,
+                acp: false,
+                modes: Vec::new(),
+                unattended_mode: None,
+                keeps_sessions: true,
+                quota: Default::default(),
+                shares_home: false,
+            }],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    let agent_id = fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent(
+                    ubiq::state::new_agent::NewAgentOpen {
+                        initial_prompt: Some("Fix the parser.".to_string()),
+                        ..Default::default()
+                    },
+                    window,
+                    cx,
+                );
+                state.pick_new_agent_target(
+                    ubiq::state::new_agent::Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.start_new_agent(cx)
+            })
+        })
+        .expect("the window is open")
+        .expect("Start answered with the id it minted");
+    cx.run_until_parked();
+    assert!(
+        !fixture
+            .said()
+            .iter()
+            .any(|message| matches!(message, Message::PromptAgent { .. })),
+        "no turn goes out beside the start: there is no conversation yet to say it to"
+    );
+
+    fixture.started(an_agent(agent_id), cx);
+    let prompts: Vec<String> = fixture
+        .said()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::PromptAgent { agent_id: id, text } if id == agent_id => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        prompts.len(),
+        1,
+        "the initial prompt is sent once: {prompts:?}"
+    );
+    assert!(prompts[0].ends_with("Fix the parser."), "{}", prompts[0]);
+    assert!(
+        prompts[0].contains("SUBAGENTS"),
+        "the held preamble is folded in front of it: {}",
+        prompts[0]
+    );
+}
+
+/// T-320: *Assign to an agent* ends in a Start that links the agent to the task, names it by the
+/// task's key and sends the assignment prompt — the rename before the prompt, so the host's own
+/// naming pass never runs over it.
+#[gpui::test]
+fn assigning_a_task_links_names_and_briefs_the_agent(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![an_acp_harness("claude-code", "Claude Code", false)],
+        },
+    );
+    let task_id = ubiq_proto::ids::TaskId::generate();
+    let now = Utc::now();
+    fixture.host.send(
+        To::Everyone,
+        Message::TaskChanged {
+            project_id: fixture.project,
+            task: ubiq_proto::work::TaskRecord {
+                id: task_id,
+                session: None,
+                status: ubiq_proto::work::Status::Ready,
+                priority: ubiq_proto::work::Priority::Normal,
+                shape: None,
+                kind: None,
+                level: None,
+                parent: None,
+                references: Vec::new(),
+                prerequisites: Vec::new(),
+                attachments: Vec::new(),
+                complexity: None,
+                key: Some("T-9".to_string()),
+                link: None,
+                assigned_to: None,
+                labels: Vec::new(),
+                colour: None,
+                title: "Fix the parser".to_string(),
+                description: String::new(),
+                steps: Vec::new(),
+                comments: Vec::new(),
+                created_at: now,
+                updated_at: now,
+            },
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    let agent_id = fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.assign_task_to_agent(task_id, window, cx);
+                state.pick_new_agent_target(
+                    ubiq::state::new_agent::Target::Harness {
+                        agent_type: "claude-code".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.start_new_agent(cx)
+            })
+        })
+        .expect("the window is open")
+        .expect("Start answered with the id it minted");
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.started(an_agent(agent_id), cx);
+    let said = fixture.said();
+    let assigned = said.iter().position(|message| {
+        matches!(message, Message::AssignAgent { agent_id: id, task_id: Some(task), .. }
+            if *id == agent_id && *task == task_id)
+    });
+    let renamed = said.iter().position(|message| {
+        matches!(message, Message::RenameConversation { agent_id: id, name }
+            if *id == agent_id && name == "T-9")
+    });
+    let prompted = said.iter().position(|message| {
+        matches!(message, Message::PromptAgent { agent_id: id, text }
+            if *id == agent_id
+                && text.contains("Start working on task T-9.")
+                && text.contains("\"in progress\""))
+    });
+    assert!(assigned.is_some(), "the agent was never linked: {said:?}");
+    let (Some(renamed), Some(prompted)) = (renamed, prompted) else {
+        panic!("not renamed or not briefed: {said:?}");
+    };
+    assert!(
+        renamed < prompted,
+        "the rename has to precede the first turn"
+    );
 }

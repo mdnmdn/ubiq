@@ -203,7 +203,7 @@ impl AppState {
     ) {
         self.pending_chat_attach = Some(id);
         self.sink.messages.pending_attach = false;
-        self.open_new_agent(window, cx);
+        self.open_new_agent(Default::default(), window, cx);
     }
 
     /// One row of a chat tab's control, clicked.

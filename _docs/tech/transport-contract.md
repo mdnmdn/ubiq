@@ -1897,7 +1897,7 @@ Forty-seven records travel inside payloads.
 | `McpDraftInfo` | `label`, `server` (a `CatalogMcp`), `params[]` |
 | `RegistryMcpInfo` | `name`, `title?`, `description?`, `version?`, `repository?`, `options[]` (`McpDraftInfo`) |
 | `SkillAdd` | one of: `Link{path, id?}`, `Folder{path}`, `Remote{source, path, id?}` |
-| `AgentDefinition` | `id`, `description?`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps`, `skills`, `grants`, `mission_assistant?`, `mission_coordinator`, `mission_worker`, `disabled`, `project?` |
+| `AgentDefinition` | `id`, `description?`, `agent_type`, `account?`, `model?`, `mode?`, `thinking?`, `max_subagents?`, `prompt?`, `mcps`, `skills`, `grants`, `mission_assistant?`, `tags`, `disabled`, `project?` |
 | `PermissionOption` | `option_id`, `name`, `kind` |
 | `CliDir` | `path`, `exists`, `on_path` |
 | `PlanEntry` | `content`, `priority`, `status` |
@@ -2372,7 +2372,8 @@ replace-by-default rule crossing the bus intact.
 
 **Three defaults exist before anyone writes one.** A config root holding no definition at all is
 seeded, once, with `Coordinator`, `Ubiq helper` and `Worker` — the roles Ubiq's own MCP servers are
-split along — pinned to whichever harness this machine has. A root that holds one is left alone,
+split along — pinned to whichever harness this machine has. `Coordinator` carries the tags
+`coordinator` and `planner`, `Worker` carries `worker`, and `Ubiq helper` carries none. A root that holds one is left alone,
 so deleting back to nothing is not an invitation to write them again.
 
 **No harness, no new definition.** With no harness binary found and no command override set there
@@ -2380,12 +2381,18 @@ is nothing a definition could name, so `SaveAgentDefinition` is refused for an i
 exist yet. Editing one that does is not refused: a machine that has lost its harness must still be
 able to repair what it wrote.
 
-**The two role flags re-assert their MCP servers on save.** `mission_coordinator` implies
-`ubiq-mission`, `ubiq-plan`, `manage-ubiq-tasks` and `ubiq-kb`; `mission_worker` implies
+**Tags name what a definition is for.** `tags` is a list of free strings; the standard ones are
+`coordinator`, `planner` and `worker`, and any other is a custom label. A child definition's
+non-empty `tags` replace its parent's. The two legacy boolean keys `mission_coordinator` and
+`mission_worker` are still read from a stored profile and folded into the `coordinator` and `worker`
+tags, and are never written back.
+
+**The `coordinator` and `worker` tags re-assert their MCP servers on save.** `coordinator` implies
+`ubiq-mission`, `ubiq-plan`, `manage-ubiq-tasks` and `ubiq-kb`; `worker` implies
 `use-mission`, `use-task`, `project-info` and `ubiq-kb`. The host merges the implied set back into
 `mcps` on every save, whatever arrived, because a coordinator without a coordinator's servers is
-not a coordinator. `disabled` is the third flag and the simplest: a disabled definition is listed
-and editable, and offered nowhere a run is started from.
+not a coordinator. `planner` implies nothing. `disabled` is the one remaining flag and the simplest:
+a disabled definition is listed and editable, and offered nowhere a run is started from.
 
 **`description` is written for another agent, not for the host.** It is free-form prose — what this
 setup is for and which MCP servers it carries — and nothing in `crates/ubiq-host` reads it to

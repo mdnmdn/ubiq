@@ -74,7 +74,7 @@ pub const COORDINATOR_MCPS: &[&str] = &[UBIQ_MISSION, UBIQ_PLAN, MANAGE_UBIQ_TAS
 /// task servers, what project it is working in, and the knowledge base.
 pub const WORKER_MCPS: &[&str] = &[USE_MISSION, USE_TASK, PROJECT_INFO, UBIQ_KB];
 
-/// The servers the two role flags imply between them, in catalogue order and without repeats —
+/// The servers the two role tags (`coordinator`, `worker`) imply between them, in catalogue order and without repeats —
 /// a definition carrying both roles gets both sets, and `ubiq-kb` only once.
 pub fn role_mcps(coordinator: bool, worker: bool) -> Vec<String> {
     let mut named: Vec<String> = Vec::new();

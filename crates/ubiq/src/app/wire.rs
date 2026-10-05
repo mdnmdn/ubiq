@@ -2123,7 +2123,7 @@ impl AppState {
                     // other mode (`T-266`, `T-275`).
                     (None, false, false) => self.reveal_agent_for_mode(id, cx),
                 }
-                // A launch composed for a mission owes one assignment, parked until there is a
+                // A launch composed for a mission, or a task assignment's Start, owes one assignment, parked until there is a
                 // `WorkAgent` to assign — see `WorkbenchState::agent_assignments`. Spent here,
                 // once: an agent reassigned later is the user's own move.
                 if let Some((project, task)) = self.workbench.agent_assignments.remove(&id) {
@@ -2132,6 +2132,24 @@ impl AppState {
                         agent_id: id,
                         task_id: Some(task),
                     });
+                }
+                // A task assignment's name — the task's key. Before the initial prompt: a
+                // conversation renamed before its opening reply is one the host's naming pass
+                // leaves alone.
+                if let Some(name) = self.workbench.agent_names.remove(&id) {
+                    self.bus
+                        .send(Message::RenameConversation { agent_id: id, name });
+                }
+                // The New agent modal's initial prompt, parked by `start_new_agent` until there
+                // was a conversation to say it to. Spent once, like the assignment above.
+                if let Some(text) = self.workbench.agent_initial_prompts.remove(&id) {
+                    match accepts_input {
+                        true => self.send_prompt(id, text),
+                        false => tracing::warn!(
+                            "conversation {id}: the harness takes no input, so the initial \
+                             prompt was not sent"
+                        ),
+                    }
                 }
                 self.settle_window_layout(false, cx);
                 self.refill_columns = true;

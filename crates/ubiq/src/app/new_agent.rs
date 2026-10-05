@@ -7,9 +7,11 @@
 
 use super::*;
 use crate::state::new_agent::{
-    NewAgentForm, NewAgentTab, OpenList, Purpose, TASK_ASSIGN_MCPS, Target, fold_preamble,
-    task_assignment_prompt,
+    NewAgentForm, NewAgentOpen, NewAgentTab, OpenList, Purpose, TASK_ASSIGN_MCPS, Target,
+    fold_preamble, task_assignment_prompt, task_feedback_prefix,
 };
+use crate::state::prefs::LastStart;
+use ubiq_proto::messages::{TAG_COORDINATOR, TAG_WORKER};
 
 impl AppState {
     /// The form on screen, whichever raised it. The New agent modal is painted over the settings
@@ -39,11 +41,27 @@ impl AppState {
     /// through the catalogue the pick asks for — the model and the level with it; the mode and the
     /// ceiling are read back on top, because the host remembers neither. A last start naming a
     /// harness this machine no longer has, or a definition since deleted, answers nothing rather than
-    /// opening the form on something that would fail as a spawn.
-    pub fn open_new_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.workbench.new_agent = Some(NewAgentForm::new(Purpose::Start));
+    /// opening the form on something that would fail as a spawn. The last start is this project's
+    /// own where it has one, the machine-wide one where it does not.
+    ///
+    /// `open` narrows and short-cuts it ([`NewAgentOpen`]): with tags, only definitions carrying
+    /// one are offered and the Harness tab is gone; with `autostart`, a target that resolves is
+    /// started at once and the dialog never shows — it shows only when nothing resolves.
+    pub fn open_new_agent(
+        &mut self,
+        open: NewAgentOpen,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut form = NewAgentForm::new(Purpose::Start);
+        form.tag_filter = open.tags.unwrap_or_default();
+        self.workbench.new_agent = Some(form);
         self.set_new_agent_prompt("", window, cx);
+        let initial = open.initial_prompt.unwrap_or_default();
+        self.set_new_agent_initial_prompt(&initial, window, cx);
         self.set_new_agent_description("", window, cx);
+        self.new_agent_tag_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
         self.bus.send(Message::ListAgentTypes);
         self.bus.send(Message::ListAccounts);
         self.bus.send(Message::ListAgentDefinitions);
@@ -54,7 +72,9 @@ impl AppState {
         self.bus.send(Message::ListMcps);
         // The skills and catalog servers the two checklists offer, from both layers.
         self.ask_catalog_for_form(cx);
-        if let Some(target) = self.last_start_target() {
+        let resolved = self.last_start_target(cx);
+        let resolved_any = resolved.is_some();
+        if let Some((target, last)) = resolved {
             // The form opens on the tab that asks the question the last start answered: seeding a
             // harness onto the Agents tab would leave its dropdown reading "choose an agent" with
             // the answer sitting under the other tab.
@@ -65,17 +85,26 @@ impl AppState {
                 };
             }
             self.pick_new_agent_target(target, window, cx);
-            let last = self.workbench.last_start.clone();
             if let (Some(last), Some(form)) = (last, self.new_agent_form_mut()) {
                 if last.mode.is_some() {
                     form.mode = last.mode;
                 }
                 form.max_subagents = last.max_subagents;
             }
+        } else if let Some(form) = self.workbench.new_agent.as_mut()
+            && !form.tag_filter.is_empty()
+        {
+            form.tab = NewAgentTab::Agents;
+        }
+        // Started without a dialog. A start that is refused puts the form back, so the dialog is
+        // what the user sees then, exactly as when nothing resolved at all.
+        if open.autostart && resolved_any && self.start_new_agent(cx).is_some() {
+            cx.notify();
+            return;
         }
         // The keyboard goes where the typing goes. It also puts the modal on the focus path, which
         // is what lets ⌘⏎ confirm the form from inside the field — see `ui::new_agent::confirmable`.
-        let prompt = self.new_agent_prompt.read(cx).focus_handle(cx);
+        let prompt = self.new_agent_rest_focus(cx);
         window.focus(&prompt, cx);
         cx.notify();
     }
@@ -93,33 +122,79 @@ impl AppState {
     /// Silently does nothing for a task the project no longer holds — the button that reaches
     /// this is drawn from a `TaskRecord` already in hand, so that is a race with a delete rather
     /// than a caller's mistake.
+    ///
+    /// **Narrowed to the task-fit definitions** — those tagged `coordinator` or `worker` (T-320) —
+    /// and the Start it ends in links the agent to the task and names it by the task's key: see
+    /// [`Self::start_new_agent`].
     pub fn assign_task_to_agent(
         &mut self,
         task_id: TaskId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(label) = self
-            .work(cx)
-            .and_then(|work| work.task(task_id))
-            .map(|task| task.key.clone().unwrap_or_else(|| task_id.to_string()))
-        else {
+        let tags = vec![TAG_COORDINATOR.to_string(), TAG_WORKER.to_string()];
+        self.prefill_task_assignment(task_id, Some(tags), None, window, cx);
+    }
+
+    /// The task panel's *Feedback to an agent* when nobody linked can take it: the assignment
+    /// dialog, its opening prompt followed by the review line for the user to finish.
+    pub fn assign_task_with_feedback(
+        &mut self,
+        task_id: TaskId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(label) = self.task_label(task_id, cx) else {
             return;
         };
+        let tags = vec![TAG_COORDINATOR.to_string(), TAG_WORKER.to_string()];
+        let suffix = format!("\n\n{}", task_feedback_prefix(&label));
+        self.prefill_task_assignment(task_id, Some(tags), Some(suffix), window, cx);
+    }
+
+    /// The task's label in a prompt: its key, else its id — an agent has to be able to find it.
+    fn task_label(&self, task_id: TaskId, cx: &App) -> Option<String> {
+        self.work(cx)
+            .and_then(|work| work.task(task_id))
+            .map(|task| task.key.clone().unwrap_or_else(|| task_id.to_string()))
+    }
+
+    /// The shared pre-fill behind [`Self::assign_task_to_agent`] and the mission's *Any agent*
+    /// (which passes no tag filter). `suffix` is appended to the composed opening prompt.
+    pub(super) fn prefill_task_assignment(
+        &mut self,
+        task_id: TaskId,
+        tags: Option<Vec<String>>,
+        suffix: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(label) = self.task_label(task_id, cx) else {
+            return;
+        };
+        let suffix_text = suffix.unwrap_or_default();
+        let prompt = format!("{}{suffix_text}", task_assignment_prompt(&label, true, false));
         self.aim_start(NewAgentSurface::Chat, cx);
-        self.open_new_agent(window, cx);
+        self.open_new_agent(
+            NewAgentOpen {
+                tags,
+                autostart: false,
+                initial_prompt: Some(prompt),
+            },
+            window,
+            cx,
+        );
         if let Some(form) = self.new_agent_form_mut() {
             form.for_task = Some(task_id);
             form.ask_for_feedback = true;
             form.plan_mode = false;
+            form.prompt_suffix = suffix_text;
             for mcp in TASK_ASSIGN_MCPS {
                 if !form.mcps.iter().any(|it| it == mcp) {
                     form.mcps.push(mcp.to_string());
                 }
             }
         }
-        let prompt = task_assignment_prompt(&label, true, false);
-        self.set_new_agent_prompt(&prompt, window, cx);
     }
 
     /// Flip the task assignment's "ask for feedback" checkbox, and recompose the opening prompt
@@ -153,6 +228,7 @@ impl AppState {
             return;
         };
         let (ask_for_feedback, plan_mode) = (form.ask_for_feedback, form.plan_mode);
+        let suffix = form.prompt_suffix.clone();
         let Some(label) = self
             .work(cx)
             .and_then(|work| work.task(task_id))
@@ -160,25 +236,73 @@ impl AppState {
         else {
             return;
         };
-        let prompt = task_assignment_prompt(&label, ask_for_feedback, plan_mode);
-        self.set_new_agent_prompt(&prompt, window, cx);
+        let prompt = format!(
+            "{}{suffix}",
+            task_assignment_prompt(&label, ask_for_feedback, plan_mode)
+        );
+        self.set_new_agent_initial_prompt(&prompt, window, cx);
     }
 
-    /// The target the last start would be, where it still resolves to something startable.
+    /// The target the form opens on, and the remembered start it came from when it came from one.
+    ///
+    /// The last start in this project, else the machine-wide one, where it still resolves to
+    /// something startable and passes the form's tag filter. A form narrowed to tags offers no
+    /// bare harness, so when the remembered start is not a definition it passes the first
+    /// definition that does — with no remembered start behind it, so no mode or ceiling either.
+    fn last_start_target(&self, cx: &App) -> Option<(Target, Option<LastStart>)> {
+        let filter = self
+            .workbench
+            .new_agent
+            .as_ref()
+            .map(|form| form.tag_filter.clone())
+            .unwrap_or_default();
+        let scope = self.new_agent_scope(cx);
+        let last = scope
+            .and_then(|project| {
+                self.workbench
+                    .last_start_by_project
+                    .get(&project.to_string())
+            })
+            .or(self.workbench.last_start.as_ref());
+        let remembered = last.and_then(|last| {
+            self.remembered_target(last, scope, &filter)
+                .map(|target| (target, Some(last.clone())))
+        });
+        if remembered.is_some() || filter.is_empty() {
+            return remembered;
+        }
+        self.workbench
+            .settings
+            .startable_definitions_in(scope)
+            .into_iter()
+            .find(|it| it.has_any_tag(&filter))
+            .map(|it| (Target::AgentDefinition(it.id), None))
+    }
+
+    /// What one remembered start resolves to in `scope`, under `filter`.
     ///
     /// A definition wins over the pair it was started from: it is the more specific answer, and it is
-    /// what the user picked.
-    fn last_start_target(&self) -> Option<Target> {
-        let last = self.workbench.last_start.as_ref()?;
+    /// what the user picked. It has to be the same definition — found in the root it was started
+    /// from, since a project's `review` and the global `review` are two setups — and still on.
+    fn remembered_target(
+        &self,
+        last: &LastStart,
+        scope: Option<ProjectId>,
+        filter: &[String],
+    ) -> Option<Target> {
         if let Some(definition) = &last.definition
-            && self
+            && let Some(found) = self
                 .workbench
                 .settings
-                .definitions
-                .iter()
-                .any(|it| it.id == *definition)
+                .startable_definitions_in(scope)
+                .into_iter()
+                .find(|it| it.id == *definition && it.project == last.definition_project)
+            && (filter.is_empty() || found.has_any_tag(filter))
         {
             return Some(Target::AgentDefinition(definition.clone()));
+        }
+        if !filter.is_empty() {
+            return None;
         }
         let harness = self.workbench.agent_types.iter().find(|it| {
             it.id == last.agent_type
@@ -276,12 +400,21 @@ impl AppState {
         // move the form to the other. A customization belongs to the answer it was made against,
         // so it goes with the answer.
         let tab = form.tab;
+        // How the form was opened is not part of any answer either.
+        let tag_filter = form.tag_filter.clone();
+        // Nor is the task it was raised for: a task assignment keeps its task, its two checkboxes
+        // and the servers it starts with whichever target is picked — dropping them is a Start
+        // that never links the agent to the card (T-320), the reason `set_new_agent_tab` keeps
+        // them too.
+        let for_task = form.for_task;
+        let (ask_for_feedback, plan_mode) = (form.ask_for_feedback, form.plan_mode);
         match (&target, definition) {
             (_, Some(definition)) => {
                 let models = std::mem::take(&mut form.models);
                 *form = NewAgentForm {
                     models,
                     tab,
+                    tag_filter,
                     ..NewAgentForm::from_definition(&definition, purpose)
                 };
             }
@@ -311,12 +444,25 @@ impl AppState {
                     agent_type,
                     account,
                     tab,
+                    tag_filter,
                     ..NewAgentForm::new(purpose)
                 };
             }
             // A definition the host has since dropped: the row is gone by the next answer, and until
             // then picking it answers nothing rather than starting something unnamed.
             (Target::AgentDefinition(_), None) => return,
+        }
+        if for_task.is_some()
+            && let Some(form) = self.new_agent_form_mut()
+        {
+            form.for_task = for_task;
+            form.ask_for_feedback = ask_for_feedback;
+            form.plan_mode = plan_mode;
+            for mcp in TASK_ASSIGN_MCPS {
+                if !form.mcps.iter().any(|it| it == mcp) {
+                    form.mcps.push(mcp.to_string());
+                }
+            }
         }
         let prompt = self.new_agent_form().map(|it| it.prompt.clone());
         if let Some(prompt) = prompt {
@@ -453,19 +599,25 @@ impl AppState {
         cx.notify();
     }
 
-    /// Flip the **coordinator** role. The MCP servers it implies are ticked by the flag and shown
-    /// as such; the host re-asserts them on save, so nothing here writes them onto the checklist.
-    pub fn toggle_new_agent_mission_coordinator(&mut self, cx: &mut Context<Self>) {
+    /// Put one tag on the definition, or take it off. A role tag's MCP servers are ticked by the
+    /// tag and shown as such; the host re-asserts them on save, so nothing here writes them onto
+    /// the checklist.
+    pub fn toggle_new_agent_tag(&mut self, tag: String, cx: &mut Context<Self>) {
         if let Some(form) = self.new_agent_form_mut() {
-            form.mission_coordinator = !form.mission_coordinator;
+            form.toggle_tag(&tag);
         }
         cx.notify();
     }
 
-    /// Flip the **worker** role, on [`Self::toggle_new_agent_mission_coordinator`]'s terms.
-    pub fn toggle_new_agent_mission_worker(&mut self, cx: &mut Context<Self>) {
-        if let Some(form) = self.new_agent_form_mut() {
-            form.mission_worker = !form.mission_worker;
+    /// Add the tag typed in the tag field, and clear the field.
+    pub fn add_new_agent_tag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let tag = self.new_agent_tag_input.read(cx).value().to_string();
+        let Some(form) = self.new_agent_form_mut() else {
+            return;
+        };
+        if form.add_tag(&tag) {
+            self.new_agent_tag_input
+                .update(cx, |state, cx| state.set_value("", window, cx));
         }
         cx.notify();
     }
@@ -493,9 +645,11 @@ impl AppState {
         let Some(form) = self.workbench.new_agent.as_mut() else {
             return;
         };
-        if form.tab == tab {
+        // A form narrowed to tags offers definitions only: there is no Harness tab to move to.
+        if form.tab == tab || (!form.tag_filter.is_empty() && tab == NewAgentTab::Harness) {
             return;
         }
+        let tag_filter = std::mem::take(&mut form.tag_filter);
         let models = std::mem::take(&mut form.models);
         let purpose = form.purpose;
         // What the *question* answered is dropped; what the form was raised for is not. A task
@@ -515,13 +669,16 @@ impl AppState {
             ask_for_feedback,
             plan_mode,
             mcps,
+            tag_filter,
             ..NewAgentForm::new(purpose)
         };
-        match for_task.is_some() {
-            // The opening prompt is recomposed from the task and the checkboxes, never patched.
-            true => self.resync_task_assignment_prompt(window, cx),
-            false => self.set_new_agent_prompt("", window, cx),
+        // The initial prompt is the user's own words for this run, not part of either tab's
+        // answer, so it stays — except a task assignment's, which is recomposed from the task and
+        // the checkboxes, never patched.
+        if for_task.is_some() {
+            self.resync_task_assignment_prompt(window, cx);
         }
+        self.set_new_agent_prompt("", window, cx);
         self.set_new_agent_description("", window, cx);
         self.close_new_agent_list(window, cx);
         cx.notify();
@@ -583,13 +740,13 @@ impl AppState {
     /// **Giving it back is not a nicety.** The filter field every list carries holds the keyboard
     /// while the list is open, and it is unmounted with the list — a focus handle on an element
     /// nothing draws any more is a keyboard nobody owns, and the window's own keys never arrive
-    /// at it: Escape stops closing the form and ⌘⏎ stops starting it. The opening prompt is the
+    /// at it: Escape stops closing the form and ⌘⏎ stops starting it. The prompt field is the
     /// form's keyboard rest, the same one [`Self::open_new_agent`] opens on.
     fn close_new_agent_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(form) = self.new_agent_form_mut() {
             form.open = None;
         }
-        let prompt = self.new_agent_prompt.read(cx).focus_handle(cx);
+        let prompt = self.new_agent_rest_focus(cx);
         window.focus(&prompt, cx);
         cx.notify();
     }
@@ -604,7 +761,6 @@ impl AppState {
         &mut self,
         cx: &mut Context<Self>,
     ) -> Option<(NewAgentForm, ProjectId, Option<String>)> {
-        let prompt = self.new_agent_prompt.read(cx).value().to_string();
         // The Teams toolbar can aim a start at any project the window holds; every other way in
         // aims at the active one and says so by having no project field at all.
         //
@@ -616,8 +772,9 @@ impl AppState {
             .new_agent_project
             .filter(|id| self.projects.contains_key(id))
             .or_else(|| self.project(cx))?;
-        let mut form = self.workbench.new_agent.take()?;
-        form.prompt = prompt;
+        // `form.prompt` is the chosen definition's own agent prompt, seeded by the pick and never
+        // edited on a start — it is what the preamble folds.
+        let form = self.workbench.new_agent.take()?;
         let Some(target) = form.target.clone() else {
             // Nothing chosen: the button is drawn faint and does nothing, and this is its brace.
             self.workbench.new_agent = Some(form);
@@ -655,6 +812,12 @@ impl AppState {
     /// own" — the convention the host already reads `chosen_model` by — so a row left unanswered
     /// says nothing rather than naming a default the interface invented.
     pub fn start_new_agent(&mut self, cx: &mut Context<Self>) -> Option<AgentId> {
+        let initial = self
+            .new_agent_initial_prompt
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
         let (form, project_id, definition) = self.take_startable_new_agent(cx)?;
         let agent_id = AgentId::generate();
         self.bus.send(Message::StartConversation {
@@ -675,14 +838,38 @@ impl AppState {
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,
         });
-        // **No turn goes out here.** The ceiling and the opening prompt are held, and the
-        // composer's send path folds them into the first thing the user actually says — a
-        // transcript that opens on a directive the user never wrote reads as the conversation
-        // beginning with someone else's words. See `state::new_agent::fold_preamble`.
+        // **No turn goes out here.** The ceiling and the agent prompt are held, and the send path
+        // folds them into the first thing the user actually says — a transcript that opens on a
+        // directive the user never wrote reads as the conversation beginning with someone else's
+        // words. See `state::new_agent::fold_preamble`.
         if let Some(preamble) = form.preamble() {
             self.workbench.agent_preambles.insert(agent_id, preamble);
         }
+        // An initial prompt *is* the user's first turn. Parked until the conversation exists —
+        // the `ConversationStarted` arm sends it through `send_prompt`, so the preamble is folded
+        // in front of it and the transcript knows to take that front back off the echo.
+        if !initial.is_empty() {
+            self.workbench
+                .agent_initial_prompts
+                .insert(agent_id, initial);
+        }
+        // A task assignment links the agent to its task and names it after the card — both owed
+        // until `ConversationStarted`, when there is a `WorkAgent` to assign and to rename (T-320).
+        if let Some(task_id) = form.for_task {
+            self.workbench
+                .agent_assignments
+                .insert(agent_id, (project_id, task_id));
+            if let Some(name) = self
+                .projects
+                .get(&project_id)
+                .and_then(|open| open.work.task(task_id))
+                .map(task_agent_name)
+            {
+                self.workbench.agent_names.insert(agent_id, name);
+            }
+        }
         self.remember_harness_choice(
+            project_id,
             &form.agent_type.clone(),
             form.account.as_deref(),
             definition.as_deref(),
@@ -703,7 +890,7 @@ impl AppState {
     /// there is no first turn to fold anything in front of. The opening prompt and the subagent
     /// ceiling the form carries are simply not said.
     pub fn start_new_agent_in_terminal(&mut self, cx: &mut Context<Self>) {
-        let Some((form, _project_id, definition)) = self.take_startable_new_agent(cx) else {
+        let Some((form, project_id, definition)) = self.take_startable_new_agent(cx) else {
             return;
         };
         let picks = AgentPicks {
@@ -724,6 +911,7 @@ impl AppState {
         // that asked for this one — see [`Self::clear_aim`].
         self.clear_aim();
         self.remember_harness_choice(
+            project_id,
             &form.agent_type.clone(),
             form.account.as_deref(),
             definition.as_deref(),
@@ -858,7 +1046,12 @@ impl AppState {
         let Some(form) = self.new_agent_form_mut() else {
             return;
         };
-        form.prompt = prompt;
+        // Only the definition form draws the agent-prompt field. A start form saving its bare
+        // harness has none on screen, so it writes what it holds — the initial prompt is a turn
+        // for this one run, not something the definition remembers.
+        if form.purpose == Purpose::AgentDefinition {
+            form.prompt = prompt;
+        }
         form.description = description;
         if id.is_empty() || form.agent_type.is_empty() {
             return;
@@ -917,8 +1110,8 @@ impl AppState {
         }
     }
 
-    /// Seed the shared opening-prompt field. Its own method because three callers need it and
-    /// each is somewhere the field itself is not in scope.
+    /// Seed the definition form's agent-prompt field. Its own method because several callers
+    /// need it and each is somewhere the field itself is not in scope.
     pub(super) fn set_new_agent_prompt(
         &mut self,
         text: &str,
@@ -927,6 +1120,27 @@ impl AppState {
     ) {
         let input = self.new_agent_prompt.clone();
         input.update(cx, |state, cx| state.set_value(text, window, cx));
+    }
+
+    /// Seed the New agent modal's initial-prompt field, on [`Self::set_new_agent_prompt`]'s
+    /// footing — a task assignment and a mission spawn pre-fill it with what to start on.
+    pub(super) fn set_new_agent_initial_prompt(
+        &mut self,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = self.new_agent_initial_prompt.clone();
+        input.update(cx, |state, cx| state.set_value(text, window, cx));
+    }
+
+    /// Where the form's keyboard rests: the field the user types the words into — the agent
+    /// prompt on a definition form, the initial prompt on a start.
+    fn new_agent_rest_focus(&self, cx: &App) -> gpui::FocusHandle {
+        match self.new_agent_form().map(|form| form.purpose) {
+            Some(Purpose::AgentDefinition) => self.new_agent_prompt.read(cx).focus_handle(cx),
+            _ => self.new_agent_initial_prompt.read(cx).focus_handle(cx),
+        }
     }
 
     /// Seed the definition form's description field, on [`Self::set_new_agent_prompt`]'s own
@@ -1061,6 +1275,17 @@ impl AppState {
     ) {
         self.aim_start(NewAgentSurface::Agents, cx);
         self.new_agent_project = project;
-        self.open_new_agent(window, cx);
+        self.open_new_agent(NewAgentOpen::default(), window, cx);
     }
+}
+
+/// What an agent assigned to `task` is called: the task's key (`T-320`), else its title cut short
+/// — never an id, since this is the agent's label on every surface.
+pub(super) fn task_agent_name(task: &ubiq_proto::work::TaskRecord) -> String {
+    task.key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| super::board::stand_in_title(&task.title))
 }
