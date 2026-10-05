@@ -1,6 +1,6 @@
-//! The chat tab's own head: T-102's one first line, identical to the agents column's — the
-//! three-dots menu, the agent-switch chevron, and the current-action chip flush right — with the
-//! chevron this surface alone still has an equivalent control for.
+//! The chat panel's own head: T-102's one first line — the three-dots menu, the agent-switch
+//! chevron, the focus button, and the current-action chip flush right. An agents column draws the
+//! same row without the chevron, its tab strip being what switches agents there.
 //!
 //! **It is a bare chevron.** What the tab is showing is already said twice on this row — by the
 //! dock's tab and by the hexagon it now wears (T-99) — so the control that changes it says only
@@ -24,39 +24,74 @@
 //! this draws the chevron alone rather than call it with nothing to say.
 
 use crate::app::AppState;
-use crate::state::ChatId;
 use crate::state::conversation::Conversation;
+use crate::state::{ChatHost, ChatId};
 use crate::theme;
 use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::Picker;
 use crate::ui::{handler, indexed};
-use gpui::{
-    Context, ElementId, Focusable, IntoElement, ParentElement, SharedString, Styled, Window, div,
-    px,
-};
+use gpui::{Context, ElementId, Focusable, IntoElement, ParentElement, Styled, Window, div, px};
 
-/// The row of controls above a chat tab's transcript.
+/// The row of controls above a chat panel's transcript.
+///
+/// **A column gets the same row without the chevron**: which agent it shows is its tab strip's
+/// to say, so only the menu, the focus button and the chip draw. A column with nothing attached
+/// draws no row at all — its body already says why.
 pub fn header(
     app: &AppState,
-    id: ChatId,
+    host: ChatHost,
     attached: Option<(&Conversation, usize)>,
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> impl IntoElement {
     let view = attached.map(|(_, slot)| ConversationView {
-        id: SharedString::from(format!("chat-{id}")),
+        id: super::view_id(host),
         slot,
         footer: true,
         composer: true,
         header: false,
     });
 
-    let chevron = start_control(app, id, window, cx).into_any_element();
+    let mut chevron = match host {
+        ChatHost::Tab(id) => Some(start_control(app, id, window, cx).into_any_element()),
+        ChatHost::Column(_) => None,
+    };
+    if attached.is_some() {
+        let focused = app.workbench.chat_focus == Some(host);
+        chevron = Some(
+            div()
+                .flex()
+                .items_center()
+                .gap_1p5()
+                .children(chevron)
+                .child(
+                    crate::ui::kit::icon_button_tip(
+                        ElementId::Name(format!("{}-focus-toggle", super::view_id(host)).into()),
+                        if focused {
+                            gpui_component::IconName::Minimize
+                        } else {
+                            gpui_component::IconName::Maximize
+                        },
+                        if focused {
+                            "Leave focus mode (\u{2318}\u{21e7}\u{23ce})"
+                        } else {
+                            "Focus this chat (\u{2318}\u{21e7}\u{23ce})"
+                        },
+                        true,
+                        cx.listener(move |this, _, window, cx| {
+                            this.toggle_chat_focus(host, window, cx)
+                        }),
+                    )
+                    .size(px(28.)),
+                )
+                .into_any_element(),
+        );
+    }
     match (attached, view.as_ref()) {
         (Some((conversation, _)), Some(view)) => {
-            conversation::lifecycle_header(app, conversation, view, Some(chevron), cx)
-                .into_any_element()
+            conversation::lifecycle_header(app, conversation, view, chevron, cx).into_any_element()
         }
+        (_, _) if matches!(host, ChatHost::Column(_)) => div().into_any_element(),
         // Nothing attached: the menu and the chip have nothing to read, so only the chevron that
         // starts or attaches something draws — same row height as the attached case, so nothing
         // moves when a pick lands.
@@ -68,7 +103,7 @@ pub fn header(
             .items_center()
             .border_b_1()
             .border_color(theme::border())
-            .child(chevron)
+            .children(chevron)
             .into_any_element(),
     }
 }

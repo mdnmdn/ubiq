@@ -224,6 +224,9 @@ pub struct ConverseOptions {
     /// The skills to make available, by catalog id. Unioned with the definition's own, the way
     /// the catalog MCPs above are; empty leaves the definition's list to the library untouched.
     pub skills: Vec<String>,
+    /// Extra folders this run may write when isolation is on, as typed (absolute or
+    /// `~`-prefixed). The launch's own; the definition's are read in `compose_run`.
+    pub extra_rw: Vec<String>,
 }
 
 /// A sign-in into an account's config home (`D194`) that has been prepared and not yet
@@ -703,6 +706,11 @@ impl Agents {
                     mission_coordinator: record.mission_coordinator.unwrap_or(false),
                     mission_worker: record.mission_worker.unwrap_or(false),
                     disabled: record.disabled.unwrap_or(false),
+                    grants: record
+                        .extra_rw
+                        .into_iter()
+                        .map(|path| Grant { path, write: true })
+                        .collect(),
                     project,
                 })
             })
@@ -748,6 +756,18 @@ impl Agents {
     fn definition_mcps(&self, id: &str, project: Option<ProjectId>) -> Option<Vec<String>> {
         self.definition_defaults(id, project)
             .and_then(|defaults| defaults.mcps)
+    }
+
+    /// The extra read-write folders a definition saved, with its `extends` chain folded in and
+    /// resolved through the run's scope exactly as [`Self::definition_mcps`] is.
+    fn definition_extra_rw(&self, id: &str, project: Option<ProjectId>) -> Vec<String> {
+        let global = self.definition_store();
+        let scoped = project.map(|project| self.project_definition_store(project));
+        let store =
+            ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore));
+        agent_manager::profile::resolve_flattened(&store, id)
+            .map(|record| record.extra_rw)
+            .unwrap_or_default()
     }
 
     /// What a definition saved under `defaults.skills`, read exactly as [`Self::definition_mcps`]
@@ -820,6 +840,12 @@ impl Agents {
             mission_coordinator: definition.mission_coordinator.then_some(true),
             mission_worker: definition.mission_worker.then_some(true),
             disabled: definition.disabled.then_some(true),
+            extra_rw: definition
+                .grants
+                .into_iter()
+                .filter(|grant| grant.write)
+                .map(|grant| grant.path)
+                .collect(),
             ..Default::default()
         };
         store
@@ -865,13 +891,17 @@ impl Agents {
         Ok(())
     }
 
-    /// Delete one of a project's own definitions, through the library's own
-    /// `FsProfileStore::delete` (rule 1: the store owns the on-disk shape). Only a project's: a
-    /// global definition has no delete. Refused when the project holds no definition of that id.
-    pub fn delete_definition(&self, id: &str, project: ProjectId) -> Result<()> {
-        self.project_definition_store(project)
+    /// Delete one definition from `project`'s root (the global root when `None`), through the
+    /// library's own `FsProfileStore::delete` (rule 1: the store owns the on-disk shape).
+    /// Refused when that root holds no definition of that id.
+    pub fn delete_definition(&self, id: &str, project: Option<ProjectId>) -> Result<()> {
+        let store = match project {
+            Some(project) => self.project_definition_store(project),
+            None => self.definition_store(),
+        };
+        store
             .delete(id)
-            .with_context(|| format!("deleting agent definition '{id}' of project {project}"))
+            .with_context(|| format!("deleting agent definition '{id}'"))
     }
 
     /// Whether this machine has a harness a definition could name at all — its binary found, or
@@ -948,6 +978,7 @@ impl Agents {
                 mission_worker: worker,
                 disabled: false,
                 project: None,
+                grants: Vec::new(),
             })
             .with_context(|| format!("writing the default agent definition '{id}'"))?;
         }
@@ -1235,10 +1266,23 @@ impl Agents {
         cwd: &Path,
         args: Vec<String>,
         io: IoModes,
-        options: ConverseOptions,
+        mut options: ConverseOptions,
     ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+
+        // The folders this run may write beyond the host-wide grants: the definition's own, read
+        // through the run's scope, then this launch's. Only a confined run has a policy to add to.
+        let extra_rw = if self.isolate {
+            let saved = options
+                .definition
+                .as_deref()
+                .map(|definition| self.definition_extra_rw(definition, options.project))
+                .unwrap_or_default();
+            union(saved, std::mem::take(&mut options.extra_rw))
+        } else {
+            Vec::new()
+        };
 
         // Which of Ubiq's own MCP servers this run gets, and — the reason this is here rather
         // than left to the library — which names still belong to `resolve`.
@@ -1454,6 +1498,7 @@ impl Agents {
         // both are settings a person set on this machine, and the library has no way to ask.
         let mut options = self.isolate_options();
         options.home = home_mode(&self.home);
+        add_rw(&mut options, &extra_rw);
         // The account's home — or, with none, the harness's own — is where the harness keeps
         // its login and its sessions; the policy grants the run's own scratch dir, not that.
         options.grant_config_home(harness.as_ref(), &spec.config);
@@ -1832,6 +1877,16 @@ fn home_mode(home: &AgentHome) -> isolate::HomeMode {
 /// The library grants absolute paths, and a person types `~/.cargo`. Expanding here rather than
 /// passing the token through keeps the grant correct under a *replaced* home too, where isol8
 /// would resolve `~` to the replacement and grant the wrong directory.
+/// Add `paths` (as typed, `~` allowed) to the policy's read-write set, once each.
+fn add_rw(options: &mut IsolateOptions, paths: &[String]) {
+    for path in paths {
+        let path = expand_home(path);
+        if !options.extra_rw.contains(&path) {
+            options.extra_rw.push(path);
+        }
+    }
+}
+
 fn expand_home(path: &str) -> PathBuf {
     match path.strip_prefix("~/") {
         Some(rest) => isolate::real_home().join(rest),
@@ -2238,6 +2293,46 @@ mod tests {
             agents.definition_mcps("review", None),
             Some(vec!["manage-ubiq-tasks".to_string()]),
             "a run in no project sees the global one"
+        );
+    }
+
+    /// A definition's extra folders survive a save and a read, a project's own shadow the global
+    /// ones only inside that project, and `add_rw` expands `~` and takes each path once.
+    #[test]
+    fn a_definitions_extra_folders_round_trip_shadow_and_merge_once() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let project = ProjectId::generate();
+        let grant = |path: &str| Grant {
+            path: path.to_string(),
+            write: true,
+        };
+        let info = |paths: &[&str], project: Option<ProjectId>| AgentDefinition {
+            grants: paths.iter().map(|path| grant(path)).collect(),
+            project,
+            ..a_definition("review")
+        };
+
+        agents.save_definition(info(&["/data/a"], None)).unwrap();
+        agents
+            .save_definition(info(&["~/b"], Some(project)))
+            .unwrap();
+
+        assert_eq!(agents.definitions().unwrap()[0].grants, vec![grant("/data/a")]);
+        assert_eq!(
+            agents.definition_extra_rw("review", Some(project)),
+            vec!["~/b".to_string()]
+        );
+        assert_eq!(
+            agents.definition_extra_rw("review", None),
+            vec!["/data/a".to_string()]
+        );
+
+        let mut options = IsolateOptions::new(root.path().join("isol8"));
+        add_rw(&mut options, &["~/b".into(), "/data/a".into(), "/data/a".into()]);
+        assert_eq!(
+            options.extra_rw,
+            vec![isolate::real_home().join("b"), PathBuf::from("/data/a")]
         );
     }
 
@@ -2726,9 +2821,13 @@ mod tests {
             .unwrap();
         assert!(agents.project_definitions(project).unwrap()[0].disabled);
 
-        assert!(agents.delete_definition("standard", project).is_err());
-        assert!(agents.delete_definition("../standard", project).is_err());
-        agents.delete_definition("standard copy", project).unwrap();
+        assert!(agents.delete_definition("standard", Some(project)).is_err());
+        assert!(agents
+            .delete_definition("../standard", Some(project))
+            .is_err());
+        agents
+            .delete_definition("standard copy", Some(project))
+            .unwrap();
         assert!(agents.project_definitions(project).unwrap().is_empty());
         assert_eq!(agents.definitions().unwrap().len(), 1, "the global stands");
     }
@@ -2751,6 +2850,7 @@ mod tests {
             mission_worker: false,
             disabled: false,
             project: None,
+            grants: Vec::new(),
         }
     }
 

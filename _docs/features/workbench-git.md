@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules with the repositories a project holds above them, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip of icon actions and the HEAD pill.
 read_when: you are changing the Git screen — its refs, history, change lists, commit box or diff — or the strip above it
-updated: 2026-09-29
-verified: 2026-09-29
+updated: 2026-10-05
+verified: 2026-10-05
 code_anchors: [crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/tests/git.rs]
 depends_on: [feat-workbench, tech-ui, tech-version-control]
 review_cycle: monthly
@@ -75,9 +75,11 @@ every write are that repository's only, never mixed with another's, and what bel
 before — its selection, its diff, its history cursor — is dropped. The choice is kept per project
 for the life of the window and is not saved.
 
-**The uncommitted row is the top row of the history.** What is not committed yet is selected the
-same way a commit is and is what the screen opens on; picking a commit points the panel beside it
-at that commit instead. The panel says what the log said and no more — a commit's own file list
+**The uncommitted row is the top row of the history, and it is there only while something is
+uncommitted.** With no changes the row is not drawn; otherwise it reads `Uncommitted changes (N)`.
+It is selected the same way a commit is and is what the screen opens on, and a click on it reveals
+the Changes panel — opening its region if that is shut, adding the panel and focusing its tab.
+Picking a commit points the panel beside it at that commit instead. The panel says what the log said and no more — a commit's own file list
 needs a log the git family does not carry.
 
 **The change lists are conflicted, staged and unstaged, each a collapsible section with its own
@@ -145,9 +147,10 @@ what the sidebar is opened for and the other four are long enough to push it off
 level of the local and the remote tree, the current branch sorts first, then `main`, `master`,
 `develop` and `dev` in that order, then everything else alphabetically — only a branch with no
 folder of its own is pinned this way, so `main` inside a folder stays where its folder puts it. A
-click on a branch reveals the commit list if it was put away; a double-click on a local or a
-remote-tracking branch row checks it out (the toolbar's own confirm rule applies), and on any other
-row scrolls the list to the commit it points at instead. A search field above the sidebar's sections narrows every one of
+single click on a local or a remote-tracking branch row jumps the history to that branch's tip,
+revealing the commit list if it was put away; a double-click checks it out (the toolbar's own
+confirm rule applies). A tag, stash or submodule row keeps its own click, which scrolls the list to
+the commit it points at. A search field above the sidebar's sections narrows every one of
 them — local branches, remotes, tags, stashes and submodules — to names that match, as it is typed;
 a section a search leaves empty is not drawn, and searching opens every folder the tree would
 otherwise keep shut, so a match is never left behind a twisty. The commit log pages

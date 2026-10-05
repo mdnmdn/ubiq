@@ -223,8 +223,24 @@ impl AppState {
         if let Some(agents) = self.agents_mut(cx) {
             agents.bench(agent);
         }
+        self.drop_stale_column_focus();
         self.refill_columns = true;
         cx.notify();
+    }
+
+    /// Leave focus mode when the column it points at is gone — benched, closed or ended — so a
+    /// column that is later given the same composer slot does not inherit it.
+    fn drop_stale_column_focus(&mut self) {
+        let Some(ChatHost::Column(slot)) = self.workbench.chat_focus else {
+            return;
+        };
+        let held = self
+            .active_seen
+            .and_then(|p| self.projects.get(&p))
+            .is_some_and(|open| open.agents.columns.iter().any(|c| c.slot == slot));
+        if !held {
+            self.workbench.chat_focus = None;
+        }
     }
 
     pub fn select_column_tab(&mut self, column: usize, tab: usize, cx: &mut Context<Self>) {
@@ -1721,6 +1737,7 @@ impl AppState {
             return;
         }
         self.refill_columns = false;
+        self.drop_stale_column_focus();
 
         // A slot no column holds is left alone: it is off screen, and the next column to be given
         // it is what fills it.

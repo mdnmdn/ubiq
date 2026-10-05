@@ -875,6 +875,10 @@ pub struct WorkbenchState {
     /// The conversation Delete asked to confirm — destructive and irreversible, so it is not fired
     /// on the click. `None` when no confirm is up.
     pub confirm_end_conversation: Option<AgentId>,
+    /// The chat panel shown in focus mode (a near full-window modal over the same pooled composer
+    /// slot) — a dock tab's or an agents column's. `None` when no chat is focused; only one at a
+    /// time.
+    pub chat_focus: Option<crate::state::ChatHost>,
     /// The pane a tab's Close asked to end — the harness is killed and its screen goes with it,
     /// which is irreversible, so it is not fired on the click. `None` when no confirm is up.
     ///
@@ -1034,6 +1038,7 @@ impl Default for WorkbenchState {
             conversation_menu: None,
             attachment_preview: None,
             confirm_end_conversation: None,
+            chat_focus: None,
             confirm_close_pane: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
@@ -1299,6 +1304,7 @@ mod tests {
             mission_worker: false,
             disabled: false,
             project: None,
+            grants: Vec::new(),
         }
     }
 

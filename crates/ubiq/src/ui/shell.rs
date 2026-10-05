@@ -69,6 +69,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // Both no-op when nothing is asking, so neither key is taken from anything else.
         .on_action(cx.listener(AppState::allow_permission))
         .on_action(cx.listener(AppState::reject_permission))
+        // ⌘⇧⏎ puts the chat panel holding the keyboard in focus mode, or takes it out.
+        .on_action(cx.listener(AppState::toggle_chat_focus_key))
         // ⌘⏎ is the search itself, whether the navigator is up or not.
         .on_action(cx.listener(|this, _: &SubmitSearch, window, cx| {
             this.close_navigator(cx);
@@ -397,6 +399,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::tasksrc::import_dialog(app, window, cx)),
         )
+        // A chat panel in focus mode: the panel's own conversation view, drawn near full-window.
+        .children(crate::ui::chat::focus_modal(app, window, cx))
         // The feedback modal, over the clone modal on the same terms: raised from the titlebar,
         // from anywhere, and over whatever is already on screen — which is the window it just
         // photographed.

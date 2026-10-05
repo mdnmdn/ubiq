@@ -970,6 +970,7 @@ fn a_definition(id: &str, project: Option<ProjectId>) -> ubiq_proto::messages::A
         mission_worker: false,
         disabled: false,
         project,
+        grants: Vec::new(),
     }
 }
 

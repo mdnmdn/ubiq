@@ -39,7 +39,7 @@ use crate::ui::kit::{
     status_dot,
 };
 use crate::ui::mission::panel::{mission_hex, phase_colour};
-use crate::ui::work::activity_colour;
+use crate::ui::conversation::ConversationView;
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let mut rows: Vec<AnyElement> = Vec::new();
@@ -80,6 +80,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
                     .child(note_row(work, session))
                     .children(members.into_iter().map(|agent| {
                         agent_row(
+                            app,
                             work.label(agent),
                             agent,
                             !agents.on_screen(agent.id),
@@ -210,7 +211,7 @@ fn missions_section(
     for (task, record) in missions {
         rows.push(mission_row(app, work, agents, task, record, cx));
         if agents.is_mission_expanded(task.id) {
-            rows.extend(mission_roster(work, agents, record, cx));
+            rows.extend(mission_roster(app, work, agents, record, cx));
         }
     }
     rows
@@ -377,6 +378,7 @@ fn mission_row(
 /// The mission's roster, drawn while its row is expanded — the same click [`agent_row`]'s own
 /// session members answer with, opening a column.
 fn mission_roster(
+    app: &AppState,
     work: &WorkProjection,
     agents: &AgentsView,
     mission: &MissionRecord,
@@ -399,6 +401,7 @@ fn mission_roster(
         .into_iter()
         .map(|agent| {
             agent_row(
+                app,
                 work.label(agent),
                 agent,
                 !agents.on_screen(agent.id),
@@ -544,6 +547,7 @@ fn note_row(work: &WorkProjection, session: &WorkSession) -> AnyElement {
 /// different things": the agent stays right here, under its session, and the mission is a fact
 /// about it rather than a second place it lives.
 fn agent_row(
+    app: &AppState,
     label: crate::state::work::AgentLabel,
     agent: &WorkAgent,
     benched: bool,
@@ -551,7 +555,11 @@ fn agent_row(
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let id = agent.id;
-    let colour = activity_colour(agent.activity);
+    // The one reading every other agent surface takes (the column's tab, the chat tab, the dock):
+    // the live conversation where this window holds one, the host's record where it does not.
+    let conversation = app.conversation(id, cx);
+    let status = crate::state::status::agent_status(agent, conversation);
+    let colour = crate::ui::teams::status::card_colour(status);
 
     div()
         .id(eid("agents-row", id))
@@ -564,7 +572,11 @@ fn agent_row(
         .gap_2()
         .cursor_pointer()
         .hover(|this| this.bg(theme::hover()))
-        .child(status_dot(colour, theme::pane_bg()))
+        .child(crate::ui::teams::status::status_mark(
+            status,
+            14.0,
+            eid("agents-row-mark", id),
+        ))
         // The title, then the identity faint beside it — capped so a long one never squeezes the
         // title out — and the standard agent tooltip on both.
         .child(elided_with(
@@ -590,13 +602,31 @@ fn agent_row(
             .max_w(relative(0.45))
         }))
         .children(mission.map(|(label, colour)| badge(&label, colour).into_any_element()))
-        // The one mark on the row that is about this window rather than about the agent: it is not
-        // on screen, and clicking the row is what puts it back.
-        .children(benched.then(|| badge("bench", theme::text_faint())))
         .child(
-            mono(agent.activity.label().to_lowercase(), colour)
+            mono(status.chip().to_lowercase(), colour)
                 .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
         )
+        // The same three-dots menu the agents column and the chat panel draw, so the verbs and
+        // their enablement are `lifecycle_menu_rows`'s. A record with no live conversation behind
+        // it has nothing to act on and draws none. The wrapper keeps a click on the menu from
+        // also revealing the agent.
+        .children(conversation.map(|conversation| {
+            div()
+                .id(eid("agents-row-menu", id))
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(crate::ui::conversation::lifecycle_menu(
+                    app,
+                    conversation,
+                    &ConversationView {
+                        id: gpui::SharedString::from(format!("agents-row-{id}")),
+                        slot: 0,
+                        footer: false,
+                        composer: false,
+                        header: false,
+                    },
+                    cx,
+                ))
+        }))
         .on_click(cx.listener(move |this, _, _, cx| this.reveal_agent(id, cx)))
         .into_any_element()
 }

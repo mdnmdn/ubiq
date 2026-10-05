@@ -31,7 +31,7 @@ use crate::theme;
 use crate::ui::kit::menu::{MENU_ANCHOR_UP, MODAL_MENU_LAYER};
 use crate::ui::kit::{
     Picker, PickerStyle, check_box, choice_pill, elided, field, ghost_button, hint_row, label_hint,
-    modal, primary_button, prompt_modal, section_label, slab,
+    modal, modal_note, primary_button, prompt_modal, removable_tag, section_label, slab,
 };
 use crate::ui::{eid, handler, indexed};
 
@@ -112,6 +112,9 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // is on screen behind it, which is the whole reason the prompt is worth reading.
     let named = !app.definition_id_input.read(cx).value().trim().is_empty();
     confirmable(div().child(modal), cx)
+        .when(form.policies, |this| {
+            this.child(policies_modal(app, &form, window, cx))
+        })
         .when(form.naming, |this| {
             this.child(prompt_modal(
                 "new-agent-name",
@@ -158,9 +161,9 @@ pub fn confirmable(element: gpui::Div, cx: &mut Context<AppState>) -> gpui::Div 
 /// the form is for on the right. Buttons are actions and belong together, rather than trailing the
 /// questions as two more rows of the body.
 ///
-/// `Custom policies` is still drawn faint and takes no click — the predisposition for something
-/// the host does not answer yet. `MCPs` beside it is live: it opens the checklist of servers Ubiq
-/// can inject, which the host does answer.
+/// `Custom policies` opens the extra-folders dialog and is live only while the host isolates
+/// agents; otherwise it is drawn faint with a tooltip saying why. `MCPs` beside it opens the
+/// checklist of servers Ubiq can inject.
 pub fn footer_row(app: &AppState, actions: AnyElement, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .flex()
@@ -174,20 +177,144 @@ pub fn footer_row(app: &AppState, actions: AnyElement, cx: &mut Context<AppState
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(
-                    // Drawn, faint, and taking no click.
-                    div().opacity(0.5).child(ghost_button(
-                        "new-agent-policies",
-                        None,
-                        "Custom policies",
-                        |_, _, _| {},
-                    )),
-                )
+                .child(policies_button(app, cx))
                 .child(mcps_button(app, cx))
                 .child(skills_button(app, cx)),
         )
         .child(actions)
         .into_any_element()
+}
+
+/// The `Custom policies` trigger. The folder count rides in the label, like the MCPs one.
+fn policies_button(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let count = app.new_agent_form().map_or(0, |form| form.grants.len());
+    let label = match count {
+        0 => "Custom policies".to_string(),
+        n => format!("Custom policies \u{b7} {n}"),
+    };
+    if !app.workbench.settings.host.isolate_agents {
+        return div()
+            .opacity(0.5)
+            .child(
+                ghost_button("new-agent-policies", None, label, |_, _, _| {}).tooltip(
+                    |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(
+                            "Custom policies need agent isolation, which is off",
+                        )
+                        .build(window, cx)
+                    },
+                ),
+            )
+            .into_any_element();
+    }
+    ghost_button(
+        "new-agent-policies",
+        None,
+        label,
+        cx.listener(|this, _, window, cx| this.open_new_agent_policies(window, cx)),
+    )
+    .into_any_element()
+}
+
+/// The folders dialog, painted over the form the way the name prompt is: one more read-write
+/// folder per row of chips, a path field and Add.
+pub fn policies_modal(
+    app: &AppState,
+    form: &NewAgentForm,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let view = cx.entity();
+    let chips: Vec<AnyElement> = form
+        .grants
+        .iter()
+        .enumerate()
+        .map(|(index, grant)| {
+            removable_tag(
+                eid("new-agent-grant", index),
+                eid("new-agent-grant-drop", index),
+                grant.path.clone(),
+                format!("{} \u{2014} read-write", grant.path),
+                theme::warning_soft(),
+                theme::warning(),
+                theme::warning(),
+                false,
+                |_, _, _| {},
+                cx.listener(move |this, _, _, cx| this.remove_new_agent_grant(index, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+    let focused = app
+        .new_agent_grant_input
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
+
+    let body = div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_3()
+        .child(modal_note(
+            "Folders granted read-write when isolated, on top of the host-wide ones in Settings.",
+        ))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .flex_wrap()
+                .children(chips),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    field(theme::border(), focused)
+                        .h(px(30.))
+                        .flex_1()
+                        .px_2()
+                        .child(gpui_component::input::Input::new(&app.new_agent_grant_input).appearance(false)),
+                )
+                .child(ghost_button(
+                    "new-agent-grant-add",
+                    None,
+                    "Add",
+                    cx.listener(|this, _, window, cx| this.add_new_agent_grant(window, cx)),
+                )),
+        )
+        .when(form.grant_invalid, |this| {
+            this.child(
+                div()
+                    .text_size(theme::font(theme::Family::Chrome, theme::Role::Micro))
+                    .text_color(theme::danger())
+                    .child("Use an absolute path or one starting with ~"),
+            )
+        })
+        .into_any_element();
+
+    let footer = primary_button(
+        "new-agent-policies-done",
+        None,
+        "Done",
+        cx.listener(|this, _, _, cx| this.close_new_agent_policies(cx)),
+    )
+    .into_any_element();
+
+    modal(
+        "new-agent-policies-modal",
+        theme::accent(),
+        "Custom policies",
+        body,
+        footer,
+        crate::ui::dismiss(&view, Layer::NewAgentPolicies, |this, _, cx| {
+            this.close_new_agent_policies(cx)
+        }),
+        window,
+    )
 }
 
 /// The MCPs trigger, with the checklist hanging off it while it is down.

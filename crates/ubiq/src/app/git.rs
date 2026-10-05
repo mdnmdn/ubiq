@@ -471,6 +471,15 @@ impl AppState {
         cx.notify();
     }
 
+    /// The uncommitted row was clicked: select the working tree and bring the Changes panel
+    /// forward, opening its region if it is shut.
+    pub fn show_git_changes(&mut self, cx: &mut Context<Self>) {
+        self.select_git_commit(None, cx);
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::GitChanges));
+        cx.notify();
+    }
+
     /// Cmd/ctrl-click on a commit: the second end of a range comparison, or dropping the one
     /// already set. A pair asks the host for the paths between them; breaking the pair clears
     /// what it asked without asking again.

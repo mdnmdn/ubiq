@@ -198,6 +198,7 @@ mod tests {
             mission_worker: false,
             disabled: false,
             project: None,
+            grants: Vec::new(),
         }
     }
 

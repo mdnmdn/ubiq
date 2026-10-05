@@ -1641,6 +1641,7 @@ fn start_conversation(
         mcps: Vec::new(),
         skills: Vec::new(),
         spawned_by: None,
+        grants: Vec::new(),
     });
     agent_id
 }
@@ -1796,6 +1797,7 @@ fn spawned_by_sets_the_new_agents_parent() {
         mcps: Vec::new(),
         skills: Vec::new(),
         spawned_by: Some(asker),
+        grants: Vec::new(),
     });
     expect_conversation_started(&ui, spawned);
     expect_model_config_options(&ui, spawned);

@@ -264,6 +264,7 @@ fn skills_default_to_empty_on_records_written_before_they_existed() {
         mission_worker: false,
         disabled: false,
         project: None,
+        grants: Vec::new(),
     };
     let json = serde_json::to_string(&definition).unwrap();
     let back: AgentDefinition = serde_json::from_str(&json).unwrap();

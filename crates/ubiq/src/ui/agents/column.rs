@@ -2,9 +2,8 @@
 //! field that steers it.
 //!
 //! A column is the whole of one conversation in one place, which is why it wears its own chrome
-//! rather than borrowing the chat panel's: the tabs are agents, the header says what this one *is*
-//! rather than which chat is open, and the footer reports what the host said about the harness
-//! behind it. The left edge takes the active agent's activity colour, so a row of columns reads as
+//! above the chat panel: the tabs are agents, and the header says what this one *is* — who, on
+//! which branch, how many grouped. The left edge takes the active agent's activity colour, so a row of columns reads as
 //! a row of states from across the window.
 //!
 //! **The state hexagon is on every tab, and nowhere else (T-99/T-102).** It used to also sit
@@ -24,13 +23,12 @@
 //! the thread when the host answers with the agent carrying it: an interface that draws its own
 //! half of a conversation is inventing the other half too.
 //!
-//! **A column draws one thing below its header, and it is the chat panel (T-143).**
-//! [`crate::ui::conversation`] is the one view every surface that shows a conversation shares —
-//! the chat panel the Teams and IDE screens dock, the kitchen sink, and this. A column passes a
-//! different [`ConversationView`] and nothing else; it does not own a transcript, a footer or a
-//! composer of its own. It used to carry a second set of all three for an agent that was a record
-//! and nothing more, which no column could reach: `AgentsView::live` is the conversations this
-//! window holds, and a tab not in it is pruned.
+//! **A column draws one thing below its header, and it is the chat panel (T-143).** Not a view of
+//! the same kind: [`crate::ui::chat::render`] itself, the panel a chat tab docks on the Teams and
+//! IDE screens, keyed by [`ChatHost::Column`] and this column's composer slot. So a column gets
+//! everything the chat panel has — the lifecycle row, the focus mode, the transcript, the footer
+//! and the composer — and owns none of them. What it keeps is its chrome: the tab strip, the `+`,
+//! and the identity line.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -42,12 +40,11 @@ use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_proto::work::{AgentId, WorkAgent};
 
 use crate::app::AppState;
-use crate::state::MenuId;
 use crate::state::agents::{BenchRow, COLUMN_MIN_WIDTH};
 use crate::state::work;
+use crate::state::{ChatHost, MenuId};
 use crate::theme;
 use crate::ui::agents::DraggedTab;
-use crate::ui::conversation::{self, ConversationView};
 use crate::ui::kit::{Picker, PickerStyle, mono};
 use crate::ui::work::{activity_colour, role_mark};
 use crate::ui::{eid, handler, indexed};
@@ -112,42 +109,18 @@ pub fn render(
         .child(div().flex_1().min_w(px(0.)))
         .child(add_tab(app, column, window, cx));
 
-    let root = root
-        .child(strip)
-        .child(header(app, agent, held.tabs.len(), work, colour));
-
-    // The one chat panel, the same one a chat tab docks on the Teams and IDE screens. What a
-    // column changes is the `ConversationView` it hands over: its own id prefix, its own composer
-    // slot, and `header: true` — the chat tab draws the same lifecycle row from its own toolbar
-    // instead, so that it can put a chevron on it.
-    //
-    // A column whose agent has no conversation is a frame out of date, not a state: the tab is
-    // pruned on the next `WorkList`. So it says that, rather than drawing a second transcript.
-    match app.conversation(agent.id, cx) {
-        Some(live) => root
-            .child(conversation::render(
-                app,
-                live,
-                ConversationView {
-                    id: SharedString::from(format!("agents-column-{column}")),
-                    slot,
-                    footer: true,
-                    composer: true,
-                    header: true,
-                },
-                window,
-                cx,
-            ))
-            .into_any_element(),
-        None => root
-            .child(crate::ui::empty::empty_page(
-                "No conversation",
-                "This window is not holding a conversation for this agent any more.",
-                IconName::CircleX,
-                None,
-            ))
-            .into_any_element(),
-    }
+    // Below the column's own chrome, the standard chat panel — the same one a chat tab docks on
+    // the Teams and IDE screens: its lifecycle row and focus button, the conversation, the
+    // composer on this column's slot, and the `Focused` placeholder while focus mode is up.
+    root.child(strip)
+        .child(header(app, agent, held.tabs.len(), work, colour))
+        .child(crate::ui::chat::render(
+            app,
+            ChatHost::Column(slot),
+            window,
+            cx,
+        ))
+        .into_any_element()
 }
 
 /// The widest an agent's name may draw on a tab before it is ellipsised; the full name stays on
@@ -359,8 +332,8 @@ fn add_tab(
 /// **No state mark and no chip here any more (T-102).** The hexagon that used to sit beside the
 /// name moved to the tab strip's own tab, where the dot already lived too — one state reading is
 /// the same rule [`conversation::lifecycle_header`]'s own doc follows — and the activity chip is
-/// [`conversation::lifecycle_header`]'s, drawn on the line below by [`crate::ui::conversation`]'s
-/// shared render whenever `view.header` is set, so this row does not say the same fact twice.
+/// `ui::conversation::lifecycle_header`'s, drawn on the line below by the chat panel's own header
+/// (`ui::chat::sidebar::header`), so this row does not say the same fact twice.
 fn header(
     app: &AppState,
     agent: &WorkAgent,

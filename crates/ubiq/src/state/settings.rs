@@ -388,10 +388,13 @@ pub enum AccountDialog {
     /// Signs one harness out, leaving the account and its other harnesses alone. Confirming
     /// sends `DeleteHarnessLogin`.
     SignOut { agent_type: String, account: String },
-    /// Deletes one of a project's own agent definitions. Rides this enum because it is the same
-    /// one-question confirm, painted from the same place. Confirming sends
-    /// `DeleteAgentDefinition`.
-    DeleteDefinition { id: String, project: ProjectId },
+    /// Deletes one agent definition, a project's own or a global one (`project` absent). Rides
+    /// this enum because it is the same one-question confirm, painted from the same place.
+    /// Confirming sends `DeleteAgentDefinition`.
+    DeleteDefinition {
+        id: String,
+        project: Option<ProjectId>,
+    },
 }
 
 /// Where a connect flow has got to. One at a time, and the user can leave any of them —

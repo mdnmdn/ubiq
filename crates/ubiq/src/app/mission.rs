@@ -912,6 +912,7 @@ impl AppState {
                 false => WORKER_MCPS.iter().map(|it| it.to_string()).collect(),
             },
             skills: Vec::new(),
+            grants: Vec::new(),
             spawned_by: launch.spawned_by,
         });
         if let Some(task) = launch.assign_to {

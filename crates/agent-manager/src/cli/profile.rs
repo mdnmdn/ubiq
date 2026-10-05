@@ -331,6 +331,7 @@ fn cmd_create(opts: CreateOpts) -> Result<()> {
         mission_worker: None,
         disabled: None,
         description: None,
+        extra_rw: Vec::new(),
     };
 
     let path = store.save(&profile)?;

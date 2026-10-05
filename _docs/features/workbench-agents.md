@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-10-02
-verified: 2026-10-02
+updated: 2026-10-05
+verified: 2026-10-05
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -195,8 +195,14 @@ either form asks `ListCatalog` for both layers. The
 catalogue lives on `WorkbenchState::mcps`, one list for the window: what this build can inject is a
 property of the build, not of the harness, the identity or the setup being filled in. Until the
 host answers, the button is drawn faint and takes no click, the way the rest of the form draws a
-row with nothing to offer. `Custom policies` beside it is still the predisposition for something
-the host does not answer yet.
+row with nothing to offer. `Custom policies` beside it is live only while `isolate_agents` is on —
+otherwise it is faint with a tooltip saying isolation is off — and carries the folder count in its
+label (`Custom policies · 2`). It opens a stacked dialog (`Layer::NewAgentPolicies`) over the New agent
+dialog or the definition editor: a chip per extra read-write folder, a path field and `Add`. A path is
+absolute or `~`-prefixed and anything else is refused under the field; Escape closes the dialog before
+the form. The folders seed from the chosen definition's `grants`, a saved definition keeps them, and
+a start sends them as `grants`; the mission launchers send none. They do not outlive the launch
+(`G409`).
 
 **The model and the level are known before anything is started.** Opening the form sends
 `ListHarnessCatalogue` for the chosen harness and identity, and `HarnessCatalogue` comes back with
@@ -213,7 +219,7 @@ nothing", so the interface never guesses which id means all permissions.
 agent arrives as a transcript; `Start in terminal` sends `SpawnWorkspace` and the same harness
 arrives as a pane, drawing its own screen under a pseudo-terminal. Everything the form asked rides
 out either way — the identity, the saved setup, the model, the level, the permission mode and the
-ticked MCP servers are one `AgentPicks` record on both messages, and isolation is a host setting
+ticked MCP servers and extra folders are one `AgentPicks` record on both messages, and isolation is a host setting
 applied to both faces alike, so the two buttons differ in the face the run wears and in nothing
 else. The terminal button carries no preamble: a subagent ceiling and an opening prompt are folded
 into a first turn by a composer, and a pane has none — the user types into the harness itself. A
@@ -282,7 +288,7 @@ and a fixture has a place on one.
 **Closing a tab benches the agent; it does not end it.** This is the one place the screen
 deliberately reads differently from a terminal pane, whose close kills the harness behind it —
 [`panes-and-terminals.md`](./panes-and-terminals.md). A tab is a view onto a conversation, so taking
-it off screen leaves the agent running: the sidebar still lists it, marked `bench`, and one click
+it off screen leaves the agent running: the sidebar still lists it, marked by a muted title, and one click
 brings it back. Nothing on this screen kills an agent — `Close all` benches the whole row the same
 way a single close does. Ending an agent for good is the shared conversation view's own three-dots
 menu, below, not a gesture on the tab.
@@ -441,12 +447,15 @@ screen can honour whatever the row looks like.
 **A column draws one thing below its chrome, and it is the chat panel.** Not a panel of the same
 shape — the same code, `crates/ubiq/src/ui/conversation/mod.rs`, which the chat tab the Teams and
 IDE screens dock and the kitchen sink draw too. A column owns no transcript, no footer and no
-composer of its own; it passes a `ConversationView` and stops there. It used to carry a second set
-of all three, for an agent that was a record and nothing more, and no column could reach it:
-`AgentsView::live` is exactly the conversations this window holds and `prune` drops a tab that is
-not in it, so the mock branch was drawing for a state the screen had already ruled out. A column
-whose agent has no conversation now says so in one line rather than opening a second transcript.
-The conversation view knows
+composer of its own; it passes a `ConversationView` and stops there. So a column is two layers:
+its own chrome (the tab strip, the `+` menu and the identity line) and, below it, the standard chat
+panel keyed by `ChatHost::Column` and the column's composer slot — header with the three-dots menu
+and the status chip, the focus button, transcript, footer and composer. The panel omits the attach
+chevron, because the column's tabs say which agent it shows, and the left hairline a docked tab
+draws. `AgentsView::live` is exactly the conversations this window holds and `prune` drops a tab
+that is not in it, so a column whose agent has no conversation is a frame out of date and the
+panel draws a one-line `No conversation` page. Focus mode works from a column as from a chat tab;
+the focus follows the column and is cleared when the column is benched or closed. The conversation view knows
 nothing about the screen hosting it: the chat panel and the kitchen sink adopt it by passing a
 different `ConversationView` — an id prefix, a composer slot, whether a footer and a composer come
 with it — rather than by growing a renderer each, which would drift the frame a tool block gained a
@@ -499,7 +508,7 @@ right-click Rename, or the same field on an attached chat tab — sends `Message
 
 **The sidebar lists every conversation this window holds, not what is on screen.** That is the point of it: a
 column is one conversation and there are only ever a few of them, so the list is the one place a
-whole project is visible at once, and a benched agent is in it, marked, rather than gone. A session
+whole project is visible at once, and a benched agent is in it, marked by a muted title, rather than gone. A session
 is a group with a bar down its left edge, and the bar carries the worst thing happening under it —
 error over waiting over running over ended — so a folded session still says it has a failing agent,
 the same rule `WorkProjection::pulse` follows for a task's card. Its note line is the title of a task
@@ -507,7 +516,7 @@ in that session, read off the work rather than carried on the session, because a
 description on the wire. A session with no agents in it is not drawn at all. One click reveals: an
 agent in a column comes to the front of it, and a benched one opens a column of its own — or joins
 the focused column when the row is already full. The row folds its session, and the header's one
-control folds every session or opens every one.
+control folds every session or opens every one. **Each agent row carries the hexagon status mark** (`ui::teams::status::status_mark`), a status chip showing the agent's current activity (`status.chip()`) in the status's color, and — for agents with live conversations — the shared three-dots lifecycle menu (`lifecycle_menu`).
 
 **A Missions section sits above the sessions (M14).** One row per mission not `Completed` or
 `Abandoned`, most recently active first — closed ones sort last and draw only once the header's
@@ -672,7 +681,9 @@ out of a task now that the board's panel no longer offers the graph.
 is no longer inside that frame: it is `PanelKind::AgentsExplorer`, the window's own left-region
 panel, drawn in Agents mode with a project and arranged, resized and put away like every other one.
 
-`sidebar.rs`'s `missions_section` (M14) reads `OpenProject::missions` straight, no view of its own
+`sidebar.rs`'s `agent_row` draws the title (muted if benched), identity, mission chip (if any), the
+status chip (`status.chip()` in the status's card colour), the hexagon status mark, and — for agents
+with live conversations — the three-dots lifecycle menu. `missions_section` (M14) reads `OpenProject::missions` straight, no view of its own
 beyond `AgentsView::mission_expanded`/`is_mission_expanded` (which rows are unfolded) and
 `show_closed_missions`, both toggled from the header; `mission_row` and `mission_roster` draw one
 row and its expansion, and `roster_of` narrows a `MissionRecord::roster` to the agents this window

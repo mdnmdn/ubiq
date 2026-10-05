@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-02
-verified: 2026-10-02
+updated: 2026-10-05
+verified: 2026-10-05
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -117,6 +117,24 @@ pending list goes stale, silently.
 (`0..COLUMNS_MAX` for columns, the range above for chat tabs) before the first frame, because the
 subscription mirroring typed text lives for the window's life. Text typed in one tab never appears in
 another; closing a tab clears its slot's draft before the slot is reused.
+
+**The panel is hosted by dock tabs and by Agents-mode columns.** `ChatHost` keys it by either a chat tab
+or a column's composer slot. In a column it omits the attach chevron (the column's tabs choose the agent)
+and the left hairline, and a column whose agent has no conversation shows the panel's own `No conversation`
+page. The column keeps its tab strip, `+` menu and identity line outside the panel
+([Agents mode](./workbench-agents.md)).
+
+**Focus mode shows one chat near full-window.** An attached tab's or a column's header carries a Maximize
+button beside the change-agent chevron (a column has no chevron), and `⌘⇧⏎` / `⌃⇧⏎` does the same for the
+chat whose composer holds the keyboard, else the only candidate; the candidates are the attached chat tabs
+plus, while Agents mode shows, its columns. The conversation is drawn as a modal at `CHAT_FOCUS_RATIO` (94%)
+of the window each way, titled with the agent's title; the panel behind it reads `Focused`. The modal
+draws the same conversation over the same composer slot, so the draft, the attachments and the
+transcript's scroll carry over in both directions. One chat is focused at a time —
+`WorkbenchState::chat_focus`; focusing another replaces it. Escape, the button (now Minimize), the
+shortcut and a click outside the modal each put the chat back, and so does closing the tab or benching or
+closing the column the focus follows. Its
+`Layer::ChatFocus` rung sits between the task-import dialog and the feedback modal.
 
 ### The transcript
 
@@ -476,6 +494,13 @@ region's group without reopening it; `Reveal` is for user gestures). The region 
 `ModeLayout::default_for` or the saved arrangement left it (`workbench.md`).
 `OpenProject::persistent_settled` guards it to once per project, so a later `WorkList` cannot reopen a tab
 the user closed; it runs from `enter_project` and from the `WorkList` answer.
+
+**Focus mode** (`crates/ubiq/src/app/chat.rs`). `toggle_chat_focus` and `toggle_chat_focus_key` (the
+`ToggleChatFocus` action, bound in `app/mod.rs`) set `workbench.chat_focus` and focus the pooled
+composer; `close_chat_focus` clears it, and `closed_chat_tab` and the detach path clear it for their own
+tab; `drop_stale_column_focus` in `app/agents.rs` clears a column's, from `bench_agent` and `fill_columns`.
+`ui/chat/mod.rs`'s `focus_modal` paints the modal at the window root from `ui/shell.rs`, and its
+`body` draws the `Focused` placeholder in the panel; `ui/chat/sidebar.rs` draws the header button.
 
 **Delete** (`crates/ubiq/src/app/wire.rs`). `Message::ConversationDeleted` (the answer to `EndConversation`)
 drops the conversation and its `WorkAgent`, prunes it from columns, and **closes** every attached chat tab

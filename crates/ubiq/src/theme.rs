@@ -235,6 +235,8 @@ pub fn a2ui_svg_max() -> f32 {
 pub const MODAL_WIDTH: f32 = 460.0;
 /// A ratio rather than a length, so nothing scales it.
 pub const MODAL_MAX_HEIGHT: f32 = 0.8;
+/// How much of the window a chat in focus mode takes, each way. A ratio, so nothing scales it.
+pub const CHAT_FOCUS_RATIO: f32 = 0.94;
 
 pub fn modal_width() -> f32 {
     scaled(MODAL_WIDTH)

@@ -68,7 +68,9 @@ pub mod zoom;
 pub use agents::{AgentsView, BenchRow, Column};
 pub use ask::{AskDialog, AskDraft, AskRecord, AskStage};
 pub use board::{BoardState, Field, TaskForm};
-pub use chat::{AttachChoices, ChatPick, ChatPicks, ChatTab, attach_choices, chat_picks};
+pub use chat::{
+    AttachChoices, ChatHost, ChatPick, ChatPicks, ChatTab, attach_choices, chat_picks,
+};
 pub use conversation::{ConvBlock, Conversation, Pending, Run};
 pub use diagrams::{DiagramImage, DiagramPalette};
 pub use dock::{ChatId, PanelClass, PanelKind, Region};

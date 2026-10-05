@@ -25,6 +25,17 @@ pub struct ChatTab {
     pub picker_open: bool,
 }
 
+/// What one chat panel is drawn for: a chat tab in the dock, or a column on the agents screen.
+///
+/// The panel is the same in both (`ui::chat::render`); what differs is where its attachment and
+/// composer slot are read from. A column is keyed by its composer **slot**, not its index — the
+/// slot stays with the column for its life, while the index shifts as columns open and close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatHost {
+    Tab(ChatId),
+    Column(usize),
+}
+
 /// The lowest chat composer slot nothing is using. `None` is every chat slot taken.
 ///
 /// Chat tabs draw from the range above the columns' — `COLUMNS_MAX..COLUMNS_MAX + CHATS_MAX` —

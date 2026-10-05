@@ -8,6 +8,7 @@
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::{AgentDefinition, AgentTypeInfo, CatalogueModel};
+use ubiq_proto::settings::Grant;
 
 /// What the form is for. The same fields answer both questions, so the same form asks them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,6 +153,15 @@ pub struct NewAgentForm {
     /// The skills this start asks for, by catalog id ([`ubiq_proto::catalog::SkillInfo::id`]).
     /// Ticked order is kept, the way [`Self::mcps`] keeps it.
     pub skills: Vec<String>,
+    /// The extra read-write folders for an isolated run — [`AgentDefinition::grants`], seeded from
+    /// the chosen definition and added to here for this launch. Each `write: true`; ignored by the
+    /// host when isolation is off.
+    pub grants: Vec<Grant>,
+    /// Whether the folders dialog is up over the form, the way [`Self::naming`] is for the name
+    /// prompt.
+    pub policies: bool,
+    /// Whether the last path typed into that dialog was refused, for the line under the field.
+    pub grant_invalid: bool,
     /// The opening prompt. Typed into a textarea the window owns, and copied in here when the
     /// form is read — the same way the definition form reads its name field at save time.
     pub prompt: String,
@@ -182,6 +192,11 @@ pub struct NewAgentForm {
     /// The task assignment's "plan mode" checkbox. A prompt instruction only, for now — see
     /// [`task_assignment_prompt`].
     pub plan_mode: bool,
+}
+
+/// Whether `path` is one a grant may name: absolute, or `~`-prefixed — what the host resolves.
+pub fn is_grant_path(path: &str) -> bool {
+    path.starts_with('/') || path == "~" || path.starts_with("~/")
 }
 
 /// The MCP servers a task assignment preselects — mirrors
@@ -253,6 +268,9 @@ impl NewAgentForm {
             max_subagents: Some(DEFAULT_SUBAGENTS),
             mcps: Vec::new(),
             skills: Vec::new(),
+            grants: Vec::new(),
+            policies: false,
+            grant_invalid: false,
             prompt: String::new(),
             open: None,
             naming: false,
@@ -285,6 +303,7 @@ impl NewAgentForm {
             max_subagents: definition.max_subagents,
             mcps: definition.mcps.clone(),
             skills: definition.skills.clone(),
+            grants: definition.grants.clone(),
             prompt: definition.prompt.clone().unwrap_or_default(),
             mission_assistant: definition.mission_assistant.unwrap_or(false),
             mission_coordinator: definition.mission_coordinator,
@@ -314,6 +333,7 @@ impl NewAgentForm {
             prompt: (!self.prompt.trim().is_empty()).then(|| self.prompt.trim().to_string()),
             mcps: self.mcps.clone(),
             skills: self.skills.clone(),
+            grants: self.grants.clone(),
             // Ticked is written down; unticked writes `None` rather than `Some(false)` — the two
             // read the same to every filter, and `None` is the ordinary "says nothing" shape every
             // other optional field here already uses.
@@ -326,6 +346,31 @@ impl NewAgentForm {
             // Which root the host writes it into. The scope is not a field the user picks; it
             // is the surface the form was opened from.
             project: self.project,
+        }
+    }
+
+    /// Add one read-write folder, as typed. Accepts an absolute or `~`-prefixed path and returns
+    /// whether it was taken; a path already held is taken once.
+    pub fn add_grant(&mut self, path: &str) -> bool {
+        let path = path.trim();
+        let trimmed = path.trim_end_matches('/');
+        let path = if trimmed.is_empty() { path } else { trimmed };
+        if !is_grant_path(path) {
+            return false;
+        }
+        if !self.grants.iter().any(|grant| grant.path == path) {
+            self.grants.push(Grant {
+                path: path.to_string(),
+                write: true,
+            });
+        }
+        true
+    }
+
+    /// Drop the folder at `index`, if there is one.
+    pub fn remove_grant(&mut self, index: usize) {
+        if index < self.grants.len() {
+            self.grants.remove(index);
         }
     }
 
@@ -574,6 +619,26 @@ mod tests {
     }
 
     #[test]
+    fn grants_take_absolute_and_home_paths_only_and_round_trip() {
+        let mut form = NewAgentForm::new(Purpose::AgentDefinition);
+        assert!(form.add_grant("/data/shared/"));
+        assert!(form.add_grant("~/notes"));
+        assert!(form.add_grant("/data/shared"), "a repeat is taken once");
+        assert!(!form.add_grant("relative/dir"));
+        assert!(!form.add_grant(""));
+        assert_eq!(form.grants.len(), 2);
+        assert_eq!(form.grants[0].path, "/data/shared");
+        assert!(form.grants.iter().all(|grant| grant.write));
+
+        let definition = form.as_definition("review".into());
+        assert_eq!(definition.grants, form.grants);
+        let mut again = NewAgentForm::from_definition(&definition, Purpose::AgentDefinition);
+        assert_eq!(again.grants, form.grants, "an edit opens with them");
+        again.remove_grant(0);
+        assert_eq!(again.grants.len(), 1);
+    }
+
+    #[test]
     fn ticked_skills_are_written_down_and_read_back() {
         let mut form = NewAgentForm::new(Purpose::AgentDefinition);
         form.toggle_skill("pdf");
@@ -605,6 +670,7 @@ mod tests {
             mission_worker: false,
             disabled: false,
             project: None,
+            grants: Vec::new(),
         }
     }
 

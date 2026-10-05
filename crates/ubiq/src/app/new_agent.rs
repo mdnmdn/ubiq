@@ -225,6 +225,11 @@ impl AppState {
             cx.propagate();
             return;
         }
+        // The folders dialog's field answers Enter with Add, and the form stays put.
+        if form.policies {
+            self.add_new_agent_grant(_window, cx);
+            return;
+        }
         match form.purpose {
             Purpose::Start => {
                 self.start_new_agent(cx);
@@ -665,6 +670,7 @@ impl AppState {
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
             skills: form.skills.clone(),
+            grants: form.grants.clone(),
             // The user started this one, so nobody asked for it. `spawned_by` is only ever set
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,
@@ -708,6 +714,7 @@ impl AppState {
             mode: Some(form.mode.clone().unwrap_or_default()),
             mcps: form.mcps.clone(),
             skills: form.skills.clone(),
+            grants: form.grants.clone(),
         };
         self.spawn_pane(Some(form.agent_type.clone()), Vec::new(), picks, cx);
         // **Release the aim.** A form raised from a chat header or the sink wrote down where the
@@ -783,6 +790,52 @@ impl AppState {
         });
         if let Some(form) = &mut self.workbench.new_agent {
             form.naming = true;
+        }
+        cx.notify();
+    }
+
+    /// Raise the extra-folders dialog over the form.
+    pub fn open_new_agent_policies(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.new_agent_grant_input.clone();
+        input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.focus(window, cx);
+        });
+        if let Some(form) = self.new_agent_form_mut() {
+            form.policies = true;
+            form.grant_invalid = false;
+        }
+        cx.notify();
+    }
+
+    pub fn close_new_agent_policies(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.policies = false;
+            form.grant_invalid = false;
+        }
+        cx.notify();
+    }
+
+    /// Add the path in the dialog's field, or say it is refused.
+    pub fn add_new_agent_grant(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let path = self.new_agent_grant_input.read(cx).value().to_string();
+        if path.trim().is_empty() {
+            return;
+        }
+        let Some(form) = self.new_agent_form_mut() else {
+            return;
+        };
+        form.grant_invalid = !form.add_grant(&path);
+        if !form.grant_invalid {
+            self.new_agent_grant_input
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        cx.notify();
+    }
+
+    pub fn remove_new_agent_grant(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.remove_grant(index);
         }
         cx.notify();
     }

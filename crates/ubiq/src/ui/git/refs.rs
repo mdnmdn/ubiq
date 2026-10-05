@@ -371,6 +371,8 @@ fn ref_row(
                 } else {
                     this.jump_to_git_ref(index, cx);
                 }
+            } else if matches!(section, RefSection::Local | RefSection::Remotes) {
+                this.jump_to_git_ref(index, cx);
             } else {
                 this.select_git_ref(index, cx);
             }

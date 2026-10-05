@@ -2311,11 +2311,10 @@ pub(crate) fn definition_row(
                         this.open_definition_form(Some(edit.clone()), None, window, cx)
                     }),
                 ))
-                // A project's own row also switches off and deletes from here. A global has
-                // its off switch in the form, and no delete at all.
-                .when_some(scope, |row, project| {
+                // A project's own row also switches off from here; a global has its off switch
+                // in the form. Both delete, in the scope the row lives in.
+                .when(scope.is_some(), |row| {
                     let toggle = definition.clone();
-                    let delete_id = definition.id.clone();
                     row.child(ghost_button(
                         ElementId::Name(
                             format!("app-settings-definition-{}-toggle", definition.id).into(),
@@ -2330,17 +2329,20 @@ pub(crate) fn definition_row(
                             this.toggle_definition_disabled(toggle.clone(), cx)
                         }),
                     ))
-                    .child(ghost_button(
-                        ElementId::Name(
-                            format!("app-settings-definition-{}-delete", definition.id).into(),
-                        ),
-                        None,
-                        "Delete",
+                })
+                .child(ghost_button(
+                    ElementId::Name(
+                        format!("app-settings-definition-{}-delete", definition.id).into(),
+                    ),
+                    None,
+                    "Delete",
+                    {
+                        let delete_id = definition.id.clone();
                         cx.listener(move |this, _, _, cx| {
-                            this.open_delete_definition(delete_id.clone(), project, cx)
-                        }),
-                    ))
-                }),
+                            this.open_delete_definition(delete_id.clone(), scope, cx)
+                        })
+                    },
+                )),
         )
         .into_any_element()
 }
@@ -2922,13 +2924,20 @@ pub fn account_dialog(
                 window,
             )
         }
-        Some(AccountDialog::DeleteDefinition { id, .. }) => confirm_modal(
-            "project-definition-delete",
+        Some(AccountDialog::DeleteDefinition { id, project }) => confirm_modal(
+            "definition-delete",
             "Delete agent",
-            &format!(
-                "Delete {id} from this project? The setup is gone for good; the application's \
-                 own agents are not touched."
-            ),
+            &if project.is_some() {
+                format!(
+                    "Delete {id} from this project? The setup is gone for good; the \
+                     application's own agents are not touched."
+                )
+            } else {
+                format!(
+                    "Delete the global agent {id}? The setup is gone for good, and projects \
+                     that use it lose it; a project's own agent of the same name is not touched."
+                )
+            },
             "Delete",
             true,
             crate::ui::handler(&view, |this, _, cx| this.confirm_delete_definition(cx)),
@@ -3028,6 +3037,9 @@ pub fn definition_form(
         )),
         cx,
     )
+    .when(form.policies, |this| {
+        this.child(crate::ui::new_agent::policies_modal(app, &form, window, cx))
+    })
     .into_any_element()
 }
 

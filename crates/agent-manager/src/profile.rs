@@ -105,6 +105,12 @@ pub struct Profile {
     /// MCP surface), this crate only carries it through a save and an inheritance chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Extra directories a confined run of this profile may write, as the user typed them
+    /// (absolute or `~`-prefixed). Recorded only: the embedder merges them into the isolation
+    /// options of the run. Empty means "not mentioned" and inherits; a non-empty list replaces
+    /// the parent's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_rw: Vec<String>,
 }
 
 /// The `[defaults]` sub-table of a profile: the composition a run overlays.
@@ -627,6 +633,9 @@ pub fn flatten(chain: &[Profile]) -> Profile {
         }
         if profile.description.is_some() {
             acc.description = profile.description.clone();
+        }
+        if !profile.extra_rw.is_empty() {
+            acc.extra_rw = profile.extra_rw.clone();
         }
         acc.defaults.overlay(&profile.defaults);
     }

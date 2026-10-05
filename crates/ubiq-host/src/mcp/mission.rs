@@ -1876,6 +1876,7 @@ mod tests {
                 mission_worker: true,
                 disabled: false,
                 project: None,
+                grants: Vec::new(),
             })
             .unwrap();
 

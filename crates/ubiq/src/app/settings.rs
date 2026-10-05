@@ -1682,11 +1682,11 @@ impl AppState {
         cx.notify();
     }
 
-    /// Raise the delete confirmation over one of a project's own definitions.
+    /// Raise the delete confirmation over a definition, in the scope it lives in.
     pub fn open_delete_definition(
         &mut self,
         id: String,
-        project: ProjectId,
+        project: Option<ProjectId>,
         cx: &mut Context<Self>,
     ) {
         self.workbench.settings.dialog = Some(AccountDialog::DeleteDefinition { id, project });
@@ -1694,7 +1694,7 @@ impl AppState {
         cx.notify();
     }
 
-    /// Delete the project definition the confirmation was raised over.
+    /// Delete the definition the confirmation was raised over.
     pub fn confirm_delete_definition(&mut self, cx: &mut Context<Self>) {
         let Some(AccountDialog::DeleteDefinition { id, project }) =
             self.workbench.settings.dialog.take()

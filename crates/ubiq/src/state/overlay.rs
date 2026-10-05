@@ -45,6 +45,8 @@ pub enum Layer {
     NewMission,
     /// The agent-definition form, beside the login modal.
     AgentDefinitionForm,
+    /// The extra-folders dialog, painted over the New agent modal or the definition form.
+    NewAgentPolicies,
     /// The skills page's repository browser, over the settings page or a project's.
     SkillBrowse,
     /// Its "Add source" question, over the browser or the page.
@@ -81,6 +83,8 @@ pub enum Layer {
     /// project settings page because the task-sync section raises it, and raisable from the board
     /// as well, which is why it is a rung of its own rather than a part of that page.
     TaskImport,
+    /// One agent's chat panel in focus mode — the same conversation view, near full-window.
+    ChatFocus,
     /// The feedback modal.
     Feedback,
     /// An agent's question to the user. Above the feedback modal on the same terms — it is raised

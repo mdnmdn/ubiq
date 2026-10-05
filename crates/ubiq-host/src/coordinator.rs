@@ -450,6 +450,19 @@ struct PendingConversation {
     /// The skills this conversation asked for, from [`Message::StartConversation::skills`],
     /// carried through to [`ConverseOptions::skills`] the same way.
     skills: Vec<String>,
+    /// The extra read-write folders this launch asked for, from
+    /// [`Message::StartConversation::grants`], carried through to [`ConverseOptions::extra_rw`].
+    extra_rw: Vec<String>,
+}
+
+/// The paths of the read-write grants a launch carried. A grant on a start is a write grant by
+/// contract; a read-only one is dropped rather than widened or honoured differently.
+fn rw_paths(grants: Vec<ubiq_proto::settings::Grant>) -> Vec<String> {
+    grants
+        .into_iter()
+        .filter(|grant| grant.write)
+        .map(|grant| grant.path)
+        .collect()
 }
 
 /// Whether a mutation's replies carry a refusal.
@@ -1082,6 +1095,7 @@ impl Coordinator {
                         // restart does not survive one, same as `catalogue` above.
                         mcps: Vec::new(),
                         skills: Vec::new(),
+                        extra_rw: Vec::new(),
                     },
                 )
             })
@@ -3160,10 +3174,24 @@ impl Coordinator {
                 mcps,
                 skills,
                 spawned_by,
+                grants,
             } => {
                 self.start_conversation(
-                    client, agent_id, project_id, session_id, rel_path, agent_type, account,
-                    definition, model, thinking, mode, mcps, skills, spawned_by,
+                    client,
+                    agent_id,
+                    project_id,
+                    session_id,
+                    rel_path,
+                    agent_type,
+                    account,
+                    definition,
+                    model,
+                    thinking,
+                    mode,
+                    mcps,
+                    skills,
+                    spawned_by,
+                    rw_paths(grants),
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -3584,6 +3612,7 @@ impl Coordinator {
         mcps: Vec<String>,
         skills: Vec<String>,
         spawned_by: Option<AgentId>,
+        extra_rw: Vec<String>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
@@ -3745,6 +3774,7 @@ impl Coordinator {
                 resume: None,
                 mcps,
                 skills,
+                extra_rw,
             },
         );
         self.remember_conversation(agent_id);
@@ -3909,6 +3939,7 @@ impl Coordinator {
                 resume: pending.resume.clone(),
                 mcps: pending.mcps.clone(),
                 skills: pending.skills.clone(),
+                extra_rw: pending.extra_rw.clone(),
             },
         ) {
             Ok(started) => started,
@@ -4463,6 +4494,7 @@ impl Coordinator {
             // on the row, and re-stamping a parent a reassignment has since cleared would invent
             // a link nobody made.
             None,
+            Vec::new(),
         );
         // `start_conversation` refuses on its own terms — an unknown harness, an unreadable folder
         // — and says so; there is nothing here to add if it did.
@@ -6209,6 +6241,7 @@ impl Coordinator {
             project: Some(project_id),
             mcps: picks.mcps,
             skills: picks.skills,
+            extra_rw: rw_paths(picks.grants),
             prompt: None,
             resume: None,
         };
@@ -7404,6 +7437,7 @@ mod tests {
                 resume: None,
                 mcps: Vec::new(),
                 skills: Vec::new(),
+                extra_rw: Vec::new(),
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));

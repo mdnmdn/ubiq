@@ -951,6 +951,13 @@ impl AppState {
             ),
             (Layer::NewMission, w.new_mission.is_some()),
             (Layer::AgentDefinitionForm, s.definition_form.is_some()),
+            (
+                Layer::NewAgentPolicies,
+                w.new_agent
+                    .as_ref()
+                    .or(s.definition_form.as_ref())
+                    .is_some_and(|form| form.policies),
+            ),
             (Layer::SkillBrowse, s.catalog.browse.is_some()),
             (Layer::SkillSource, s.catalog.add_source),
             (Layer::McpForm, s.catalog.form.is_some()),
@@ -968,6 +975,19 @@ impl AppState {
             (Layer::DroneStop, s.drone_stop.is_some()),
             (Layer::Clone, w.clone_project.is_some()),
             (Layer::TaskImport, self.tasksrc.import.is_some()),
+            (
+                Layer::ChatFocus,
+                w.chat_focus.is_some_and(|host| {
+                    self.active_seen
+                        .and_then(|p| self.projects.get(&p))
+                        .is_some_and(|open| match host {
+                            ChatHost::Tab(id) => open.chats.iter().any(|tab| tab.id == id),
+                            ChatHost::Column(slot) => {
+                                open.agents.columns.iter().any(|column| column.slot == slot)
+                            }
+                        })
+                }),
+            ),
             (Layer::Feedback, w.feedback.is_some()),
             (Layer::Ask, w.ask.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
@@ -1081,6 +1101,10 @@ impl AppState {
         }
         // The same case again for the start form's own pickers, which keep their open state on
         // the form for the same reason: Escape takes the list down before the form under it.
+        if self.new_agent_form().is_some_and(|form| form.policies) {
+            self.close_new_agent_policies(cx);
+            return;
+        }
         if let Some(list) = self.new_agent_form().and_then(|form| form.open) {
             self.toggle_new_agent_list(list, window, cx);
             return;
@@ -1178,6 +1202,9 @@ impl AppState {
             // Before the clone modal, in reverse paint order: `ui::shell` draws feedback after it,
             // and the balloon is reachable from the titlebar with anything already up.
             self.close_feedback(window, cx);
+        } else if self.workbench.chat_focus.is_some() {
+            // Focus mode puts the chat back in its panel; the draft never left the pooled field.
+            self.close_chat_focus(cx);
         } else if self.workbench.clone_project.is_some() {
             self.close_clone(cx);
         } else if self.workbench.all_projects.is_some() {

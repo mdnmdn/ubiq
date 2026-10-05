@@ -764,7 +764,9 @@ fn body(
         PanelKind::Search => search::render(app, window, cx),
         PanelKind::Outline => outline::render(app, window, cx),
         PanelKind::Explorer => explorer::render(app, window, cx),
-        PanelKind::Chat(id) => chat::render(app, *id, window, cx).into_any_element(),
+        PanelKind::Chat(id) => {
+            chat::render(app, crate::state::ChatHost::Tab(*id), window, cx).into_any_element()
+        }
         PanelKind::Centre => drop_target(centre(app, window, cx), cx),
         PanelKind::File(key) => drop_target(editor::render_file(app, key, cx), cx),
         PanelKind::GitRefs => git::refs::render(app, window, cx).into_any_element(),

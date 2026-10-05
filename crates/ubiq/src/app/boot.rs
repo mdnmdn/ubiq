@@ -396,6 +396,8 @@ impl AppState {
         // The definition form's own free-form field: what this setup is for, read by another
         // agent through the mission MCP rather than by the host. Seeded the same way the opening
         // prompt is, and only ever drawn under `Purpose::AgentDefinition`.
+        let new_agent_grant_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("/path or ~/path\u{2026}"));
         let new_agent_description = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder("What is this for, and what does it carry\u{2026}")
@@ -1131,6 +1133,16 @@ impl AppState {
             |this, _input, event: &InputEvent, window, cx| {
                 if matches!(event, InputEvent::PressEnter { .. }) {
                     this.add_extra_grant(window, cx);
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &new_agent_grant_input,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.add_new_agent_grant(window, cx);
                 }
             },
         ));
@@ -1891,6 +1903,7 @@ impl AppState {
             catalog_inputs,
             new_agent_prompt,
             new_agent_description,
+            new_agent_grant_input,
             new_mission_title_input,
             new_mission_description_input,
             new_mission_plan_input,

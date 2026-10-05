@@ -532,13 +532,13 @@ pub enum Message {
         /// project's own. A global clone reads the global root only.
         project: Option<ProjectId>,
     },
-    /// Delete one of a project's own definitions. Answered with [`Message::AgentDefinitions`], or
-    /// [`Message::AccountError`] when the project holds no definition of that id. A global
-    /// definition has no delete (see [`Message::SaveAgentDefinition`]), which is why `project`
-    /// is not optional.
+    /// Delete one definition. `project` says which root, as in [`Message::SaveAgentDefinition`]:
+    /// absent is the global one, present is that project's own, and the two never touch each
+    /// other. Answered with [`Message::AgentDefinitions`], or [`Message::AccountError`] when
+    /// that root holds no definition of that id.
     DeleteAgentDefinition {
         id: String,
-        project: ProjectId,
+        project: Option<ProjectId>,
     },
     /// Which MCP servers this build offers to inject into a harness. Answered with
     /// [`Message::Mcps`].
@@ -2796,6 +2796,11 @@ pub enum Message {
         /// recomputed from this later.
         #[serde(default)]
         spawned_by: Option<AgentId>,
+        /// Extra folders this one launch may write when isolation is on, on top of the
+        /// definition's own [`AgentDefinition::grants`] and the host-wide grants. Empty is the
+        /// normal case.
+        #[serde(default)]
+        grants: Vec<crate::settings::Grant>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -3668,6 +3673,10 @@ pub struct AgentPicks {
     /// pick that stands on its own rather than a diff against [`AgentDefinition::skills`].
     #[serde(default)]
     pub skills: Vec<String>,
+    /// Extra folders this launch may write when isolation is on, in addition to the definition's
+    /// own [`AgentDefinition::grants`]. Empty is the normal case.
+    #[serde(default)]
+    pub grants: Vec<crate::settings::Grant>,
 }
 
 /// One shell the host found on this machine, as the new-pane menu offers it.
@@ -3878,6 +3887,12 @@ pub struct AgentDefinition {
     /// about a run already under way changes when its definition is disabled.
     #[serde(default)]
     pub disabled: bool,
+    /// Extra folders this definition's runs may **write** when isolation is on, each a
+    /// [`crate::settings::Grant`] with `write: true`. Added to the host-wide grants of
+    /// [`crate::settings::HostSettings::extra_grants`], never instead of them; a run with no
+    /// isolation ignores them. Empty is the normal case.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<crate::settings::Grant>,
     /// The project this setup belongs to, when it belongs to one. `None` is a global definition —
     /// every definition written before this field existed, and every one the app-wide settings
     /// screen writes.

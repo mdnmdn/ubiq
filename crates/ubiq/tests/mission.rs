@@ -294,6 +294,7 @@ fn a_definition(id: &str) -> AgentDefinition {
         mission_worker: false,
         disabled: false,
         project: None,
+        grants: Vec::new(),
     }
 }
 

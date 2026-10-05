@@ -21,6 +21,105 @@ impl AppState {
         Some(id)
     }
 
+    /// Focus mode on or off for one chat panel — a dock tab's or an agents column's: its
+    /// conversation view drawn near full-window as a modal (`ui::chat::focus_modal`), the panel
+    /// showing a placeholder meanwhile.
+    ///
+    /// Nothing is copied. The composer field, its attachments and the transcript's scroll state
+    /// are keyed by the panel's pooled slot, and both shapes read that slot, so the draft cannot
+    /// diverge. Only one panel is focused at a time; focusing another replaces it.
+    pub fn toggle_chat_focus(
+        &mut self,
+        host: ChatHost,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workbench.chat_focus == Some(host) {
+            self.close_chat_focus(cx);
+            return;
+        }
+        let Some(slot) = self.chat_host_slot(host, cx) else {
+            return;
+        };
+        self.workbench.chat_focus = Some(host);
+        if let Some(input) = self.column_inputs.get(slot).cloned() {
+            input.update(cx, |state, cx| state.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    /// The composer slot of a chat panel that has something attached, or `None` — a tab attached
+    /// to nothing, or a column that is gone.
+    pub fn chat_host_slot(&self, host: ChatHost, cx: &App) -> Option<usize> {
+        let open = self.open_project(cx)?;
+        match host {
+            ChatHost::Tab(id) => open
+                .chats
+                .iter()
+                .find(|tab| tab.id == id)
+                .filter(|tab| tab.attached.is_some())
+                .map(|tab| tab.slot),
+            ChatHost::Column(slot) => open
+                .agents
+                .columns
+                .iter()
+                .find(|column| column.slot == slot)
+                .filter(|column| column.active_agent().is_some())
+                .map(|column| column.slot),
+        }
+    }
+
+    /// Put the focused chat back in its panel.
+    pub fn close_chat_focus(&mut self, cx: &mut Context<Self>) {
+        if self.workbench.chat_focus.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// ⌘⇧⏎: focus mode for the chat panel holding the keyboard — the one whose composer has
+    /// focus, else the only attached one there is. The candidates are the attached chat tabs and,
+    /// while the agents screen is up, its columns. Closes focus mode when one is already focused.
+    pub fn toggle_chat_focus_key(
+        &mut self,
+        _: &crate::app::ToggleChatFocus,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(host) = self.workbench.chat_focus {
+            self.toggle_chat_focus(host, window, cx);
+            return;
+        }
+        let Some(open) = self.open_project(cx) else {
+            return;
+        };
+        let mut attached: Vec<(ChatHost, usize)> = open
+            .chats
+            .iter()
+            .filter(|tab| tab.attached.is_some())
+            .map(|tab| (ChatHost::Tab(tab.id), tab.slot))
+            .collect();
+        if self.workbench.rail_mode == RailMode::AGENTS {
+            attached.extend(
+                open.agents
+                    .columns
+                    .iter()
+                    .filter(|column| column.active_agent().is_some())
+                    .map(|column| (ChatHost::Column(column.slot), column.slot)),
+            );
+        }
+        let focused = attached.iter().find(|(_, slot)| {
+            self.column_inputs
+                .get(*slot)
+                .is_some_and(|input| input.read(cx).focus_handle(cx).is_focused(window))
+        });
+        let host = match (focused, attached.as_slice()) {
+            (Some((host, _)), _) => *host,
+            (None, [(only, _)]) => *only,
+            _ => return,
+        };
+        self.toggle_chat_focus(host, window, cx);
+    }
+
     /// A new **view**, in the dock, attached to nothing.
     ///
     /// The chat strip's `+` still means "add a view", but it adds one only once there is
@@ -216,6 +315,9 @@ impl AppState {
         id: ChatId,
         cx: &mut Context<Self>,
     ) {
+        if self.workbench.chat_focus == Some(ChatHost::Tab(id)) {
+            self.workbench.chat_focus = None;
+        }
         let slot = self.projects.get_mut(&project).and_then(|open| {
             let at = open.chats.iter().position(|tab| tab.id == id)?;
             Some(open.chats.remove(at).slot)
@@ -235,6 +337,9 @@ impl AppState {
     /// A chat panel left the dock for good. The conversation it was attached to, if any, is the
     /// host's and keeps running — only the tab and its composer slot go.
     pub fn closed_chat_tab(&mut self, id: ChatId, cx: &mut Context<Self>) {
+        if self.workbench.chat_focus == Some(ChatHost::Tab(id)) {
+            self.workbench.chat_focus = None;
+        }
         self.tab_names.remove(&PanelKind::Chat(id));
         self.pinned_tabs.remove(&PanelKind::Chat(id));
         let Some(project) = self.project(cx) else {

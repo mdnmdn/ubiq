@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-09-29
+updated: 2026-10-05
 verified: 2026-10-05
 code_anchors: [crates/ubiq-host/src/catalog.rs, crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
@@ -412,6 +412,13 @@ tool that is merely installed somewhere unexpected rather than needing a toolcha
 file's own `[[grants]]` apply alongside `extra_grants`, both split into `extra_ro`/`extra_rw` the
 same way and both expanded against `isolate::real_home` — a `~`-prefixed grant means the effective
 home inside a layer, not the user's, which is exactly the confusion the default avoids.
+**A definition and a launch add read-write folders of their own.** The library records them as
+`Profile.extra_rw` in `profile.toml` — recorded only, never enforced there — and a child's non-empty
+list replaces its parent's in `resolve_flattened`. The host reads the definition's list through the
+run's scope (a project's definition shadows the global one, as `definition_mcps` does), unions it with
+the launch's `StartConversation.grants`, and `add_rw` expands each `~` and adds it to the same
+`extra_rw` set, **only while host isolation is on**; with it off both are ignored. They sit on top of
+`extra_grants`, never in place of them, and are not persisted on the conversation row (`G409`).
 `environment.toml` is deliberately outside `settings.json`: it is machine state a planned policy UI
 edits as one file, not a preference that syncs — see `G204`. What stays per-run is the
 configuration, which `CLAUDE_CONFIG_DIR` and its siblings pin to the run directory.

@@ -70,7 +70,7 @@ use crate::state::vim::VimState;
 use crate::state::web_panel::WebPanels;
 use crate::state::work::WorkProjection;
 use crate::state::{
-    ActiveSearch, AttachmentPreview, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey,
+    ActiveSearch, AttachmentPreview, ChatHost, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey,
     ExplorerPressed, ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow,
     KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentStage, NewAgentSurface,
     OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState,
@@ -187,6 +187,8 @@ gpui::actions!(
         // does nothing, it does not complain.
         SyncTasksNow,
         ImportRemoteTasks,
+        // Focus mode for the chat panel holding the keyboard — see `AppState::toggle_chat_focus`.
+        ToggleChatFocus,
         // The Nth project the rail's badges show, `cmd-1`..`cmd-9` — see
         // `AppState::activate_project_slot`.
         ProjectSlot1,
@@ -1187,6 +1189,8 @@ pub struct AppState {
     /// footing as `new_agent_prompt`, and only ever drawn under `Purpose::AgentDefinition`: a bare
     /// start has no definition to write the field onto.
     pub new_agent_description: Entity<TextareaState>,
+    /// The extra-folders dialog's path field, on the New agent modal and the definition form.
+    pub new_agent_grant_input: Entity<InputState>,
     /// The accounts section's rename dialog field, seeded with the account's current id when
     /// the dialog opens. Its own field for the same reason `login_account_input` is: a state
     /// drawn once, in its own dialog.
@@ -1568,6 +1572,9 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Workbench")),
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Workbench")),
         gpui::KeyBinding::new("cmd-enter", SubmitSearch, Some("Workbench")),
+        // Focus mode for a chat panel. Not bound by the library or the terminal at this depth.
+        gpui::KeyBinding::new("cmd-shift-enter", ToggleChatFocus, Some("Workbench")),
+        gpui::KeyBinding::new("ctrl-shift-enter", ToggleChatFocus, Some("Workbench")),
         // Undo and redo on the capture behind the active tab. A text buffer's own undo wins
         // while one holds the keyboard — its context is deeper — so these only ever see an
         // image tab.
@@ -1632,6 +1639,8 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Input")),
         // ⌘⏎ in the titlebar's field skips the navigator and searches for what is typed.
         gpui::KeyBinding::new("cmd-enter", SubmitSearch, Some("Input")),
+        gpui::KeyBinding::new("cmd-shift-enter", ToggleChatFocus, Some("Input")),
+        gpui::KeyBinding::new("ctrl-shift-enter", ToggleChatFocus, Some("Input")),
         // The chat composer holds the keyboard nearly all of the time a prompt is up, so both
         // answers are bound at the field's own depth too, by the same device.
         gpui::KeyBinding::new("cmd-alt-y", AllowPermission, Some("Input")),
