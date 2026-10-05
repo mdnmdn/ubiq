@@ -1978,7 +1978,8 @@ fn project_catalog(
 /// The list this project offers, once it has said it is not on the globals alone.
 ///
 /// Two groups, and they are not the same thing: the project's **own** setups, which are written
-/// here, edited here and deleted with the project, and the **globals** they are offered alongside
+/// here, edited, switched off and deleted here (and all deleted with the project), and the
+/// **globals** they are offered alongside
 /// — listed so the reader can see what a start here is actually offered, and not editable from a
 /// project screen, because a global belongs to the application's own settings. A project setup of
 /// the same name shadows the global one, which is the rule the host resolves a launch by, and the
@@ -2042,6 +2043,14 @@ fn project_definitions(
                         Some(project),
                         cx,
                     )),
+            )
+            // A refused clone, save or delete is said here too: this dialog is where it was asked.
+            .children(
+                app.workbench
+                    .settings
+                    .error
+                    .clone()
+                    .map(|error| crate::ui::settings::error_banner(&error, cx)),
             )
             .children(own_rows)
             .child(

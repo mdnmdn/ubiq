@@ -1844,6 +1844,17 @@ impl Coordinator {
                     },
                 ),
             },
+            Message::DeleteAgentDefinition { id, project } => {
+                match self.agents.delete_definition(&id, project) {
+                    Ok(()) => self.send_definitions(client),
+                    Err(error) => self.host.send(
+                        To::Client(client),
+                        Message::AccountError {
+                            error: format!("{error:#}"),
+                        },
+                    ),
+                }
+            }
             // The catalogue is a constant of this build, so it is answered from the table itself
             // rather than from anything running: the panel's checklist and the tools a harness
             // will be offered come from the one place, and cannot disagree (`crate::mcp`).

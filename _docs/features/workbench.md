@@ -6,7 +6,7 @@ status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
 updated: 2026-10-04
-verified: 2026-10-04
+verified: 2026-10-05
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -404,7 +404,10 @@ definition form.
 
 **Agent definitions is the project's own nav item, and it opens on `Use the global agents`.**
 Ticked is the default and means every global is on offer at a start aimed here. Unticking it
-enables the list below — this project's own setups, each with `Clone` and `Edit`, `Add agent`
+enables the list below — this project's own setups, each with `Clone`, `Edit` (the same definition
+form the application's own section opens, saving back into the project), `Disable`/`Enable` (a
+save with only the off switch flipped) and `Delete` (behind a confirm, `DeleteAgentDefinition`),
+any refusal the host sends drawn as a banner above them, `Add agent`
 above them under the same no-harness guard the application section's carries, and then the
 globals, each with **its own tick** and a `Clone to project`. Unticking a global takes it out of
 what a start in this project is offered and changes it nowhere else; `Clone to project` copies it
@@ -973,7 +976,10 @@ Sixteen sections ship: **Appearance** (the palette
 family as one pill per family — labelled by the member whose ground is in use, so picking one keeps
 the ground; the ground itself, the same flip the titlebar offers, within the family; the accent as a
 row of swatches, the palette's own first and then the six the build ships, each named on its
-hover; then **Themes**, the themes the user authored as pills beside the built-ins, each with an
+hover; **Text brightness**, four pills — `Faint`, `Muted`, `Primary`, `Strong`, the markdown
+reading options' own shades, `Primary` the palette as written — that move every text token
+brighter or dimmer together (`InterfacePrefs.text_brightness`, the status bar's size popover
+carries the same pills); then **Themes**, the themes the user authored as pills beside the built-ins, each with an
 edit affordance, and **New theme…** — followed by
 whether the rail carries the open-project badges, whether
 the titlebar's capture control and its keystroke are offered at all, and whether a conversation
@@ -1349,7 +1355,8 @@ Windows; a host on another platform answers that it is not supported, and the se
 active preset — `Size — <preset>` or `Size — Custom`.** Clicking it opens `ui::size::panel`, an
 anchored menu rather than a modal — no scrim, dismissed by an outside click or by Escape through
 `MenuId::Size` — holding a row of preset pills, the interface slider over `ui_scale`, the text
-slider over `text_ratio`, and a `Save preset…` / `Reset` pair of `kit::ghost_button`s; no number and
+slider over `text_ratio`, the **text brightness** pills (the same `ui::size::brightness_pills` the
+Appearance section draws), and a `Save preset…` / `Reset` pair of `kit::ghost_button`s; no number and
 no unit appears anywhere in it. It works with no project open. `cmd-=` and `cmd-shift-=` move the
 text-size slider one stop up and `cmd--` one down (`AppState::nudge_text_ratio`, ±0.05, clamped,
 the slider follows) — the content trim pill ladder is one of the three the Size settings

@@ -456,6 +456,18 @@ impl TextShade {
         }
     }
 
+    /// What a heading draws in: one step stronger than the prose of the same shade, clamped at
+    /// `Strong` — so the hierarchy survives every choice (and `Primary` keeps today's strong
+    /// headings).
+    pub fn heading_colour(self) -> gpui::Rgba {
+        match self {
+            TextShade::Faint => TextShade::Muted,
+            TextShade::Muted => TextShade::Primary,
+            TextShade::Primary | TextShade::Strong => TextShade::Strong,
+        }
+        .colour()
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             TextShade::Faint => "Faint",
@@ -478,6 +490,10 @@ pub struct MdReading {
     /// absolute point size of its own.
     pub char_scale: f32,
     pub text_shade: TextShade,
+    /// Multiplier on the body leading (and headings'), `1.0` the current look.
+    pub line_spacing: f32,
+    /// Multiplier on every gap between blocks, `1.0` the current look.
+    pub paragraph_spacing: f32,
 }
 
 impl Default for MdReading {
@@ -485,6 +501,8 @@ impl Default for MdReading {
         Self {
             char_scale: 1.0,
             text_shade: TextShade::default(),
+            line_spacing: 1.0,
+            paragraph_spacing: 1.0,
         }
     }
 }
@@ -493,6 +511,12 @@ impl Default for MdReading {
 /// quantises the popover's slider to.
 pub const MD_CHAR_SCALE_MIN: f32 = 0.8;
 pub const MD_CHAR_SCALE_MAX: f32 = 1.6;
+/// [`MdReading::line_spacing`]'s range.
+pub const MD_LINE_SPACING_MIN: f32 = 0.8;
+pub const MD_LINE_SPACING_MAX: f32 = 2.0;
+/// [`MdReading::paragraph_spacing`]'s range.
+pub const MD_PARA_SPACING_MIN: f32 = 0.0;
+pub const MD_PARA_SPACING_MAX: f32 = 3.0;
 
 pub struct OpenFile {
     pub name: String,

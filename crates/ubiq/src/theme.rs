@@ -1649,7 +1649,12 @@ pub fn set_mode(id: ThemeId, cx: &mut App) {
 /// outside this file learns that either is separable. [`set_mode`] is this with the accent left as
 /// it stands.
 pub fn set_theme(id: ThemeId, accent: Option<AccentId>, cx: &mut App) {
-    let theme = resolve(id, accent);
+    let mut theme = resolve(id, accent);
+    theme.palette.text = brightened(
+        theme.palette.text,
+        theme.palette.surface.base,
+        text_brightness(),
+    );
     Theme::set(theme);
     let mode = match theme.mode {
         Mode::Dark => gpui_component::ThemeMode::Dark,
@@ -1657,6 +1662,63 @@ pub fn set_theme(id: ThemeId, accent: Option<AccentId>, cx: &mut App) {
     };
     gpui_component::Theme::change(mode, None, cx);
     dress_component_library(&theme.palette, cx);
+}
+
+thread_local! {
+    /// The text-brightness axis: one of the reading-options picker's four shades, read here as how
+    /// far every text token moves. A cell of its own beside the palette, on the size axis's
+    /// footing — a number the user set, not something derived from the palette — so switching
+    /// palette or accent re-applies it rather than dropping it.
+    static BRIGHTNESS: std::cell::Cell<crate::state::editor::TextShade> =
+        const { std::cell::Cell::new(crate::state::editor::TextShade::Primary) };
+}
+
+/// The text-brightness level the window is drawn at. `Primary` is the palette as written.
+pub fn text_brightness() -> crate::state::editor::TextShade {
+    BRIGHTNESS.get()
+}
+
+/// Set the text-brightness level. It reaches the tokens at the next [`set_theme`], which is where
+/// it is applied — the caller puts the palette back on, the same call that boots it.
+pub fn set_text_brightness(level: crate::state::editor::TextShade) {
+    BRIGHTNESS.set(level);
+}
+
+/// How far each brightness level moves the text tokens: toward the far end of the palette's range
+/// (white on a dark ground, black on a light one) for `Strong`, toward the ground for the dimmer
+/// two. One fraction for all four tokens, so the hierarchy between them survives every level.
+const BRIGHTEN_MIX: f32 = 0.5;
+const DIM_MIX: f32 = 0.15;
+const DIMMER_MIX: f32 = 0.3;
+
+/// The text group at a brightness level — `primary`, `muted`, `faint` and `strong` move together;
+/// `on_accent` and the watermark are fixed against the accent and the ground and do not.
+fn brightened(
+    mut text: TextColors,
+    ground: Rgba,
+    level: crate::state::editor::TextShade,
+) -> TextColors {
+    use crate::state::editor::TextShade;
+    let far = if relative_luminance(ground) < 0.5 {
+        WHITE
+    } else {
+        BLACK
+    };
+    let (toward, t) = match level {
+        TextShade::Primary => return text,
+        TextShade::Strong => (far, BRIGHTEN_MIX),
+        TextShade::Muted => (ground, DIM_MIX),
+        TextShade::Faint => (ground, DIMMER_MIX),
+    };
+    for token in [
+        &mut text.primary,
+        &mut text.muted,
+        &mut text.faint,
+        &mut text.strong,
+    ] {
+        *token = mix(*token, toward, t);
+    }
+    text
 }
 
 /// Hand the component library the palette and the scale as they stand.

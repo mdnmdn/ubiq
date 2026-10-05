@@ -800,6 +800,20 @@ impl AppState {
         cx.notify();
     }
 
+    /// Move the **text brightness** — every text token brighter or dimmer at once, on the four
+    /// levels the markdown reading options offer. The palette and the accent do not move; a
+    /// document's own shade still picks among the four tokens as they now stand.
+    pub fn set_text_brightness(
+        &mut self,
+        level: crate::state::editor::TextShade,
+        cx: &mut Context<Self>,
+    ) {
+        theme::set_text_brightness(level);
+        theme::set_theme(self.workbench.theme_id, theme::accent_id(), cx);
+        self.remember_interface();
+        cx.notify();
+    }
+
     /// Move the **UI scale** — the axis every dimension in the window follows, the window's rem
     /// size included (`D151`, `D153`). The palette does not move.
     ///

@@ -1,7 +1,8 @@
 //! The size controls, drawn once and used twice.
 //!
 //! The status bar's popover and the Size settings section offer the *same* two sliders and the
-//! *same* row of preset pills. They are built here rather than written out in both places — the
+//! *same* row of preset pills — and the popover carries the Appearance section's text-brightness
+//! pills too, built here for the same reason. They are built here rather than written out in both places — the
 //! discipline `_docs/inbox/component-reuse-proposal.md` argues for, and the reason a change to
 //! either control is one edit.
 //!
@@ -90,6 +91,33 @@ pub fn text_slider(app: &AppState, id: &'static str) -> AnyElement {
     .into_any_element()
 }
 
+/// The text-brightness pills: every text token in the window brighter or dimmer, on the four
+/// shades the markdown reading options offer — `Primary` is the palette as written. Shared by the
+/// popover and the Appearance settings section; `prefix` namespaces the ids as in
+/// [`preset_pills`].
+pub fn brightness_pills(prefix: &'static str, cx: &mut Context<AppState>) -> AnyElement {
+    let current = theme::text_brightness();
+    let pills: Vec<AnyElement> = crate::state::editor::TextShade::ALL
+        .into_iter()
+        .map(|level| {
+            choice_pill(
+                ElementId::Name(format!("{prefix}-brightness-{}", level.label()).into()),
+                level.label(),
+                level == current,
+                cx.listener(move |this, _, _, cx| this.set_text_brightness(level, cx)),
+            )
+            .into_any_element()
+        })
+        .collect();
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1()
+        .children(pills)
+        .into_any_element()
+}
+
 /// What the popover's trigger says on hover: the preset the axes spell, or *Custom*.
 pub fn trigger_tooltip(app: &AppState) -> String {
     match app.active_size_preset() {
@@ -132,6 +160,16 @@ pub fn panel(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .px_2()
                 .py_1()
                 .child(text_slider(app, "size-popover-text"))
+                .into_any_element(),
+            div()
+                .px_2()
+                .pt_1()
+                .child(section_label("text brightness"))
+                .into_any_element(),
+            div()
+                .px_2()
+                .pb_1()
+                .child(brightness_pills("size-popover", cx))
                 .into_any_element(),
             div()
                 .flex()

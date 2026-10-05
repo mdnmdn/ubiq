@@ -326,7 +326,7 @@ fn render_linked_scrollable(
     // system font size rather than an absolute point size — `MdReading::char_scale`, `1.0` for a
     // tab (or a caller like `render_linked`'s help page) that never opened the popover at all.
     let char_scale = app
-        .file(key, cx)
+        .reading_file(key, cx)
         .map_or(1.0, |file| file.md_reading.char_scale);
     let body_size = theme::font(theme::Family::Content, theme::Role::Body) * char_scale;
     let (style, line_height) = typography(app, body_size);

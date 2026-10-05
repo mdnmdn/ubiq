@@ -71,10 +71,10 @@ impl Base {
         }
     }
 
-    pub fn heading(weight: FontWeight) -> Self {
+    pub fn heading(weight: FontWeight, color: gpui::Rgba) -> Self {
         Base {
             weight,
-            color: theme::text_strong().into(),
+            color: color.into(),
             ..Base::body()
         }
     }

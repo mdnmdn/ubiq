@@ -506,9 +506,10 @@ pub enum Message {
     /// present is that project's own, and the two are separate namespaces — the same name in
     /// both is a project definition shadowing a global one inside that project only.
     ///
-    /// There is deliberately no delete: a definition is a saved setup, and a stale one costs a
-    /// row in a list. A project's definitions are deleted with the project, by the directory they
-    /// live in going with it.
+    /// A *global* definition has deliberately no delete: it is a saved setup, and a stale one
+    /// costs a row in a list. A project's own are deleted one by one with
+    /// [`Message::DeleteAgentDefinition`], and all together with the project, by the directory
+    /// they live in going with it.
     SaveAgentDefinition {
         definition: AgentDefinition,
     },
@@ -521,13 +522,23 @@ pub enum Message {
     /// A clone is a host operation rather than "read one and save it back" so the copy is
     /// exactly what the record holds, including fields no screen shows.
     CloneAgentDefinition {
-        /// The definition to copy, by [`AgentDefinition::id`].
+        /// The definition to copy, by [`AgentDefinition::id`], as `project`'s scope resolves it:
+        /// a project's own first, then the global one — so cloning a global into a project is
+        /// this message with `project` set.
         id: String,
         /// The name the copy takes.
         new_id: String,
-        /// Which scope both live in: absent is the global root, present is that project's own.
-        /// A clone stays in its scope; moving one between scopes is a save, not a copy.
+        /// Which scope the copy is written into: absent is the global root, present is that
+        /// project's own. A global clone reads the global root only.
         project: Option<ProjectId>,
+    },
+    /// Delete one of a project's own definitions. Answered with [`Message::AgentDefinitions`], or
+    /// [`Message::AccountError`] when the project holds no definition of that id. A global
+    /// definition has no delete (see [`Message::SaveAgentDefinition`]), which is why `project`
+    /// is not optional.
+    DeleteAgentDefinition {
+        id: String,
+        project: ProjectId,
     },
     /// Which MCP servers this build offers to inject into a harness. Answered with
     /// [`Message::Mcps`].

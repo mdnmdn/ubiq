@@ -828,7 +828,12 @@ impl Agents {
         Ok(())
     }
 
-    /// Copy a definition under a new name, inside the scope it already lives in.
+    /// Copy a definition under a new name, into `project`'s scope (the global root when `None`).
+    ///
+    /// The source is resolved the way a run inside that scope resolves it — the project's own
+    /// first, then the global one — so cloning a global into a project lands a project
+    /// definition, not a second global. It used to read the source from the target root only,
+    /// which refused every global-to-project clone.
     ///
     /// The copy is of the *record*, not of what the interface was shown, so a field no screen
     /// draws is carried across too. Refused when the source is not there or the name is taken:
@@ -839,11 +844,12 @@ impl Agents {
         new_id: &str,
         project: Option<ProjectId>,
     ) -> Result<()> {
-        let store = match project {
-            Some(project) => self.project_definition_store(project),
-            None => self.definition_store(),
-        };
-        let Some(mut record) = store
+        let global = self.definition_store();
+        let scoped = project.map(|project| self.project_definition_store(project));
+        let source =
+            ScopedProfileStore::new(&global, scoped.as_ref().map(|it| it as &dyn ProfileStore));
+        let store = scoped.as_ref().unwrap_or(&global);
+        let Some(mut record) = source
             .profile(id)
             .with_context(|| format!("reading agent definition '{id}'"))?
         else {
@@ -857,6 +863,15 @@ impl Agents {
             .save(&record)
             .with_context(|| format!("saving agent definition '{new_id}'"))?;
         Ok(())
+    }
+
+    /// Delete one of a project's own definitions, through the library's own
+    /// `FsProfileStore::delete` (rule 1: the store owns the on-disk shape). Only a project's: a
+    /// global definition has no delete. Refused when the project holds no definition of that id.
+    pub fn delete_definition(&self, id: &str, project: ProjectId) -> Result<()> {
+        self.project_definition_store(project)
+            .delete(id)
+            .with_context(|| format!("deleting agent definition '{id}' of project {project}"))
     }
 
     /// Whether this machine has a harness a definition could name at all — its binary found, or
@@ -2685,6 +2700,39 @@ mod tests {
 
     /// A bare definition of `id`, for the tests above: the one harness they all pin to, nothing
     /// else mentioned.
+    /// A global cloned into a project lands in the project's root, scoped to it, and leaves the
+    /// global list as it was; a project definition can then be switched off and deleted there.
+    #[test]
+    fn a_global_cloned_into_a_project_is_the_projects_and_can_be_deleted() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let project = ProjectId::generate();
+        agents.save_definition(a_definition("standard")).unwrap();
+
+        agents
+            .clone_definition("standard", "standard copy", Some(project))
+            .unwrap();
+        let scoped = agents.project_definitions(project).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].id, "standard copy");
+        assert_eq!(scoped[0].project, Some(project));
+        assert_eq!(agents.definitions().unwrap().len(), 1, "no second global");
+
+        agents
+            .save_definition(AgentDefinition {
+                disabled: true,
+                ..scoped[0].clone()
+            })
+            .unwrap();
+        assert!(agents.project_definitions(project).unwrap()[0].disabled);
+
+        assert!(agents.delete_definition("standard", project).is_err());
+        assert!(agents.delete_definition("../standard", project).is_err());
+        agents.delete_definition("standard copy", project).unwrap();
+        assert!(agents.project_definitions(project).unwrap().is_empty());
+        assert_eq!(agents.definitions().unwrap().len(), 1, "the global stands");
+    }
+
     fn a_definition(id: &str) -> AgentDefinition {
         AgentDefinition {
             id: id.to_string(),

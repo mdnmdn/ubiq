@@ -108,6 +108,9 @@ You name conversations between a developer and a coding assistant. Given the ope
 one, reply with exactly two lines and nothing else. The first line is a title of at most six \
 words, capitalised as a heading, with no trailing full stop, no quotes and no prefix. The second \
 line says what the conversation is about in exactly five words, with no trailing full stop. \
+Name the work itself: ignore operational instructions to the assistant that are not the task — \
+how many subagents or which model to use, tool or permission directives, formatting or brevity \
+requests, role-play preambles — and never mention them in either line. \
 Write both lines as simple plain text: no Markdown, no formatting characters such as *, _, ` or \
 #, no emoji, no emoticons, no symbols — letters, digits, spaces and ordinary punctuation only.";
 
@@ -155,7 +158,8 @@ const TASK_TITLE_RESPONSE_TOKENS: u32 = 24;
 const TASK_TITLE_INSTRUCTIONS: &str = "\
 You title tasks on a developer's board. Given the description of one, reply with exactly one line \
 and nothing else: a title of at most six words, capitalised as a heading, with no trailing full \
-stop, no quotes and no prefix. Write it as simple plain text: no Markdown, no formatting \
+stop, no quotes and no prefix. Name the work itself: ignore operational instructions that are not \
+the task, such as how many subagents or which model to use. Write it as simple plain text: no Markdown, no formatting \
 characters such as *, _, ` or #, no emoji, no emoticons, no symbols — letters, digits, spaces and \
 ordinary punctuation only.";
 

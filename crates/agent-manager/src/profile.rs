@@ -346,6 +346,23 @@ impl FsProfileStore {
         Ok(path)
     }
 
+    /// Remove the profile `id` — its whole `<root>/<id>/` directory, the record and any
+    /// config-overlay bases beside it. The inverse of [`Self::save`], so it removes only a
+    /// profile `save` could have written: one whose directory is named by its id. Errors when
+    /// there is none, and when `id` is not a single plain name.
+    pub fn delete(&self, id: &str) -> Result<()> {
+        let plain = matches!(
+            Path::new(id).components().collect::<Vec<_>>().as_slice(),
+            [std::path::Component::Normal(_)]
+        );
+        let dir = self.root.join(id);
+        if !plain || !dir.join("profile.toml").is_file() {
+            bail!("no profile named '{id}'");
+        }
+        std::fs::remove_dir_all(&dir).with_context(|| format!("removing {}", dir.display()))?;
+        Ok(())
+    }
+
     /// Path of the config-overlay seed dir for a profile + harness:
     /// `<root>/<id>/base/<harness>`. This is where a captured login is
     /// persisted and seeded from; this method only computes the path (it does
@@ -804,6 +821,12 @@ instructions = "/etc/work-instructions.md"
             store.base_dir("cap", "claude"),
             root.join("cap").join("base").join("claude")
         );
+
+        assert!(store.delete("../cap").is_err());
+        assert!(store.delete("nobody").is_err());
+        store.delete("cap")?;
+        assert!(store.profile("cap")?.is_none());
+        assert!(!root.join("cap").exists());
 
         temp.close()?;
         Ok(())

@@ -6,7 +6,7 @@ status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
 updated: 2026-09-29
-verified: 2026-09-29
+verified: 2026-10-05
 code_anchors: [crates/ubiq-host/src/catalog.rs, crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -152,8 +152,9 @@ takes the same list and prints each line to stderr instead.
 skipping any that
 pins no harness, and `save_definition()` folds one back into a `Profile` and calls
 `FsProfileStore::save`. The store owns the on-disk shape, the id and the resolution; the host owns
-only where the root is. There is no delete, because the library offers none: adding a `remove_dir_all`
-here rather than a `delete` there is exactly the shape rule 1 forbids — [`../backlog.md`](../backlog.md).
+only where the root is. A delete goes through the library's `FsProfileStore::delete`, never a
+`remove_dir_all` here — that is exactly the shape rule 1 forbids — and `delete_definition()` offers
+it for a project's own definitions only; a global one still has none ([`../backlog.md`](../backlog.md)).
 The fields the interface can set are the harness, the account, the model, the reasoning
 level, the mode, the subagent ceiling, the opening prompt, and the skills and MCP servers — the same
 questions the start form asks, since an agent definition is a saved answer to them. `skills` is

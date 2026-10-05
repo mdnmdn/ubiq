@@ -34,7 +34,10 @@ use gpui_component::slider::{SliderEvent, SliderState};
 
 use crate::app::AppState;
 use crate::state::MenuId;
-use crate::state::editor::{MD_CHAR_SCALE_MAX, MD_CHAR_SCALE_MIN, OpenFile, TextShade};
+use crate::state::editor::{
+    MD_CHAR_SCALE_MAX, MD_CHAR_SCALE_MIN, MD_LINE_SPACING_MAX, MD_LINE_SPACING_MIN,
+    MD_PARA_SPACING_MAX, MD_PARA_SPACING_MIN, OpenFile, TextShade,
+};
 use crate::theme::{MdDensity, MdMinimapSide, MdWidth};
 use crate::ui::kit::{
     Slider, UbiqIcon, check_box, choice_pill, ghost_button, icon_button, popover, section_label,
@@ -73,7 +76,7 @@ pub fn control(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> A
     trigger.into_any_element()
 }
 
-/// The panel itself: width, density, the minimap's two facets, then T-188's own three rows.
+/// The panel itself: width, density, the minimap's two facets, then T-188's own rows.
 fn panel(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
     let ui = &app.workbench.settings.ui;
     let view = cx.entity();
@@ -95,6 +98,14 @@ fn panel(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElem
             row(
                 "character size",
                 char_size_slider(&key, reading.char_scale, cx),
+            ),
+            row(
+                "row spacing",
+                spacing_slider(&key, Spacing::Line, reading.line_spacing, cx),
+            ),
+            row(
+                "paragraph spacing",
+                spacing_slider(&key, Spacing::Paragraph, reading.paragraph_spacing, cx),
             ),
             row("text colour", shade_swatches(&key, reading.text_shade, cx)),
             make_default_row(&key, cx),
@@ -240,6 +251,66 @@ fn char_size_slider(key: &str, current: f32, cx: &mut Context<AppState>) -> AnyE
     .leading(UbiqIcon::SizeTextSmall)
     .trailing(UbiqIcon::SizeTextLarge)
     .into_any_element()
+}
+
+/// Which of the two spacing sliders.
+#[derive(Clone, Copy)]
+enum Spacing {
+    Line,
+    Paragraph,
+}
+
+thread_local! {
+    /// The spacing sliders, per document and kind, on [`CHAR_SLIDERS`]' terms (and with its known
+    /// gap).
+    static SPACING_SLIDERS: RefCell<HashMap<(String, u8), (Entity<SliderState>, Subscription)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Both span 12 steps: `0.8..2.0` by `0.1` and `0..3` by `0.25`, so `1.0` — today's look — is a
+/// stop on each.
+const SPACING_STOPS: usize = 13;
+
+fn spacing_slider(
+    key: &str,
+    which: Spacing,
+    current: f32,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let (id, tip, min, max) = match which {
+        Spacing::Line => (
+            "md-options-line-spacing",
+            "Row spacing \u{2014} a multiplier on the line height",
+            MD_LINE_SPACING_MIN,
+            MD_LINE_SPACING_MAX,
+        ),
+        Spacing::Paragraph => (
+            "md-options-para-spacing",
+            "Paragraph spacing \u{2014} a multiplier on the gap between blocks",
+            MD_PARA_SPACING_MIN,
+            MD_PARA_SPACING_MAX,
+        ),
+    };
+    let slot = (key.to_string(), which as u8);
+    let entity = SPACING_SLIDERS.with_borrow_mut(|cache| {
+        if let Some((entity, _)) = cache.get(&slot) {
+            return entity.clone();
+        }
+        let entity = cx.new(|_| slider_state(min, max, SPACING_STOPS, current));
+        let owned_key = key.to_string();
+        let subscription = cx.subscribe(&entity, move |this, _slider, event: &SliderEvent, cx| {
+            let SliderEvent::Change(value) = event else {
+                return;
+            };
+            match which {
+                Spacing::Line => this.set_md_line_spacing(&owned_key, value.end(), cx),
+                Spacing::Paragraph => this.set_md_paragraph_spacing(&owned_key, value.end(), cx),
+            }
+        });
+        cache.insert(slot, (entity.clone(), subscription));
+        entity
+    });
+    Slider::new(id, &entity, tip).into_any_element()
 }
 
 /// One rectangle of the four-way text-colour picker.

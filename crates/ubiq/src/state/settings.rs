@@ -268,6 +268,11 @@ pub struct UiSettings {
     pub md_char_scale_default: f32,
     #[serde(default)]
     pub md_text_shade_default: crate::state::editor::TextShade,
+    /// The row- and paragraph-spacing multipliers the same button writes down.
+    #[serde(default = "default_md_char_scale")]
+    pub md_line_spacing_default: f32,
+    #[serde(default = "default_md_char_scale")]
+    pub md_paragraph_spacing_default: f32,
     /// Which ACP harnesses that have a native sibling are offered for selection, by harness id.
     ///
     /// Empty by default, and empty is what a settings file written before this existed reads as,
@@ -313,6 +318,8 @@ impl Default for UiSettings {
             md_density: crate::theme::MdDensity::default(),
             md_char_scale_default: 1.0,
             md_text_shade_default: crate::state::editor::TextShade::default(),
+            md_line_spacing_default: 1.0,
+            md_paragraph_spacing_default: 1.0,
             acp_enabled: BTreeSet::new(),
         }
     }
@@ -381,6 +388,10 @@ pub enum AccountDialog {
     /// Signs one harness out, leaving the account and its other harnesses alone. Confirming
     /// sends `DeleteHarnessLogin`.
     SignOut { agent_type: String, account: String },
+    /// Deletes one of a project's own agent definitions. Rides this enum because it is the same
+    /// one-question confirm, painted from the same place. Confirming sends
+    /// `DeleteAgentDefinition`.
+    DeleteDefinition { id: String, project: ProjectId },
 }
 
 /// Where a connect flow has got to. One at a time, and the user can leave any of them —

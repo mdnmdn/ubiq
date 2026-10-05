@@ -177,6 +177,16 @@ palette's own seed. **The project swatches stay outside this axis**: `D19` makes
 rather than role, and recolouring sixteen of them with one accent would make two projects look the
 same, so they keep their per-palette literals.
 
+**Text brightness is a third colour axis, over the text group only.** `InterfacePrefs.text_brightness`
+is one of the markdown reading options' four `TextShade`s, held in a thread-local cell beside the
+theme's (`theme::text_brightness`/`set_text_brightness`) and applied by `set_theme` after
+`resolve`: `Primary` leaves the palette as written, `Strong` mixes `text`, `text_muted`,
+`text_faint` and `text_strong` toward the far end of the palette's range, and `Muted`/`Faint` mix
+them toward `surface.base` — one fraction for all four, consts in `theme.rs`, so their hierarchy
+survives every level. `on_accent` and `mark` do not move. `resolve` itself stays pure, so the
+theme editor and the tests see the palette as written. A markdown document's own shade picks among
+the four tokens as the axis has left them, so the two compose rather than compete.
+
 **A type size is a family and a role, never a number.** `theme::font(Family, Role)` is the one place
 a size in the interface comes from: a size is owned the way a colour is, which is `D10`'s rule on a
 second axis. Three families, because the three are read differently and resize for different

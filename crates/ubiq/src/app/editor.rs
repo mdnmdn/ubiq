@@ -257,21 +257,58 @@ impl AppState {
         }
     }
 
+    /// The document a reading-options popover is about, by its key: an editor tab, or a
+    /// knowledge-base document — both draw the same header and the same popover, and a lookup
+    /// over the tabs alone left the popover inert in the KB.
+    pub fn reading_file(&self, key: &str, cx: &App) -> Option<&OpenFile> {
+        self.file(key, cx).or_else(|| {
+            self.kb(cx)?.docs.iter().find(|doc| doc.key() == key)
+        })
+    }
+
+    fn reading_file_mut(&mut self, key: &str, cx: &App) -> Option<&mut OpenFile> {
+        let open = self.projects.get_mut(&self.project(cx)?)?;
+        if open.editor.find_key_mut(key).is_some() {
+            return open.editor.find_key_mut(key);
+        }
+        open.kb.docs.iter_mut().find(|doc| doc.key() == key)
+    }
+
     /// The reading-options popover's character-size slider (T-188), one tab's own in-memory
     /// setting — see [`crate::state::editor::MdReading`].
     pub fn set_md_char_scale(&mut self, key: &str, scale: f32, cx: &mut Context<Self>) {
-        let Some(project) = self.project(cx) else {
-            return;
-        };
-        let Some(open) = self.projects.get_mut(&project) else {
-            return;
-        };
-        let Some(file) = open.editor.find_key_mut(key) else {
+        let Some(file) = self.reading_file_mut(key, cx) else {
             return;
         };
         file.md_reading.char_scale = scale.clamp(
             crate::state::editor::MD_CHAR_SCALE_MIN,
             crate::state::editor::MD_CHAR_SCALE_MAX,
+        );
+        self.push_md_config(cx);
+        cx.notify();
+    }
+
+    /// The row-spacing slider: a multiplier on the line height, same per-tab terms.
+    pub fn set_md_line_spacing(&mut self, key: &str, value: f32, cx: &mut Context<Self>) {
+        let Some(file) = self.reading_file_mut(key, cx) else {
+            return;
+        };
+        file.md_reading.line_spacing = value.clamp(
+            crate::state::editor::MD_LINE_SPACING_MIN,
+            crate::state::editor::MD_LINE_SPACING_MAX,
+        );
+        self.push_md_config(cx);
+        cx.notify();
+    }
+
+    /// The paragraph-spacing slider: a multiplier on the gaps between blocks.
+    pub fn set_md_paragraph_spacing(&mut self, key: &str, value: f32, cx: &mut Context<Self>) {
+        let Some(file) = self.reading_file_mut(key, cx) else {
+            return;
+        };
+        file.md_reading.paragraph_spacing = value.clamp(
+            crate::state::editor::MD_PARA_SPACING_MIN,
+            crate::state::editor::MD_PARA_SPACING_MAX,
         );
         self.push_md_config(cx);
         cx.notify();
@@ -285,13 +322,7 @@ impl AppState {
         shade: crate::state::editor::TextShade,
         cx: &mut Context<Self>,
     ) {
-        let Some(project) = self.project(cx) else {
-            return;
-        };
-        let Some(open) = self.projects.get_mut(&project) else {
-            return;
-        };
-        let Some(file) = open.editor.find_key_mut(key) else {
+        let Some(file) = self.reading_file_mut(key, cx) else {
             return;
         };
         file.md_reading.text_shade = shade;
@@ -311,11 +342,13 @@ impl AppState {
     /// mean inventing one, which this card stops short of. See the doc comment on
     /// `ui::viewer::md_options` for what such a message would have to carry.
     pub fn make_md_reading_default(&mut self, key: &str, cx: &mut Context<Self>) {
-        let Some(reading) = self.file(key, cx).map(|file| file.md_reading) else {
+        let Some(reading) = self.reading_file(key, cx).map(|file| file.md_reading) else {
             return;
         };
         self.workbench.settings.ui.md_char_scale_default = reading.char_scale;
         self.workbench.settings.ui.md_text_shade_default = reading.text_shade;
+        self.workbench.settings.ui.md_line_spacing_default = reading.line_spacing;
+        self.workbench.settings.ui.md_paragraph_spacing_default = reading.paragraph_spacing;
         self.remember_settings();
         cx.notify();
     }

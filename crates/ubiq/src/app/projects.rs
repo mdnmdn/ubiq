@@ -1281,6 +1281,9 @@ impl AppState {
                     // The palette, the accent *and* the scale reach the component library here:
                     // its `font_size` is the window's rem size (`D153`), so a blob carrying a
                     // scale that never reached it would leave every spacing where it was.
+                    // The brightness rides the same resolve, so it is set first and the one
+                    // `set_theme` below puts both on.
+                    theme::set_text_brightness(prefs.text_brightness);
                     theme::set_theme(self.workbench.theme_id, prefs.accent, cx);
                     self.redress_terminals(cx);
                 }

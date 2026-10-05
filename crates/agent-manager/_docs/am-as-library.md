@@ -234,7 +234,8 @@ seam.
 
 FS impl: `profile::FsProfileStore` — profiles are *directories*
 (`<root>/<name>/profile.toml` + `base/<harness>/`), unlike accounts' flat
-files, because a profile owns persistent per-harness state.
+files, because a profile owns persistent per-harness state. `save` writes one and `delete`
+removes its whole directory (refusing an id that is not a single plain name).
 `profile::EmptyProfileStore` is the zero-profiles default.
 
 **`harness::TemplateStore`** — editable preference defaults:

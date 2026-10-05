@@ -960,6 +960,7 @@ fn refusal(message: &Message) -> Option<Message> {
         | ListAgentDefinitions
         | SaveAgentDefinition { .. }
         | CloneAgentDefinition { .. }
+        | DeleteAgentDefinition { .. }
         | ListMcps
         | ListTools { .. }
         | RunTool { .. } => AccountError {

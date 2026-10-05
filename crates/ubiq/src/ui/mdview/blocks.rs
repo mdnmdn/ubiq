@@ -26,6 +26,7 @@ use gpui::{
     IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
     TextRun, Window, WindowTextSystem, div, px, relative,
 };
+use gpui_component::{Icon, IconName, Size, Sizable as _};
 use ubiq_md::{
     Admonition, Block, BlockKind, Cell, ColumnAlign, Document, FrontMatterStyle, ListItem,
 };
@@ -84,6 +85,12 @@ pub struct Metrics {
     /// The colour running prose is set in — the reader's text shade. A block quote renders its
     /// children with this changed and nothing else.
     pub prose: gpui::Rgba,
+    /// The colour headings and table headers are set in — one shade stronger than `prose`
+    /// ([`crate::state::editor::TextShade::heading_colour`]).
+    pub heading: gpui::Rgba,
+    /// The reader's row-spacing multiplier, already folded into `leading`; carried separately for
+    /// headings, whose leading is their own table's.
+    pub line_spacing: f32,
     /// What a click on a link in the prose does. `None` draws links without click targets.
     pub on_link: Option<LinkHandler>,
     /// The window's text system, carried so a row can shape text while it renders.
@@ -108,6 +115,7 @@ impl fmt::Debug for Metrics {
             .field("rhythm", &self.rhythm)
             .field("tail", &self.tail)
             .field("prose", &self.prose)
+            .field("heading", &self.heading)
             .finish_non_exhaustive()
     }
 }
@@ -167,6 +175,10 @@ impl Geometry {
             MdDensity::Comfortable => (leading_for(fitted), 1.0),
             MdDensity::Compact => (leading_for(fitted) - COMPACT_LEADING, COMPACT_RHYTHM),
         };
+        // The reader's own spacing, laid over density: both multiply what density settled on, so
+        // `1.0` is today's page and every height derived from `leading`/`rhythm` follows.
+        let leading = leading * config.reading.line_spacing;
+        let rhythm = rhythm * config.reading.paragraph_spacing;
 
         Geometry {
             body,
@@ -214,6 +226,8 @@ impl Metrics {
             rhythm: g.rhythm,
             tail: g.tail,
             prose: config.reading.text_shade.colour(),
+            heading: config.reading.text_shade.heading_colour(),
+            line_spacing: config.reading.line_spacing,
             on_link: None,
             text,
         }
@@ -347,7 +361,15 @@ fn heading_scale(level: u8) -> (f32, f32, FontWeight) {
 /// **Only a root block's `ix` addresses a row** — `Block::ix` is sibling-local, so a block nested
 /// in a list item or a quote has an `ix` that means nothing here. That is why this takes the
 /// document and the index rather than a `&Block`.
-pub fn row(doc: &Document, ix: usize, m: &Metrics, find: Option<&Find>) -> AnyElement {
+///
+/// `front` is the front-matter row's disclosure: whether it is open and what a click on its header does.
+pub fn row(
+    doc: &Document,
+    ix: usize,
+    m: &Metrics,
+    find: Option<&Find>,
+    front: Option<FrontToggle>,
+) -> AnyElement {
     let Some(block) = doc.blocks.get(ix) else {
         return div().into_any_element();
     };
@@ -370,8 +392,19 @@ pub fn row(doc: &Document, ix: usize, m: &Metrics, find: Option<&Find>) -> AnyEl
         .pr(px(m.margin))
         .mt(m.gap(above))
         .when(last, |this| this.mb(px(m.tail)))
-        .child(content(block, m, &doc.source, true))
+        .child(match (&block.kind, front) {
+            (BlockKind::FrontMatter { style, body }, Some(front)) => {
+                front_matter(*style, body, m, true, front)
+            }
+            _ => content(block, m, &doc.source, true),
+        })
         .into_any_element()
+}
+
+/// The front matter's disclosure: open or not, and the header's click.
+pub struct FrontToggle {
+    pub open: bool,
+    pub on_click: Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static>,
 }
 
 /// A block's own element. `capped` is set for a root block, which owns the page's width rules; a
@@ -408,7 +441,7 @@ fn content(block: &Block, m: &Metrics, src: &str, capped: bool) -> AnyElement {
             rows,
         } => table(alignments, head, rows, m, capped, at),
         BlockKind::ThematicBreak => thematic_break(m, capped),
-        BlockKind::FrontMatter { style, body } => front_matter(*style, body, m, capped),
+        BlockKind::FrontMatter { style, body } => front_matter_body(*style, body, m, capped),
         BlockKind::Html { body } => html(body, m, capped),
         BlockKind::FootnoteDefinition { label, blocks } => footnote(label, blocks, m, src, capped),
         // Nothing vanishes: a kind the engine does not model draws the bytes it came from.
@@ -463,12 +496,12 @@ fn heading(block: &Block, level: u8, m: &Metrics, capped: bool) -> AnyElement {
 
     column(m, capped)
         .text_size(px(size))
-        .line_height(px(size * lead))
+        .line_height(px(size * lead * m.line_spacing))
         .child(text(
             &block.spans,
-            &Base::heading(weight),
+            &Base::heading(weight, m.heading),
             size,
-            size * lead,
+            size * lead * m.line_spacing,
             m,
         ))
         .into_any_element()
@@ -767,7 +800,7 @@ fn table_row(
                 .copied()
                 .unwrap_or(ColumnAlign::Default);
             let base = if header {
-                Base::heading(FontWeight::SEMIBOLD)
+                Base::heading(FontWeight::SEMIBOLD, m.heading)
             } else {
                 Base::coloured(m.prose)
             };
@@ -931,9 +964,70 @@ fn thematic_break(m: &Metrics, capped: bool) -> AnyElement {
         .into_any_element()
 }
 
-/// Front matter is metadata, not prose (§ the engine's own note): a dimmed monospace panel that
-/// reads as a header, never as a paragraph.
-fn front_matter(style: FrontMatterStyle, body: &str, m: &Metrics, capped: bool) -> AnyElement {
+/// Front matter is metadata, not prose (§ the engine's own note): collapsed by default to one
+/// row — chevron, label, key count — and opened on click to a dimmed monospace panel that reads as
+/// a header, never as a paragraph.
+fn front_matter(
+    style: FrontMatterStyle,
+    body: &str,
+    m: &Metrics,
+    capped: bool,
+    front: FrontToggle,
+) -> AnyElement {
+    let fields = body
+        .lines()
+        .filter(|l| {
+            l.chars().next().is_some_and(|c| !c.is_whitespace() && !"#-]}".contains(c))
+                && l.contains(match style {
+                    FrontMatterStyle::Yaml => ':',
+                    FrontMatterStyle::Pluses => '=',
+                })
+        })
+        .count();
+    let header = div()
+        .id("md-front-matter")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .text_size(theme::font(Family::Chrome, Role::Label))
+        .text_color(theme::text_faint())
+        .child(
+            Icon::new(if front.open {
+                IconName::ChevronDown
+            } else {
+                IconName::ChevronRight
+            })
+            .with_size(Size::Size(theme::icon_sm()))
+            .text_color(theme::text_muted()),
+        )
+        .child("Front matter")
+        .when(fields > 0, |this| {
+            this.child(format!(
+                "\u{b7} {fields} field{}",
+                if fields == 1 { "" } else { "s" }
+            ))
+        })
+        .on_click(move |event, window, cx| {
+            cx.stop_propagation();
+            (front.on_click)(event, window, cx);
+        });
+
+    let open = front.open;
+    wide(m, capped)
+        .flex()
+        .flex_col()
+        .child(header)
+        .when(open, |this| {
+            this.child(div().pt_1().child(front_matter_body(style, body, m, false)))
+        })
+        .into_any_element()
+}
+
+/// The expanded panel itself.
+fn front_matter_body(style: FrontMatterStyle, body: &str, m: &Metrics, capped: bool) -> AnyElement {
     let size = m.body * 0.85;
     let label = match style {
         FrontMatterStyle::Yaml => "front matter — yaml",

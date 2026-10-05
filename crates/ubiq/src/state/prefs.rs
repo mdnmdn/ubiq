@@ -197,6 +197,11 @@ pub struct InterfacePrefs {
     /// after the first release.
     #[serde(default)]
     pub accent: Option<AccentId>,
+    /// How bright every text token is drawn — the reading-options picker's four shades, read as
+    /// a level over the palette (`theme::set_text_brightness`). `Primary` is the palette as
+    /// written, and what a blob older than this field reads as: `default`, no schema bump.
+    #[serde(default)]
+    pub text_brightness: crate::state::editor::TextShade,
     /// The size axis — [`crate::theme::Metrics`], written out flat.
     ///
     /// `ui_scale` moves every dimension in the window and `text_ratio` moves type within it; the
@@ -250,6 +255,7 @@ impl Default for InterfacePrefs {
             schema: SCHEMA,
             theme: ThemeId::DARK,
             accent: None,
+            text_brightness: crate::state::editor::TextShade::Primary,
             ui_scale: 1.0,
             text_ratio: 1.0,
             content_trim: 1.0,

@@ -88,6 +88,8 @@ pub struct MdView {
     pub(super) editable: bool,
     /// The block the reader last clicked, as a root block index.
     pub(super) selected_block: Option<usize>,
+    /// Whether the front matter row is expanded. Per view, in memory; every document opens collapsed.
+    pub(super) front_open: bool,
     /// What the host says each row carries — threads, marks, highlight, focus — in row order.
     /// Pushed whole by [`Self::set_decor`]; the view never edits it.
     decor: Vec<RowDecor>,
@@ -159,6 +161,7 @@ impl MdView {
             edit: None,
             editable: false,
             selected_block: None,
+            front_open: false,
             decor: Vec::new(),
             annotating: false,
             menu: None,
@@ -377,6 +380,15 @@ impl MdView {
                 self.list.splice(ix..ix + 1, 1);
             }
         }
+        cx.notify();
+    }
+
+    /// Expand or collapse the front matter at root row `ix`; the row's height changes, so it is
+    /// remeasured alone and the minimap's cache is dropped.
+    pub(super) fn toggle_front(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.front_open = !self.front_open;
+        self.list.splice(ix..ix + 1, 1);
+        self.minimap.invalidate();
         cx.notify();
     }
 

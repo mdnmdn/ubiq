@@ -24,6 +24,7 @@ impl AppState {
             schema: prefs::SCHEMA,
             theme: self.workbench.theme_id,
             accent: theme::accent_id(),
+            text_brightness: theme::text_brightness(),
             // The whole size axis, the content family's included: appearance is one setting for
             // all of Ubiq (`D151`).
             ui_scale: metrics.ui_scale,
@@ -1661,6 +1662,47 @@ impl AppState {
             new_id,
             project,
         });
+        cx.notify();
+    }
+
+    /// Switch a definition off, or back on, in the scope it lives in. A save of the definition as
+    /// listed with only `disabled` flipped — the same write the form's own toggle ends in.
+    pub fn toggle_definition_disabled(
+        &mut self,
+        definition: AgentDefinition,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.error = None;
+        self.bus.send(Message::SaveAgentDefinition {
+            definition: AgentDefinition {
+                disabled: !definition.disabled,
+                ..definition
+            },
+        });
+        cx.notify();
+    }
+
+    /// Raise the delete confirmation over one of a project's own definitions.
+    pub fn open_delete_definition(
+        &mut self,
+        id: String,
+        project: ProjectId,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.dialog = Some(AccountDialog::DeleteDefinition { id, project });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Delete the project definition the confirmation was raised over.
+    pub fn confirm_delete_definition(&mut self, cx: &mut Context<Self>) {
+        let Some(AccountDialog::DeleteDefinition { id, project }) =
+            self.workbench.settings.dialog.take()
+        else {
+            return;
+        };
+        self.bus
+            .send(Message::DeleteAgentDefinition { id, project });
         cx.notify();
     }
 

@@ -461,6 +461,13 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             accent_choice(palette, cx),
         ),
         setting_row(
+            "Text brightness",
+            "Every text colour in the window, brighter or dimmer together \u{2014} the same four \
+             shades a markdown document's reading options offer. Primary is the palette as \
+             written; a document's own shade picks among the four as they now stand.",
+            crate::ui::size::brightness_pills("app-settings", cx),
+        ),
+        setting_row(
             "Themes",
             "Themes you made, beside the palettes above. One is a fork of a built-in plus the \
              colours you changed \u{2014} everything else follows the palette it came from, so a \
@@ -2075,7 +2082,7 @@ fn note(text: &str, colour: gpui::Rgba) -> AnyElement {
 /// What the host last refused for a rename, delete or sign-out. The same warning-banner shape
 /// `ui/project_menu.rs`'s row confirmations use, dismissible because it is history the moment
 /// it is read.
-fn error_banner(error: &str, cx: &mut Context<AppState>) -> AnyElement {
+pub(crate) fn error_banner(error: &str, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .px_3()
         .py_2()
@@ -2303,7 +2310,37 @@ pub(crate) fn definition_row(
                     cx.listener(move |this, _, window, cx| {
                         this.open_definition_form(Some(edit.clone()), None, window, cx)
                     }),
-                )),
+                ))
+                // A project's own row also switches off and deletes from here. A global has
+                // its off switch in the form, and no delete at all.
+                .when_some(scope, |row, project| {
+                    let toggle = definition.clone();
+                    let delete_id = definition.id.clone();
+                    row.child(ghost_button(
+                        ElementId::Name(
+                            format!("app-settings-definition-{}-toggle", definition.id).into(),
+                        ),
+                        None,
+                        if definition.disabled {
+                            "Enable"
+                        } else {
+                            "Disable"
+                        },
+                        cx.listener(move |this, _, _, cx| {
+                            this.toggle_definition_disabled(toggle.clone(), cx)
+                        }),
+                    ))
+                    .child(ghost_button(
+                        ElementId::Name(
+                            format!("app-settings-definition-{}-delete", definition.id).into(),
+                        ),
+                        None,
+                        "Delete",
+                        cx.listener(move |this, _, _, cx| {
+                            this.open_delete_definition(delete_id.clone(), project, cx)
+                        }),
+                    ))
+                }),
         )
         .into_any_element()
 }
@@ -2885,6 +2922,19 @@ pub fn account_dialog(
                 window,
             )
         }
+        Some(AccountDialog::DeleteDefinition { id, .. }) => confirm_modal(
+            "project-definition-delete",
+            "Delete agent",
+            &format!(
+                "Delete {id} from this project? The setup is gone for good; the application's \
+                 own agents are not touched."
+            ),
+            "Delete",
+            true,
+            crate::ui::handler(&view, |this, _, cx| this.confirm_delete_definition(cx)),
+            crate::ui::handler(&view, |this, _, cx| this.close_account_dialog(cx)),
+            window,
+        ),
     }
 }
 

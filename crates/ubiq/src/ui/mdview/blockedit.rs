@@ -405,7 +405,16 @@ pub fn row(view: &WeakEntity<MdView>, this: &MdView, ix: usize, m: &Metrics) -> 
         };
     }
 
-    let rendered = blocks::row(&this.doc, ix, m, Some(&this.find));
+    let toggle = view.clone();
+    let front = matches!(this.doc.blocks[ix].kind, BlockKind::FrontMatter { .. }).then(|| {
+        blocks::FrontToggle {
+            open: this.front_open,
+            on_click: Box::new(move |_, _, cx: &mut App| {
+                toggle.update(cx, |this, cx| this.toggle_front(ix, cx)).ok();
+            }),
+        }
+    });
+    let rendered = blocks::row(&this.doc, ix, m, Some(&this.find), front);
     let click = view.clone();
     let editable = this.editable;
 

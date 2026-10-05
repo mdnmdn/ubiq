@@ -38,15 +38,16 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ElementId, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    Rgba, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px, relative,
+    AnyElement, App, ElementId, Entity, FontWeight, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
+    deferred, div, point, px, relative,
 };
 use gpui_component::IconName;
 use gpui_component::input::{Input, InputState};
 
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::kit::controls::{field, ghost_button, icon_button, primary_button, section_label};
+use crate::ui::kit::controls::{field, ghost_button, icon_button, primary_button};
 use crate::ui::kit::settings::label_block;
 
 /// One modal: a title, a body, and whatever actions the caller offers under it.
@@ -152,8 +153,21 @@ pub fn modal_sized(
                 .flex_none()
                 .items_center()
                 .gap_2()
-                .child(section_label(title))
-                .child(div().flex_1().min_w(px(0.)))
+                .child({
+                    let full = SharedString::from(title.to_string());
+                    div()
+                        .id(ElementId::Name(format!("{id}-title").into()))
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate()
+                        .text_size(theme::font(Family::Chrome, Role::Micro))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::text_faint())
+                        .child(SharedString::from(title.to_uppercase()))
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new(full.clone()).build(window, cx)
+                        })
+                })
                 .children(actions)
                 .child(icon_button(
                     ElementId::Name(format!("{id}-close").into()),

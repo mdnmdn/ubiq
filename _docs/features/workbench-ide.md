@@ -385,7 +385,7 @@ left in.
 view shares the buffer the Source layout edits, never a copy: an edit in either is the other's
 next frame, and the block table follows the buffer one quiet moment (200ms) after the last
 keystroke, splicing only the rows the edit touched and keeping the viewport on the block it was
-reading. YAML or TOML front matter is a labelled monospaced block at the head of the document. The
+reading. YAML or TOML front matter is one collapsed row at the head of the document (chevron, "Front matter", field count); a click opens it to a labelled monospaced block and a second closes it. The open state is per view, in memory, and every document opens collapsed; toggling remeasures that row alone. The
 list virtualises, so a long document scrolls at the cost of the rows on screen.
 
 **Split links its two halves by block, not by fraction.** The buffer is on the left and the view
@@ -444,9 +444,17 @@ drops it, unlike every other row on this panel. `char_scale` is a multiplier ove
 `theme::font(Family::Content, Role::Body)`, never an absolute size of its own: `Metrics::body` is
 that size times it. `text_shade` is one of four `theme::TextColors` tokens
 (`faint`/`muted`/`primary`/`strong`), each with a value in both palettes, and it is the colour
-running prose is set in (`Metrics::prose`). Both are pushed into the tab's view by
-`set_md_char_scale`/`set_md_text_shade`. A **"Make default, system-wide"** button writes the tab's own pair into
-`UiSettings.md_char_scale_default`/`md_text_shade_default`, through the same
+running prose is set in (`Metrics::prose`); headings and table headers follow it one step stronger,
+clamped at `strong` (`TextShade::heading_colour`, `Metrics::heading`) — read as the window's text-brightness axis has left
+the token, so the document's shade sits on top of the global one. Both are pushed into the tab's view by
+`set_md_char_scale`/`set_md_text_shade`, which find the document by key among the editor's tabs
+*and* the knowledge base's open documents (`AppState::reading_file`) — the KB draws the same header
+and the same popover over its own `OpenFile`. Two more sliders sit beside the size one: **row spacing** (`MdReading::line_spacing`, 0.8-2.0,
+multiplies `Metrics::leading` and headings' leading) and **paragraph spacing**
+(`paragraph_spacing`, 0-3, multiplies `Metrics::rhythm`, so every block gap); both default to `1.0`,
+today's page, and a change remeasures the list like any other config change. A **"Make default,
+system-wide"** button writes the tab's own values into
+`UiSettings.md_char_scale_default`/`md_text_shade_default`/`md_line_spacing_default`/`md_paragraph_spacing_default`, through the same
 `Message::SetSettings { layer: Ui }` path every other row on this popover already persists by — no
 new wire message, because that layer is exactly the interface-owned, opaque-to-the-host blob this
 needed. **There is no per-project counterpart.** `ubiq-proto` carries no message that scopes a
