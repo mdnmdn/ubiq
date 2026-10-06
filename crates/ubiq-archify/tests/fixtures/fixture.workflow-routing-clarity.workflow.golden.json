@@ -1,0 +1,1972 @@
+{
+ "name": "fixture.workflow-routing-clarity.workflow",
+ "group": "fixture",
+ "source": "archify/test/fixtures/workflow-routing-clarity.workflow.json",
+ "type": "workflow",
+ "source_sha256": "de4c2db86fc935787c27e1c5158dcc422bd1cbe3db7efb46bb886ff6084d3f4a",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Agent Turn Workflow",
+   "locale": "zh-CN",
+   "output": "workflow-routing-clarity.html",
+   "quality_profile": "showcase"
+  },
+  "lanes": [
+   {
+    "id": "host",
+    "label": "Runtime Host"
+   },
+   {
+    "id": "runtime",
+    "label": "Session + AgentRun"
+   },
+   {
+    "id": "evidence",
+    "label": "Events + Projections"
+   }
+  ],
+  "phases": [
+   {
+    "id": "admit",
+    "label": "准入与路由",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "execute",
+    "label": "Turn 执行",
+    "fromCol": 2,
+    "toCol": 4,
+    "variant": "emphasis"
+   },
+   {
+    "id": "project",
+    "label": "持久化与投影",
+    "fromCol": 5,
+    "toCol": 5,
+    "variant": "dashed"
+   }
+  ],
+  "mainPath": [
+   "request",
+   "admit",
+   "start",
+   "turn",
+   "commit",
+   "project"
+  ],
+  "nodes": [
+   {
+    "id": "request",
+    "lane": "host",
+    "col": 0,
+    "type": "frontend",
+    "label": "Submit Task",
+    "sublabel": "Desktop / TUI / CLI"
+   },
+   {
+    "id": "admit",
+    "lane": "host",
+    "col": 1,
+    "type": "security",
+    "label": "Host Admission",
+    "sublabel": "client + capability"
+   },
+   {
+    "id": "start",
+    "lane": "runtime",
+    "col": 2,
+    "type": "backend",
+    "label": "Start Session",
+    "sublabel": "SessionManager"
+   },
+   {
+    "id": "turn",
+    "lane": "runtime",
+    "col": 3,
+    "type": "backend",
+    "label": "Run Turn",
+    "sublabel": "model + tool loop"
+   },
+   {
+    "id": "tool",
+    "lane": "runtime",
+    "col": 4,
+    "type": "security",
+    "label": "Tool Boundary",
+    "sublabel": "permission / sandbox"
+   },
+   {
+    "id": "commit",
+    "lane": "evidence",
+    "col": 4,
+    "type": "database",
+    "label": "Append Event",
+    "sublabel": "RuntimeEvent"
+   },
+   {
+    "id": "project",
+    "lane": "evidence",
+    "col": 5,
+    "type": "frontend",
+    "label": "Project State",
+    "sublabel": "UI + recovery"
+   },
+   {
+    "id": "graph",
+    "lane": "host",
+    "col": 3,
+    "type": "messagebus",
+    "label": "Agent Graph",
+    "sublabel": "dependent child work"
+   },
+   {
+    "id": "resume",
+    "lane": "runtime",
+    "col": 5,
+    "type": "security",
+    "label": "Resume Check",
+    "sublabel": "safe replay or blocked"
+   }
+  ],
+  "edges": [
+   {
+    "from": "request",
+    "to": "admit",
+    "label": "client request",
+    "role": "main"
+   },
+   {
+    "from": "admit",
+    "to": "start",
+    "label": "authorized session",
+    "role": "main"
+   },
+   {
+    "from": "start",
+    "to": "turn",
+    "label": "startTurn",
+    "role": "main"
+   },
+   {
+    "from": "turn",
+    "to": "tool",
+    "label": "dispatch tool",
+    "variant": "security",
+    "role": "main"
+   },
+   {
+    "from": "tool",
+    "to": "turn",
+    "label": "tool result",
+    "variant": "dashed",
+    "role": "return"
+   },
+   {
+    "from": "turn",
+    "to": "commit",
+    "label": "append event",
+    "variant": "dashed",
+    "role": "main"
+   },
+   {
+    "from": "commit",
+    "to": "project",
+    "label": "projection",
+    "variant": "dashed",
+    "role": "main"
+   },
+   {
+    "from": "start",
+    "to": "graph",
+    "label": "schedule graph",
+    "variant": "emphasis",
+    "role": "async"
+   },
+   {
+    "from": "graph",
+    "to": "turn",
+    "label": "activation",
+    "variant": "dashed",
+    "role": "return"
+   },
+   {
+    "from": "turn",
+    "to": "resume",
+    "label": "crash / handoff",
+    "variant": "security",
+    "role": "branch"
+   },
+   {
+    "from": "resume",
+    "to": "commit",
+    "label": "replay evidence",
+    "variant": "dashed",
+    "role": "return"
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "de4c2db86fc935787c27e1c5158dcc422bd1cbe3db7efb46bb886ff6084d3f4a",
+     "bytes": 3049
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "de4c2db86fc935787c27e1c5158dcc422bd1cbe3db7efb46bb886ff6084d3f4a",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 16,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.1738672286617495,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.186,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 120,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "resume"
+      },
+      "minimumSourceTextPx": 6.3,
+      "minimumProjectedTextPx": 6.1738672286617495,
+      "semanticTextCount": 29
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "de4c2db86fc935787c27e1c5158dcc422bd1cbe3db7efb46bb886ff6084d3f4a",
+     "bytes": 3049
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "de4c2db86fc935787c27e1c5158dcc422bd1cbe3db7efb46bb886ff6084d3f4a",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 16,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.1738672286617495,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.186,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 120,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "resume"
+      },
+      "minimumSourceTextPx": 6.3,
+      "minimumProjectedTextPx": 6.1738672286617495,
+      "semanticTextCount": 29
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "de4c2db86fc935787c27e1c5158dcc422bd1cbe3db7efb46bb886ff6084d3f4a",
+     "bytes": 3049
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "de4c2db86fc935787c27e1c5158dcc422bd1cbe3db7efb46bb886ff6084d3f4a",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 16,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.1738672286617495,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.186,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 120,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "resume"
+      },
+      "minimumSourceTextPx": 6.3,
+      "minimumProjectedTextPx": 6.1738672286617495,
+      "semanticTextCount": 29
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "readable-v2",
+   "viewBox": [949,528],
+   "requiredViewBox": [949,528],
+   "columns": [94,271.2,391.2,544.4,716.8,874.8],
+   "nodes": [
+    {
+     "id": "request",
+     "lane": "host",
+     "col": 0,
+     "x": 48,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "admit",
+     "lane": "host",
+     "col": 1,
+     "x": 225.2,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "graph",
+     "lane": "host",
+     "col": 3,
+     "x": 498.4,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "start",
+     "lane": "runtime",
+     "col": 2,
+     "x": 345.2,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "turn",
+     "lane": "runtime",
+     "col": 3,
+     "x": 498.4,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "tool",
+     "lane": "runtime",
+     "col": 4,
+     "x": 670.8,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "resume",
+     "lane": "runtime",
+     "col": 5,
+     "x": 828.8,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "commit",
+     "lane": "evidence",
+     "col": 4,
+     "x": 670.8,
+     "y": 341,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "project",
+     "lane": "evidence",
+     "col": 5,
+     "x": 828.8,
+     "y": 341,
+     "width": 92,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": null,
+     "from": "admit",
+     "to": "start",
+     "points": [[271.2,145],[271.2,166],[391.2,166],[391.2,217]]
+    },
+    {
+     "id": null,
+     "from": "commit",
+     "to": "project",
+     "points": [[762.8,367],[828.8,367]]
+    },
+    {
+     "id": null,
+     "from": "graph",
+     "to": "turn",
+     "points": [[544.4,145],[544.4,217]]
+    },
+    {
+     "id": null,
+     "from": "request",
+     "to": "admit",
+     "points": [[140,119],[225.2,119]]
+    },
+    {
+     "id": null,
+     "from": "resume",
+     "to": "commit",
+     "points": [[874.8,269],[874.8,290],[716.8,290],[716.8,341]]
+    },
+    {
+     "id": null,
+     "from": "start",
+     "to": "graph",
+     "points": [[403.2,217],[403.2,119],[498.4,119]]
+    },
+    {
+     "id": null,
+     "from": "start",
+     "to": "turn",
+     "points": [[437.2,243],[498.4,243]]
+    },
+    {
+     "id": null,
+     "from": "tool",
+     "to": "turn",
+     "points": [[716.8,269],[716.8,285],[544.4,285],[544.4,269]]
+    },
+    {
+     "id": null,
+     "from": "turn",
+     "to": "commit",
+     "points": [[532.4,269],[532.4,367],[670.8,367]]
+    },
+    {
+     "id": null,
+     "from": "turn",
+     "to": "resume",
+     "points": [[556.4,217],[556.4,201],[874.8,201],[874.8,217]]
+    },
+    {
+     "id": null,
+     "from": "turn",
+     "to": "tool",
+     "points": [[590.4,243],[670.8,243]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": null,
+     "label": "authorized session",
+     "x": 331.2,
+     "y": 156,
+     "width": 96.39999999999999,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "projection",
+     "x": 795.8,
+     "y": 357,
+     "width": 58,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "activation",
+     "x": 544.4,
+     "y": 181,
+     "width": 58,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "client request",
+     "x": 182.6,
+     "y": 109,
+     "width": 77.2,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "replay evidence",
+     "x": 795.8,
+     "y": 280,
+     "width": 82,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "schedule graph",
+     "x": 450.79999999999995,
+     "y": 109,
+     "width": 77.2,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "startTurn",
+     "x": 467.79999999999995,
+     "y": 233,
+     "width": 53.199999999999996,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "tool result",
+     "x": 630.5999999999999,
+     "y": 275,
+     "width": 62.8,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "append event",
+     "x": 601.5999999999999,
+     "y": 357,
+     "width": 67.6,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "crash / handoff",
+     "x": 715.5999999999999,
+     "y": 191,
+     "width": 82,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "dispatch tool",
+     "x": 630.5999999999999,
+     "y": 233,
+     "width": 72.4,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,949,528],
+  "svg_attrs": {
+   "data-layout-contract": "readable-v2",
+   "lang": "zh-CN",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Agent Turn Workflow",
+  "nodes": [
+   {
+    "id": "request",
+    "kind": "frontend",
+    "label": "Submit Task",
+    "sublabel": "Desktop / TUI / CLI",
+    "context": "Runtime Host › 准入与路由",
+    "rect": {
+     "x": 48,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 94,
+      "y": 125.2,
+      "font_size": 11,
+      "text": "Submit Task",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 94,
+      "y": 139.3,
+      "font_size": 7.3,
+      "text": "Desktop / TUI / CLI",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(54 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "admit",
+    "kind": "security",
+    "label": "Host Admission",
+    "sublabel": "client + capability",
+    "context": "Runtime Host › 准入与路由",
+    "rect": {
+     "x": 225.2,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 271.2,
+      "y": 124,
+      "font_size": 10,
+      "text": "Host Admission",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 271.2,
+      "y": 137.8,
+      "font_size": 7.3,
+      "text": "client + capability",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(231.2 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "graph",
+    "kind": "messagebus",
+    "label": "Agent Graph",
+    "sublabel": "dependent child work",
+    "context": "Runtime Host › Turn 执行",
+    "rect": {
+     "x": 498.4,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 544.4,
+      "y": 125.2,
+      "font_size": 11,
+      "text": "Agent Graph",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 544.4,
+      "y": 138.9,
+      "font_size": 7,
+      "text": "dependent child work",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(504.4 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "start",
+    "kind": "backend",
+    "label": "Start Session",
+    "sublabel": "SessionManager",
+    "context": "Session + AgentRun › Turn 执行",
+    "rect": {
+     "x": 345.2,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 391.2,
+      "y": 248.9,
+      "font_size": 10.7,
+      "text": "Start Session",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 391.2,
+      "y": 263.8,
+      "font_size": 8,
+      "text": "SessionManager",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(351.2 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "turn",
+    "kind": "backend",
+    "label": "Run Turn",
+    "sublabel": "model + tool loop",
+    "context": "Session + AgentRun › Turn 执行",
+    "rect": {
+     "x": 498.4,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 544.4,
+      "y": 238,
+      "font_size": 11,
+      "text": "Run Turn",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 544.4,
+      "y": 255,
+      "font_size": 8,
+      "text": "model + tool loop",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(504.4 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "tool",
+    "kind": "security",
+    "label": "Tool Boundary",
+    "sublabel": "permission / sandbox",
+    "context": "Session + AgentRun › Turn 执行",
+    "rect": {
+     "x": 670.8,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 716.8,
+      "y": 248.9,
+      "font_size": 10.7,
+      "text": "Tool Boundary",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 716.8,
+      "y": 262.6,
+      "font_size": 7,
+      "text": "permission / sandbox",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(676.8 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "resume",
+    "kind": "security",
+    "label": "Resume Check",
+    "sublabel": "safe replay or blocked",
+    "context": "Session + AgentRun › 持久化与投影",
+    "rect": {
+     "x": 828.8,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 874.8,
+      "y": 249.2,
+      "font_size": 11,
+      "text": "Resume Check",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 874.8,
+      "y": 262.1,
+      "font_size": 6.3,
+      "text": "safe replay or blocked",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(834.8 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "commit",
+    "kind": "database",
+    "label": "Append Event",
+    "sublabel": "RuntimeEvent",
+    "context": "Events + Projections › Turn 执行",
+    "rect": {
+     "x": 670.8,
+     "y": 341,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 716.8,
+      "y": 373.2,
+      "font_size": 11,
+      "text": "Append Event",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 716.8,
+      "y": 388.1,
+      "font_size": 8,
+      "text": "RuntimeEvent",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(676.8 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "project",
+    "kind": "frontend",
+    "label": "Project State",
+    "sublabel": "UI + recovery",
+    "context": "Events + Projections › 持久化与投影",
+    "rect": {
+     "x": 828.8,
+     "y": 341,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 874.8,
+      "y": 372.9,
+      "font_size": 10.7,
+      "text": "Project State",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 874.8,
+      "y": 387.8,
+      "font_size": 8,
+      "text": "UI + recovery",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(834.8 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "admit",
+    "to": "start",
+    "label": "authorized session",
+    "points": [[271.2,145],[271.2,166],[391.2,166],[391.2,217]],
+    "d": "M 271.2 145 L 271.2 166 L 391.2 166 L 391.2 217",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 1,
+    "from": "commit",
+    "to": "project",
+    "label": "projection",
+    "points": [[762.8,367],[828.8,367]],
+    "d": "M 762.8 367 L 828.8 367",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 2,
+    "from": "graph",
+    "to": "turn",
+    "label": "activation",
+    "points": [[544.4,145],[544.4,217]],
+    "d": "M 544.4 145 L 544.4 217",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "return",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 3,
+    "from": "request",
+    "to": "admit",
+    "label": "client request",
+    "points": [[140,119],[225.2,119]],
+    "d": "M 140 119 L 225.2 119",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "from": "resume",
+    "to": "commit",
+    "label": "replay evidence",
+    "points": [[874.8,269],[874.8,290],[716.8,290],[716.8,341]],
+    "d": "M 874.8 269 L 874.8 290 L 716.8 290 L 716.8 341",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "return",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 5,
+    "from": "start",
+    "to": "graph",
+    "label": "schedule graph",
+    "points": [[403.2,217],[403.2,119],[498.4,119]],
+    "d": "M 403.2 217 L 403.2 119 L 498.4 119",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "role": "async",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 6,
+    "from": "start",
+    "to": "turn",
+    "label": "startTurn",
+    "points": [[437.2,243],[498.4,243]],
+    "d": "M 437.2 243 L 498.4 243",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 7,
+    "from": "tool",
+    "to": "turn",
+    "label": "tool result",
+    "points": [[716.8,269],[716.8,285],[544.4,285],[544.4,269]],
+    "d": "M 716.8 269 L 716.8 285 L 544.4 285 L 544.4 269",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "return",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 8,
+    "from": "turn",
+    "to": "commit",
+    "label": "append event",
+    "points": [[532.4,269],[532.4,367],[670.8,367]],
+    "d": "M 532.4 269 L 532.4 367 L 670.8 367",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 9,
+    "from": "turn",
+    "to": "resume",
+    "label": "crash / handoff",
+    "points": [[556.4,217],[556.4,201],[874.8,201],[874.8,217]],
+    "d": "M 556.4 217 L 556.4 201 L 874.8 201 L 874.8 217",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "role": "branch",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 10,
+    "from": "turn",
+    "to": "tool",
+    "label": "dispatch tool",
+    "points": [[590.4,243],[670.8,243]],
+    "d": "M 590.4 243 L 670.8 243",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-security"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "admit",
+    "to": "start",
+    "text": "authorized session",
+    "rect": {
+     "x": 283,
+     "y": 146,
+     "width": 96.39999999999999,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 331.2,
+      "y": 156,
+      "font_size": 8,
+      "text": "authorized session",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "from": "commit",
+    "to": "project",
+    "text": "projection",
+    "rect": {
+     "x": 766.8,
+     "y": 347,
+     "width": 58,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 795.8,
+      "y": 357,
+      "font_size": 8,
+      "text": "projection",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "from": "graph",
+    "to": "turn",
+    "text": "activation",
+    "rect": {
+     "x": 515.4,
+     "y": 171,
+     "width": 58,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 544.4,
+      "y": 181,
+      "font_size": 8,
+      "text": "activation",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "request",
+    "to": "admit",
+    "text": "client request",
+    "rect": {
+     "x": 144,
+     "y": 99,
+     "width": 77.2,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 182.6,
+      "y": 109,
+      "font_size": 8,
+      "text": "client request",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "from": "resume",
+    "to": "commit",
+    "text": "replay evidence",
+    "rect": {
+     "x": 754.8,
+     "y": 270,
+     "width": 82,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 795.8,
+      "y": 280,
+      "font_size": 8,
+      "text": "replay evidence",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "start",
+    "to": "graph",
+    "text": "schedule graph",
+    "rect": {
+     "x": 412.19999999999993,
+     "y": 99,
+     "width": 77.2,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 450.79999999999995,
+      "y": 109,
+      "font_size": 8,
+      "text": "schedule graph",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "start",
+    "to": "turn",
+    "text": "startTurn",
+    "rect": {
+     "x": 441.19999999999993,
+     "y": 223,
+     "width": 53.199999999999996,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 467.79999999999995,
+      "y": 233,
+      "font_size": 8,
+      "text": "startTurn",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "from": "tool",
+    "to": "turn",
+    "text": "tool result",
+    "rect": {
+     "x": 599.1999999999999,
+     "y": 265,
+     "width": 62.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 630.5999999999999,
+      "y": 275,
+      "font_size": 8,
+      "text": "tool result",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "from": "turn",
+    "to": "commit",
+    "text": "append event",
+    "rect": {
+     "x": 567.8,
+     "y": 347,
+     "width": 67.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 601.5999999999999,
+      "y": 357,
+      "font_size": 8,
+      "text": "append event",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "turn",
+    "to": "resume",
+    "text": "crash / handoff",
+    "rect": {
+     "x": 674.5999999999999,
+     "y": 181,
+     "width": 82,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 715.5999999999999,
+      "y": 191,
+      "font_size": 8,
+      "text": "crash / handoff",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "from": "turn",
+    "to": "tool",
+    "text": "dispatch tool",
+    "rect": {
+     "x": 594.3999999999999,
+     "y": 223,
+     "width": 72.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 630.5999999999999,
+      "y": 233,
+      "font_size": 8,
+      "text": "dispatch tool",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 893,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 893,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 300,
+     "width": 893,
+     "height": 104,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "图例",
+   "items": [
+    {
+     "semantic_kind": "frontend",
+     "kind": "frontend",
+     "label": "用户界面",
+     "x": 20,
+     "baseline": 448,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 20,
+       "y": 440,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 42,
+       "y": 448,
+       "font_size": 7.5,
+       "text": "用户界面"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Agent 逻辑",
+     "x": 105,
+     "baseline": 448,
+     "width": 87,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 105,
+       "y": 440,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 127,
+       "y": 448,
+       "font_size": 7.5,
+       "text": "Agent 逻辑"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "策略",
+     "x": 199,
+     "baseline": 448,
+     "width": 61,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 199,
+       "y": 440,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 221,
+       "y": 448,
+       "font_size": 7.5,
+       "text": "策略"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "工具操作",
+     "x": 267,
+     "baseline": 448,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 267,
+       "y": 440,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 289,
+       "y": 448,
+       "font_size": 7.5,
+       "text": "工具操作"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "上下文 / 追踪",
+     "x": 352,
+     "baseline": 448,
+     "width": 100,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 352,
+       "y": 440,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 374,
+       "y": 448,
+       "font_size": 7.5,
+       "text": "上下文 / 追踪"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / Runtime Host"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / Session + AgentRun"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 322,
+     "font_size": 10,
+     "text": "03 / Events + Projections"
+    }
+   ],
+   "Phase headers": [
+    {
+     "tag": "line",
+     "class": "a-default",
+     "x1": 48,
+     "y1": 35,
+     "x2": 317.2,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 48,
+     "y": 27,
+     "width": 269.2,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-muted",
+     "x": 182.6,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "准入与路由"
+    },
+    {
+     "tag": "line",
+     "class": "a-emphasis",
+     "x1": 345.20000000000005,
+     "y1": 35,
+     "x2": 762.8,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 345.20000000000005,
+     "y": 27,
+     "width": 417.59999999999997,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 554,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Turn 执行"
+    },
+    {
+     "tag": "line",
+     "class": "a-dashed",
+     "x1": 828.8,
+     "y1": 35,
+     "x2": 920.8,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 828.8,
+     "y": 27,
+     "width": 92,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 874.8,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "持久化与投影"
+    }
+   ]
+  }
+ }
+}

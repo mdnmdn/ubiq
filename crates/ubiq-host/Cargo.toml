@@ -102,6 +102,10 @@ ubiq-db = { path = "../ubiq-db", features = ["drivers"], optional = true }
 # Sealing a saved database password: AES-256-GCM, a fresh nonce per write, the connection's identity
 # as associated data (`D201`). Already in the build graph through `rustls`. Behind `db`.
 ring = { version = "0.17", optional = true }
+
+# The diagram engine behind the `ubiq-archify` MCP server and its git evidence verifier. Pure: the
+# process half lives here. Behind `harness`.
+ubiq-archify = { path = "../ubiq-archify", optional = true }
 # The sealed password and the key that opens it are TOML strings, so they are base64. Behind `db`.
 base64 = { version = "0.22", optional = true }
 
@@ -149,7 +153,7 @@ index = ["dep:tantivy"]
 # `conversation`, `conversation_record`, `gc`, `quota`, `mcp`, `assist`, `cli_shortcut`, `work`, and
 # the usage meter's SQLite store. It turns on the library's `remote` feature too, for the catalog's
 # MCP registry search — that is the one HTTP client `harness` brings, and the lean build has none.
-harness = ["dep:agent-manager", "agent-manager/remote", "dep:rusqlite"]
+harness = ["dep:agent-manager", "agent-manager/remote", "dep:rusqlite", "dep:ubiq-archify"]
 # The remote listener and everything that answers on it: `remote`, `connectors`, `web_assets`.
 # `links` stays out: it is a byte scanner with no dependency of its own, so a lean build carries
 # it for nothing rather than forking `pty`'s read loop around it.
@@ -196,6 +200,10 @@ assist-apple = ["dep:foundation-models"]
 # which is the property the lean build is checked by.
 [[test]]
 name = "conversation"
+required-features = ["harness"]
+
+[[test]]
+name = "archify_evidence"
 required-features = ["harness"]
 
 [[test]]

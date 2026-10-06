@@ -1,0 +1,157 @@
+{
+ "name": "neg.output-extension",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "output/meta-extension",
+ "expect_codes": [
+  "output/meta-extension"
+ ],
+ "source_sha256": "c8c1d08224113bca52f90bde58c9dfef31c43def39123e9772a661a35eb45e45",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "out.txt"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "meta.output must target an .html file.",
+    "diagnostics": [
+     {
+      "severity": "error",
+      "subject": {
+       "output": "out.txt",
+       "path": "/meta/output"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "change meta.output to a portable path ending in .html"
+      ],
+      "code": "output/meta-extension",
+      "message": "meta.output must target an .html file."
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "meta.output must target an .html file.",
+    "diagnostics": [
+     {
+      "severity": "error",
+      "subject": {
+       "output": "out.txt",
+       "path": "/meta/output"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "change meta.output to a portable path ending in .html"
+      ],
+      "code": "output/meta-extension",
+      "message": "meta.output must target an .html file."
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "meta.output must target an .html file.",
+    "diagnostics": [
+     {
+      "severity": "error",
+      "subject": {
+       "output": "out.txt",
+       "path": "/meta/output"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "change meta.output to a portable path ending in .html"
+      ],
+      "code": "output/meta-extension",
+      "message": "meta.output must target an .html file."
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "meta.output must target an .html file.\n[output/meta-extension] meta.output must target an .html file. Fix: change meta.output to a portable path ending in .html.\n"
+ },
+ "layout_json_by_quality": {}
+}

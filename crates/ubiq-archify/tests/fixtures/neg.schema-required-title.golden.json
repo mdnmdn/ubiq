@@ -1,0 +1,165 @@
+{
+ "name": "neg.schema-required-title",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/required",
+ "expect_codes": [
+  "schema/required"
+ ],
+ "source_sha256": "2b15ccb29cf984e1e83c2cae0afe6370500d3fc2c0d7d36f0ba583acbf6f1c03",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta must have required property 'title' {\"missingProperty\":\"title\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/meta must have required property 'title' {\"missingProperty\":\"title\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "title"
+      },
+      "supportedFixes": [
+       "add required property \"title\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta must have required property 'title' {\"missingProperty\":\"title\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/meta must have required property 'title' {\"missingProperty\":\"title\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "title"
+      },
+      "supportedFixes": [
+       "add required property \"title\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta must have required property 'title' {\"missingProperty\":\"title\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/meta must have required property 'title' {\"missingProperty\":\"title\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "title"
+      },
+      "supportedFixes": [
+       "add required property \"title\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /meta must have required property 'title' {\"missingProperty\":\"title\"}\n[schema/required] /meta must have required property 'title' {\"missingProperty\":\"title\"} Fix: add required property \"title\".\n"
+ },
+ "layout_json_by_quality": {}
+}

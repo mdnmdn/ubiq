@@ -236,7 +236,7 @@ pub const RAIL_MODES: UiId = UiId::new("rail.modes");
 pub const RAIL_PROJECTS: UiId = UiId::new("rail.projects");
 
 /// One name per [`RailMode`]. Written out rather than derived from the variant, because a
-/// `UiId` is a published name: renaming `RailMode::TEAMS_OLD` must not silently move the place a
+/// `UiId` is a published name: renaming `RailMode::TEAMS_ALL` must not silently move the place a
 /// help page and a user's personalisation both point at. The match in [`rail_mode`] is
 /// exhaustive, so a *new* mode is a compile error here until it is named.
 pub const RAIL_MODE_CONTROL: UiId = UiId::new("rail.mode.control");
@@ -245,7 +245,6 @@ pub const RAIL_MODE_GIT: UiId = UiId::new("rail.mode.git");
 pub const RAIL_MODE_AGENTS: UiId = UiId::new("rail.mode.agents");
 pub const RAIL_MODE_TEAMS: UiId = UiId::new("rail.mode.teams");
 pub const RAIL_MODE_TEAMS_ALL: UiId = UiId::new("rail.mode.teams-all");
-pub const RAIL_MODE_TEAMS_OLD: UiId = UiId::new("rail.mode.teams-old");
 pub const RAIL_MODE_KB: UiId = UiId::new("rail.mode.kb");
 pub const RAIL_MODE_DB: UiId = UiId::new("rail.mode.db");
 pub const RAIL_MODE_TASKS: UiId = UiId::new("rail.mode.tasks");
@@ -301,7 +300,6 @@ pub const CATALOGUE: &[UiId] = &[
     RAIL_MODE_AGENTS,
     RAIL_MODE_TEAMS,
     RAIL_MODE_TEAMS_ALL,
-    RAIL_MODE_TEAMS_OLD,
     RAIL_MODE_KB,
     RAIL_MODE_DB,
     RAIL_MODE_TASKS,
@@ -441,14 +439,6 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
             label: "All Teams",
             blurb: "The same canvas over every open project at once, so agents from all of them \
                     are arranged and compared side by side.",
-        },
-    ),
-    (
-        RAIL_MODE_TEAMS_OLD,
-        TargetInfo {
-            label: "Teams (previous)",
-            blurb: "The earlier teams screen, kept while the new one settles; it will go when \
-                    nothing needs it.",
         },
     ),
     (

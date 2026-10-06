@@ -1,0 +1,167 @@
+{
+ "name": "neg.repo-links-unsupported",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "repository-evidence/links-unsupported",
+ "expect_codes": [
+  "repository-evidence/links-unsupported"
+ ],
+ "source_sha256": "a0519b4fadfb26a91c032b773151bd31aef4fda713f3c5ec13f022a08a68fa19",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "repository": {
+    "url": "https://git.example.com/team/repo",
+    "revision": "0123456789abcdef0123456789abcdef01234567"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "sources": [
+     {
+      "path": "src/web.ts",
+      "line": 1
+     }
+    ]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/links-unsupported",
+      "severity": "error",
+      "message": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/url"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "use a canonical GitHub or Gitee URL, or select link_mode: local-only to retain local verification without web links"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/links-unsupported",
+      "severity": "error",
+      "message": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/url"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "use a canonical GitHub or Gitee URL, or select link_mode: local-only to retain local verification without web links"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/links-unsupported",
+      "severity": "error",
+      "message": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/url"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "use a canonical GitHub or Gitee URL, or select link_mode: local-only to retain local verification without web links"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.\n[repository-evidence/links-unsupported] Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL. Fix: use a canonical GitHub or Gitee URL, or select link_mode: local-only to retain local verification without web links.\n"
+ },
+ "layout_json_by_quality": {}
+}

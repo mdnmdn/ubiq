@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-10-05
+updated: 2026-10-06
 verified: 2026-10-05
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
@@ -438,7 +438,9 @@ already exists but this path is not inside — a guest tab.
 | `HostDirListing` | host → UI | `path`, `parent?`, `entries[]`, `truncated` | — |
 | `HostDirError` | host → UI | `path?`, `error` | — |
 | `WriteHostFile` | UI → host | `path`, `bytes`, `expected` | `HostFileWritten` or `HostFileError` |
+| `SaveHostFileAs` | UI → host | `path`, `bytes` | `HostFileExported` or `HostFileError` |
 | `HostFileWritten` | host → UI | `path`, `version` | — |
+| `HostFileExported` | host → UI | `path` | — |
 | `HostFileError` | host → UI | `path`, `error` | — |
 
 **`path` absent asks for a sensible starting place, not a listing of one the interface named.** The
@@ -480,6 +482,12 @@ being asked to list something that is not a folder.
 listing to extend `AddProject` and `LocateProject` rather than add a new message family — `D82`
 records why it went the other way instead, and what that costs.
 
+**`SaveHostFileAs` is the export half**: the user picked `path` in the native save dialog, so it
+creates the file or replaces one, through the same atomic write as `WriteHostFile` but with no
+`expected` — the target may not exist, and the user's choice in the dialog is the consent. A
+directory or a symlink at `path` is refused, and the parent folder is never created. It answers
+`HostFileExported`, or `HostFileError` with the same `FileError`s.
+
 **`WriteHostFile` is the write half of a guest tab** — a file the interface opened from outside
 every project (`../features/workbench-ide.md`'s guest tab, read with `std::fs` rather than a
 `ReadProjectFile` round trip, one of the two places the interface reads disk itself). It answers
@@ -500,7 +508,7 @@ answer arrives after the click that asked for it and the window may have changed
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `ProjectTree` | UI → host | `project_id`, `rel_path`, `depth` | `ProjectTreeListing` or `ProjectFileError` |
+| `ProjectTree` | UI → host | `project_id`, `rel_path`, `depth`, `prefetch` | `ProjectTreeListing` or `ProjectFileError` |
 | `ReadProjectFile` | UI → host | `project_id`, `rel_path`, `max_bytes?` | `ProjectFileContents` or `ProjectFileError` |
 | `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?`, `overwrite` | `ProjectFileWritten` or `ProjectFileError` |
 | `DiffProjectFile` | UI → host | `project_id`, `rel_path`, `base` | `ProjectFileDiffed` or `ProjectFileError` |
@@ -518,6 +526,12 @@ answer arrives after the click that asked for it and the window may have changed
 Every one of these answers only the window that asked, except the last, which nobody asked for.
 Nothing in this family is broadcast: what one window is looking at is not a fact about the
 catalogue.
+
+**`prefetch` marks the window's background cache, not the user.** It defaults to `false` on the
+wire. Set, the host descends into no folder version control ignores (libgit2's answer, with a
+folder holding its own `.git` never counted as ignored), and a request *for* an ignored folder is
+answered with an empty `listings[]` — the folder stays unlisted until an expand asks for it without
+the flag, which is answered in full like any explicit listing.
 
 **`ProjectFilesChanged` is the one file-family message the host sends unasked.** It names paths and
 never contents, so a reader that wants what changed asks for it the normal way — a fresh
@@ -842,6 +856,20 @@ Linux — and answers nothing on success, on `Message::WriteProjectGit`'s own re
 a mutation answers with the state it produced rather than an echo; a full refresh here is
 `KbChanged` naming the parent directory that changed.
 
+## The Archify family
+
+What an agent's diagram tools tell the windows. Both messages are host → UI, both are broadcast to
+every window, and both carry `project_id`, so a window that does not have the project drops them.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `ArchifyShow` | host → UI | `project_id`, `rel` | — |
+| `ArchifyToolCall` | host → UI | `project_id`, `rel?`, `tool`, `ok` | — |
+
+`ArchifyShow` asks a window to open, or focus, the diagram at `rel` in the diagram viewer.
+`ArchifyToolCall` is what the viewer's tab draws as a tool chip and a notice; `rel` is absent for a
+call that touched no diagram. The coordinator never receives either.
+
 ## The database family
 
 A project's saved database connections, the structure behind them, and the tables and SQL run
@@ -1041,9 +1069,9 @@ user can do anything about.
 step's owner would go back to doing — a rule about the work, and so the host's to keep rather than a
 value the interface works out and sends.
 
-**`AssignAgent` and `SendToAgent` change the host's mock agents.** Which task an agent serves is the
-host's fact even while the agent is invented; where its card sits is the interface's and never
-crosses. `SendToAgent` answers with the agent record carrying one more `Turn`, and **nothing answers
+**`AssignAgent` and `SendToAgent` change a live agent's record.** Which task an agent serves is the
+host's fact; where its card sits is the interface's and never crosses. An agent id the project's
+live list does not hold is a `WorkError`. `SendToAgent` answers with the agent record carrying one more `Turn`, and **nothing answers
 the thread**: a fabricated reply is the one thing a screen with no live agent must not draw.
 
 **A `DeleteTask` can answer with more than a `TaskDeleted`.** Every agent pointing at the task is
@@ -1918,7 +1946,7 @@ asked for. A `WorkSession`, a `WorkAgent` and a `Turn` are the other way round �
 with no store behind them, in the class `DirEntry` and `DirListing` are in. `WorkAgent.summary` is
 the one field on that record no harness fills: the host's naming pass writes it onto the live
 record beside `title`, and the conversation's row keeps both for a revive. It is absent for every
-agent nothing has named, which includes every mock.
+agent nothing has named.
 
 Fifteen enums travel inside those records. `ProjectHealth` is `Ok`, `Missing`, `NotADirectory`, or
 `Unreadable` with the reason. `FileError` is `Refused`, `Missing`, `WrongKind`, `Denied`, `Conflict`

@@ -1,0 +1,203 @@
+{
+ "name": "neg.legend-label-too-wide",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "legend/label-too-wide",
+ "expect_codes": [
+  "legend/label-too-wide"
+ ],
+ "source_sha256": "fcd22fd19a0fd917979fddc6812ff05e379a5502342360f201ae8b4603fac2bb",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "viewBox": [320,240],
+   "legend": {
+    "mode": "all",
+    "entries": {
+     "frontend": {
+      "label": "An extraordinarily long legend entry label An extraordinarily long legend entry "
+     }
+    }
+   }
+  },
+  "components": [
+   {
+    "id": "a",
+    "type": "frontend",
+    "label": "A",
+    "pos": [30,50]
+   },
+   {
+    "id": "b",
+    "type": "backend",
+    "label": "B",
+    "pos": [180,50]
+   }
+  ],
+  "connections": [
+   {
+    "id": "ab",
+    "from": "a",
+    "to": "b",
+    "label": "x"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/label-too-wide] architecture legend label for \"frontend\" needs 440px but only 240px is available.",
+    "diagnostics": [
+     {
+      "code": "legend/label-too-wide",
+      "severity": "error",
+      "message": "[legend/label-too-wide] architecture legend label for \"frontend\" needs 440px but only 240px is available.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend/entries/frontend/label"
+      },
+      "evidence": {
+       "kind": "frontend",
+       "measuredWidthPx": 440,
+       "availableWidthPx": 240
+      },
+      "supportedFixes": [
+       "shorten the legend label or use a wider viewBox"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/label-too-wide] architecture legend label for \"frontend\" needs 440px but only 240px is available.",
+    "diagnostics": [
+     {
+      "code": "legend/label-too-wide",
+      "severity": "error",
+      "message": "[legend/label-too-wide] architecture legend label for \"frontend\" needs 440px but only 240px is available.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend/entries/frontend/label"
+      },
+      "evidence": {
+       "kind": "frontend",
+       "measuredWidthPx": 440,
+       "availableWidthPx": 240
+      },
+      "supportedFixes": [
+       "shorten the legend label or use a wider viewBox"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/label-too-wide] architecture legend label for \"frontend\" needs 440px but only 240px is available.",
+    "diagnostics": [
+     {
+      "code": "legend/label-too-wide",
+      "severity": "error",
+      "message": "[legend/label-too-wide] architecture legend label for \"frontend\" needs 440px but only 240px is available.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend/entries/frontend/label"
+      },
+      "evidence": {
+       "kind": "frontend",
+       "measuredWidthPx": 440,
+       "availableWidthPx": 240
+      },
+      "supportedFixes": [
+       "shorten the legend label or use a wider viewBox"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [320,240],
+   "components": [
+    {
+     "id": "a",
+     "type": "frontend",
+     "label": "A",
+     "x": 30,
+     "y": 50,
+     "width": 120,
+     "height": 60,
+     "pos": [30,50]
+    },
+    {
+     "id": "b",
+     "type": "backend",
+     "label": "B",
+     "x": 180,
+     "y": 50,
+     "width": 120,
+     "height": 60,
+     "pos": [180,50]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "a",
+     "to": "b",
+     "label": "x",
+     "variant": "default",
+     "route": "auto",
+     "points": [[150,80],[180,80]],
+     "labelAt": [165,70]
+    }
+   ],
+   "labels": [
+    {
+     "text": "x",
+     "x": 150,
+     "y": 60,
+     "width": 30,
+     "height": 14,
+     "labelAt": [165,70]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

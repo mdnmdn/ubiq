@@ -1,0 +1,160 @@
+{
+ "name": "neg.seq-segment-out-of-range",
+ "group": "negative",
+ "source": "mutation of sequence",
+ "type": "sequence",
+ "rule": "sequence/timeline",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "9709192997d7bb055117e51293ba146babcdbe1b31de9148a627b175a159a0cd",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Seq",
+   "output": "seq.html",
+   "viewBox": [480,480]
+  },
+  "participants": [
+   {
+    "id": "ui",
+    "type": "frontend",
+    "label": "UI"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB"
+   }
+  ],
+  "messages": [
+   {
+    "id": "m1",
+    "from": "ui",
+    "to": "api",
+    "y": 180,
+    "label": "GET /x"
+   },
+   {
+    "id": "m2",
+    "from": "api",
+    "to": "db",
+    "y": 230,
+    "label": "SELECT"
+   },
+   {
+    "id": "m3",
+    "from": "db",
+    "to": "api",
+    "y": 280,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "id": "m4",
+    "from": "api",
+    "to": "ui",
+    "y": 330,
+    "label": "200",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "api",
+    "from": 175,
+    "to": 335,
+    "type": "backend"
+   }
+  ],
+  "segments": [
+   {
+    "from": 160,
+    "to": 5000,
+    "label": "Read"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Segment \"Read\" extends outside the canvas — keep its y range between 72 and 435.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Segment \"Read\" extends outside the canvas — keep its y range between 72 and 435.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Segment \"Read\" extends outside the canvas — keep its y range between 72 and 435.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Segment \"Read\" extends outside the canvas — keep its y range between 72 and 435.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Segment \"Read\" extends outside the canvas — keep its y range between 72 and 435.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Segment \"Read\" extends outside the canvas — keep its y range between 72 and 435.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

@@ -1,0 +1,209 @@
+{
+ "name": "neg.wf-main-path-backward",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/main-path",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "bd6a654ae05f1fda8d2755597cb767ec59b84cdd7d50c3e6f4ff7f44401338ea",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   },
+   {
+    "id": "back",
+    "from": "show",
+    "to": "run"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show",
+   "run"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- mainPath step \"show\" -> \"run\" moves backward from col 3 to 2 — use a return edge outside mainPath for loops.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "mainPath step \"show\" -> \"run\" moves backward from col 3 to 2 — use a return edge outside mainPath for loops.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- mainPath step \"show\" -> \"run\" moves backward from col 3 to 2 — use a return edge outside mainPath for loops.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "mainPath step \"show\" -> \"run\" moves backward from col 3 to 2 — use a return edge outside mainPath for loops.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- mainPath step \"show\" -> \"run\" moves backward from col 3 to 2 — use a return edge outside mainPath for loops.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "mainPath step \"show\" -> \"run\" moves backward from col 3 to 2 — use a return edge outside mainPath for loops.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "mainPath step \"show\" -> \"run\" moves backward from col 3 to 2 — use a return edge outside mainPath for loops.",
+     "subject": {
+      "diagramType": "workflow"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

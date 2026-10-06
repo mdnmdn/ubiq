@@ -53,6 +53,7 @@ impl AppState {
                 project_id: id,
                 rel_path: String::new(),
                 depth: EXPAND_DEPTH,
+                prefetch: false,
             });
             // Where this project's furniture was left across a restart. The answer arrives as
             // `Preferences`, and is ignored if the parked blob got there first.
@@ -399,11 +400,6 @@ impl AppState {
             .and_then(|open| open.conversations.get(&id))
     }
 
-    /// The graph's view of that work.
-    pub fn graph(&self, cx: &App) -> Option<&GraphView> {
-        self.open_project(cx).map(|open| &open.graph)
-    }
-
     /// Which projects the Teams screen is about: every project the window holds under
     /// [`TeamsSpan::Window`], and the active one alone under [`TeamsSpan::Project`].
     ///
@@ -562,8 +558,7 @@ impl AppState {
     /// [`crate::state::teams::window_work`].
     ///
     /// Owned rather than borrowed, because it is a narrowing of what the project holds rather than
-    /// a field of it. Every reader on that screen asks for this instead of [`Self::work`];
-    /// `TeamsOld` keeps asking for the whole projection.
+    /// a field of it. Every reader on that screen asks for this instead of [`Self::work`].
     pub fn teams_work(&self, cx: &App) -> Option<WorkProjection> {
         match self.teams_span() {
             TeamsSpan::Project => self
@@ -603,11 +598,6 @@ impl AppState {
         self.projects.get_mut(&id).map(|open| &mut open.agents)
     }
 
-    pub fn graph_mut(&mut self, cx: &App) -> Option<&mut GraphView> {
-        let id = self.project(cx)?;
-        self.projects.get_mut(&id).map(|open| &mut open.graph)
-    }
-
     /// The same view [`Self::teams`] reads, to write: the span decides which one.
     pub fn teams_mut(&mut self, cx: &App) -> Option<&mut TeamsView> {
         match self.teams_span() {
@@ -628,23 +618,9 @@ impl AppState {
         self.projects.get_mut(&id).map(|open| &mut open.board)
     }
 
-    /// The graph and the work behind it, together.
-    ///
-    /// A drag reads the records while it writes the arrangement, and the two live in the same
-    /// [`OpenProject`] — so the pair is handed out once rather than borrowed twice, which nothing
-    /// would let a caller do.
-    pub(super) fn graph_over_work(
-        &mut self,
-        cx: &App,
-    ) -> Option<(&mut GraphView, &WorkProjection)> {
-        let id = self.project(cx)?;
-        let open = self.projects.get_mut(&id)?;
-        Some((&mut open.graph, &open.work))
-    }
-
-    /// The Teams view and the work behind it, together — the same pairing `graph_over_work` gives
-    /// `TeamsOld`, kept for the reason that one is: a drag reads the records while it writes the
-    /// arrangement, and the two live in the same [`OpenProject`].
+    /// The Teams view and the work behind it, together: a drag reads the records while it writes
+    /// the arrangement, and the two live in the same [`OpenProject`] — so the pair is handed out
+    /// once rather than borrowed twice, which nothing would let a caller do.
     ///
     /// The work is the narrowed one, owned — a drag on this canvas has to measure the same
     /// containers the canvas drew, and those are [`Self::teams_work`]'s. The span decides which
@@ -1460,9 +1436,9 @@ impl AppState {
     /// Three answers rather than one, because a contributed mode is often about a feature that is
     /// only switched on for some projects (`D184`):
     ///
-    /// - [`Availability::Always`] is a **deny**-list — on screen unless the project hid it. Every
-    ///   one of the base's own ten, so with no project everything is on: there is nothing to have
-    ///   hidden it.
+    /// - [`Availability::Always`] is a **deny**-list — on screen unless the user hid it, app-wide
+    ///   (`UiSettings::hidden_modes`), for every project and window. A project's own
+    ///   `hidden_modes` is never read for one.
     /// - [`Availability::OptIn`] is an **allow**-list — off until the project asks for it, so a
     ///   project that has never heard of the mode does not draw it, and neither does a window
     ///   with no project.
@@ -1478,7 +1454,7 @@ impl AppState {
             .and_then(|id| self.projects.get(&id))
             .map(|open| &open.prefs);
         match spec.availability {
-            Availability::Always => prefs.is_none_or(|p| !p.hidden_modes.contains(&mode)),
+            Availability::Always => !self.workbench.settings.ui.hidden_modes.contains(&mode),
             Availability::OptIn => prefs.is_some_and(|p| p.opted_in_modes.contains(&mode)),
             Availability::When(pred) => {
                 pred(self, cx) && prefs.is_none_or(|p| !p.hidden_modes.contains(&mode))
@@ -1486,9 +1462,46 @@ impl AppState {
         }
     }
 
-    /// Show or hide one rail mode for the active project. The last visible mode cannot be hidden,
+    /// Show or hide one rail mode. An `Always` mode is the application's and needs no project;
+    /// the other kinds are the active project's. The last visible mode cannot be hidden,
     /// and hiding the mode the window is in moves it to the first one still visible.
     pub fn toggle_mode(&mut self, mode: RailMode, cx: &mut Context<Self>) {
+        let always = matches!(
+            mode.spec().map(|spec| spec.availability),
+            Some(Availability::Always)
+        );
+        if always {
+            let hidden = &self.workbench.settings.ui.hidden_modes;
+            if let Some(at) = hidden.iter().position(|m| *m == mode) {
+                self.workbench.settings.ui.hidden_modes.remove(at);
+            } else {
+                // Count only the other `Always` modes still shown: they are app-wide, so the
+                // project's OptIn/When modes (which come and go with the project) cannot
+                // keep the rail from emptying.
+                let others = RailMode::every()
+                    .filter(|m| {
+                        *m != mode
+                            && matches!(
+                                m.spec().map(|spec| spec.availability),
+                                Some(Availability::Always)
+                            )
+                            && !self.workbench.settings.ui.hidden_modes.contains(m)
+                    })
+                    .count();
+                if others == 0 {
+                    return;
+                }
+                self.workbench.settings.ui.hidden_modes.push(mode);
+            }
+            if self.workbench.rail_mode == mode
+                && let Some(next) = RailMode::every().find(|m| self.mode_enabled(*m, cx))
+            {
+                self.enter_rail_mode(next, false, cx);
+            }
+            self.remember_settings();
+            cx.notify();
+            return;
+        }
         let Some(id) = self.project(cx) else {
             return;
         };
@@ -1710,7 +1723,6 @@ impl Render for AppState {
         // type into, and `InputState::new` needs the `&mut Window` a section's `render` does not
         // get. No `cx.notify()`.
         self.ensure_tasksrc_inputs(window, cx);
-        self.settle_graph(cx);
         self.settle_teams(cx);
         self.settle_board(cx);
         // Where the window is drawing, remembered once the screens above have settled on it.

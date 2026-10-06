@@ -42,7 +42,6 @@ fn the_rail_draws_the_same_ten_modes_in_the_same_order() {
             "Git",
             "Agents",
             "Teams",
-            "[Teams]",
             "KB",
             "Tasks",
         ]
@@ -62,9 +61,7 @@ fn the_two_groups_hold_what_they_always_held() {
     let project: Vec<&str> = groups[1].1.iter().map(|m| m.label()).collect();
     assert_eq!(
         project,
-        [
-            "IDE", "DB", "Git", "Agents", "Teams", "[Teams]", "KB", "Tasks"
-        ]
+        ["IDE", "DB", "Git", "Agents", "Teams", "KB", "Tasks"]
     );
     let slots: Vec<&str> = RailMode::project_modes().map(|m| m.label()).collect();
     assert_eq!(slots, project, "`ctrl-1` is still IDE");
@@ -78,8 +75,8 @@ fn every_slug_is_the_one_a_help_page_already_claims() {
     assert_eq!(
         slugs,
         [
-            "control", "teamsall", "sink", "ext-demo", "ide", "db", "git", "agents", "teams",
-            "teamsold", "kb", "tasks",
+            "control", "teamsall", "sink", "ext-demo", "ide", "db", "git", "agents", "teams", "kb",
+            "tasks",
         ]
     );
 }
@@ -106,7 +103,6 @@ fn a_first_visit_opens_the_same_regions() {
         RailMode::CONTROL,
         RailMode::TEAMS,
         RailMode::TEAMS_ALL,
-        RailMode::TEAMS_OLD,
         RailMode::SINK,
     ] {
         assert_eq!(regions(mode), (false, false, false), "{}", mode.as_str());
@@ -251,6 +247,28 @@ fn a_mode_is_written_down_as_its_id() {
     assert_eq!(blob, "\"ubiq.rail.teams-all\"");
 }
 
+/// A retired id's layout described a different screen: it never replaces, or shares a key with,
+/// the successor's own layout, whatever order the map happens to be read in.
+#[test]
+fn a_retired_modes_layout_never_overwrites_its_successors() {
+    let blob = r#"{
+        "schema": 6,
+        "rail_mode": "ubiq.rail.teams-old",
+        "modes": {
+            "ubiq.rail.teams-old": {"show_left": false, "show_bottom": true, "show_right": false},
+            "TeamsOld": {"show_left": false, "show_bottom": true, "show_right": false},
+            "ubiq.rail.teams": {"show_left": true, "show_bottom": false, "show_right": true}
+        }
+    }"#;
+    for _ in 0..16 {
+        let view: ViewPrefs = serde_json::from_str(blob).expect("a blob");
+        assert_eq!(view.rail_mode, RailMode::TEAMS, "rail_mode still remaps");
+        assert_eq!(view.modes.len(), 1);
+        let teams = &view.modes[&RailMode::TEAMS];
+        assert!(teams.show_left && teams.show_right && !teams.show_bottom);
+    }
+}
+
 /// The decoder aliases. A blob written at schema 5 names the ten old variants, and every one of
 /// them still lands on the mode it always meant.
 #[test]
@@ -267,7 +285,8 @@ fn a_schema_five_blob_reads_its_modes_under_the_old_names() {
 
     let view: ViewPrefs = prefs::decode(blob).expect("a schema-5 blob is read, not discarded");
     assert_eq!(view.schema, prefs::SCHEMA, "and comes back at schema 6");
-    assert_eq!(view.rail_mode, RailMode::TEAMS_OLD);
+    // `TeamsOld` is retired (T-330): a blob standing in it lands on the mode that replaced it.
+    assert_eq!(view.rail_mode, RailMode::TEAMS);
     assert!(view.modes.contains_key(&RailMode::GIT));
     assert!(view.modes.contains_key(&RailMode::KB));
     assert_eq!(view.hidden_modes, [RailMode::SINK, RailMode::TEAMS_ALL]);
@@ -295,7 +314,6 @@ fn legacy_name(id: ubiq::ext::SlotId) -> &'static str {
         i if i == ids::RAIL_AGENTS => "Agents",
         i if i == ids::RAIL_TEAMS => "Teams",
         i if i == ids::RAIL_TEAMS_ALL => "TeamsAll",
-        i if i == ids::RAIL_TEAMS_OLD => "TeamsOld",
         i if i == ids::RAIL_KB => "Kb",
         i if i == ids::RAIL_TASKS => "Tasks",
         i if i == ids::RAIL_SINK => "Sink",

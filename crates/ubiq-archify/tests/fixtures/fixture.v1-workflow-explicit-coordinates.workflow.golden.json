@@ -1,0 +1,1085 @@
+{
+ "name": "fixture.v1-workflow-explicit-coordinates.workflow",
+ "group": "fixture",
+ "source": "archify/test/fixtures/v1-workflow-explicit-coordinates.workflow.json",
+ "type": "workflow",
+ "source_sha256": "7044cc5571e07eeb864023bf51519fe245b335398736b7303bea82b83f0a883e",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Pinned coordinate migration",
+   "output": "pinned-coordinate-migration.html",
+   "viewBox": [720,700],
+   "legend": {
+    "mode": "hidden"
+   }
+  },
+  "lanes": [
+   {
+    "id": "route",
+    "label": "Explicit route"
+   },
+   {
+    "id": "label",
+    "label": "Explicit label"
+   },
+   {
+    "id": "channel-source",
+    "label": "Channel source"
+   },
+   {
+    "id": "channel-target",
+    "label": "Channel target"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "route-a",
+    "lane": "route",
+    "col": 0,
+    "type": "backend",
+    "label": "A"
+   },
+   {
+    "id": "route-b",
+    "lane": "route",
+    "col": 2,
+    "type": "backend",
+    "label": "B"
+   },
+   {
+    "id": "label-a",
+    "lane": "label",
+    "col": 2,
+    "type": "backend",
+    "label": "C"
+   },
+   {
+    "id": "label-b",
+    "lane": "label",
+    "col": 3,
+    "type": "backend",
+    "label": "D"
+   },
+   {
+    "id": "channel-a",
+    "lane": "channel-source",
+    "col": 1,
+    "type": "backend",
+    "label": "E"
+   },
+   {
+    "id": "channel-b",
+    "lane": "channel-target",
+    "col": 1,
+    "type": "backend",
+    "label": "F"
+   }
+  ],
+  "edges": [
+   {
+    "id": "pinned-via",
+    "from": "route-a",
+    "to": "route-b",
+    "via": [[220,119]]
+   },
+   {
+    "id": "pinned-label",
+    "from": "label-a",
+    "to": "label-b",
+    "label": "ok",
+    "labelAt": [365,203]
+   },
+   {
+    "id": "pinned-channel",
+    "from": "channel-a",
+    "to": "channel-b",
+    "fromSide": "right",
+    "toSide": "right",
+    "route": "outside-right",
+    "channelX": 500
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "7044cc5571e07eeb864023bf51519fe245b335398736b7303bea82b83f0a883e",
+     "bytes": 1482
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "7044cc5571e07eeb864023bf51519fe245b335398736b7303bea82b83f0a883e",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 121.2,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 8,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 4.774,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 38,
+      "minInteriorSegmentPx": 124,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "pinned-channel",
+         "from": "channel-a",
+         "to": "channel-b",
+         "label": "",
+         "collectionIndex": 2,
+         "artifactIndex": 3
+        },
+        "bends": 2,
+        "stretch": 4.774
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "pinned-label",
+       "from": "label-a",
+       "to": "label-b"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 8,
+      "semanticTextCount": 7
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 700,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.03,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1309,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1435,
+       "overflowPx": 535,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x700 canvas (ratio 1.03) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1309px tall at the full 1346px width and the page reaches 1435px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1085 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "7044cc5571e07eeb864023bf51519fe245b335398736b7303bea82b83f0a883e",
+     "bytes": 1482
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "7044cc5571e07eeb864023bf51519fe245b335398736b7303bea82b83f0a883e",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 121.2,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 8,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 4.774,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 38,
+      "minInteriorSegmentPx": 124,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "pinned-channel",
+         "from": "channel-a",
+         "to": "channel-b",
+         "label": "",
+         "collectionIndex": 2,
+         "artifactIndex": 3
+        },
+        "bends": 2,
+        "stretch": 4.774
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "pinned-label",
+       "from": "label-a",
+       "to": "label-b"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 8,
+      "semanticTextCount": 7
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 700,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.03,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1309,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1435,
+       "overflowPx": 535,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x700 canvas (ratio 1.03) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1309px tall at the full 1346px width and the page reaches 1435px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1085 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "7044cc5571e07eeb864023bf51519fe245b335398736b7303bea82b83f0a883e",
+     "bytes": 1482
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "7044cc5571e07eeb864023bf51519fe245b335398736b7303bea82b83f0a883e",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 121.2,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 8,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 4.774,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 38,
+      "minInteriorSegmentPx": 124,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "pinned-channel",
+         "from": "channel-a",
+         "to": "channel-b",
+         "label": "",
+         "collectionIndex": 2,
+         "artifactIndex": 3
+        },
+        "bends": 2,
+        "stretch": 4.774
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "pinned-label",
+       "from": "label-a",
+       "to": "label-b"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 8,
+      "semanticTextCount": 7
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 700,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.03,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1309,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1435,
+       "overflowPx": 535,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x700 canvas (ratio 1.03) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1309px tall at the full 1346px width and the page reaches 1435px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1085 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "fixed-v1",
+   "viewBox": [720,700],
+   "requiredViewBox": [720,700],
+   "columns": [88,220,300,430,500,625],
+   "nodes": [
+    {
+     "id": "route-a",
+     "lane": "route",
+     "col": 0,
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "route-b",
+     "lane": "route",
+     "col": 2,
+     "x": 254,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "label-a",
+     "lane": "label",
+     "col": 2,
+     "x": 254,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "label-b",
+     "lane": "label",
+     "col": 3,
+     "x": 384,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "channel-a",
+     "lane": "channel-source",
+     "col": 1,
+     "x": 174,
+     "y": 341,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "channel-b",
+     "lane": "channel-target",
+     "col": 1,
+     "x": 174,
+     "y": 465,
+     "width": 92,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": "pinned-via",
+     "from": "route-a",
+     "to": "route-b",
+     "points": [[134,119],[220,119],[254,119]]
+    },
+    {
+     "id": "pinned-label",
+     "from": "label-a",
+     "to": "label-b",
+     "points": [[346,243],[384,243]]
+    },
+    {
+     "id": "pinned-channel",
+     "from": "channel-a",
+     "to": "channel-b",
+     "points": [[266,367],[500,367],[500,491],[266,491]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": "pinned-label",
+     "label": "ok",
+     "x": 365,
+     "y": 203,
+     "width": 30,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,720,700],
+  "svg_attrs": {
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory"
+  },
+  "title": "Pinned coordinate migration",
+  "nodes": [
+   {
+    "id": "route-a",
+    "kind": "backend",
+    "label": "A",
+    "context": "Explicit route",
+    "rect": {
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 88,
+      "y": 114,
+      "font_size": 11,
+      "text": "A",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(48 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "route-b",
+    "kind": "backend",
+    "label": "B",
+    "context": "Explicit route",
+    "rect": {
+     "x": 254,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 300,
+      "y": 114,
+      "font_size": 11,
+      "text": "B",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(260 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "label-a",
+    "kind": "backend",
+    "label": "C",
+    "context": "Explicit label",
+    "rect": {
+     "x": 254,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 300,
+      "y": 238,
+      "font_size": 11,
+      "text": "C",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(260 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "label-b",
+    "kind": "backend",
+    "label": "D",
+    "context": "Explicit label",
+    "rect": {
+     "x": 384,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 430,
+      "y": 238,
+      "font_size": 11,
+      "text": "D",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(390 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "channel-a",
+    "kind": "backend",
+    "label": "E",
+    "context": "Channel source",
+    "rect": {
+     "x": 174,
+     "y": 341,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 220,
+      "y": 362,
+      "font_size": 11,
+      "text": "E",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(180 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "channel-b",
+    "kind": "backend",
+    "label": "F",
+    "context": "Channel target",
+    "rect": {
+     "x": 174,
+     "y": 465,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 220,
+      "y": 486,
+      "font_size": 11,
+      "text": "F",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(180 471) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "pinned-via",
+    "from": "route-a",
+    "to": "route-b",
+    "points": [[134,119],[220,119],[254,119]],
+    "d": "M 134 119 L 220 119 L 254 119",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 1,
+    "id": "pinned-label",
+    "from": "label-a",
+    "to": "label-b",
+    "label": "ok",
+    "points": [[346,243],[384,243]],
+    "d": "M 346 243 L 384 243",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "id": "pinned-channel",
+    "from": "channel-a",
+    "to": "channel-b",
+    "points": [[266,367],[500,367],[500,491],[266,491]],
+    "d": "M 266 367 L 500 367 L 500 491 L 266 491",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 1,
+    "edge_id": "pinned-label",
+    "from": "label-a",
+    "to": "label-b",
+    "text": "ok",
+    "rect": {
+     "x": 350,
+     "y": 193,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 365,
+      "y": 203,
+      "font_size": 8,
+      "text": "ok",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 300,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-3",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 424,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   }
+  ],
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / Explicit route"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / Explicit label"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 322,
+     "font_size": 10,
+     "text": "03 / Channel source"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 446,
+     "font_size": 10,
+     "text": "04 / Channel target"
+    }
+   ]
+  }
+ }
+}

@@ -7,6 +7,7 @@
 //! one place — `AppState` — responsible for state and redraws.
 
 pub mod a2ui;
+pub mod archify;
 pub mod acp_capabilities;
 pub mod agents;
 pub mod all_projects;
@@ -43,7 +44,6 @@ pub mod new_mission;
 pub mod new_pane_menu;
 pub mod new_project_menu;
 pub mod notifications;
-pub mod orchestration;
 pub mod outline;
 pub mod overflow_menu;
 pub mod plan;

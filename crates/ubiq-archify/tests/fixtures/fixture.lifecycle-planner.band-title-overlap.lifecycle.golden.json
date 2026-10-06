@@ -1,0 +1,1862 @@
+{
+ "name": "fixture.lifecycle-planner.band-title-overlap.lifecycle",
+ "group": "fixture",
+ "source": "archify/test/fixtures/lifecycle-planner/band-title-overlap.lifecycle.json",
+ "type": "lifecycle",
+ "source_sha256": "da7f3600f31495527e2aa35100b647969dd31b262eb9616e9785055092c55780",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "线上书店订单生命周期",
+   "locale": "zh-CN",
+   "output": "diagram.html",
+   "animation": "none",
+   "quality_profile": "showcase"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "下单与履约"
+   },
+   {
+    "id": "refund",
+    "label": "退款申请"
+   },
+   {
+    "id": "retry",
+    "label": "可恢复失败"
+   },
+   {
+    "id": "terminal",
+    "label": "终态"
+   }
+  ],
+  "states": [
+   {
+    "id": "created",
+    "type": "start",
+    "label": "已创建",
+    "sublabel": "订单生成",
+    "lane": "main",
+    "col": 0,
+    "step": "01"
+   },
+   {
+    "id": "pending_payment",
+    "type": "waiting",
+    "label": "待支付",
+    "sublabel": "等待付款事件",
+    "lane": "main",
+    "col": 1,
+    "step": "02"
+   },
+   {
+    "id": "paid",
+    "type": "active",
+    "label": "已支付",
+    "sublabel": "付款成功",
+    "lane": "main",
+    "col": 2,
+    "step": "03"
+   },
+   {
+    "id": "preparing",
+    "type": "active",
+    "label": "备货中",
+    "sublabel": "准备商品",
+    "lane": "main",
+    "col": 3,
+    "step": "04"
+   },
+   {
+    "id": "shipped",
+    "type": "waiting",
+    "label": "已发货",
+    "sublabel": "等待确认收货",
+    "lane": "main",
+    "col": 4,
+    "step": "05"
+   },
+   {
+    "id": "refunding",
+    "type": "active",
+    "label": "退款处理中",
+    "sublabel": "已申请退款",
+    "lane": "refund",
+    "col": 1
+   },
+   {
+    "id": "refund_failed",
+    "type": "failure",
+    "label": "退款失败",
+    "sublabel": "保留失败状态·可重试",
+    "lane": "retry",
+    "col": 0,
+    "yOffset": 85
+   },
+   {
+    "id": "cancelled",
+    "type": "failure",
+    "label": "已取消",
+    "sublabel": "支付超时·释放库存",
+    "lane": "terminal",
+    "col": 0,
+    "tag": "终态"
+   },
+   {
+    "id": "refunded",
+    "type": "success",
+    "label": "已退款",
+    "sublabel": "退款成功",
+    "lane": "terminal",
+    "col": 1,
+    "tag": "终态"
+   },
+   {
+    "id": "completed",
+    "type": "success",
+    "label": "已完成",
+    "sublabel": "用户确认收货",
+    "lane": "terminal",
+    "col": 2,
+    "tag": "终态"
+   }
+  ],
+  "transitions": [
+   {
+    "from": "created",
+    "to": "pending_payment",
+    "label": "订单创建",
+    "variant": "emphasis"
+   },
+   {
+    "from": "pending_payment",
+    "to": "paid",
+    "label": "付款成功事件",
+    "variant": "emphasis"
+   },
+   {
+    "from": "pending_payment",
+    "to": "pending_payment",
+    "label": "付款失败·重试支付",
+    "variant": "dashed"
+   },
+   {
+    "from": "pending_payment",
+    "to": "cancelled",
+    "label": "超过付款期限·释放库存",
+    "variant": "security"
+   },
+   {
+    "from": "paid",
+    "to": "preparing",
+    "label": "开始备货"
+   },
+   {
+    "from": "preparing",
+    "to": "shipped",
+    "label": "完成备货·发货",
+    "variant": "emphasis"
+   },
+   {
+    "from": "shipped",
+    "to": "completed",
+    "label": "用户确认收货",
+    "variant": "emphasis"
+   },
+   {
+    "from": "paid",
+    "to": "refunding",
+    "label": "申请退款"
+   },
+   {
+    "from": "preparing",
+    "to": "refunding",
+    "label": "申请退款"
+   },
+   {
+    "from": "refunding",
+    "to": "refunded",
+    "label": "退款成功"
+   },
+   {
+    "from": "refunding",
+    "to": "refund_failed",
+    "label": "退款失败"
+   },
+   {
+    "from": "refund_failed",
+    "to": "refunding",
+    "label": "重试退款",
+    "variant": "dashed"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "主流程",
+    "items": [
+     "付款成功触发已支付；随后备货、发货",
+     "用户确认收货后，订单进入已完成"
+    ]
+   },
+   {
+    "dot": "amber",
+    "title": "可恢复失败",
+    "items": [
+     "待支付时付款失败，可重试支付",
+     "退款失败保留失败状态，可重试退款"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "终态与限制",
+    "items": [
+     "待支付超时才取消，并释放库存",
+     "已取消、已退款、已完成是终态",
+     "已发货不能直接取消"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "da7f3600f31495527e2aa35100b647969dd31b262eb9616e9785055092c55780",
+     "bytes": 3539
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "da7f3600f31495527e2aa35100b647969dd31b262eb9616e9785055092c55780",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 6,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 4,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 2.855,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 14,
+      "minInteriorSegmentPx": 16,
+      "shortSegmentCount": 4,
+      "shortEndpointSegmentCount": 4,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "pending_payment",
+         "to": "pending_payment",
+         "label": "付款失败·重试支付",
+         "collectionIndex": 2,
+         "artifactIndex": 4
+        },
+        "bends": 4,
+        "stretch": 2.855
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "created"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 32
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "da7f3600f31495527e2aa35100b647969dd31b262eb9616e9785055092c55780",
+     "bytes": 3539
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "da7f3600f31495527e2aa35100b647969dd31b262eb9616e9785055092c55780",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 6,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 4,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 2.855,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 14,
+      "minInteriorSegmentPx": 16,
+      "shortSegmentCount": 4,
+      "shortEndpointSegmentCount": 4,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "pending_payment",
+         "to": "pending_payment",
+         "label": "付款失败·重试支付",
+         "collectionIndex": 2,
+         "artifactIndex": 4
+        },
+        "bends": 4,
+        "stretch": 2.855
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "created"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 32
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "da7f3600f31495527e2aa35100b647969dd31b262eb9616e9785055092c55780",
+     "bytes": 3539
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "da7f3600f31495527e2aa35100b647969dd31b262eb9616e9785055092c55780",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 6,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 4,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 2.855,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 14,
+      "minInteriorSegmentPx": 16,
+      "shortSegmentCount": 4,
+      "shortEndpointSegmentCount": 4,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "pending_payment",
+         "to": "pending_payment",
+         "label": "付款失败·重试支付",
+         "collectionIndex": 2,
+         "artifactIndex": 4
+        },
+        "bends": 4,
+        "stretch": 2.855
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "created"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 32
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,980,660],
+  "svg_attrs": {
+   "data-reader-fit": "intrinsic-height",
+   "lang": "zh-CN",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "线上书店订单生命周期",
+  "nodes": [
+   {
+    "id": "created",
+    "kind": "start",
+    "label": "已创建",
+    "sublabel": "订单生成",
+    "context": "下单与履约",
+    "rect": {
+     "x": 35,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 58,
+      "y": 140,
+      "font_size": 7,
+      "text": "01",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 94,
+      "y": 147,
+      "font_size": 10,
+      "text": "已创建",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 94,
+      "y": 163,
+      "font_size": 7,
+      "text": "订单生成",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "start",
+     "transform": "translate(41 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5,
+    "initial_marker": true
+   },
+   {
+    "id": "pending_payment",
+    "kind": "waiting",
+    "label": "待支付",
+    "sublabel": "等待付款事件",
+    "context": "下单与履约",
+    "rect": {
+     "x": 189,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 212,
+      "y": 140,
+      "font_size": 7,
+      "text": "02",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-cloud"
+     },
+     {
+      "x": 248,
+      "y": 147,
+      "font_size": 10,
+      "text": "待支付",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 248,
+      "y": 163,
+      "font_size": 7,
+      "text": "等待付款事件",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(195 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "paid",
+    "kind": "active",
+    "label": "已支付",
+    "sublabel": "付款成功",
+    "context": "下单与履约",
+    "rect": {
+     "x": 343,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 366,
+      "y": 140,
+      "font_size": 7,
+      "text": "03",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 402,
+      "y": 147,
+      "font_size": 10,
+      "text": "已支付",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 163,
+      "font_size": 7,
+      "text": "付款成功",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(349 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "preparing",
+    "kind": "active",
+    "label": "备货中",
+    "sublabel": "准备商品",
+    "context": "下单与履约",
+    "rect": {
+     "x": 497,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 520,
+      "y": 140,
+      "font_size": 7,
+      "text": "04",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 556,
+      "y": 147,
+      "font_size": 10,
+      "text": "备货中",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 163,
+      "font_size": 7,
+      "text": "准备商品",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(503 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "shipped",
+    "kind": "waiting",
+    "label": "已发货",
+    "sublabel": "等待确认收货",
+    "context": "下单与履约",
+    "rect": {
+     "x": 651,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 674,
+      "y": 140,
+      "font_size": 7,
+      "text": "05",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-cloud"
+     },
+     {
+      "x": 710,
+      "y": 147,
+      "font_size": 10,
+      "text": "已发货",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 163,
+      "font_size": 7,
+      "text": "等待确认收货",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(657 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "refunding",
+    "kind": "active",
+    "label": "退款处理中",
+    "sublabel": "已申请退款",
+    "context": "退款申请",
+    "rect": {
+     "x": 493,
+     "y": 278,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 556,
+      "y": 299,
+      "font_size": 10,
+      "text": "退款处理中",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 315,
+      "font_size": 7,
+      "text": "已申请退款",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(499 284) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "refund_failed",
+    "kind": "failure",
+    "label": "退款失败",
+    "sublabel": "保留失败状态·可重试",
+    "context": "可恢复失败",
+    "rect": {
+     "x": 339,
+     "y": 363,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 402,
+      "y": 384,
+      "font_size": 10,
+      "text": "退款失败",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 400,
+      "font_size": 7,
+      "text": "保留失败状态·可重试",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(345 369) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "cancelled",
+    "kind": "failure",
+    "label": "已取消",
+    "sublabel": "支付超时·释放库存",
+    "tag": "终态",
+    "context": "终态",
+    "rect": {
+     "x": 343,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 402,
+      "y": 471,
+      "font_size": 10,
+      "text": "已取消",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 487,
+      "font_size": 7,
+      "text": "支付超时·释放库存",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 497,
+      "font_size": 7,
+      "text": "终态",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(349 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "refunded",
+    "kind": "success",
+    "label": "已退款",
+    "sublabel": "退款成功",
+    "tag": "终态",
+    "context": "终态",
+    "rect": {
+     "x": 497,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 556,
+      "y": 471,
+      "font_size": 10,
+      "text": "已退款",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 487,
+      "font_size": 7,
+      "text": "退款成功",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 556,
+      "y": 497,
+      "font_size": 7,
+      "text": "终态",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "success",
+     "transform": "translate(503 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "completed",
+    "kind": "success",
+    "label": "已完成",
+    "sublabel": "用户确认收货",
+    "tag": "终态",
+    "context": "终态",
+    "rect": {
+     "x": 651,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 710,
+      "y": 471,
+      "font_size": 10,
+      "text": "已完成",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 487,
+      "font_size": 7,
+      "text": "用户确认收货",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 710,
+      "y": 497,
+      "font_size": 7,
+      "text": "终态",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "success",
+     "transform": "translate(657 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "created",
+    "to": "pending_payment",
+    "label": "订单创建",
+    "points": [[153,157],[189,157]],
+    "d": "M 153 157 L 189 157",
+    "variant": "emphasis",
+    "stroke_width": 2,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "from": "pending_payment",
+    "to": "paid",
+    "label": "付款成功事件",
+    "points": [[307,157],[343,157]],
+    "d": "M 307 157 L 343 157",
+    "variant": "emphasis",
+    "stroke_width": 2,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "from": "pending_payment",
+    "to": "pending_payment",
+    "label": "付款失败·重试支付",
+    "points": [[248,126],[248,102],[264,102],[264,212],[241,212],[241,188]],
+    "d": "M 248 126 L 248 110 Q 248 102 256 102 L 256 102 Q 264 102 264 110 L 264 204 Q 264 212 256 212 L 249 212 Q 241 212 241 204 L 241 188",
+    "variant": "dashed",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 3,
+    "from": "pending_payment",
+    "to": "cancelled",
+    "label": "超过付款期限·释放库存",
+    "points": [[255,188],[255,426],[402,426],[402,450]],
+    "d": "M 255 188 L 255 418 Q 255 426 263 426 L 394 426 Q 402 426 402 434 L 402 450",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 4,
+    "from": "paid",
+    "to": "preparing",
+    "label": "开始备货",
+    "points": [[461,150],[497,150]],
+    "d": "M 461 150 L 497 150",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 5,
+    "from": "preparing",
+    "to": "shipped",
+    "label": "完成备货·发货",
+    "points": [[615,157],[651,157]],
+    "d": "M 615 157 L 651 157",
+    "variant": "emphasis",
+    "stroke_width": 2,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 6,
+    "from": "shipped",
+    "to": "completed",
+    "label": "用户确认收货",
+    "points": [[710,188],[710,450]],
+    "d": "M 710 188 L 710 450",
+    "variant": "emphasis",
+    "stroke_width": 2,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 7,
+    "from": "paid",
+    "to": "refunding",
+    "label": "申请退款",
+    "points": [[461,164],[477,164],[477,294],[493,294]],
+    "d": "M 461 164 L 469 164 Q 477 164 477 172 L 477 286 Q 477 294 485 294 L 493 294",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 8,
+    "from": "preparing",
+    "to": "refunding",
+    "label": "申请退款",
+    "points": [[556,188],[556,278]],
+    "d": "M 556 188 L 556 278",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 9,
+    "from": "refunding",
+    "to": "refunded",
+    "label": "退款成功",
+    "points": [[556,336],[556,450]],
+    "d": "M 556 336 L 556 450",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 10,
+    "from": "refunding",
+    "to": "refund_failed",
+    "label": "退款失败",
+    "points": [[493,320],[479,320],[479,399],[465,399]],
+    "d": "M 493 320 L 486 320 Q 479 320 479 327 L 479 392 Q 479 399 472 399 L 465 399",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 11,
+    "from": "refund_failed",
+    "to": "refunding",
+    "label": "重试退款",
+    "points": [[465,385],[479,385],[479,307],[493,307]],
+    "d": "M 465 385 L 472 385 Q 479 385 479 378 L 479 314 Q 479 307 486 307 L 493 307",
+    "variant": "dashed",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "created",
+    "to": "pending_payment",
+    "text": "订单创建",
+    "rect": {
+     "x": 74.19999999999999,
+     "y": 198,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 99.8,
+      "y": 209,
+      "font_size": 8,
+      "text": "订单创建",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "from": "pending_payment",
+    "to": "paid",
+    "text": "付款成功事件",
+    "rect": {
+     "x": 380.4,
+     "y": 84,
+     "width": 70.80000000000001,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 415.8,
+      "y": 95,
+      "font_size": 8,
+      "text": "付款成功事件",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "from": "pending_payment",
+    "to": "pending_payment",
+    "text": "付款失败·重试支付",
+    "rect": {
+     "x": 208.35,
+     "y": 81,
+     "width": 95.30000000000001,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 256,
+      "y": 92,
+      "font_size": 8,
+      "text": "付款失败·重试支付",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "pending_payment",
+    "to": "cancelled",
+    "text": "超过付款期限·释放库存",
+    "rect": {
+     "x": 134.10000000000002,
+     "y": 299,
+     "width": 114.9,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 191.55,
+      "y": 310,
+      "font_size": 8,
+      "text": "超过付款期限·释放库存",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "from": "paid",
+    "to": "preparing",
+    "text": "开始备货",
+    "rect": {
+     "x": 453.4,
+     "y": 101,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 479,
+      "y": 112,
+      "font_size": 8,
+      "text": "开始备货",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "preparing",
+    "to": "shipped",
+    "text": "完成备货·发货",
+    "rect": {
+     "x": 690.85,
+     "y": 84,
+     "width": 75.7,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 728.7,
+      "y": 95,
+      "font_size": 8,
+      "text": "完成备货·发货",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "shipped",
+    "to": "completed",
+    "text": "用户确认收货",
+    "rect": {
+     "x": 633.2,
+     "y": 311,
+     "width": 70.80000000000001,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 668.6,
+      "y": 322,
+      "font_size": 8,
+      "text": "用户确认收货",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "from": "paid",
+    "to": "refunding",
+    "text": "申请退款",
+    "rect": {
+     "x": 451.4,
+     "y": 208,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 477,
+      "y": 219,
+      "font_size": 8,
+      "text": "申请退款",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "from": "preparing",
+    "to": "refunding",
+    "text": "申请退款",
+    "rect": {
+     "x": 498.79999999999995,
+     "y": 225,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 524.4,
+      "y": 236,
+      "font_size": 8,
+      "text": "申请退款",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "refunding",
+    "to": "refunded",
+    "text": "退款成功",
+    "rect": {
+     "x": 498.79999999999995,
+     "y": 385,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 524.4,
+      "y": 396,
+      "font_size": 8,
+      "text": "退款成功",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "from": "refunding",
+    "to": "refund_failed",
+    "text": "退款失败",
+    "rect": {
+     "x": 485,
+     "y": 351.5,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 510.6,
+      "y": 362.5,
+      "font_size": 8,
+      "text": "退款失败",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "from": "refund_failed",
+    "to": "refunding",
+    "text": "重试退款",
+    "rect": {
+     "x": 421.79999999999995,
+     "y": 338,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 447.4,
+      "y": 349,
+      "font_size": 8,
+      "text": "重试退款",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [],
+  "legend": {
+   "bridge": true,
+   "title": "图例",
+   "items": [
+    {
+     "semantic_kind": "start",
+     "kind": "start",
+     "label": "起点",
+     "x": 40,
+     "baseline": 624,
+     "width": 75,
+     "shapes": [
+      {
+       "tag": "circle",
+       "cx": 44.5,
+       "cy": 620.5,
+       "r": 4.5
+      },
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 49 620.5 L 58 620.5"
+      },
+      {
+       "tag": "path",
+       "d": "M 57 617 L 64 620.5 L 57 624 Z"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 74,
+       "y": 624,
+       "font_size": 10,
+       "text": "起点"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "active",
+     "kind": "active",
+     "label": "进行中",
+     "x": 137,
+     "baseline": 624,
+     "width": 73,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 137,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 159,
+       "y": 624,
+       "font_size": 10,
+       "text": "进行中"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "waiting",
+     "kind": "waiting",
+     "label": "等待",
+     "x": 232,
+     "baseline": 624,
+     "width": 63,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 232,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 254,
+       "y": 624,
+       "font_size": 10,
+       "text": "等待"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "success",
+     "kind": "success",
+     "label": "成功",
+     "x": 317,
+     "baseline": 624,
+     "width": 63,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 317,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 339,
+       "y": 624,
+       "font_size": 10,
+       "text": "成功"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "failure",
+     "kind": "failure",
+     "label": "失败 / 退出",
+     "x": 402,
+     "baseline": 624,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 402,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 424,
+       "y": 624,
+       "font_size": 10,
+       "text": "失败 / 退出"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "final",
+     "x": 522,
+     "baseline": 624,
+     "width": 44,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 522,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 524.5,
+       "y": 618.5,
+       "width": 9,
+       "height": 4,
+       "rx": 1
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 546,
+       "y": 624,
+       "font_size": 10,
+       "text": "终态"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Lifecycle bands": [
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 112 L 908 112",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 100,
+     "font_size": 10,
+     "text": "01 / 下单与履约"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 264 L 908 264",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 252,
+     "font_size": 10,
+     "text": "02 / 退款申请 + 可恢复失败"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 436 L 908 436",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 424,
+     "font_size": 10,
+     "text": "03 / 终态"
+    }
+   ],
+   "Primary lifecycle rail": [
+    {
+     "tag": "path",
+     "class": "a-emphasis",
+     "d": "M 154 157 L 748 157",
+     "data": {
+      "data-lifecycle-rail": ""
+     }
+    }
+   ]
+  }
+ }
+}

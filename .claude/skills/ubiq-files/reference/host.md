@@ -22,6 +22,7 @@ never blocked by a slow window".
 | Function | Does |
 |---|---|
 | `listing(root, rel_path, depth) -> Vec<DirListing>` | Breadth-first so a shallow row never waits behind a deep one; `depth` clamped to `1..=MAX_DEPTH`; the first listing is always the directory asked for; stops at the reply ceiling |
+| `prefetch_listing(root, rel_path, depth)` | The cache's walk (`prefetch: true`): also skips git-ignored folders via `files/ignored.rs` (libgit2 `is_path_ignored`, a folder holding `.git` never ignored, nested repos use their own rules); an ignored folder *asked for* answers no listings. No `git` feature, no repository: same as `listing` |
 | `contents(root, rel_path, max_bytes) -> FileContents` | Stats before opening and **requires a regular file** — a read on a directory succeeds on macOS, and a FIFO or device would block the thread forever, which is why `EntryKind::Other` exists. Reads one byte past the limit so `truncated` is derived from what was read, not from the stat. `version` is withheld when truncated |
 | `save(root, rel_path, bytes, expected) -> FileVersion` | Containment settled first. `expected` + file → version must match else `Conflict`; `expected` + no file → `Missing` (a save is not a resurrection); no `expected` + file → `Conflict`; no `expected` + no file → create. Writes via `crate::atomic::write_atomic_with`, keeping the file's permissions |
 | `edit(root, rel_path, to, op)` | `Create{dir}` (exactly one level, never a parent), `Move`, `Copy`, `Trash`, `Delete`. `wants_to != to.is_some()` is refused outright |
@@ -227,7 +228,7 @@ Owner: `_docs/tech/transport-contract.md`. Types: `crates/ubiq-proto/src/files.r
 
 | Message | Direction | Payload |
 |---|---|---|
-| `ProjectTree` | UI → host | `project_id`, `rel_path`, `depth` |
+| `ProjectTree` | UI → host | `project_id`, `rel_path`, `depth`, `prefetch` (serde default `false`) |
 | `ReadProjectFile` | UI → host | `project_id`, `rel_path`, `max_bytes?` |
 | `WriteProjectFile` | UI → host | `project_id`, `rel_path`, `bytes`, `expected?` |
 | `DiffProjectFile` | UI → host | `project_id`, `rel_path`, `base` |

@@ -1,0 +1,507 @@
+{
+ "name": "neg.lc-col-range-v1-event-band",
+ "group": "negative",
+ "source": "mutation of lc-v1",
+ "type": "lifecycle",
+ "rule": "lifecycle/col-range",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "c7e48583dc6483147556a147797e12f5ca6ef3a0b513a1bf5406d67402bc62d3",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "Agent Run Lifecycle",
+   "subtitle": "State machine for planning, tool execution, human approval, retries, and terminal outcomes",
+   "output": "examples/lifecycle-agent-run.html",
+   "viewBox": [980,660]
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Lifecycle phases"
+   },
+   {
+    "id": "waiting",
+    "label": "Interruptions"
+   },
+   {
+    "id": "exceptions",
+    "label": "Recovery loop"
+   },
+   {
+    "id": "terminal",
+    "label": "Terminal exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "sublabel": "request accepted",
+    "lane": "main",
+    "col": 0,
+    "step": "01",
+    "tag": "entry"
+   },
+   {
+    "id": "planning",
+    "type": "active",
+    "label": "Planning",
+    "sublabel": "build task graph",
+    "lane": "main",
+    "col": 1,
+    "step": "02",
+    "tag": "model"
+   },
+   {
+    "id": "executing",
+    "type": "active",
+    "label": "Executing",
+    "sublabel": "tool calls",
+    "lane": "main",
+    "col": 2,
+    "step": "03",
+    "tag": "work"
+   },
+   {
+    "id": "reviewing",
+    "type": "decision",
+    "label": "Reviewing",
+    "sublabel": "quality gate",
+    "lane": "main",
+    "col": 3,
+    "step": "04",
+    "tag": "check"
+   },
+   {
+    "id": "completed",
+    "type": "success",
+    "label": "Completed",
+    "sublabel": "final response",
+    "lane": "main",
+    "col": 4,
+    "step": "05",
+    "tag": "done"
+   },
+   {
+    "id": "approval",
+    "type": "waiting",
+    "label": "Needs Approval",
+    "sublabel": "human gate",
+    "lane": "waiting",
+    "col": 4,
+    "tag": "pause"
+   },
+   {
+    "id": "blocked",
+    "type": "waiting",
+    "label": "Blocked",
+    "sublabel": "missing input",
+    "lane": "waiting",
+    "col": 1,
+    "tag": "wait"
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "sublabel": "recoverable error",
+    "lane": "exceptions",
+    "col": 0,
+    "yOffset": 78,
+    "tag": "retryable"
+   },
+   {
+    "id": "cancelled",
+    "type": "failure",
+    "label": "Cancelled",
+    "sublabel": "user stopped",
+    "lane": "terminal",
+    "col": 0,
+    "tag": "terminal"
+   },
+   {
+    "id": "expired",
+    "type": "failure",
+    "label": "Expired",
+    "sublabel": "timeout",
+    "lane": "terminal",
+    "col": 1,
+    "tag": "terminal"
+   }
+  ],
+  "transitions": [
+   {
+    "from": "executing",
+    "to": "approval",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "straight"
+   },
+   {
+    "from": "reviewing",
+    "to": "blocked",
+    "variant": "default",
+    "route": "drop"
+   },
+   {
+    "from": "executing",
+    "to": "failed",
+    "variant": "security",
+    "fromSide": "left",
+    "toSide": "top",
+    "via": [[320,157],[320,342],[402,342]]
+   },
+   {
+    "from": "blocked",
+    "to": "expired",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "straight"
+   },
+   {
+    "from": "approval",
+    "to": "cancelled",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "via": [[320,336],[320,430],[402,430]]
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "Main Path",
+    "items": [
+     "The run has five ordered phases from queue to completion",
+     "The primary lifecycle is carried by one horizontal rail",
+     "Completion is a phase, not a detached side box"
+    ]
+   },
+   {
+    "dot": "amber",
+    "title": "Human + Input Gates",
+    "items": [
+     "Approval pauses execution without ending the run",
+     "Blocked waits for missing user input",
+     "Wait states can resume back into planning or execution"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Terminal + Recovery",
+    "items": [
+     "Failed loops back while retry budget remains",
+     "Cancelled and Expired are exits from the lifecycle",
+     "Terminal exits do not point back into active execution"
+    ]
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"approval\" uses invalid column 4 — the event band has integer columns 0..2.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" first segment 0 [402,188] -> [710,278] does not honor fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" final segment 0 [402,188] -> [710,278] does not honor toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/edge-through-node] lifecycle transitions[4] \"approval\" -> \"cancelled\" crosses state \"blocked\" (unrelated to this relationship) on segment 0 [710,336] -> [320,336] (2px clearance) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" first segment 0 [402,188] -> [710,278] does not honor fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "from": "executing",
+       "to": "approval"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "authored",
+       "side": "bottom",
+       "segmentIndex": 0,
+       "from": [402,188],
+       "to": [710,278],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" final segment 0 [402,188] -> [710,278] does not honor toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "from": "executing",
+       "to": "approval"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "authored",
+       "side": "top",
+       "segmentIndex": 0,
+       "from": [402,188],
+       "to": [710,278],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward from above"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[4] \"approval\" -> \"cancelled\" crosses state \"blocked\" (unrelated to this relationship) on segment 0 [710,336] -> [320,336] (2px clearance) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 4,
+       "from": "approval",
+       "to": "cancelled"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "blocked",
+       "segmentIndex": 0,
+       "from": [710,336],
+       "to": [320,336],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"approval\" uses invalid column 4 — the event band has integer columns 0..2.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"approval\" uses invalid column 4 — the event band has integer columns 0..2.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" first segment 0 [402,188] -> [710,278] does not honor fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" final segment 0 [402,188] -> [710,278] does not honor toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/edge-through-node] lifecycle transitions[4] \"approval\" -> \"cancelled\" crosses state \"blocked\" (unrelated to this relationship) on segment 0 [710,336] -> [320,336] (2px clearance) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" first segment 0 [402,188] -> [710,278] does not honor fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "from": "executing",
+       "to": "approval"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "authored",
+       "side": "bottom",
+       "segmentIndex": 0,
+       "from": [402,188],
+       "to": [710,278],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" final segment 0 [402,188] -> [710,278] does not honor toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "from": "executing",
+       "to": "approval"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "authored",
+       "side": "top",
+       "segmentIndex": 0,
+       "from": [402,188],
+       "to": [710,278],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward from above"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[4] \"approval\" -> \"cancelled\" crosses state \"blocked\" (unrelated to this relationship) on segment 0 [710,336] -> [320,336] (2px clearance) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 4,
+       "from": "approval",
+       "to": "cancelled"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "blocked",
+       "segmentIndex": 0,
+       "from": [710,336],
+       "to": [320,336],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"approval\" uses invalid column 4 — the event band has integer columns 0..2.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"approval\" uses invalid column 4 — the event band has integer columns 0..2.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" first segment 0 [402,188] -> [710,278] does not honor fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" final segment 0 [402,188] -> [710,278] does not honor toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/edge-through-node] lifecycle transitions[4] \"approval\" -> \"cancelled\" crosses state \"blocked\" (unrelated to this relationship) on segment 0 [710,336] -> [320,336] (2px clearance) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" first segment 0 [402,188] -> [710,278] does not honor fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "from": "executing",
+       "to": "approval"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "authored",
+       "side": "bottom",
+       "segmentIndex": 0,
+       "from": [402,188],
+       "to": [710,278],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] \"executing\" -> \"approval\" final segment 0 [402,188] -> [710,278] does not honor toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "from": "executing",
+       "to": "approval"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "authored",
+       "side": "top",
+       "segmentIndex": 0,
+       "from": [402,188],
+       "to": [710,278],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward from above"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[4] \"approval\" -> \"cancelled\" crosses state \"blocked\" (unrelated to this relationship) on segment 0 [710,336] -> [320,336] (2px clearance) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 4,
+       "from": "approval",
+       "to": "cancelled"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "blocked",
+       "segmentIndex": 0,
+       "from": [710,336],
+       "to": [320,336],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"approval\" uses invalid column 4 — the event band has integer columns 0..2.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

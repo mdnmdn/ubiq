@@ -33,17 +33,12 @@ use crate::state::sink::{ColourField, DroneField, ProjectNav};
 use crate::theme::ThemeId;
 
 /// The left rail's destinations. `Control`, `Ide`, `Git`, `Agents`, `Teams`, `TeamsAll`,
-/// `TeamsOld`, `Tasks` and `Sink` are built; the rest render an empty page.
+/// `Tasks` and `Sink` are built; the rest render an empty page.
 ///
-/// `Agents` and `TeamsOld` are two screens over the same records, and the split is the point.
+/// `Agents` and `Teams` are two screens over the same records, and the split is the point.
 /// `Agents` is where the user *talks to* the agents — parallel columns, one conversation each.
-/// `TeamsOld` is where the user *arranges* them — the graph of who spawned whom and which task
-/// each card serves.
-///
-/// `Teams` is the new mode standing beside it: a clone of `TeamsOld`'s screen and state, kept
-/// independent so the two can drift apart wave by wave. `TeamsOld` is not removed and not
-/// redirected — it keeps drawing exactly what it always has, under its old label wrapped in
-/// brackets, until the waves after this one either fold it away or replace it outright.
+/// `Teams` is where the user *arranges* them — the graph of who spawned whom and which task each
+/// card serves.
 ///
 /// `Teams` and `TeamsAll` are the same screen over two spans, and which entry the rail is on is
 /// the whole of what decides the span — there is no switch on the canvas. `Teams` is the active
@@ -70,7 +65,6 @@ impl RailMode {
     pub const AGENTS: RailMode = RailMode(ids::RAIL_AGENTS);
     pub const TEAMS: RailMode = RailMode(ids::RAIL_TEAMS);
     pub const TEAMS_ALL: RailMode = RailMode(ids::RAIL_TEAMS_ALL);
-    pub const TEAMS_OLD: RailMode = RailMode(ids::RAIL_TEAMS_OLD);
     pub const KB: RailMode = RailMode(ids::RAIL_KB);
     /// The database explorer: opt-in, after the IDE in the PROJECT group.
     pub const DB: RailMode = RailMode(ids::RAIL_DB);
@@ -423,7 +417,7 @@ pub enum MenuId {
     /// it belongs to — several conversations can be on screen at once, each with its own. Where
     /// it opened is `WorkbenchState::conversation_menu`.
     ConversationLifecycle(AgentId),
-    /// The orchestration toolbar's arrangement dropdown: which of `layout::Algo` the graph lays
+    /// The Teams toolbar's arrangement dropdown: which of `layout::Algo` the graph lays
     /// itself out in. No position of its own — one menu in the window is open at a time, and this
     /// one hangs off its own trigger.
     GraphLayout,

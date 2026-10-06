@@ -1,0 +1,163 @@
+{
+ "name": "neg.output-empty",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "portable-path/*",
+ "expect_codes": [
+  "output/meta-path-syntax"
+ ],
+ "source_sha256": "65e8acaf989bc85da1c3decf34c0edc05ef90deec901c2162d0cfd8deb077ec2",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": ""
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "meta.output must be a portable POSIX-relative path.",
+    "diagnostics": [
+     {
+      "severity": "error",
+      "subject": {
+       "output": "",
+       "path": "/meta/output"
+      },
+      "evidence": {
+       "reason": "empty"
+      },
+      "supportedFixes": [
+       "set meta.output to a portable relative .html path such as reports/diagram.html"
+      ],
+      "code": "output/meta-path-syntax",
+      "message": "meta.output must be a portable POSIX-relative path."
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "meta.output must be a portable POSIX-relative path.",
+    "diagnostics": [
+     {
+      "severity": "error",
+      "subject": {
+       "output": "",
+       "path": "/meta/output"
+      },
+      "evidence": {
+       "reason": "empty"
+      },
+      "supportedFixes": [
+       "set meta.output to a portable relative .html path such as reports/diagram.html"
+      ],
+      "code": "output/meta-path-syntax",
+      "message": "meta.output must be a portable POSIX-relative path."
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "meta.output must be a portable POSIX-relative path.",
+    "diagnostics": [
+     {
+      "severity": "error",
+      "subject": {
+       "output": "",
+       "path": "/meta/output"
+      },
+      "evidence": {
+       "reason": "empty"
+      },
+      "supportedFixes": [
+       "set meta.output to a portable relative .html path such as reports/diagram.html"
+      ],
+      "code": "output/meta-path-syntax",
+      "message": "meta.output must be a portable POSIX-relative path."
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "meta.output must be a portable POSIX-relative path.\n[output/meta-path-syntax] meta.output must be a portable POSIX-relative path. Fix: set meta.output to a portable relative .html path such as reports/diagram.html.\n"
+ },
+ "layout_json_by_quality": {}
+}

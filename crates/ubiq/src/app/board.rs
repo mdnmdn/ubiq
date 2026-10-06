@@ -818,14 +818,12 @@ impl AppState {
     pub(super) fn fill_task_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.refill_fields {
             self.refill_fields = false;
-            let (filter, draft) = self
+            let filter = self
                 .open_project(cx)
-                .map(|open| (open.board.filter.clone(), open.graph.draft.clone()))
+                .map(|open| open.board.filter.clone())
                 .unwrap_or_default();
             let task_filter = self.task_filter.clone();
             task_filter.update(cx, |state, cx| state.set_value(&filter, window, cx));
-            let agent_input = self.agent_input.clone();
-            agent_input.update(cx, |state, cx| state.set_value(&draft, window, cx));
         }
 
         let Some(board) = self.board(cx) else {

@@ -1,0 +1,432 @@
+{
+ "name": "neg.lc-v1-canvas",
+ "group": "negative",
+ "source": "mutation of lc-v1",
+ "type": "lifecycle",
+ "rule": "lifecycle/v1-canvas",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "bcdecf5ef5c1b582e2732917dee3561b34243231144a421a943ed89a2d3278a2",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "Agent Run Lifecycle",
+   "subtitle": "State machine for planning, tool execution, human approval, retries, and terminal outcomes",
+   "output": "examples/lifecycle-agent-run.html",
+   "viewBox": [1030,400]
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Lifecycle phases"
+   },
+   {
+    "id": "waiting",
+    "label": "Interruptions"
+   },
+   {
+    "id": "exceptions",
+    "label": "Recovery loop"
+   },
+   {
+    "id": "terminal",
+    "label": "Terminal exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "sublabel": "request accepted",
+    "lane": "main",
+    "col": 0,
+    "step": "01",
+    "tag": "entry"
+   },
+   {
+    "id": "planning",
+    "type": "active",
+    "label": "Planning",
+    "sublabel": "build task graph",
+    "lane": "main",
+    "col": 1,
+    "step": "02",
+    "tag": "model"
+   },
+   {
+    "id": "executing",
+    "type": "active",
+    "label": "Executing",
+    "sublabel": "tool calls",
+    "lane": "main",
+    "col": 2,
+    "step": "03",
+    "tag": "work"
+   },
+   {
+    "id": "reviewing",
+    "type": "decision",
+    "label": "Reviewing",
+    "sublabel": "quality gate",
+    "lane": "main",
+    "col": 3,
+    "step": "04",
+    "tag": "check"
+   },
+   {
+    "id": "completed",
+    "type": "success",
+    "label": "Completed",
+    "sublabel": "final response",
+    "lane": "main",
+    "col": 4,
+    "step": "05",
+    "tag": "done"
+   },
+   {
+    "id": "approval",
+    "type": "waiting",
+    "label": "Needs Approval",
+    "sublabel": "human gate",
+    "lane": "waiting",
+    "col": 0,
+    "tag": "pause"
+   },
+   {
+    "id": "blocked",
+    "type": "waiting",
+    "label": "Blocked",
+    "sublabel": "missing input",
+    "lane": "waiting",
+    "col": 1,
+    "tag": "wait"
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "sublabel": "recoverable error",
+    "lane": "exceptions",
+    "col": 0,
+    "yOffset": 78,
+    "tag": "retryable"
+   },
+   {
+    "id": "cancelled",
+    "type": "failure",
+    "label": "Cancelled",
+    "sublabel": "user stopped",
+    "lane": "terminal",
+    "col": 0,
+    "tag": "terminal"
+   },
+   {
+    "id": "expired",
+    "type": "failure",
+    "label": "Expired",
+    "sublabel": "timeout",
+    "lane": "terminal",
+    "col": 1,
+    "tag": "terminal"
+   }
+  ],
+  "transitions": [
+   {
+    "from": "executing",
+    "to": "approval",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "straight"
+   },
+   {
+    "from": "reviewing",
+    "to": "blocked",
+    "variant": "default",
+    "route": "drop"
+   },
+   {
+    "from": "executing",
+    "to": "failed",
+    "variant": "security",
+    "fromSide": "left",
+    "toSide": "top",
+    "via": [[320,157],[320,342],[402,342]]
+   },
+   {
+    "from": "blocked",
+    "to": "expired",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "straight"
+   },
+   {
+    "from": "approval",
+    "to": "cancelled",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "via": [[320,336],[320,430],[402,430]]
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "Main Path",
+    "items": [
+     "The run has five ordered phases from queue to completion",
+     "The primary lifecycle is carried by one horizontal rail",
+     "Completion is a phase, not a detached side box"
+    ]
+   },
+   {
+    "dot": "amber",
+    "title": "Human + Input Gates",
+    "items": [
+     "Approval pauses execution without ending the run",
+     "Blocked waits for missing user input",
+     "Wait states can resume back into planning or execution"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Terminal + Recovery",
+    "items": [
+     "Failed loops back while retry budget remains",
+     "Cancelled and Expired are exits from the lifecycle",
+     "Terminal exits do not point back into active execution"
+    ]
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- viewBox height 400 is too short for the fixed band layout — set meta.viewBox[1] to at least 566.\n- State \"approval\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"blocked\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"failed\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"cancelled\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"expired\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "viewBox height 400 is too short for the fixed band layout — set meta.viewBox[1] to at least 566.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"approval\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"blocked\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"cancelled\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"expired\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- viewBox height 400 is too short for the fixed band layout — set meta.viewBox[1] to at least 566.\n- State \"approval\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"blocked\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"failed\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"cancelled\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"expired\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "viewBox height 400 is too short for the fixed band layout — set meta.viewBox[1] to at least 566.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"approval\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"blocked\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"cancelled\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"expired\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- viewBox height 400 is too short for the fixed band layout — set meta.viewBox[1] to at least 566.\n- State \"approval\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"blocked\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"failed\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"cancelled\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).\n- State \"expired\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "viewBox height 400 is too short for the fixed band layout — set meta.viewBox[1] to at least 566.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"approval\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"blocked\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"cancelled\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"expired\" exceeds the vertical lifecycle area — keep y between 64 and 278 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

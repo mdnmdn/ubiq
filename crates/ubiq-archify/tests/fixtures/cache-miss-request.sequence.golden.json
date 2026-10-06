@@ -1,0 +1,1845 @@
+{
+ "name": "cache-miss-request.sequence",
+ "group": "example",
+ "source": "archify/examples/cache-miss-request.sequence.json",
+ "type": "sequence",
+ "source_sha256": "f8486daa803fff6c295cecca4604c561fbbf9acb2e83326022b5a87639e8afe6",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Cache Miss Request Sequence",
+   "output": "examples/sequence-cache-miss-request.html",
+   "viewBox": [1080,580],
+   "column_fit": "spread",
+   "animation": "trace",
+   "quality_profile": "showcase"
+  },
+  "participants": [
+   {
+    "id": "user",
+    "type": "external",
+    "label": "User",
+    "sublabel": "browser session"
+   },
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web App",
+    "sublabel": "React UI"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "request handler"
+   },
+   {
+    "id": "auth",
+    "type": "security",
+    "label": "Auth",
+    "sublabel": "JWT verify"
+   },
+   {
+    "id": "redis",
+    "type": "database",
+    "label": "Redis",
+    "sublabel": "cache"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "Postgres",
+    "sublabel": "source of truth"
+   },
+   {
+    "id": "trace",
+    "type": "messagebus",
+    "label": "Trace",
+    "sublabel": "async event"
+   }
+  ],
+  "segments": [
+   {
+    "from": 150,
+    "to": 250,
+    "label": "Request"
+   },
+   {
+    "from": 260,
+    "to": 370,
+    "label": "Fallback"
+   },
+   {
+    "from": 380,
+    "to": 480,
+    "label": "Response + trace"
+   }
+  ],
+  "messages": [
+   {
+    "id": "open-page",
+    "from": "user",
+    "to": "web",
+    "y": 160,
+    "label": "open page",
+    "variant": "default"
+   },
+   {
+    "id": "dashboard-request",
+    "from": "web",
+    "to": "api",
+    "y": 185,
+    "label": "GET /dashboard",
+    "variant": "emphasis"
+   },
+   {
+    "id": "verify-jwt",
+    "from": "api",
+    "to": "auth",
+    "y": 210,
+    "label": "verify JWT",
+    "variant": "security"
+   },
+   {
+    "id": "auth-claims",
+    "from": "auth",
+    "to": "api",
+    "y": 238,
+    "label": "claims ok",
+    "variant": "return"
+   },
+   {
+    "id": "cache-read",
+    "from": "api",
+    "to": "redis",
+    "y": 270,
+    "label": "read cache",
+    "variant": "default"
+   },
+   {
+    "id": "cache-miss",
+    "from": "redis",
+    "to": "api",
+    "y": 298,
+    "label": "miss",
+    "variant": "return"
+   },
+   {
+    "id": "profile-query",
+    "from": "api",
+    "to": "db",
+    "y": 330,
+    "label": "query profile + metrics",
+    "variant": "emphasis"
+   },
+   {
+    "id": "profile-rows",
+    "from": "db",
+    "to": "api",
+    "y": 358,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "id": "cache-write",
+    "from": "api",
+    "to": "redis",
+    "y": 390,
+    "label": "set cache",
+    "variant": "dashed"
+   },
+   {
+    "id": "trace-emit",
+    "from": "api",
+    "to": "trace",
+    "y": 418,
+    "label": "emit trace",
+    "variant": "dashed"
+   },
+   {
+    "id": "dashboard-response",
+    "from": "api",
+    "to": "web",
+    "y": 443,
+    "label": "200 JSON",
+    "variant": "return"
+   },
+   {
+    "id": "page-render",
+    "from": "web",
+    "to": "user",
+    "y": 468,
+    "label": "render",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "web",
+    "from": 180,
+    "to": 474,
+    "type": "frontend"
+   },
+   {
+    "participant": "api",
+    "from": 185,
+    "to": 450,
+    "type": "backend"
+   },
+   {
+    "participant": "auth",
+    "from": 205,
+    "to": 244,
+    "type": "security"
+   },
+   {
+    "participant": "redis",
+    "from": 265,
+    "to": 304,
+    "type": "database"
+   },
+   {
+    "participant": "db",
+    "from": 325,
+    "to": 364,
+    "type": "database"
+   },
+   {
+    "participant": "trace",
+    "from": 413,
+    "to": 449,
+    "type": "messagebus"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "Happy Path",
+    "items": [
+     "The main request is Web App -> API -> data source -> response",
+     "Return messages are quieter than forward calls",
+     "Activation bars make ownership duration visible"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Policy + Fallback",
+    "items": [
+     "JWT verification is colored as a security interaction",
+     "Cache miss is visible without overpowering the main path",
+     "Database access only appears after cache fallback"
+    ]
+   },
+   {
+    "dot": "orange",
+    "title": "Async Trace",
+    "items": [
+     "Trace emission is dashed and secondary",
+     "It does not block the response path",
+     "The diagram separates user-facing latency from observability"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "f8486daa803fff6c295cecca4604c561fbbf9acb2e83326022b5a87639e8afe6",
+     "bytes": 3805
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "f8486daa803fff6c295cecca4604c561fbbf9acb2e83326022b5a87639e8afe6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 8,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 130.2,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "spread",
+      "participantCount": 7,
+      "occupiedRight": 1040,
+      "viewBoxLeft": 0,
+      "canvasWidth": 1080,
+      "emptyRightPx": 40,
+      "emptyRightRatio": 0.037,
+      "typicalParticipantWidth": 113,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 26
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "f8486daa803fff6c295cecca4604c561fbbf9acb2e83326022b5a87639e8afe6",
+     "bytes": 3805
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "f8486daa803fff6c295cecca4604c561fbbf9acb2e83326022b5a87639e8afe6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 8,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 130.2,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "spread",
+      "participantCount": 7,
+      "occupiedRight": 1040,
+      "viewBoxLeft": 0,
+      "canvasWidth": 1080,
+      "emptyRightPx": 40,
+      "emptyRightRatio": 0.037,
+      "typicalParticipantWidth": 113,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 26
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "f8486daa803fff6c295cecca4604c561fbbf9acb2e83326022b5a87639e8afe6",
+     "bytes": 3805
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "f8486daa803fff6c295cecca4604c561fbbf9acb2e83326022b5a87639e8afe6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 8,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 130.2,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "spread",
+      "participantCount": 7,
+      "occupiedRight": 1040,
+      "viewBoxLeft": 0,
+      "canvasWidth": 1080,
+      "emptyRightPx": 40,
+      "emptyRightRatio": 0.037,
+      "typicalParticipantWidth": 113,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 26
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1080,580],
+  "svg_attrs": {
+   "data-sequence-column-fit": "spread",
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Cache Miss Request Sequence",
+  "nodes": [
+   {
+    "id": "user",
+    "kind": "external",
+    "label": "User",
+    "sublabel": "browser session",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 62,
+     "y": 72,
+     "width": 113,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 118.5,
+      "y": 108,
+      "font_size": 11,
+      "text": "User",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 118.5,
+      "y": 122,
+      "font_size": 7,
+      "text": "browser session",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(68 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "web",
+    "kind": "frontend",
+    "label": "Web App",
+    "sublabel": "React UI",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 206.16666666666663,
+     "y": 72,
+     "width": 113,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 262.66666666666663,
+      "y": 108,
+      "font_size": 11,
+      "text": "Web App",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 262.66666666666663,
+      "y": 122,
+      "font_size": 7,
+      "text": "React UI",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(212.16666666666663 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "api",
+    "kind": "backend",
+    "label": "API",
+    "sublabel": "request handler",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 350.3333333333333,
+     "y": 72,
+     "width": 113,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 406.8333333333333,
+      "y": 108,
+      "font_size": 11,
+      "text": "API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 406.8333333333333,
+      "y": 122,
+      "font_size": 7,
+      "text": "request handler",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(356.3333333333333 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "auth",
+    "kind": "security",
+    "label": "Auth",
+    "sublabel": "JWT verify",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 494.5,
+     "y": 72,
+     "width": 113,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 551,
+      "y": 108,
+      "font_size": 11,
+      "text": "Auth",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 551,
+      "y": 122,
+      "font_size": 7,
+      "text": "JWT verify",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(500.5 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "redis",
+    "kind": "database",
+    "label": "Redis",
+    "sublabel": "cache",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 638.6666666666666,
+     "y": 72,
+     "width": 113,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 695.1666666666666,
+      "y": 108,
+      "font_size": 11,
+      "text": "Redis",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 695.1666666666666,
+      "y": 122,
+      "font_size": 7,
+      "text": "cache",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(644.6666666666666 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "db",
+    "kind": "database",
+    "label": "Postgres",
+    "sublabel": "source of truth",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 782.8333333333333,
+     "y": 72,
+     "width": 113,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 839.3333333333333,
+      "y": 108,
+      "font_size": 11,
+      "text": "Postgres",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 839.3333333333333,
+      "y": 122,
+      "font_size": 7,
+      "text": "source of truth",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(788.8333333333333 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "trace",
+    "kind": "messagebus",
+    "label": "Trace",
+    "sublabel": "async event",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 927,
+     "y": 72,
+     "width": 113,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 983.5,
+      "y": 108,
+      "font_size": 11,
+      "text": "Trace",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 983.5,
+      "y": 122,
+      "font_size": 7,
+      "text": "async event",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(933 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "open-page",
+    "from": "user",
+    "to": "web",
+    "label": "open page",
+    "points": [[125.5,160],[255.66666666666663,160]],
+    "d": "M 125.5 160 L 255.66666666666663 160",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 1,
+    "id": "dashboard-request",
+    "from": "web",
+    "to": "api",
+    "label": "GET /dashboard",
+    "points": [[269.66666666666663,185],[399.8333333333333,185]],
+    "d": "M 269.66666666666663 185 L 399.8333333333333 185",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "id": "verify-jwt",
+    "from": "api",
+    "to": "auth",
+    "label": "verify JWT",
+    "points": [[413.8333333333333,210],[544,210]],
+    "d": "M 413.8333333333333 210 L 544 210",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 3,
+    "id": "auth-claims",
+    "from": "auth",
+    "to": "api",
+    "label": "claims ok",
+    "points": [[544,238],[413.8333333333333,238]],
+    "d": "M 544 238 L 413.8333333333333 238",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "id": "cache-read",
+    "from": "api",
+    "to": "redis",
+    "label": "read cache",
+    "points": [[413.8333333333333,270],[688.1666666666666,270]],
+    "d": "M 413.8333333333333 270 L 688.1666666666666 270",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 5,
+    "id": "cache-miss",
+    "from": "redis",
+    "to": "api",
+    "label": "miss",
+    "points": [[688.1666666666666,298],[413.8333333333333,298]],
+    "d": "M 688.1666666666666 298 L 413.8333333333333 298",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "id": "profile-query",
+    "from": "api",
+    "to": "db",
+    "label": "query profile + metrics",
+    "points": [[413.8333333333333,330],[832.3333333333333,330]],
+    "d": "M 413.8333333333333 330 L 832.3333333333333 330",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 7,
+    "id": "profile-rows",
+    "from": "db",
+    "to": "api",
+    "label": "rows",
+    "points": [[832.3333333333333,358],[413.8333333333333,358]],
+    "d": "M 832.3333333333333 358 L 413.8333333333333 358",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 8,
+    "id": "cache-write",
+    "from": "api",
+    "to": "redis",
+    "label": "set cache",
+    "points": [[413.8333333333333,390],[688.1666666666666,390]],
+    "d": "M 413.8333333333333 390 L 688.1666666666666 390",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 9,
+    "id": "trace-emit",
+    "from": "api",
+    "to": "trace",
+    "label": "emit trace",
+    "points": [[413.8333333333333,418],[976.5,418]],
+    "d": "M 413.8333333333333 418 L 976.5 418",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 10,
+    "id": "dashboard-response",
+    "from": "api",
+    "to": "web",
+    "label": "200 JSON",
+    "points": [[399.8333333333333,443],[269.66666666666663,443]],
+    "d": "M 399.8333333333333 443 L 269.66666666666663 443",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 11,
+    "id": "page-render",
+    "from": "web",
+    "to": "user",
+    "label": "render",
+    "points": [[255.66666666666663,468],[125.5,468]],
+    "d": "M 255.66666666666663 468 L 125.5 468",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "open-page",
+    "from": "user",
+    "to": "web",
+    "text": "open page",
+    "rect": {
+     "x": 154.88333333333333,
+     "y": 140,
+     "width": 71.4,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 190.58333333333331,
+      "y": 150,
+      "font_size": 11,
+      "text": "open page",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "edge_id": "dashboard-request",
+    "from": "web",
+    "to": "api",
+    "text": "GET /dashboard",
+    "rect": {
+     "x": 282.55,
+     "y": 165,
+     "width": 104.39999999999999,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 334.75,
+      "y": 175,
+      "font_size": 11,
+      "text": "GET /dashboard",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "edge_id": "verify-jwt",
+    "from": "api",
+    "to": "auth",
+    "text": "verify JWT",
+    "rect": {
+     "x": 439.91666666666663,
+     "y": 190,
+     "width": 78,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 478.91666666666663,
+      "y": 200,
+      "font_size": 11,
+      "text": "verify JWT",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "edge_id": "auth-claims",
+    "from": "auth",
+    "to": "api",
+    "text": "claims ok",
+    "rect": {
+     "x": 443.21666666666664,
+     "y": 218,
+     "width": 71.4,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 478.91666666666663,
+      "y": 228,
+      "font_size": 11,
+      "text": "claims ok",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "edge_id": "cache-read",
+    "from": "api",
+    "to": "redis",
+    "text": "read cache",
+    "rect": {
+     "x": 512,
+     "y": 250,
+     "width": 78,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 551,
+      "y": 260,
+      "font_size": 11,
+      "text": "read cache",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "edge_id": "cache-miss",
+    "from": "redis",
+    "to": "api",
+    "text": "miss",
+    "rect": {
+     "x": 531.8,
+     "y": 278,
+     "width": 38.4,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 551,
+      "y": 288,
+      "font_size": 11,
+      "text": "miss",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "edge_id": "profile-query",
+    "from": "api",
+    "to": "db",
+    "text": "query profile + metrics",
+    "rect": {
+     "x": 541.1833333333333,
+     "y": 310,
+     "width": 163.79999999999998,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 623.0833333333333,
+      "y": 320,
+      "font_size": 11,
+      "text": "query profile + metrics",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "edge_id": "profile-rows",
+    "from": "db",
+    "to": "api",
+    "text": "rows",
+    "rect": {
+     "x": 603.8833333333332,
+     "y": 338,
+     "width": 38.4,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 623.0833333333333,
+      "y": 348,
+      "font_size": 11,
+      "text": "rows",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "edge_id": "cache-write",
+    "from": "api",
+    "to": "redis",
+    "text": "set cache",
+    "rect": {
+     "x": 515.3,
+     "y": 370,
+     "width": 71.4,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 551,
+      "y": 380,
+      "font_size": 11,
+      "text": "set cache",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "edge_id": "trace-emit",
+    "from": "api",
+    "to": "trace",
+    "text": "emit trace",
+    "rect": {
+     "x": 656.1666666666666,
+     "y": 398,
+     "width": 78,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 695.1666666666666,
+      "y": 408,
+      "font_size": 11,
+      "text": "emit trace",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "edge_id": "dashboard-response",
+    "from": "api",
+    "to": "web",
+    "text": "200 JSON",
+    "rect": {
+     "x": 302.35,
+     "y": 423,
+     "width": 64.8,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 334.75,
+      "y": 433,
+      "font_size": 11,
+      "text": "200 JSON",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "edge_id": "page-render",
+    "from": "web",
+    "to": "user",
+    "text": "render",
+    "rect": {
+     "x": 164.7833333333333,
+     "y": 448,
+     "width": 51.599999999999994,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 190.58333333333331,
+      "y": 458,
+      "font_size": 11,
+      "text": "render",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "segment",
+    "id": "0",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 150,
+     "width": 984,
+     "height": 100,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "segment",
+    "id": "1",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 260,
+     "width": 984,
+     "height": 110,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "segment",
+    "id": "2",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 380,
+     "width": 984,
+     "height": 100,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": false,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "emphasis",
+     "x": 40,
+     "baseline": 526,
+     "width": 103,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 40 523 L 74 523"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 83,
+       "y": 526,
+       "font_size": 10,
+       "text": "main request"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "return",
+     "x": 165,
+     "baseline": 526,
+     "width": 73,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-default",
+       "d": "M 165 523 L 199 523",
+       "dash": "3,5"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 208,
+       "y": 526,
+       "font_size": 10,
+       "text": "return"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "x": 260,
+     "baseline": 526,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-security",
+       "d": "M 260 523 L 294 523"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 303,
+       "y": 526,
+       "font_size": 10,
+       "text": "security"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "dashed",
+     "x": 365,
+     "baseline": 526,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-dashed",
+       "d": "M 365 523 L 399 523"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 408,
+       "y": 526,
+       "font_size": 10,
+       "text": "async trace"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "default",
+     "x": 485,
+     "baseline": 526,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-default",
+       "d": "M 485 523 L 519 523"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 528,
+       "y": 526,
+       "font_size": 10,
+       "text": "message"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Lifelines": [
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 118.5 142 L 118.5 484",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 262.66666666666663 142 L 262.66666666666663 484",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 406.8333333333333 142 L 406.8333333333333 484",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 551 142 L 551 484",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 695.1666666666666 142 L 695.1666666666666 484",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 839.3333333333333 142 L 839.3333333333333 484",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 983.5 142 L 983.5 484",
+     "dash": "3,7"
+    }
+   ],
+   "Activations": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 257.66666666666663,
+     "y": 180,
+     "width": 10,
+     "height": 294,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-frontend",
+     "x": 257.66666666666663,
+     "y": 180,
+     "width": 10,
+     "height": 294,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 401.8333333333333,
+     "y": 185,
+     "width": 10,
+     "height": 265,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-backend",
+     "x": 401.8333333333333,
+     "y": 185,
+     "width": 10,
+     "height": 265,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 546,
+     "y": 205,
+     "width": 10,
+     "height": 39,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-security",
+     "x": 546,
+     "y": 205,
+     "width": 10,
+     "height": 39,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 690.1666666666666,
+     "y": 265,
+     "width": 10,
+     "height": 39,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-database",
+     "x": 690.1666666666666,
+     "y": 265,
+     "width": 10,
+     "height": 39,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 834.3333333333333,
+     "y": 325,
+     "width": 10,
+     "height": 39,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-database",
+     "x": 834.3333333333333,
+     "y": 325,
+     "width": 10,
+     "height": 39,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 978.5,
+     "y": 413,
+     "width": 10,
+     "height": 36,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-messagebus",
+     "x": 978.5,
+     "y": 413,
+     "width": 10,
+     "height": 36,
+     "rx": 3
+    }
+   ],
+   "Segment Labels": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 128,
+     "width": 50.4,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "0"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 141,
+     "font_size": 9,
+     "text": "Request",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "0"
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 238,
+     "width": 55.6,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "1"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 251,
+     "font_size": 9,
+     "text": "Fallback",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "1"
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 358,
+     "width": 97.2,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "2"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 371,
+     "font_size": 9,
+     "text": "Response + trace",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "2"
+     }
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,1921 @@
+{
+ "name": "fixture.v1-baseline.web-app.architecture",
+ "group": "fixture",
+ "source": "archify/test/fixtures/v1-baseline/web-app.architecture.json",
+ "type": "architecture",
+ "source_sha256": "5fb15d0e0f7e5ed3a1a3f2e7ee406fb50aae126818c58db24f77236b07dd63f6",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Sample Web App",
+   "subtitle": "Classic 3-tier SaaS on AWS — rendered by Archify",
+   "output": "web-app-rendered.html"
+  },
+  "components": [
+   {
+    "id": "users",
+    "type": "external",
+    "label": "Users",
+    "sublabel": "Browser / Mobile",
+    "pos": [40,300],
+    "size": [120,60]
+   },
+   {
+    "id": "auth",
+    "type": "security",
+    "label": "Auth Provider",
+    "sublabel": "OAuth 2.0",
+    "pos": [40,110],
+    "size": [120,64],
+    "tag": "JWT + PKCE"
+   },
+   {
+    "id": "cdn",
+    "type": "cloud",
+    "label": "CloudFront",
+    "sublabel": "CDN",
+    "pos": [250,300],
+    "size": [130,60]
+   },
+   {
+    "id": "lb",
+    "type": "cloud",
+    "label": "Load Balancer",
+    "sublabel": "HTTPS :443",
+    "pos": [460,300],
+    "size": [130,60]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API Server",
+    "sublabel": "FastAPI :8000",
+    "pos": [670,300],
+    "size": [130,60]
+   },
+   {
+    "id": "cache",
+    "type": "database",
+    "label": "Redis",
+    "sublabel": "cache :6379",
+    "pos": [670,150],
+    "size": [130,60]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "PostgreSQL",
+    "sublabel": "primary :5432",
+    "pos": [880,300],
+    "size": [130,60]
+   },
+   {
+    "id": "s3",
+    "type": "cloud",
+    "label": "S3",
+    "sublabel": "static assets",
+    "pos": [250,440],
+    "size": [130,60],
+    "tag": "OAI protected"
+   },
+   {
+    "id": "queue",
+    "type": "messagebus",
+    "label": "SQS",
+    "sublabel": "job queue",
+    "pos": [670,440],
+    "size": [130,60]
+   },
+   {
+    "id": "worker",
+    "type": "backend",
+    "label": "Worker",
+    "sublabel": "async jobs",
+    "pos": [880,440],
+    "size": [130,60]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "AWS Region: us-west-2",
+    "wraps": [
+     "cdn",
+     "lb",
+     "api",
+     "cache",
+     "db",
+     "s3",
+     "queue",
+     "worker"
+    ]
+   },
+   {
+    "kind": "security-group",
+    "label": "sg-api :443/:8000",
+    "wraps": [
+     "lb",
+     "api"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "from": "users",
+    "to": "cdn",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "from": "auth",
+    "to": "api",
+    "label": "verify JWT",
+    "variant": "security",
+    "fromSide": "right",
+    "toSide": "left",
+    "via": [[620,142],[620,330]]
+   },
+   {
+    "from": "cdn",
+    "to": "lb"
+   },
+   {
+    "from": "cdn",
+    "to": "s3",
+    "label": "static",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "labelDy": 58
+   },
+   {
+    "from": "lb",
+    "to": "api"
+   },
+   {
+    "from": "api",
+    "to": "cache",
+    "label": "read-through",
+    "fromSide": "top",
+    "toSide": "bottom",
+    "labelDy": -68
+   },
+   {
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   },
+   {
+    "from": "api",
+    "to": "queue",
+    "label": "enqueue",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "labelDy": 58
+   },
+   {
+    "from": "queue",
+    "to": "worker"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Edge",
+    "items": [
+     "CloudFront CDN fronts all traffic",
+     "S3 serves static assets via OAI"
+    ]
+   },
+   {
+    "dot": "emerald",
+    "title": "Application",
+    "items": [
+     "FastAPI behind an HTTPS load balancer",
+     "Redis read-through cache",
+     "Async work drained from SQS by a worker"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Security",
+    "items": [
+     "OAuth 2.0 with JWT + PKCE",
+     "API + LB isolated in a security group"
+    ]
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "5fb15d0e0f7e5ed3a1a3f2e7ee406fb50aae126818c58db24f77236b07dd63f6",
+     "bytes": 3021
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "5fb15d0e0f7e5ed3a1a3f2e7ee406fb50aae126818c58db24f77236b07dd63f6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 72.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.5,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 50,
+      "minInteriorSegmentPx": 188,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 110,
+      "emptyTopRatio": 0.187,
+      "occupiedTop": 110,
+      "viewBoxTop": 0,
+      "canvasHeight": 588,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 1012.5,
+      "actualBudgetPx": 1012.5,
+      "actualReaderWidth": 1042.5,
+      "desiredReaderWidth": 1042.5,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": null,
+       "from": "users",
+       "to": "cdn"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.5,
+      "semanticTextCount": 28
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "5fb15d0e0f7e5ed3a1a3f2e7ee406fb50aae126818c58db24f77236b07dd63f6",
+     "bytes": 3021
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "5fb15d0e0f7e5ed3a1a3f2e7ee406fb50aae126818c58db24f77236b07dd63f6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 72.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.5,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 50,
+      "minInteriorSegmentPx": 188,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 110,
+      "emptyTopRatio": 0.187,
+      "occupiedTop": 110,
+      "viewBoxTop": 0,
+      "canvasHeight": 588,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 1012.5,
+      "actualBudgetPx": 1012.5,
+      "actualReaderWidth": 1042.5,
+      "desiredReaderWidth": 1042.5,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": null,
+       "from": "users",
+       "to": "cdn"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.5,
+      "semanticTextCount": 28
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "5fb15d0e0f7e5ed3a1a3f2e7ee406fb50aae126818c58db24f77236b07dd63f6",
+     "bytes": 3021
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "5fb15d0e0f7e5ed3a1a3f2e7ee406fb50aae126818c58db24f77236b07dd63f6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 72.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.5,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 50,
+      "minInteriorSegmentPx": 188,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 110,
+      "emptyTopRatio": 0.187,
+      "occupiedTop": 110,
+      "viewBoxTop": 0,
+      "canvasHeight": 588,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 1012.5,
+      "actualBudgetPx": 1012.5,
+      "actualReaderWidth": 1042.5,
+      "desiredReaderWidth": 1042.5,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": null,
+       "from": "users",
+       "to": "cdn"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.5,
+      "semanticTextCount": 28
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [1080,588],
+   "components": [
+    {
+     "id": "users",
+     "type": "external",
+     "label": "Users",
+     "x": 40,
+     "y": 300,
+     "width": 120,
+     "height": 60,
+     "pos": [40,300]
+    },
+    {
+     "id": "auth",
+     "type": "security",
+     "label": "Auth Provider",
+     "x": 40,
+     "y": 110,
+     "width": 120,
+     "height": 64,
+     "pos": [40,110]
+    },
+    {
+     "id": "cdn",
+     "type": "cloud",
+     "label": "CloudFront",
+     "x": 250,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "pos": [250,300]
+    },
+    {
+     "id": "lb",
+     "type": "cloud",
+     "label": "Load Balancer",
+     "x": 460,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "pos": [460,300]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API Server",
+     "x": 670,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "pos": [670,300]
+    },
+    {
+     "id": "cache",
+     "type": "database",
+     "label": "Redis",
+     "x": 670,
+     "y": 150,
+     "width": 130,
+     "height": 60,
+     "pos": [670,150]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "PostgreSQL",
+     "x": 880,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "pos": [880,300]
+    },
+    {
+     "id": "s3",
+     "type": "cloud",
+     "label": "S3",
+     "x": 250,
+     "y": 440,
+     "width": 130,
+     "height": 60,
+     "pos": [250,440]
+    },
+    {
+     "id": "queue",
+     "type": "messagebus",
+     "label": "SQS",
+     "x": 670,
+     "y": 440,
+     "width": 130,
+     "height": 60,
+     "pos": [670,440]
+    },
+    {
+     "id": "worker",
+     "type": "backend",
+     "label": "Worker",
+     "x": 880,
+     "y": 440,
+     "width": 130,
+     "height": 60,
+     "pos": [880,440]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "AWS Region: us-west-2",
+     "x": 220,
+     "y": 120,
+     "width": 820,
+     "height": 400,
+     "wraps": [
+      "cdn",
+      "lb",
+      "api",
+      "cache",
+      "db",
+      "s3",
+      "queue",
+      "worker"
+     ]
+    },
+    {
+     "kind": "security-group",
+     "label": "sg-api :443/:8000",
+     "x": 430,
+     "y": 270,
+     "width": 400,
+     "height": 110,
+     "wraps": [
+      "lb",
+      "api"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "users",
+     "to": "cdn",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,330],[250,330]],
+     "labelAt": [205,320]
+    },
+    {
+     "from": "auth",
+     "to": "api",
+     "label": "verify JWT",
+     "variant": "security",
+     "route": "auto",
+     "points": [[160,142],[620,142],[620,330],[670,330]],
+     "labelAt": [620,226]
+    },
+    {
+     "from": "cdn",
+     "to": "lb",
+     "label": null,
+     "variant": "default",
+     "route": "auto",
+     "points": [[380,330],[460,330]]
+    },
+    {
+     "from": "cdn",
+     "to": "s3",
+     "label": "static",
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[315,360],[315,440]],
+     "labelAt": [315,408]
+    },
+    {
+     "from": "lb",
+     "to": "api",
+     "label": null,
+     "variant": "default",
+     "route": "auto",
+     "points": [[590,330],[670,330]]
+    },
+    {
+     "from": "api",
+     "to": "cache",
+     "label": "read-through",
+     "variant": "default",
+     "route": "auto",
+     "points": [[735,300],[735,210]],
+     "labelAt": [735,222]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[800,330],[880,330]],
+     "labelAt": [840,320]
+    },
+    {
+     "from": "api",
+     "to": "queue",
+     "label": "enqueue",
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[735,360],[735,440]],
+     "labelAt": [735,408]
+    },
+    {
+     "from": "queue",
+     "to": "worker",
+     "label": null,
+     "variant": "default",
+     "route": "auto",
+     "points": [[800,470],[880,470]]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 188,
+     "y": 310,
+     "width": 34,
+     "height": 14,
+     "labelAt": [205,320]
+    },
+    {
+     "text": "verify JWT",
+     "x": 591,
+     "y": 216,
+     "width": 58,
+     "height": 14,
+     "labelAt": [620,226]
+    },
+    {
+     "text": "static",
+     "x": 296,
+     "y": 398,
+     "width": 39,
+     "height": 14,
+     "labelAt": [315,408]
+    },
+    {
+     "text": "read-through",
+     "x": 701,
+     "y": 212,
+     "width": 68,
+     "height": 14,
+     "labelAt": [735,222]
+    },
+    {
+     "text": "SQL",
+     "x": 825,
+     "y": 310,
+     "width": 30,
+     "height": 14,
+     "labelAt": [840,320]
+    },
+    {
+     "text": "enqueue",
+     "x": 713,
+     "y": 398,
+     "width": 44,
+     "height": 14,
+     "labelAt": [735,408]
+    }
+   ]
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1080,588],
+  "svg_attrs": {
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory",
+   "data-reader-fit": "intrinsic-height",
+   "data-reader-min-text": "7.5",
+   "data-reader-primary-text": "14"
+  },
+  "title": "Sample Web App",
+  "nodes": [
+   {
+    "id": "users",
+    "kind": "external",
+    "label": "Users",
+    "sublabel": "Browser / Mobile",
+    "context": "Architecture component",
+    "rect": {
+     "x": 40,
+     "y": 300,
+     "width": 120,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 100,
+      "y": 328,
+      "font_size": 11,
+      "text": "Users",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 100,
+      "y": 344,
+      "font_size": 9,
+      "text": "Browser / Mobile",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(46 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "auth",
+    "kind": "security",
+    "label": "Auth Provider",
+    "sublabel": "OAuth 2.0",
+    "tag": "JWT + PKCE",
+    "context": "Architecture component",
+    "rect": {
+     "x": 40,
+     "y": 110,
+     "width": 120,
+     "height": 64,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 100,
+      "y": 140,
+      "font_size": 11,
+      "text": "Auth Provider",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 100,
+      "y": 156,
+      "font_size": 9,
+      "text": "OAuth 2.0",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 100,
+      "y": 166,
+      "font_size": 7,
+      "text": "JWT + PKCE",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(46 116) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "cdn",
+    "kind": "cloud",
+    "label": "CloudFront",
+    "sublabel": "CDN",
+    "context": "AWS Region: us-west-2",
+    "rect": {
+     "x": 250,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 315,
+      "y": 328,
+      "font_size": 11,
+      "text": "CloudFront",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 315,
+      "y": 344,
+      "font_size": 9,
+      "text": "CDN",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(256 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "lb",
+    "kind": "cloud",
+    "label": "Load Balancer",
+    "sublabel": "HTTPS :443",
+    "context": "AWS Region: us-west-2 › sg-api :443/:8000",
+    "rect": {
+     "x": 460,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 525,
+      "y": 328,
+      "font_size": 11,
+      "text": "Load Balancer",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 525,
+      "y": 344,
+      "font_size": 9,
+      "text": "HTTPS :443",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(466 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "api",
+    "kind": "backend",
+    "label": "API Server",
+    "sublabel": "FastAPI :8000",
+    "context": "AWS Region: us-west-2 › sg-api :443/:8000",
+    "rect": {
+     "x": 670,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 735,
+      "y": 328,
+      "font_size": 11,
+      "text": "API Server",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 735,
+      "y": 344,
+      "font_size": 9,
+      "text": "FastAPI :8000",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(676 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "cache",
+    "kind": "database",
+    "label": "Redis",
+    "sublabel": "cache :6379",
+    "context": "AWS Region: us-west-2",
+    "rect": {
+     "x": 670,
+     "y": 150,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 735,
+      "y": 178,
+      "font_size": 11,
+      "text": "Redis",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 735,
+      "y": 194,
+      "font_size": 9,
+      "text": "cache :6379",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(676 156) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "db",
+    "kind": "database",
+    "label": "PostgreSQL",
+    "sublabel": "primary :5432",
+    "context": "AWS Region: us-west-2",
+    "rect": {
+     "x": 880,
+     "y": 300,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 945,
+      "y": 328,
+      "font_size": 11,
+      "text": "PostgreSQL",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 945,
+      "y": 344,
+      "font_size": 9,
+      "text": "primary :5432",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(886 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "s3",
+    "kind": "cloud",
+    "label": "S3",
+    "sublabel": "static assets",
+    "tag": "OAI protected",
+    "context": "AWS Region: us-west-2",
+    "rect": {
+     "x": 250,
+     "y": 440,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 315,
+      "y": 468,
+      "font_size": 11,
+      "text": "S3",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 315,
+      "y": 484,
+      "font_size": 9,
+      "text": "static assets",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 315,
+      "y": 492,
+      "font_size": 7,
+      "text": "OAI protected",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(256 446) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "queue",
+    "kind": "messagebus",
+    "label": "SQS",
+    "sublabel": "job queue",
+    "context": "AWS Region: us-west-2",
+    "rect": {
+     "x": 670,
+     "y": 440,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 735,
+      "y": 468,
+      "font_size": 11,
+      "text": "SQS",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 735,
+      "y": 484,
+      "font_size": 9,
+      "text": "job queue",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(676 446) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "worker",
+    "kind": "backend",
+    "label": "Worker",
+    "sublabel": "async jobs",
+    "context": "AWS Region: us-west-2",
+    "rect": {
+     "x": 880,
+     "y": 440,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 945,
+      "y": 468,
+      "font_size": 11,
+      "text": "Worker",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 945,
+      "y": 484,
+      "font_size": 9,
+      "text": "async jobs",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(886 446) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "users",
+    "to": "cdn",
+    "label": "HTTPS",
+    "points": [[160,330],[250,330]],
+    "d": "M 160 330 L 250 330",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "from": "auth",
+    "to": "api",
+    "label": "verify JWT",
+    "points": [[160,142],[620,142],[620,330],[670,330]],
+    "d": "M 160 142 L 612 142 Q 620 142 620 150 L 620 322 Q 620 330 628 330 L 670 330",
+    "variant": "security",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 2,
+    "from": "cdn",
+    "to": "lb",
+    "points": [[380,330],[460,330]],
+    "d": "M 380 330 L 460 330",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "from": "cdn",
+    "to": "s3",
+    "label": "static",
+    "points": [[315,360],[315,440]],
+    "d": "M 315 360 L 315 440",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 4,
+    "from": "lb",
+    "to": "api",
+    "points": [[590,330],[670,330]],
+    "d": "M 590 330 L 670 330",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 5,
+    "from": "api",
+    "to": "cache",
+    "label": "read-through",
+    "points": [[735,300],[735,210]],
+    "d": "M 735 300 L 735 210",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "from": "api",
+    "to": "db",
+    "label": "SQL",
+    "points": [[800,330],[880,330]],
+    "d": "M 800 330 L 880 330",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 7,
+    "from": "api",
+    "to": "queue",
+    "label": "enqueue",
+    "points": [[735,360],[735,440]],
+    "d": "M 735 360 L 735 440",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 8,
+    "from": "queue",
+    "to": "worker",
+    "points": [[800,470],[880,470]],
+    "d": "M 800 470 L 880 470",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "users",
+    "to": "cdn",
+    "text": "HTTPS",
+    "rect": {
+     "x": 188,
+     "y": 310,
+     "width": 34,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 205,
+      "y": 320,
+      "font_size": 8,
+      "text": "HTTPS",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "from": "auth",
+    "to": "api",
+    "text": "verify JWT",
+    "rect": {
+     "x": 591,
+     "y": 216,
+     "width": 58,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 620,
+      "y": 226,
+      "font_size": 8,
+      "text": "verify JWT",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "cdn",
+    "to": "s3",
+    "text": "static",
+    "rect": {
+     "x": 295.6,
+     "y": 398,
+     "width": 38.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 315,
+      "y": 408,
+      "font_size": 8,
+      "text": "static",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "api",
+    "to": "cache",
+    "text": "read-through",
+    "rect": {
+     "x": 701.2,
+     "y": 212,
+     "width": 67.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 735,
+      "y": 222,
+      "font_size": 8,
+      "text": "read-through",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "api",
+    "to": "db",
+    "text": "SQL",
+    "rect": {
+     "x": 825,
+     "y": 310,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 840,
+      "y": 320,
+      "font_size": 8,
+      "text": "SQL",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "from": "api",
+    "to": "queue",
+    "text": "enqueue",
+    "rect": {
+     "x": 713.2,
+     "y": 398,
+     "width": 43.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 735,
+      "y": 408,
+      "font_size": 8,
+      "text": "enqueue",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "region",
+    "id": "0",
+    "label": "AWS Region: us-west-2",
+    "class": "c-region",
+    "rect": {
+     "x": 220,
+     "y": 120,
+     "width": 820,
+     "height": 400,
+     "rx": 12
+    }
+   },
+   {
+    "kind": "security-group",
+    "id": "1",
+    "label": "sg-api :443/:8000",
+    "class": "c-security-group",
+    "rect": {
+     "x": 430,
+     "y": 270,
+     "width": 400,
+     "height": 110,
+     "rx": 8
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Backend",
+     "x": 40,
+     "baseline": 572,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 40,
+       "y": 563,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 62,
+       "y": 572,
+       "font_size": 10,
+       "text": "Backend"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "Database",
+     "x": 140,
+     "baseline": 572,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 140,
+       "y": 563,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 162,
+       "y": 572,
+       "font_size": 10,
+       "text": "Database"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "cloud",
+     "kind": "cloud",
+     "label": "Cloud",
+     "x": 245,
+     "baseline": 572,
+     "width": 68,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 245,
+       "y": 563,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 267,
+       "y": 572,
+       "font_size": 10,
+       "text": "Cloud"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "Security",
+     "x": 335,
+     "baseline": 572,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 335,
+       "y": 563,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 357,
+       "y": 572,
+       "font_size": 10,
+       "text": "Security"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "Message bus",
+     "x": 440,
+     "baseline": 572,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 440,
+       "y": 563,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 462,
+       "y": 572,
+       "font_size": 10,
+       "text": "Message bus"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "External",
+     "x": 560,
+     "baseline": 572,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 560,
+       "y": 563,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 582,
+       "y": 572,
+       "font_size": 10,
+       "text": "External"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Boundary labels": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 224,
+     "y": 130,
+     "width": 123.39999999999999,
+     "height": 16,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "0",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "AWS Region: us-west-2"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-cloud",
+     "x": 228,
+     "y": 143,
+     "font_size": 9,
+     "text": "AWS Region: us-west-2",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "0",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "AWS Region: us-west-2",
+      "data-boundary-label": ""
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 434,
+     "y": 280,
+     "width": 101.8,
+     "height": 16,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "1",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "sg-api :443/:8000"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 438,
+     "y": 293,
+     "font_size": 9,
+     "text": "sg-api :443/:8000",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "1",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "sg-api :443/:8000",
+      "data-boundary-label": ""
+     }
+    }
+   ]
+  }
+ }
+}

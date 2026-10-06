@@ -1,0 +1,1947 @@
+{
+ "name": "async-job-roundtrip.sequence",
+ "group": "example",
+ "source": "archify/examples/async-job-roundtrip.sequence.json",
+ "type": "sequence",
+ "source_sha256": "b8c6c52f1763ede2933c77deb8da59b3e06917bc41d27e66df896136456b859a",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Async Job Roundtrip",
+   "output": "examples/async-job-roundtrip.html",
+   "viewBox": [820,920],
+   "animation": "trace",
+   "visual_preset": "signal-flow",
+   "quality_profile": "showcase"
+  },
+  "participants": [
+   {
+    "id": "client",
+    "type": "external",
+    "label": "Client",
+    "sublabel": "mobile app"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "Jobs API",
+    "sublabel": "request edge"
+   },
+   {
+    "id": "queue",
+    "type": "messagebus",
+    "label": "Queue",
+    "sublabel": "durable work"
+   },
+   {
+    "id": "worker",
+    "type": "backend",
+    "label": "Worker",
+    "sublabel": "background"
+   },
+   {
+    "id": "provider",
+    "type": "cloud",
+    "label": "Provider",
+    "sublabel": "external API"
+   },
+   {
+    "id": "store",
+    "type": "database",
+    "label": "Job Store",
+    "sublabel": "source of truth"
+   },
+   {
+    "id": "notify",
+    "type": "messagebus",
+    "label": "Notifier",
+    "sublabel": "webhook"
+   }
+  ],
+  "segments": [
+   {
+    "from": 150,
+    "to": 288,
+    "label": "Accept"
+   },
+   {
+    "from": 306,
+    "to": 538,
+    "label": "Background work"
+   },
+   {
+    "from": 554,
+    "to": 800,
+    "label": "Notify + reconcile"
+   }
+  ],
+  "messages": [
+   {
+    "from": "client",
+    "to": "api",
+    "y": 180,
+    "label": "POST /jobs",
+    "variant": "emphasis"
+   },
+   {
+    "from": "api",
+    "to": "queue",
+    "y": 222,
+    "label": "enqueue job",
+    "variant": "emphasis"
+   },
+   {
+    "from": "api",
+    "to": "client",
+    "y": 264,
+    "label": "202 + job id",
+    "variant": "return"
+   },
+   {
+    "from": "queue",
+    "to": "worker",
+    "y": 326,
+    "label": "deliver",
+    "variant": "emphasis"
+   },
+   {
+    "from": "worker",
+    "to": "provider",
+    "y": 368,
+    "label": "perform work",
+    "variant": "default"
+   },
+   {
+    "from": "provider",
+    "to": "worker",
+    "y": 410,
+    "label": "result / timeout",
+    "variant": "return"
+   },
+   {
+    "from": "worker",
+    "to": "queue",
+    "y": 452,
+    "label": "retry if timeout",
+    "variant": "dashed"
+   },
+   {
+    "from": "worker",
+    "to": "store",
+    "y": 494,
+    "label": "persist final state",
+    "variant": "emphasis"
+   },
+   {
+    "from": "worker",
+    "to": "notify",
+    "y": 566,
+    "label": "job.completed",
+    "variant": "dashed"
+   },
+   {
+    "from": "notify",
+    "to": "client",
+    "y": 608,
+    "label": "signed webhook",
+    "variant": "dashed"
+   },
+   {
+    "from": "client",
+    "to": "api",
+    "y": 650,
+    "label": "GET /jobs/:id",
+    "variant": "default"
+   },
+   {
+    "from": "api",
+    "to": "store",
+    "y": 692,
+    "label": "read status",
+    "variant": "default"
+   },
+   {
+    "from": "store",
+    "to": "api",
+    "y": 734,
+    "label": "completed",
+    "variant": "return"
+   },
+   {
+    "from": "api",
+    "to": "client",
+    "y": 776,
+    "label": "200 final result",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "api",
+    "from": 174,
+    "to": 272,
+    "type": "backend"
+   },
+   {
+    "participant": "queue",
+    "from": 216,
+    "to": 334,
+    "type": "messagebus"
+   },
+   {
+    "participant": "worker",
+    "from": 320,
+    "to": 574,
+    "type": "backend"
+   },
+   {
+    "participant": "provider",
+    "from": 362,
+    "to": 416,
+    "type": "cloud"
+   },
+   {
+    "participant": "store",
+    "from": 488,
+    "to": 742,
+    "type": "database"
+   },
+   {
+    "participant": "notify",
+    "from": 560,
+    "to": 616,
+    "type": "messagebus"
+   },
+   {
+    "participant": "api",
+    "from": 644,
+    "to": 784,
+    "type": "backend"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Fast Acknowledgement",
+    "items": [
+     "The caller receives a durable job id before work begins",
+     "Queue ownership is visible in the acceptance contract",
+     "The original connection does not wait for provider latency"
+    ]
+   },
+   {
+    "dot": "orange",
+    "title": "Bounded Recovery",
+    "items": [
+     "Timeouts re-enter the queue with a retry policy",
+     "Final state is persisted before notification",
+     "The job store remains the source of truth"
+    ]
+   },
+   {
+    "dot": "emerald",
+    "title": "Two Observation Paths",
+    "items": [
+     "A signed webhook announces completion",
+     "Status polling is a fallback, not a second workflow",
+     "Both paths converge on the same final state"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "b8c6c52f1763ede2933c77deb8da59b3e06917bc41d27e66df896136456b859a",
+     "bytes": 3766
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "b8c6c52f1763ede2933c77deb8da59b3e06917bc41d27e66df896136456b859a",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 22,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 94,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "fixed",
+      "participantCount": 7,
+      "occupiedRight": 753,
+      "viewBoxLeft": 0,
+      "canvasWidth": 820,
+      "emptyRightPx": 67,
+      "emptyRightRatio": 0.082,
+      "typicalParticipantWidth": 86,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "client"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 28
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 820,
+       "viewBoxHeight": 920,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.89,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1510,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1636,
+       "overflowPx": 736,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 820x920 canvas (ratio 0.89) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1510px tall at the full 1346px width and the page reaches 1636px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 529 at this width, or spread content sideways so the width is at least 1426 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "b8c6c52f1763ede2933c77deb8da59b3e06917bc41d27e66df896136456b859a",
+     "bytes": 3766
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "b8c6c52f1763ede2933c77deb8da59b3e06917bc41d27e66df896136456b859a",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 22,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 94,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "fixed",
+      "participantCount": 7,
+      "occupiedRight": 753,
+      "viewBoxLeft": 0,
+      "canvasWidth": 820,
+      "emptyRightPx": 67,
+      "emptyRightRatio": 0.082,
+      "typicalParticipantWidth": 86,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "client"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 28
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 820,
+       "viewBoxHeight": 920,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.89,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1510,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1636,
+       "overflowPx": 736,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 820x920 canvas (ratio 0.89) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1510px tall at the full 1346px width and the page reaches 1636px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 529 at this width, or spread content sideways so the width is at least 1426 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "b8c6c52f1763ede2933c77deb8da59b3e06917bc41d27e66df896136456b859a",
+     "bytes": 3766
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "b8c6c52f1763ede2933c77deb8da59b3e06917bc41d27e66df896136456b859a",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 22,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 94,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "fixed",
+      "participantCount": 7,
+      "occupiedRight": 753,
+      "viewBoxLeft": 0,
+      "canvasWidth": 820,
+      "emptyRightPx": 67,
+      "emptyRightRatio": 0.082,
+      "typicalParticipantWidth": 86,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "client"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 28
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 820,
+       "viewBoxHeight": 920,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.89,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1510,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1636,
+       "overflowPx": 736,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 820x920 canvas (ratio 0.89) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1510px tall at the full 1346px width and the page reaches 1636px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 529 at this width, or spread content sideways so the width is at least 1426 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,820,920],
+  "svg_attrs": {
+   "data-sequence-column-fit": "fixed",
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "signal-flow",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Async Job Roundtrip",
+  "nodes": [
+   {
+    "id": "client",
+    "kind": "external",
+    "label": "Client",
+    "sublabel": "mobile app",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 19,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 62,
+      "y": 108,
+      "font_size": 11,
+      "text": "Client",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 62,
+      "y": 122,
+      "font_size": 7,
+      "text": "mobile app",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(25 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "api",
+    "kind": "backend",
+    "label": "Jobs API",
+    "sublabel": "request edge",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 127,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 170,
+      "y": 108,
+      "font_size": 11,
+      "text": "Jobs API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 170,
+      "y": 122,
+      "font_size": 7,
+      "text": "request edge",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(133 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "queue",
+    "kind": "messagebus",
+    "label": "Queue",
+    "sublabel": "durable work",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 235,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 278,
+      "y": 108,
+      "font_size": 11,
+      "text": "Queue",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 278,
+      "y": 122,
+      "font_size": 7,
+      "text": "durable work",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(241 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "worker",
+    "kind": "backend",
+    "label": "Worker",
+    "sublabel": "background",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 343,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 386,
+      "y": 108,
+      "font_size": 11,
+      "text": "Worker",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 386,
+      "y": 122,
+      "font_size": 7,
+      "text": "background",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(349 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "provider",
+    "kind": "cloud",
+    "label": "Provider",
+    "sublabel": "external API",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 451,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 494,
+      "y": 108,
+      "font_size": 11,
+      "text": "Provider",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 494,
+      "y": 122,
+      "font_size": 7,
+      "text": "external API",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(457 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "store",
+    "kind": "database",
+    "label": "Job Store",
+    "sublabel": "source of truth",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 559,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 602,
+      "y": 108,
+      "font_size": 11,
+      "text": "Job Store",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 602,
+      "y": 122,
+      "font_size": 7,
+      "text": "source of truth",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(565 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "notify",
+    "kind": "messagebus",
+    "label": "Notifier",
+    "sublabel": "webhook",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 667,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 710,
+      "y": 108,
+      "font_size": 11,
+      "text": "Notifier",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 122,
+      "font_size": 7,
+      "text": "webhook",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(673 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "client",
+    "to": "api",
+    "label": "POST /jobs",
+    "points": [[69,180],[163,180]],
+    "d": "M 69 180 L 163 180",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "from": "api",
+    "to": "queue",
+    "label": "enqueue job",
+    "points": [[177,222],[271,222]],
+    "d": "M 177 222 L 271 222",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "from": "api",
+    "to": "client",
+    "label": "202 + job id",
+    "points": [[163,264],[69,264]],
+    "d": "M 163 264 L 69 264",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "from": "queue",
+    "to": "worker",
+    "label": "deliver",
+    "points": [[285,326],[379,326]],
+    "d": "M 285 326 L 379 326",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "from": "worker",
+    "to": "provider",
+    "label": "perform work",
+    "points": [[393,368],[487,368]],
+    "d": "M 393 368 L 487 368",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 5,
+    "from": "provider",
+    "to": "worker",
+    "label": "result / timeout",
+    "points": [[487,410],[393,410]],
+    "d": "M 487 410 L 393 410",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "from": "worker",
+    "to": "queue",
+    "label": "retry if timeout",
+    "points": [[379,452],[285,452]],
+    "d": "M 379 452 L 285 452",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 7,
+    "from": "worker",
+    "to": "store",
+    "label": "persist final state",
+    "points": [[393,494],[595,494]],
+    "d": "M 393 494 L 595 494",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 8,
+    "from": "worker",
+    "to": "notify",
+    "label": "job.completed",
+    "points": [[393,566],[703,566]],
+    "d": "M 393 566 L 703 566",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 9,
+    "from": "notify",
+    "to": "client",
+    "label": "signed webhook",
+    "points": [[703,608],[69,608]],
+    "d": "M 703 608 L 69 608",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 10,
+    "from": "client",
+    "to": "api",
+    "label": "GET /jobs/:id",
+    "points": [[69,650],[163,650]],
+    "d": "M 69 650 L 163 650",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 11,
+    "from": "api",
+    "to": "store",
+    "label": "read status",
+    "points": [[177,692],[595,692]],
+    "d": "M 177 692 L 595 692",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 12,
+    "from": "store",
+    "to": "api",
+    "label": "completed",
+    "points": [[595,734],[177,734]],
+    "d": "M 595 734 L 177 734",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 13,
+    "from": "api",
+    "to": "client",
+    "label": "200 final result",
+    "points": [[163,776],[69,776]],
+    "d": "M 163 776 L 69 776",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "client",
+    "to": "api",
+    "text": "POST /jobs",
+    "rect": {
+     "x": 77,
+     "y": 160,
+     "width": 78,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 116,
+      "y": 170,
+      "font_size": 11,
+      "text": "POST /jobs",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "from": "api",
+    "to": "queue",
+    "text": "enqueue job",
+    "rect": {
+     "x": 181.7,
+     "y": 202,
+     "width": 84.6,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 224,
+      "y": 212,
+      "font_size": 11,
+      "text": "enqueue job",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "from": "api",
+    "to": "client",
+    "text": "202 + job id",
+    "rect": {
+     "x": 70.4,
+     "y": 244,
+     "width": 91.19999999999999,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 116,
+      "y": 254,
+      "font_size": 11,
+      "text": "202 + job id",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "queue",
+    "to": "worker",
+    "text": "deliver",
+    "rect": {
+     "x": 302.9,
+     "y": 306,
+     "width": 58.199999999999996,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 332,
+      "y": 316,
+      "font_size": 11,
+      "text": "deliver",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "from": "worker",
+    "to": "provider",
+    "text": "perform work",
+    "rect": {
+     "x": 394.4,
+     "y": 348,
+     "width": 91.19999999999999,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 440,
+      "y": 358,
+      "font_size": 11,
+      "text": "perform work",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "provider",
+    "to": "worker",
+    "text": "result / timeout",
+    "rect": {
+     "x": 381.2,
+     "y": 390,
+     "width": 117.6,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 440,
+      "y": 400,
+      "font_size": 11,
+      "text": "result / timeout",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "worker",
+    "to": "queue",
+    "text": "retry if timeout",
+    "rect": {
+     "x": 273.2,
+     "y": 432,
+     "width": 117.6,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 332,
+      "y": 442,
+      "font_size": 11,
+      "text": "retry if timeout",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "from": "worker",
+    "to": "store",
+    "text": "persist final state",
+    "rect": {
+     "x": 425.3,
+     "y": 474,
+     "width": 137.39999999999998,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 494,
+      "y": 484,
+      "font_size": 11,
+      "text": "persist final state",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "from": "worker",
+    "to": "notify",
+    "text": "job.completed",
+    "rect": {
+     "x": 499.1,
+     "y": 546,
+     "width": 97.8,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 548,
+      "y": 556,
+      "font_size": 11,
+      "text": "job.completed",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "notify",
+    "to": "client",
+    "text": "signed webhook",
+    "rect": {
+     "x": 333.8,
+     "y": 588,
+     "width": 104.39999999999999,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 386,
+      "y": 598,
+      "font_size": 11,
+      "text": "signed webhook",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "from": "client",
+    "to": "api",
+    "text": "GET /jobs/:id",
+    "rect": {
+     "x": 67.1,
+     "y": 630,
+     "width": 97.8,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 116,
+      "y": 640,
+      "font_size": 11,
+      "text": "GET /jobs/:id",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "from": "api",
+    "to": "store",
+    "text": "read status",
+    "rect": {
+     "x": 343.7,
+     "y": 672,
+     "width": 84.6,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 386,
+      "y": 682,
+      "font_size": 11,
+      "text": "read status",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 12,
+    "from": "store",
+    "to": "api",
+    "text": "completed",
+    "rect": {
+     "x": 350.3,
+     "y": 714,
+     "width": 71.4,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 386,
+      "y": 724,
+      "font_size": 11,
+      "text": "completed",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 13,
+    "from": "api",
+    "to": "client",
+    "text": "200 final result",
+    "rect": {
+     "x": 57.2,
+     "y": 756,
+     "width": 117.6,
+     "height": 18,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 116,
+      "y": 766,
+      "font_size": 11,
+      "text": "200 final result",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "segment",
+    "id": "0",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 150,
+     "width": 724,
+     "height": 138,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "segment",
+    "id": "1",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 306,
+     "width": 724,
+     "height": 232,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "segment",
+    "id": "2",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 554,
+     "width": 724,
+     "height": 246,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": false,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "emphasis",
+     "x": 40,
+     "baseline": 866,
+     "width": 103,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 40 863 L 74 863"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 83,
+       "y": 866,
+       "font_size": 10,
+       "text": "main request"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "return",
+     "x": 165,
+     "baseline": 866,
+     "width": 73,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-default",
+       "d": "M 165 863 L 199 863",
+       "dash": "3,5"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 208,
+       "y": 866,
+       "font_size": 10,
+       "text": "return"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "dashed",
+     "x": 260,
+     "baseline": 866,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-dashed",
+       "d": "M 260 863 L 294 863"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 303,
+       "y": 866,
+       "font_size": 10,
+       "text": "async trace"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "default",
+     "x": 380,
+     "baseline": 866,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-default",
+       "d": "M 380 863 L 414 863"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 423,
+       "y": 866,
+       "font_size": 10,
+       "text": "message"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Lifelines": [
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 62 142 L 62 824",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 170 142 L 170 824",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 278 142 L 278 824",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 386 142 L 386 824",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 494 142 L 494 824",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 602 142 L 602 824",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 710 142 L 710 824",
+     "dash": "3,7"
+    }
+   ],
+   "Activations": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 165,
+     "y": 174,
+     "width": 10,
+     "height": 98,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-backend",
+     "x": 165,
+     "y": 174,
+     "width": 10,
+     "height": 98,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 273,
+     "y": 216,
+     "width": 10,
+     "height": 118,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-messagebus",
+     "x": 273,
+     "y": 216,
+     "width": 10,
+     "height": 118,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 381,
+     "y": 320,
+     "width": 10,
+     "height": 254,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-backend",
+     "x": 381,
+     "y": 320,
+     "width": 10,
+     "height": 254,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 489,
+     "y": 362,
+     "width": 10,
+     "height": 54,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-cloud",
+     "x": 489,
+     "y": 362,
+     "width": 10,
+     "height": 54,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 597,
+     "y": 488,
+     "width": 10,
+     "height": 254,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-database",
+     "x": 597,
+     "y": 488,
+     "width": 10,
+     "height": 254,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 705,
+     "y": 560,
+     "width": 10,
+     "height": 56,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-messagebus",
+     "x": 705,
+     "y": 560,
+     "width": 10,
+     "height": 56,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 165,
+     "y": 644,
+     "width": 10,
+     "height": 140,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-backend",
+     "x": 165,
+     "y": 644,
+     "width": 10,
+     "height": 140,
+     "rx": 3
+    }
+   ],
+   "Segment Labels": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 128,
+     "width": 45.2,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "0"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 141,
+     "font_size": 9,
+     "text": "Accept",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "0"
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 284,
+     "width": 92,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "1"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 297,
+     "font_size": 9,
+     "text": "Background work",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "1"
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 532,
+     "width": 107.60000000000001,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "2"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 545,
+     "font_size": 9,
+     "text": "Notify + reconcile",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "2"
+     }
+    }
+   ]
+  }
+ }
+}

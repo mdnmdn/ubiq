@@ -2,8 +2,8 @@
 //!
 //! One half of this is durable and one half is not, which is the whole shape of the module. A
 //! [`ubiq_proto::work::TaskRecord`] is the user's data, kept in the project's `tasks.toml`;
-//! sessions and agents are answered per request with nothing behind them, and [`mock`] is where
-//! the second half comes from today. A new project's tasks start as an empty list, written to
+//! sessions and agents are answered per request with nothing behind them — the agents are the
+//! live ones ([`Work::add_live_agent`]), and [`mock`] is where the sessions still come from. A new project's tasks start as an empty list, written to
 //! `tasks.toml` the moment anybody asks, so an absent file keeps meaning "never seen" rather than
 //! "seen and empty".
 
@@ -23,11 +23,10 @@ use ubiq_proto::work::{
 use crate::reply::Reply;
 use crate::store::{StoreError, TaskStore};
 
-/// One project's invented half. No store, no trait and no file — which is what "sessions and
-/// agents are still mocks" means in code rather than in prose.
+/// One project's invented half. No store, no trait and no file — which is what "sessions are
+/// still mocks" means in code rather than in prose.
 struct Mock {
     sessions: Vec<WorkSession>,
-    agents: Vec<WorkAgent>,
 }
 
 /// A project's tasks, and the sessions and agents working on them.
@@ -214,10 +213,7 @@ impl Work {
 
     /// Have a project's work in hand: its tasks read or seeded, and its mock minted.
     ///
-    /// Every public method starts here, because the order matters and is not obvious. `mock` links
-    /// its agents against the task list, so a mock minted before the tasks were read would be
-    /// minted with nothing to point at and stay that way for the session — the graph would draw
-    /// eleven cards and not one outline.
+    /// Every public method starts here, so no reader has to remember to do either.
     fn prepare(&mut self, project: ProjectId) -> Vec<Reply> {
         let replies = self.ensure(project);
         self.mock(project);
@@ -225,19 +221,10 @@ impl Work {
     }
 
     /// The project's mock, minted if this is the first ask for it.
-    ///
-    /// Minting is also where each agent is given the task it serves, because that is the only
-    /// moment both lists are in hand: the fixture cannot name a task id, since the ids belong to
-    /// whatever `tasks.toml` holds. It happens **once**, not on every ask — an agent the user has
-    /// since dragged into another outline must keep where they put it.
     fn mock(&mut self, project: ProjectId) -> &Mock {
-        if !self.mocks.contains_key(&project) {
-            let sessions = mock::sessions();
-            let mut agents = mock::agents();
-            link(&mut agents, self.loaded.get(&project).map_or(&[], |l| l));
-            self.mocks.insert(project, Mock { sessions, agents });
-        }
-        &self.mocks[&project]
+        self.mocks.entry(project).or_insert_with(|| Mock {
+            sessions: mock::sessions(),
+        })
     }
 
     /// Take every agent off a task that has gone, and say which ones moved.
@@ -245,10 +232,10 @@ impl Work {
     /// A card pointing at a deleted task would be drawn in no container and counted in one, so the
     /// repair is the interface's to hear about rather than something it works out.
     fn unlink(&mut self, project: ProjectId, task: TaskId) -> Vec<Reply> {
-        let Some(mock) = self.mocks.get_mut(&project) else {
+        let Some(agents) = self.live.get_mut(&project) else {
             return Vec::new();
         };
-        mock.agents
+        agents
             .iter_mut()
             .filter(|a| a.task == Some(task))
             .map(|agent| {
@@ -313,7 +300,7 @@ impl Work {
         replies
     }
 
-    /// Change one mock agent. No `keep`: an agent is not written down.
+    /// Change one running agent. No `keep`: an agent is not written down.
     fn with_agent(
         &mut self,
         project: ProjectId,
@@ -321,25 +308,13 @@ impl Work {
         change: impl FnOnce(&mut WorkAgent) -> bool,
     ) -> Vec<Reply> {
         let mut replies = self.prepare(project);
-        // **The live list first.** `work_list` puts a running agent above the invented ones and
-        // everything downstream reads one list, so a change addressed to a real agent has to find
-        // it — a mission's `message_agent` names a roster member, and every roster member is live.
-        let live = self
+        let Some(record) = self
             .live
             .get_mut(&project)
-            .and_then(|agents| agents.iter_mut().find(|a| a.id == agent));
-        let record = match live {
-            Some(record) => record,
-            None => {
-                let Some(mock) = self.mocks.get_mut(&project) else {
-                    return replies;
-                };
-                let Some(record) = mock.agents.iter_mut().find(|a| a.id == agent) else {
-                    replies.push(Reply::Asker(work_error(project, None, "no such agent")));
-                    return replies;
-                };
-                record
-            }
+            .and_then(|agents| agents.iter_mut().find(|a| a.id == agent))
+        else {
+            replies.push(Reply::Asker(work_error(project, None, "no such agent")));
+            return replies;
         };
         if !change(record) {
             return replies;
@@ -364,10 +339,7 @@ impl Work {
 
     fn work_list(&self, project: ProjectId) -> Message {
         let mock = &self.mocks[&project];
-        // Live agents first: a real one belongs above the invented ones for as
-        // long as both are in the list.
-        let mut agents = self.live.get(&project).cloned().unwrap_or_default();
-        agents.extend(mock.agents.iter().cloned());
+        let agents = self.live.get(&project).cloned().unwrap_or_default();
         let mut sessions = self
             .live_sessions
             .get(&project)
@@ -427,7 +399,7 @@ impl Work {
     }
 
     /// The names the agents already running in `project` are wearing, so a new one can pick the
-    /// first that is free. Live agents only: the mocks are not the user's and must not push a
+    /// first that is free. Live agents only, which is every agent there is: nothing must push a
     /// real conversation to "claude 4".
     pub fn live_agent_names(&self, project: ProjectId) -> Vec<String> {
         self.live
@@ -1061,15 +1033,12 @@ impl Work {
         (replies, tasks)
     }
 
-    /// Every agent this project shows, live ones first — [`Self::work_list`]'s own list, read
+    /// Every agent this project shows — the live ones, [`Self::work_list`]'s own list, read
     /// without building the message around it. What a mission's `list_agents` resolves its roster
     /// against.
     pub fn agents(&mut self, project: ProjectId) -> (Vec<Reply>, Vec<WorkAgent>) {
         let replies = self.prepare(project);
-        let mut agents = self.live.get(&project).cloned().unwrap_or_default();
-        if let Some(mock) = self.mocks.get(&project) {
-            agents.extend(mock.agents.iter().cloned());
-        }
+        let agents = self.live.get(&project).cloned().unwrap_or_default();
         (replies, agents)
     }
 
@@ -1261,31 +1230,6 @@ impl Work {
             return Some("that would make the prerequisites a cycle".to_string());
         }
         None
-    }
-}
-
-/// Give each mock agent the task its session is working on, and no task at all when its session is
-/// not working on one.
-///
-/// The fixture cannot say which task an agent serves, because a task's id belongs to the project's
-/// `tasks.toml` rather than to the fixture. What it can say is which *session* the agent is in, and
-/// a session is a piece of work — so an agent serves the task its session has **in flight**. That
-/// stays true after the user has renamed, moved, added or deleted a task, which a stored id could
-/// not.
-///
-/// **In flight, and nothing else.** An agent whose session has only finished work is left with no
-/// task, which is not a gap: the graph draws an agent nobody gave work to above the containers, and
-/// that is exactly where the project manager coordinating everything belongs. Reaching for the
-/// session's first task instead puts it inside a container for work nobody is doing.
-fn link(agents: &mut [WorkAgent], tasks: &[TaskRecord]) {
-    for agent in agents {
-        agent.task = tasks
-            .iter()
-            .find(|t| {
-                t.session == Some(agent.session)
-                    && matches!(t.status, Status::InProgress | Status::InReview)
-            })
-            .map(|t| t.id);
     }
 }
 

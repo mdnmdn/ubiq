@@ -1,0 +1,167 @@
+{
+ "name": "neg.schema-minItems-participants",
+ "group": "negative",
+ "source": "mutation of sequence",
+ "type": "sequence",
+ "rule": "schema/minItems",
+ "expect_codes": [
+  "schema/minItems"
+ ],
+ "source_sha256": "62c321ba5b2feb6f0f6729ecdedffcd0112124c2f09f5ed19eb455f8a250884f",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Seq",
+   "output": "seq.html"
+  },
+  "participants": [
+   {
+    "id": "ui",
+    "type": "frontend",
+    "label": "UI"
+   }
+  ],
+  "messages": [
+   {
+    "id": "m1",
+    "from": "ui",
+    "to": "api",
+    "y": 180,
+    "label": "GET /x"
+   },
+   {
+    "id": "m2",
+    "from": "api",
+    "to": "db",
+    "y": 230,
+    "label": "SELECT"
+   },
+   {
+    "id": "m3",
+    "from": "db",
+    "to": "api",
+    "y": 280,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "id": "m4",
+    "from": "api",
+    "to": "ui",
+    "y": 330,
+    "label": "200",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "api",
+    "from": 175,
+    "to": 335,
+    "type": "backend"
+   }
+  ],
+  "segments": [
+   {
+    "from": 160,
+    "to": 345,
+    "label": "Read"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "sequence schema validation failed:\n  /participants must NOT have fewer than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/minItems",
+      "severity": "error",
+      "message": "/participants must NOT have fewer than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "sequence",
+       "path": "/participants"
+      },
+      "evidence": {
+       "keyword": "minItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at least 2 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "sequence schema validation failed:\n  /participants must NOT have fewer than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/minItems",
+      "severity": "error",
+      "message": "/participants must NOT have fewer than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "sequence",
+       "path": "/participants"
+      },
+      "evidence": {
+       "keyword": "minItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at least 2 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "sequence schema validation failed:\n  /participants must NOT have fewer than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/minItems",
+      "severity": "error",
+      "message": "/participants must NOT have fewer than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "sequence",
+       "path": "/participants"
+      },
+      "evidence": {
+       "keyword": "minItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at least 2 item(s)"
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

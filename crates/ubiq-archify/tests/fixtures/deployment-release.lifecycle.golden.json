@@ -1,0 +1,1711 @@
+{
+ "name": "deployment-release.lifecycle",
+ "group": "example",
+ "source": "archify/examples/deployment-release.lifecycle.json",
+ "type": "lifecycle",
+ "source_sha256": "f565a8acfebdb21453e2bccd82d3760b4736e38fe194fb2f0804b57817eba813",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "Deployment Release Lifecycle",
+   "output": "examples/deployment-release.html",
+   "animation": "trace",
+   "visual_preset": "signal-flow",
+   "quality_profile": "showcase"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Release phases"
+   },
+   {
+    "id": "waiting",
+    "label": "Approval + health wait"
+   },
+   {
+    "id": "recovery",
+    "label": "Rollback controller"
+   },
+   {
+    "id": "terminal",
+    "label": "Terminal exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "sublabel": "change accepted",
+    "lane": "main",
+    "col": 0,
+    "step": "01",
+    "tag": "pending"
+   },
+   {
+    "id": "building",
+    "type": "active",
+    "label": "Building",
+    "sublabel": "immutable image",
+    "lane": "main",
+    "col": 1,
+    "step": "02",
+    "tag": "running"
+   },
+   {
+    "id": "verifying",
+    "type": "decision",
+    "label": "Verifying",
+    "sublabel": "tests + policy",
+    "lane": "main",
+    "col": 2,
+    "step": "03",
+    "tag": "gate"
+   },
+   {
+    "id": "ready",
+    "type": "waiting",
+    "label": "Ready",
+    "sublabel": "promotion pending",
+    "lane": "main",
+    "col": 3,
+    "step": "04",
+    "tag": "approved"
+   },
+   {
+    "id": "live",
+    "type": "success",
+    "label": "Live",
+    "sublabel": "production healthy",
+    "lane": "main",
+    "col": 4,
+    "step": "05",
+    "tag": "success"
+   },
+   {
+    "id": "approval",
+    "type": "waiting",
+    "label": "Needs Approval",
+    "sublabel": "release owner",
+    "lane": "waiting",
+    "col": 2,
+    "tag": "pause"
+   },
+   {
+    "id": "rollback",
+    "type": "active",
+    "label": "Rolling Back",
+    "sublabel": "last good image",
+    "lane": "recovery",
+    "col": 3,
+    "tag": "automatic"
+   },
+   {
+    "id": "paused",
+    "type": "waiting",
+    "label": "Health Paused",
+    "sublabel": "SLO regression",
+    "lane": "waiting",
+    "col": 4,
+    "tag": "observe"
+   },
+   {
+    "id": "cancelled",
+    "type": "failure",
+    "label": "Cancelled",
+    "sublabel": "approval denied",
+    "lane": "terminal",
+    "col": 2,
+    "tag": "terminal"
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "sublabel": "rollback failed",
+    "lane": "terminal",
+    "col": 3,
+    "tag": "terminal"
+   },
+   {
+    "id": "rolled_back",
+    "type": "success",
+    "label": "Rolled Back",
+    "sublabel": "service restored",
+    "lane": "terminal",
+    "col": 4,
+    "tag": "terminal"
+   }
+  ],
+  "transitions": [
+   {
+    "from": "queued",
+    "to": "building"
+   },
+   {
+    "from": "building",
+    "to": "verifying"
+   },
+   {
+    "from": "verifying",
+    "to": "ready"
+   },
+   {
+    "from": "ready",
+    "to": "live"
+   },
+   {
+    "from": "verifying",
+    "to": "approval",
+    "variant": "security",
+    "label": "needs sign-off"
+   },
+   {
+    "from": "approval",
+    "to": "ready",
+    "label": "approved"
+   },
+   {
+    "from": "approval",
+    "to": "cancelled",
+    "variant": "security"
+   },
+   {
+    "from": "ready",
+    "to": "rollback",
+    "variant": "security"
+   },
+   {
+    "from": "rollback",
+    "to": "failed",
+    "variant": "security"
+   },
+   {
+    "from": "live",
+    "to": "paused",
+    "variant": "dashed"
+   },
+   {
+    "from": "paused",
+    "to": "rolled_back",
+    "variant": "emphasis"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Promotion Rail",
+    "items": [
+     "The release object moves through five ordered phases",
+     "Verification and approval remain distinct states",
+     "Live means production health is currently proven"
+    ]
+   },
+   {
+    "dot": "amber",
+    "title": "Wait States",
+    "items": [
+     "Human approval can pause without consuming a worker",
+     "A health regression pauses further rollout",
+     "Every wait exposes the event required to continue"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Explicit Endings",
+    "items": [
+     "Denied approval ends as Cancelled",
+     "Rollback controller failure ends as Failed",
+     "Successful rollback is a terminal restored outcome"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "f565a8acfebdb21453e2bccd82d3760b4736e38fe194fb2f0804b57817eba813",
+     "bytes": 3507
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "f565a8acfebdb21453e2bccd82d3760b4736e38fe194fb2f0804b57817eba813",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 21,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.91449814126394,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 60,
+      "minInteriorSegmentPx": 174,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "queued"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.91449814126394,
+      "semanticTextCount": 24
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "f565a8acfebdb21453e2bccd82d3760b4736e38fe194fb2f0804b57817eba813",
+     "bytes": 3507
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "f565a8acfebdb21453e2bccd82d3760b4736e38fe194fb2f0804b57817eba813",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 21,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.91449814126394,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 60,
+      "minInteriorSegmentPx": 174,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "queued"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.91449814126394,
+      "semanticTextCount": 24
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "f565a8acfebdb21453e2bccd82d3760b4736e38fe194fb2f0804b57817eba813",
+     "bytes": 3507
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "f565a8acfebdb21453e2bccd82d3760b4736e38fe194fb2f0804b57817eba813",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 21,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.91449814126394,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 60,
+      "minInteriorSegmentPx": 174,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "queued"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.91449814126394,
+      "semanticTextCount": 24
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1076,768],
+  "svg_attrs": {
+   "data-reader-fit": "intrinsic-height",
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "signal-flow",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Deployment Release Lifecycle",
+  "nodes": [
+   {
+    "id": "queued",
+    "kind": "start",
+    "label": "Queued",
+    "sublabel": "change accepted",
+    "tag": "pending",
+    "context": "Release phases",
+    "rect": {
+     "x": 60,
+     "y": 56,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 83,
+      "y": 70,
+      "font_size": 8,
+      "text": "01",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 130,
+      "y": 79,
+      "font_size": 11,
+      "text": "Queued",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 130,
+      "y": 96,
+      "font_size": 8,
+      "text": "change accepted",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 130,
+      "y": 108,
+      "font_size": 8,
+      "text": "pending",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "start",
+     "transform": "translate(66 62) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5,
+    "initial_marker": true
+   },
+   {
+    "id": "building",
+    "kind": "active",
+    "label": "Building",
+    "sublabel": "immutable image",
+    "tag": "running",
+    "context": "Release phases",
+    "rect": {
+     "x": 264,
+     "y": 56,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 287,
+      "y": 70,
+      "font_size": 8,
+      "text": "02",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 334,
+      "y": 79,
+      "font_size": 11,
+      "text": "Building",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 334,
+      "y": 96,
+      "font_size": 8,
+      "text": "immutable image",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 334,
+      "y": 108,
+      "font_size": 8,
+      "text": "running",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(270 62) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "verifying",
+    "kind": "decision",
+    "label": "Verifying",
+    "sublabel": "tests + policy",
+    "tag": "gate",
+    "context": "Release phases",
+    "rect": {
+     "x": 468,
+     "y": 56,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 491,
+      "y": 70,
+      "font_size": 8,
+      "text": "03",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-database"
+     },
+     {
+      "x": 538,
+      "y": 79,
+      "font_size": 11,
+      "text": "Verifying",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 538,
+      "y": 96,
+      "font_size": 8,
+      "text": "tests + policy",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 538,
+      "y": 108,
+      "font_size": 8,
+      "text": "gate",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "neutral",
+     "transform": "translate(474 62) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "ready",
+    "kind": "waiting",
+    "label": "Ready",
+    "sublabel": "promotion pending",
+    "tag": "approved",
+    "context": "Release phases",
+    "rect": {
+     "x": 672,
+     "y": 56,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 695,
+      "y": 70,
+      "font_size": 8,
+      "text": "04",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-cloud"
+     },
+     {
+      "x": 742,
+      "y": 79,
+      "font_size": 11,
+      "text": "Ready",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 742,
+      "y": 96,
+      "font_size": 8,
+      "text": "promotion pending",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 742,
+      "y": 108,
+      "font_size": 8,
+      "text": "approved",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(678 62) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "live",
+    "kind": "success",
+    "label": "Live",
+    "sublabel": "production healthy",
+    "tag": "success",
+    "context": "Release phases",
+    "rect": {
+     "x": 876,
+     "y": 56,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 899,
+      "y": 70,
+      "font_size": 8,
+      "text": "05",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-backend"
+     },
+     {
+      "x": 946,
+      "y": 79,
+      "font_size": 11,
+      "text": "Live",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 946,
+      "y": 96,
+      "font_size": 8,
+      "text": "production healthy",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 946,
+      "y": 108,
+      "font_size": 8,
+      "text": "success",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "success",
+     "transform": "translate(882 62) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "approval",
+    "kind": "waiting",
+    "label": "Needs Approval",
+    "sublabel": "release owner",
+    "tag": "pause",
+    "context": "Approval + health wait",
+    "rect": {
+     "x": 468,
+     "y": 240,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 538,
+      "y": 263,
+      "font_size": 11,
+      "text": "Needs Approval",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 538,
+      "y": 280,
+      "font_size": 8,
+      "text": "release owner",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 538,
+      "y": 292,
+      "font_size": 8,
+      "text": "pause",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(474 246) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "rollback",
+    "kind": "active",
+    "label": "Rolling Back",
+    "sublabel": "last good image",
+    "tag": "automatic",
+    "context": "Rollback controller",
+    "rect": {
+     "x": 672,
+     "y": 424,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 742,
+      "y": 447,
+      "font_size": 11,
+      "text": "Rolling Back",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 742,
+      "y": 464,
+      "font_size": 8,
+      "text": "last good image",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 742,
+      "y": 476,
+      "font_size": 8,
+      "text": "automatic",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(678 430) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "paused",
+    "kind": "waiting",
+    "label": "Health Paused",
+    "sublabel": "SLO regression",
+    "tag": "observe",
+    "context": "Approval + health wait",
+    "rect": {
+     "x": 876,
+     "y": 240,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 946,
+      "y": 263,
+      "font_size": 11,
+      "text": "Health Paused",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 946,
+      "y": 280,
+      "font_size": 8,
+      "text": "SLO regression",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 946,
+      "y": 292,
+      "font_size": 8,
+      "text": "observe",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(882 246) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "cancelled",
+    "kind": "failure",
+    "label": "Cancelled",
+    "sublabel": "approval denied",
+    "tag": "terminal",
+    "context": "Terminal exits",
+    "rect": {
+     "x": 468,
+     "y": 608,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 538,
+      "y": 631,
+      "font_size": 11,
+      "text": "Cancelled",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 538,
+      "y": 648,
+      "font_size": 8,
+      "text": "approval denied",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 538,
+      "y": 660,
+      "font_size": 8,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(474 614) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "failed",
+    "kind": "failure",
+    "label": "Failed",
+    "sublabel": "rollback failed",
+    "tag": "terminal",
+    "context": "Terminal exits",
+    "rect": {
+     "x": 672,
+     "y": 608,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 742,
+      "y": 631,
+      "font_size": 11,
+      "text": "Failed",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 742,
+      "y": 648,
+      "font_size": 8,
+      "text": "rollback failed",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 742,
+      "y": 660,
+      "font_size": 8,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(678 614) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "rolled_back",
+    "kind": "success",
+    "label": "Rolled Back",
+    "sublabel": "service restored",
+    "tag": "terminal",
+    "context": "Terminal exits",
+    "rect": {
+     "x": 876,
+     "y": 608,
+     "width": 140,
+     "height": 64,
+     "rx": 7
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 946,
+      "y": 631,
+      "font_size": 11,
+      "text": "Rolled Back",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 946,
+      "y": 648,
+      "font_size": 8,
+      "text": "service restored",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 946,
+      "y": 660,
+      "font_size": 8,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "success",
+     "transform": "translate(882 614) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "queued",
+    "to": "building",
+    "points": [[200,88],[264,88]],
+    "d": "M 200 88 L 264 88",
+    "variant": "emphasis",
+    "stroke_width": 1.6,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "from": "building",
+    "to": "verifying",
+    "points": [[404,88],[468,88]],
+    "d": "M 404 88 L 468 88",
+    "variant": "emphasis",
+    "stroke_width": 1.6,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "from": "verifying",
+    "to": "ready",
+    "points": [[608,88],[672,88]],
+    "d": "M 608 88 L 672 88",
+    "variant": "emphasis",
+    "stroke_width": 1.6,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 3,
+    "from": "ready",
+    "to": "live",
+    "points": [[812,88],[876,88]],
+    "d": "M 812 88 L 876 88",
+    "variant": "emphasis",
+    "stroke_width": 1.6,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "from": "verifying",
+    "to": "approval",
+    "label": "needs sign-off",
+    "points": [[538,120],[538,240]],
+    "d": "M 538 120 L 538 240",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 5,
+    "from": "approval",
+    "to": "ready",
+    "label": "approved",
+    "points": [[553,240],[553,180],[727,180],[727,120]],
+    "d": "M 553 240 L 553 190 Q 553 180 563 180 L 717 180 Q 727 180 727 170 L 727 120",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "from": "approval",
+    "to": "cancelled",
+    "points": [[538,304],[538,608]],
+    "d": "M 538 304 L 538 608",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 7,
+    "from": "ready",
+    "to": "rollback",
+    "points": [[757,120],[757,424]],
+    "d": "M 757 120 L 757 424",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 8,
+    "from": "rollback",
+    "to": "failed",
+    "points": [[742,488],[742,608]],
+    "d": "M 742 488 L 742 608",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 9,
+    "from": "live",
+    "to": "paused",
+    "points": [[946,120],[946,240]],
+    "d": "M 946 120 L 946 240",
+    "variant": "dashed",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 10,
+    "from": "paused",
+    "to": "rolled_back",
+    "points": [[946,304],[946,608]],
+    "d": "M 946 304 L 946 608",
+    "variant": "emphasis",
+    "stroke_width": 1.6,
+    "crossover": "halo",
+    "marker_end": "arrowhead-emphasis"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 4,
+    "from": "verifying",
+    "to": "approval",
+    "text": "needs sign-off",
+    "rect": {
+     "x": 451.4,
+     "y": 172,
+     "width": 80.60000000000001,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 491.7,
+      "y": 183,
+      "font_size": 8,
+      "text": "needs sign-off",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "approval",
+    "to": "ready",
+    "text": "approved",
+    "rect": {
+     "x": 559,
+     "y": 202,
+     "width": 51.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 584.6,
+      "y": 213,
+      "font_size": 8,
+      "text": "approved",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   }
+  ],
+  "frames": [],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "start",
+     "kind": "start",
+     "label": "initial state",
+     "x": 40,
+     "baseline": 732,
+     "width": 120,
+     "shapes": [
+      {
+       "tag": "circle",
+       "cx": 44.5,
+       "cy": 728.5,
+       "r": 4.5
+      },
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 49 728.5 L 58 728.5"
+      },
+      {
+       "tag": "path",
+       "d": "M 57 725 L 64 728.5 L 57 732 Z"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 74,
+       "y": 732,
+       "font_size": 10,
+       "text": "initial state"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "active",
+     "kind": "active",
+     "label": "active",
+     "x": 182,
+     "baseline": 732,
+     "width": 73,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 182,
+       "y": 724,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 204,
+       "y": 732,
+       "font_size": 10,
+       "text": "active"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "waiting",
+     "kind": "waiting",
+     "label": "waiting",
+     "x": 277,
+     "baseline": 732,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 277,
+       "y": 724,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 299,
+       "y": 732,
+       "font_size": 10,
+       "text": "waiting"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "decision",
+     "kind": "decision",
+     "label": "decision",
+     "x": 377,
+     "baseline": 732,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 377,
+       "y": 724,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 399,
+       "y": 732,
+       "font_size": 10,
+       "text": "decision"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "success",
+     "kind": "success",
+     "label": "success",
+     "x": 482,
+     "baseline": 732,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 482,
+       "y": 724,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 504,
+       "y": 732,
+       "font_size": 10,
+       "text": "success"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "failure",
+     "kind": "failure",
+     "label": "failure / exit",
+     "x": 582,
+     "baseline": 732,
+     "width": 113,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 582,
+       "y": 724,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 604,
+       "y": 732,
+       "font_size": 10,
+       "text": "failure / exit"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "final",
+     "x": 717,
+     "baseline": 732,
+     "width": 79,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 717,
+       "y": 724,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 719.5,
+       "y": 726.5,
+       "width": 9,
+       "height": 4,
+       "rx": 1
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 741,
+       "y": 732,
+       "font_size": 10,
+       "text": "final state"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Lifecycle bands": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 18,
+     "y": 88,
+     "font_size": 10,
+     "anchor": "middle",
+     "text": "Release phases"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 18,
+     "y": 272,
+     "font_size": 10,
+     "anchor": "middle",
+     "text": "Approval + health wait"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 18,
+     "y": 456,
+     "font_size": 10,
+     "anchor": "middle",
+     "text": "Rollback controller"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 18,
+     "y": 640,
+     "font_size": 10,
+     "anchor": "middle",
+     "text": "Terminal exits"
+    }
+   ]
+  }
+ }
+}

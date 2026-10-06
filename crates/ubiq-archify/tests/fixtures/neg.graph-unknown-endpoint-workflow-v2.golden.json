@@ -1,0 +1,263 @@
+{
+ "name": "neg.graph-unknown-endpoint-workflow-v2",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/unknown-edge-endpoint",
+ "expect_codes": [
+  "workflow/unknown-edge-endpoint"
+ ],
+ "source_sha256": "39d139bb04d4a12a58b0340017476154f6dce1c27d958e57b74eb5252f0e2655",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "ghost",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow edge \"e1\" references unknown target \"ghost\".",
+    "diagnostics": [
+     {
+      "code": "workflow/unknown-edge-endpoint",
+      "severity": "error",
+      "message": "Workflow edge \"e1\" references unknown target \"ghost\".",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "e1",
+       "path": "/edges/0/to",
+       "from": "user",
+       "to": "ghost"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "unknownNodeId": "ghost",
+       "availableNodeIds": [
+        "plan",
+        "run",
+        "show",
+        "user"
+       ]
+      },
+      "supportedFixes": [
+       "set /edges/0/to to verified node id \"plan\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow edge \"e1\" references unknown target \"ghost\".",
+    "diagnostics": [
+     {
+      "code": "workflow/unknown-edge-endpoint",
+      "severity": "error",
+      "message": "Workflow edge \"e1\" references unknown target \"ghost\".",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "e1",
+       "path": "/edges/0/to",
+       "from": "user",
+       "to": "ghost"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "unknownNodeId": "ghost",
+       "availableNodeIds": [
+        "plan",
+        "run",
+        "show",
+        "user"
+       ]
+      },
+      "supportedFixes": [
+       "set /edges/0/to to verified node id \"plan\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow edge \"e1\" references unknown target \"ghost\".",
+    "diagnostics": [
+     {
+      "code": "workflow/unknown-edge-endpoint",
+      "severity": "error",
+      "message": "Workflow edge \"e1\" references unknown target \"ghost\".",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "e1",
+       "path": "/edges/0/to",
+       "from": "user",
+       "to": "ghost"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "unknownNodeId": "ghost",
+       "availableNodeIds": [
+        "plan",
+        "run",
+        "show",
+        "user"
+       ]
+      },
+      "supportedFixes": [
+       "set /edges/0/to to verified node id \"plan\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/unknown-edge-endpoint",
+     "severity": "error",
+     "message": "Workflow edge \"e1\" references unknown target \"ghost\".",
+     "subject": {
+      "diagramType": "workflow",
+      "edge": "e1",
+      "path": "/edges/0/to",
+      "from": "user",
+      "to": "ghost"
+     },
+     "evidence": {
+      "endpoint": "target",
+      "unknownNodeId": "ghost",
+      "availableNodeIds": [
+       "plan",
+       "run",
+       "show",
+       "user"
+      ]
+     },
+     "supportedFixes": [
+      "set /edges/0/to to verified node id \"plan\""
+     ]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

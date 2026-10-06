@@ -262,7 +262,7 @@ pub enum MissionMenuRow {
     PauseAll,
     /// Show the anchor on the tasks board.
     OpenOnBoard,
-    /// Show the mission's agents on the orchestration graph. The graph has no mission fence yet.
+    /// Show the mission's agents on the Teams graph.
     OpenOnTeams,
     /// Switch between manual and auto (M22) — a `SetMissionField`, which the Settings tab (S6)
     /// owns along with every other field write.

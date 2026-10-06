@@ -1,0 +1,206 @@
+{
+ "name": "neg.seq-messages-too-close",
+ "group": "negative",
+ "source": "mutation of sequence",
+ "type": "sequence",
+ "rule": "sequence/timeline",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "f1ca90f44e18d75c9aea0867edc9f14e508a0e272d15158f32451947e2f12846",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Seq",
+   "output": "seq.html"
+  },
+  "participants": [
+   {
+    "id": "ui",
+    "type": "frontend",
+    "label": "UI"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB"
+   }
+  ],
+  "messages": [
+   {
+    "id": "m1",
+    "from": "ui",
+    "to": "api",
+    "y": 180,
+    "label": "GET /x"
+   },
+   {
+    "id": "m2",
+    "from": "ui",
+    "to": "db",
+    "y": 190,
+    "label": "SELECT"
+   },
+   {
+    "id": "m3",
+    "from": "db",
+    "to": "api",
+    "y": 280,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "id": "m4",
+    "from": "api",
+    "to": "ui",
+    "y": 330,
+    "label": "200",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "api",
+    "from": 175,
+    "to": 335,
+    "type": "backend"
+   }
+  ],
+  "segments": [
+   {
+    "from": 160,
+    "to": 345,
+    "label": "Read"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Messages \"GET /x\" and \"SELECT\" are less than 28px apart and share horizontal space — spread their y values.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Messages \"GET /x\" and \"SELECT\" are less than 28px apart and share horizontal space — spread their y values.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Messages \"GET /x\" and \"SELECT\" are less than 28px apart and share horizontal space — spread their y values.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Messages \"GET /x\" and \"SELECT\" are less than 28px apart and share horizontal space — spread their y values.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Messages \"GET /x\" and \"SELECT\" are less than 28px apart and share horizontal space — spread their y values.\n- [composition/label-route-clearance] showcase sequence label \"SELECT\" on messages[1] id \"m2\" \"ui\" -> \"db\" label \"SELECT\" is 0px from messages[0] id \"m1\" \"ui\" -> \"api\" label \"GET /x\" segment 0 [62,180] -> [170,180] (label rect [148,170,43,16]; minimum 4px) — spread the message y values, shorten the label, or reorder participants so the adjacent route stays visible.",
+    "diagnostics": [
+     {
+      "code": "composition/label-route-clearance",
+      "severity": "error",
+      "message": "[composition/label-route-clearance] showcase sequence label \"SELECT\" on messages[1] id \"m2\" \"ui\" -> \"db\" label \"SELECT\" is 0px from messages[0] id \"m1\" \"ui\" -> \"api\" label \"GET /x\" segment 0 [62,180] -> [170,180] (label rect [148,170,43,16]; minimum 4px) — spread the message y values, shorten the label, or reorder participants so the adjacent route stays visible.",
+      "subject": {
+       "diagramType": "sequence",
+       "collection": "messages",
+       "index": 1,
+       "id": "m2",
+       "from": "ui",
+       "to": "db"
+      },
+      "evidence": {
+       "label": "SELECT",
+       "otherRelationship": {
+        "diagramType": "sequence",
+        "collection": "messages",
+        "index": 0,
+        "id": "m1",
+        "from": "ui",
+        "to": "api"
+       },
+       "segmentIndex": 0,
+       "clearancePx": 0,
+       "minimumPx": 4,
+       "labelRect": {
+        "relation": {
+         "id": "m2",
+         "from": "ui",
+         "to": "db",
+         "y": 190,
+         "label": "SELECT"
+        },
+        "relationIndex": 1,
+        "label": "SELECT",
+        "x": 148.4,
+        "y": 170,
+        "width": 43.2,
+        "height": 16
+       },
+       "from": [62,180],
+       "to": [170,180]
+      },
+      "supportedFixes": [
+       "spread the message y values, shorten the label, or reorder participants so the adjacent route stays visible"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Messages \"GET /x\" and \"SELECT\" are less than 28px apart and share horizontal space — spread their y values.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

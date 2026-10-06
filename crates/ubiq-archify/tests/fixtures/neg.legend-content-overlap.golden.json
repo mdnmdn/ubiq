@@ -1,0 +1,216 @@
+{
+ "name": "neg.legend-content-overlap",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "legend/content-overlap",
+ "expect_codes": [
+  "legend/content-overlap"
+ ],
+ "source_sha256": "6a36fffc61d7a112f63ed95dd5faf902b5420175c3aef4e6e7bf47701b9dc049",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "viewBox": [320,240],
+   "legend": {
+    "mode": "all"
+   }
+  },
+  "components": [
+   {
+    "id": "a",
+    "type": "frontend",
+    "label": "A",
+    "pos": [30,50]
+   },
+   {
+    "id": "b",
+    "type": "backend",
+    "label": "B",
+    "pos": [180,50]
+   }
+  ],
+  "connections": [
+   {
+    "id": "ab",
+    "from": "a",
+    "to": "b",
+    "label": "x",
+    "fromSide": "bottom",
+    "toSide": "bottom",
+    "via": [[90,225],[240,225]]
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/content-overlap] architecture legend entry \"frontend\" overlaps authored relationship geometry.",
+    "diagnostics": [
+     {
+      "code": "legend/content-overlap",
+      "severity": "error",
+      "message": "[legend/content-overlap] architecture legend entry \"frontend\" overlaps authored relationship geometry.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend"
+      },
+      "evidence": {
+       "legendKind": "frontend",
+       "legendRect": {
+        "kind": "frontend",
+        "x": 40,
+        "y": 170,
+        "width": 83,
+        "height": 14
+       }
+      },
+      "supportedFixes": [
+       "shorten or hide legend entries, use a wider viewBox, or move the authored relationship route/label out of the legend band"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/content-overlap] architecture legend entry \"frontend\" overlaps authored relationship geometry.",
+    "diagnostics": [
+     {
+      "code": "legend/content-overlap",
+      "severity": "error",
+      "message": "[legend/content-overlap] architecture legend entry \"frontend\" overlaps authored relationship geometry.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend"
+      },
+      "evidence": {
+       "legendKind": "frontend",
+       "legendRect": {
+        "kind": "frontend",
+        "x": 40,
+        "y": 170,
+        "width": 83,
+        "height": 14
+       }
+      },
+      "supportedFixes": [
+       "shorten or hide legend entries, use a wider viewBox, or move the authored relationship route/label out of the legend band"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/content-overlap] architecture legend entry \"frontend\" overlaps authored relationship geometry.",
+    "diagnostics": [
+     {
+      "code": "legend/content-overlap",
+      "severity": "error",
+      "message": "[legend/content-overlap] architecture legend entry \"frontend\" overlaps authored relationship geometry.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend"
+      },
+      "evidence": {
+       "legendKind": "frontend",
+       "legendRect": {
+        "kind": "frontend",
+        "x": 40,
+        "y": 170,
+        "width": 83,
+        "height": 14
+       }
+      },
+      "supportedFixes": [
+       "shorten or hide legend entries, use a wider viewBox, or move the authored relationship route/label out of the legend band"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [320,240],
+   "components": [
+    {
+     "id": "a",
+     "type": "frontend",
+     "label": "A",
+     "x": 30,
+     "y": 50,
+     "width": 120,
+     "height": 60,
+     "pos": [30,50]
+    },
+    {
+     "id": "b",
+     "type": "backend",
+     "label": "B",
+     "x": 180,
+     "y": 50,
+     "width": 120,
+     "height": 60,
+     "pos": [180,50]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "a",
+     "to": "b",
+     "label": "x",
+     "variant": "default",
+     "route": "auto",
+     "points": [[90,110],[90,225],[240,225],[240,110]],
+     "labelAt": [165,215]
+    }
+   ],
+   "labels": [
+    {
+     "text": "x",
+     "x": 150,
+     "y": 205,
+     "width": 30,
+     "height": 14,
+     "labelAt": [165,215]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

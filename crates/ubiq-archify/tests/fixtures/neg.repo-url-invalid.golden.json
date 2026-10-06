@@ -1,0 +1,171 @@
+{
+ "name": "neg.repo-url-invalid",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "repository-evidence/url-invalid",
+ "expect_codes": [
+  "repository-evidence/url-invalid"
+ ],
+ "source_sha256": "65dd727fe6d6359d7d51be99a68122d1146e60e929aca1ebb00a3ed9c66731cb",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "repository": {
+    "url": "not a url",
+    "provider": "github",
+    "revision": "0123456789abcdef0123456789abcdef01234567"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "sources": [
+     {
+      "path": "src/web.ts",
+      "line": 1
+     }
+    ]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/url-invalid",
+      "severity": "error",
+      "message": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/url"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "run `git remote get-url origin` inside --repo-root and declare that credential-free address",
+       "use link_mode: local-only for internal repositories"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/url-invalid",
+      "severity": "error",
+      "message": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/url"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "run `git remote get-url origin` inside --repo-root and declare that credential-free address",
+       "use link_mode: local-only for internal repositories"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/url-invalid",
+      "severity": "error",
+      "message": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/url"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "run `git remote get-url origin` inside --repo-root and declare that credential-free address",
+       "use link_mode: local-only for internal repositories"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.\n[repository-evidence/url-invalid] /meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments. Fix: run `git remote get-url origin` inside --repo-root and declare that credential-free address; use link_mode: local-only for internal repositories.\n"
+ },
+ "layout_json_by_quality": {}
+}

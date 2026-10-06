@@ -46,7 +46,8 @@ Split five ways over one `ExplorerState`: `mod.rs` (types and the struct), `tree
 | `apply_git(generation, entries, rollups)` | A reply older than what is held is discarded. Untracked/ignored directories go into `git_inherit`; rollups take the higher `rank()` |
 | `expanded()`, `reopen(&mut wanted)`, `collapse_all()` | Restore is a level at a time — a listing either resolves one remembered folder or drops it, which is what makes a deep restore terminate |
 | `set_view`, `reanchor(filter)` | Re-place the cursor after the row set changed |
-| `unlisted_for_cache()` | Folders the background cache may still ask about — never a `WALK_SKIP` name, never one already asked |
+| `unlisted_for_cache()`, `unlisted_for_cache_upto(n)` | Folders the background cache may still ask about — never a `WALK_SKIP` name, never one already asked |
+| `cache_sent`, `cache_answered`, `cache_in_flight` | The cache's walks on the wire; `fill_explorer_cache` keeps at most `CACHE_IN_FLIGHT` (4), and a listing *or* a `ProjectFileError` frees a slot |
 | `unlisted_hits(rows)` | Folders a *filter* matched that the host never listed. Skip set left alone: a search for `node_modules` is not a request to list it |
 | `begin_cache(paths)` | Marks asked + loading, so an expand while the answer is in flight does not ask again |
 | `target_dir(path)` | Where New file / New folder / Paste land: the row when it is a folder, its parent when it is a file, `""` for the project row |

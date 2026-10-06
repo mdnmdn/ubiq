@@ -1,0 +1,2805 @@
+{
+ "sha": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08",
+ "origin": "https://github.com/acme/widget.git",
+ "files": {
+  "src/a.rs": "fn a() {\n    b();\n}\n",
+  "src/crlf.txt": "one\r\ntwo\r\nthree\r\n",
+  "src/lone-cr.txt": "x\ry\rz",
+  "src/no-newline.txt": "first\nsecond",
+  "src/empty.txt": "",
+  "src/dir/inner.txt": "inner\n",
+  "docs/guide.md": "# Guide\n\ntext\n"
+ },
+ "cases": [
+  {
+   "name": "ok-lines",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 1,
+        "end_line": 3,
+        "label": "a"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-path-only",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "docs/guide.md"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-crlf",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/crlf.txt",
+        "line": 3
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-no-newline",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/no-newline.txt",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-lone-cr",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/lone-cr.txt",
+        "line": 3
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-three-sources",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       },
+       {
+        "path": "docs/guide.md",
+        "line": 3
+       },
+       {
+        "path": "src/dir/inner.txt"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-workflow",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "workflow",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "lanes": [
+     {
+      "id": "l",
+      "label": "Lane"
+     }
+    ],
+    "nodes": [
+     {
+      "id": "n",
+      "lane": "l",
+      "col": 0,
+      "type": "backend",
+      "label": "N",
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     }
+    ],
+    "edges": []
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-sequence",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "sequence",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "participants": [
+     {
+      "id": "p",
+      "label": "P",
+      "type": "backend",
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "q",
+      "label": "Q",
+      "type": "database"
+     }
+    ],
+    "messages": [
+     {
+      "from": "p",
+      "to": "q",
+      "y": 180,
+      "label": "go"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-dataflow",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "dataflow",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "stages": [
+     {
+      "label": "In"
+     },
+     {
+      "label": "Out"
+     }
+    ],
+    "nodes": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "stage": 0,
+      "row": 0,
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "backend",
+      "label": "B",
+      "stage": 1,
+      "row": 0
+     }
+    ],
+    "flows": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "go"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-lifecycle",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "lifecycle",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "lanes": [
+     {
+      "id": "main",
+      "label": "Main"
+     }
+    ],
+    "states": [
+     {
+      "id": "s",
+      "lane": "main",
+      "col": 0,
+      "type": "start",
+      "label": "S",
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "t",
+      "lane": "main",
+      "col": 1,
+      "type": "active",
+      "label": "T"
+     }
+    ],
+    "transitions": [
+     {
+      "from": "s",
+      "to": "t",
+      "label": "go"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-ssh-origin",
+   "root": "ssh-origin",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-case-insensitive",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/ACME/Widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-local-only",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@",
+      "link_mode": "local-only"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-uppercase-sha",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA_UPPER@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "ok-uncommitted-change",
+   "root": "dirty",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 3
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": true,
+   "stage": null,
+   "diagnostics": []
+  },
+  {
+   "name": "root-required",
+   "root": null,
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/root-required",
+     "severity": "error",
+     "message": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/meta/repository"
+     },
+     "evidence": {},
+     "supportedFixes": [
+      "pass --repo-root with the matching local Git checkout"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "root-unreadable",
+   "root": "missing",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/root-unreadable",
+     "severity": "error",
+     "message": "Could not resolve evidence repository root \"<root-base>/does-not-exist\": ENOENT: no such file or directory, lstat '<root-base>/does-not-exist'",
+     "subject": {
+      "surface": "repository-evidence",
+      "repoRoot": "<root-base>/does-not-exist"
+     },
+     "evidence": {
+      "reason": "ENOENT: no such file or directory, lstat '<root-base>/does-not-exist'"
+     },
+     "supportedFixes": [
+      "pass one readable local repository directory"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "not-a-repository",
+   "root": "plain",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/git-command",
+     "severity": "error",
+     "message": "Evidence root \"<root-base>/plain\" is not a Git repository.",
+     "subject": {
+      "surface": "repository-evidence"
+     },
+     "evidence": {
+      "gitArgs": [
+       "rev-parse",
+       "--show-toplevel"
+      ],
+      "exitCode": 128
+     },
+     "supportedFixes": [
+      "use the intended local Git repository and verify its origin and revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "root-not-top-level",
+   "root": "sub",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/root-not-top-level",
+     "severity": "error",
+     "message": "Evidence root must be the Git top-level directory: <root-base>/main",
+     "subject": {
+      "surface": "repository-evidence",
+      "repoRoot": "<root-base>/main/src"
+     },
+     "evidence": {
+      "gitTopLevel": "<root-base>/main"
+     },
+     "supportedFixes": [
+      "pass --repo-root <root-base>/main"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no-origin",
+   "root": "no-origin",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/git-command",
+     "severity": "error",
+     "message": "Evidence repository must have an origin remote.",
+     "subject": {
+      "surface": "repository-evidence"
+     },
+     "evidence": {
+      "gitArgs": [
+       "remote",
+       "get-url",
+       "origin"
+      ],
+      "exitCode": 2
+     },
+     "supportedFixes": [
+      "use the intended local Git repository and verify its origin and revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "origin-mismatch",
+   "root": "other-origin",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/origin-mismatch",
+     "severity": "error",
+     "message": "Evidence repository origin \"https://github.com/someone/else.git\" does not match \"https://github.com/acme/widget\".",
+     "subject": {
+      "surface": "repository-evidence",
+      "repoRoot": "<root-base>/other-origin"
+     },
+     "evidence": {
+      "localOrigin": "https://github.com/someone/else.git",
+      "authoredRepository": "https://github.com/acme/widget"
+     },
+     "supportedFixes": [
+      "use the matching local checkout or correct the authored repository URL"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "origin-credentials-redacted",
+   "root": "cred-origin",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/origin-mismatch",
+     "severity": "error",
+     "message": "Evidence repository origin \"https://REDACTED@github.com/someone/else.git\" does not match \"https://github.com/acme/widget\".",
+     "subject": {
+      "surface": "repository-evidence",
+      "repoRoot": "<root-base>/cred-origin"
+     },
+     "evidence": {
+      "localOrigin": "https://REDACTED@github.com/someone/else.git",
+      "authoredRepository": "https://github.com/acme/widget"
+     },
+     "supportedFixes": [
+      "use the matching local checkout or correct the authored repository URL"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "origin-query-redacted",
+   "root": "query-origin",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/origin-mismatch",
+     "severity": "error",
+     "message": "Evidence repository origin \"https://github.com/someone/else.git?REDACTED\" does not match \"https://github.com/acme/widget\".",
+     "subject": {
+      "surface": "repository-evidence",
+      "repoRoot": "<root-base>/query-origin"
+     },
+     "evidence": {
+      "localOrigin": "https://github.com/someone/else.git?REDACTED",
+      "authoredRepository": "https://github.com/acme/widget"
+     },
+     "supportedFixes": [
+      "use the matching local checkout or correct the authored repository URL"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "revision-unavailable",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "0123456789abcdef0123456789abcdef01234567"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/revision-unavailable",
+     "severity": "error",
+     "message": "Evidence revision 0123456789abcdef0123456789abcdef01234567 is not available in the local repository.",
+     "subject": {
+      "surface": "repository-evidence",
+      "repoRoot": "<root-base>/main"
+     },
+     "evidence": {
+      "revision": "0123456789abcdef0123456789abcdef01234567"
+     },
+     "supportedFixes": [
+      "fetch the pinned commit or pin an available full commit SHA"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "file-missing",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/nope.rs",
+        "line": 1
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/file-missing",
+     "severity": "error",
+     "message": "/components/0/sources/0/path does not identify a file at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/path",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "sourcePath": "src/nope.rs",
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a file path that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "file-is-a-directory",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/dir"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/file-missing",
+     "severity": "error",
+     "message": "/components/0/sources/0/path does not identify a file at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/path",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "sourcePath": "src/dir",
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a file path that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "file-missing-in-sequence",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "sequence",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "participants": [
+     {
+      "id": "p",
+      "label": "P",
+      "type": "backend",
+      "sources": [
+       {
+        "path": "src/gone.rs"
+       }
+      ]
+     },
+     {
+      "id": "q",
+      "label": "Q",
+      "type": "database"
+     }
+    ],
+    "messages": [
+     {
+      "from": "p",
+      "to": "q",
+      "y": 180,
+      "label": "go"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/file-missing",
+     "severity": "error",
+     "message": "/participants/0/sources/0/path does not identify a file at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/participants/0/sources/0/path",
+      "diagramType": "sequence",
+      "collection": "participants",
+      "nodeId": "p"
+     },
+     "evidence": {
+      "sourcePath": "src/gone.rs",
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a file path that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "line-out-of-range",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 4
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/line-out-of-range",
+     "severity": "error",
+     "message": "/components/0/sources/0 requests line 4, but src/a.rs has 3 lines at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "sourcePath": "src/a.rs",
+      "requestedLine": 4,
+      "lineCount": 3,
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a line range that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "end-line-out-of-range",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 1,
+        "end_line": 9
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/line-out-of-range",
+     "severity": "error",
+     "message": "/components/0/sources/0 requests line 9, but src/a.rs has 3 lines at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "sourcePath": "src/a.rs",
+      "requestedLine": 9,
+      "lineCount": 3,
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a line range that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "line-in-empty-file",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/empty.txt",
+        "line": 1
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/line-out-of-range",
+     "severity": "error",
+     "message": "/components/0/sources/0 requests line 1, but src/empty.txt has 0 lines at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "sourcePath": "src/empty.txt",
+      "requestedLine": 1,
+      "lineCount": 0,
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a line range that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "line-out-of-range-workflow",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "workflow",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "lanes": [
+     {
+      "id": "l",
+      "label": "Lane"
+     }
+    ],
+    "nodes": [
+     {
+      "id": "n",
+      "lane": "l",
+      "col": 0,
+      "type": "backend",
+      "label": "N",
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 40
+       }
+      ]
+     }
+    ],
+    "edges": []
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/line-out-of-range",
+     "severity": "error",
+     "message": "/nodes/0/sources/0 requests line 40, but src/a.rs has 3 lines at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/nodes/0/sources/0",
+      "diagramType": "workflow",
+      "collection": "nodes",
+      "nodeId": "n"
+     },
+     "evidence": {
+      "sourcePath": "src/a.rs",
+      "requestedLine": 40,
+      "lineCount": 3,
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a line range that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "line-out-of-range-uncommitted",
+   "root": "dirty",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 5
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/line-out-of-range",
+     "severity": "error",
+     "message": "/components/0/sources/0 requests line 5, but src/a.rs has 3 lines at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "sourcePath": "src/a.rs",
+      "requestedLine": 5,
+      "lineCount": 3,
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a line range that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "line-required",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "end_line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/line-required",
+     "severity": "error",
+     "message": "/components/0/sources/0/end_line requires line.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/end_line",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {},
+     "supportedFixes": [
+      "add line or remove end_line"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "line-range-invalid",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 3,
+        "end_line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/line-range-invalid",
+     "severity": "error",
+     "message": "/components/0/sources/0/end_line must be greater than or equal to line.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "line": 3,
+      "endLine": 2
+     },
+     "supportedFixes": [
+      "use an end_line greater than or equal to line"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "path-invalid-absolute",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "/etc/passwd"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/path-invalid",
+     "severity": "error",
+     "message": "/components/0/sources/0/path must be a repo-relative POSIX path.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/path"
+     },
+     "evidence": {
+      "authoredPath": "/etc/passwd"
+     },
+     "supportedFixes": [
+      "use a repository-relative path with forward slashes"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "path-invalid-backslash",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src\\a.rs"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/path-invalid",
+     "severity": "error",
+     "message": "/components/0/sources/0/path must be a repo-relative POSIX path.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/path"
+     },
+     "evidence": {
+      "authoredPath": "src\\a.rs"
+     },
+     "supportedFixes": [
+      "use a repository-relative path with forward slashes"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "path-escape-parent",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "../outside.rs"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/path-escape",
+     "severity": "error",
+     "message": "/components/0/sources/0/path must stay inside the repository and may not address .git.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/path"
+     },
+     "evidence": {
+      "authoredPath": "../outside.rs"
+     },
+     "supportedFixes": [
+      "remove empty, dot, parent, or .git path segments"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "path-escape-git",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": ".git/config"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/path-escape",
+     "severity": "error",
+     "message": "/components/0/sources/0/path must stay inside the repository and may not address .git.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/path"
+     },
+     "evidence": {
+      "authoredPath": ".git/config"
+     },
+     "supportedFixes": [
+      "remove empty, dot, parent, or .git path segments"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "path-escape-dot",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/./a.rs"
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/path-escape",
+     "severity": "error",
+     "message": "/components/0/sources/0/path must stay inside the repository and may not address .git.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/0/path"
+     },
+     "evidence": {
+      "authoredPath": "src/./a.rs"
+     },
+     "supportedFixes": [
+      "remove empty, dot, parent, or .git path segments"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "second-source-fails",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 1
+       },
+       {
+        "path": "src/missing.rs",
+        "line": 1
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/file-missing",
+     "severity": "error",
+     "message": "/components/0/sources/1/path does not identify a file at revision a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/components/0/sources/1/path",
+      "diagramType": "architecture",
+      "collection": "components",
+      "nodeId": "a",
+      "componentId": "a"
+     },
+     "evidence": {
+      "sourcePath": "src/missing.rs",
+      "revision": "a50b69ce9afbaad0ee9a45f3a89d1e76be27bf08"
+     },
+     "supportedFixes": [
+      "use a file path that exists at the pinned revision"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "source-required",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://github.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/source-required",
+     "severity": "error",
+     "message": "/meta/repository requires at least one /components source reference.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/meta/repository",
+      "diagramType": "architecture",
+      "collection": "components"
+     },
+     "evidence": {},
+     "supportedFixes": [
+      "add at least one verified /components source or remove repository metadata"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "url-invalid-with-root",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "/home/me/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/url-invalid",
+     "severity": "error",
+     "message": "/meta/repository/url must be a credential-free HTTP(S) or Git SSH repository address without query, fragment, or dot segments.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/meta/repository/url"
+     },
+     "evidence": {
+      "authoredValueLooksLike": "local filesystem path; the expected value is the remote origin address"
+     },
+     "supportedFixes": [
+      "run `git remote get-url origin` inside --repo-root and declare that credential-free address",
+      "use link_mode: local-only for internal repositories"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "links-unsupported-with-root",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://gitlab.com/acme/widget",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/links-unsupported",
+     "severity": "error",
+     "message": "Web source links require a canonical GitHub or Gitee HTTPS owner/repository URL.",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/meta/repository/url"
+     },
+     "evidence": {},
+     "supportedFixes": [
+      "use a canonical GitHub or Gitee URL, or select link_mode: local-only to retain local verification without web links"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "provider-mismatch-with-root",
+   "root": "main",
+   "doc": {
+    "schema_version": 1,
+    "diagram_type": "architecture",
+    "meta": {
+     "title": "T",
+     "output": "t.html",
+     "repository": {
+      "url": "https://gitee.com/acme/widget",
+      "provider": "github",
+      "revision": "@SHA@"
+     }
+    },
+    "components": [
+     {
+      "id": "a",
+      "type": "backend",
+      "label": "A",
+      "pos": [
+       40,
+       80
+      ],
+      "sources": [
+       {
+        "path": "src/a.rs",
+        "line": 2
+       }
+      ]
+     },
+     {
+      "id": "b",
+      "type": "database",
+      "label": "B",
+      "pos": [
+       300,
+       80
+      ]
+     }
+    ],
+    "connections": [
+     {
+      "from": "a",
+      "to": "b",
+      "label": "x"
+     }
+    ]
+   },
+   "ok": false,
+   "stage": "render",
+   "diagnostics": [
+    {
+     "code": "repository-evidence/provider-invalid",
+     "severity": "error",
+     "message": "Repository provider must match its supported public host (github.com or gitee.com).",
+     "subject": {
+      "surface": "repository-evidence",
+      "path": "/meta/repository/provider"
+     },
+     "evidence": {},
+     "supportedFixes": [
+      "use the matching provider or omit provider and select link_mode: local-only"
+     ]
+    }
+   ]
+  }
+ ]
+}

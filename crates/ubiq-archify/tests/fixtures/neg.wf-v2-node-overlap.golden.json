@@ -1,0 +1,315 @@
+{
+ "name": "neg.wf-v2-node-overlap",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/node-overlap",
+ "expect_codes": [
+  "workflow/node-overlap"
+ ],
+ "source_sha256": "76ba7fb40197f8da467aae605db363a2a6c795b2025728c225d53e5fcf4b8dc5",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow nodes \"plan\" and \"run\" are less than 8px apart in lane \"rt\".",
+    "diagnostics": [
+     {
+      "code": "workflow/node-overlap",
+      "severity": "error",
+      "message": "Workflow nodes \"plan\" and \"run\" are less than 8px apart in lane \"rt\".",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "run",
+       "path": "/nodes/2"
+      },
+      "evidence": {
+       "lane": "rt",
+       "minimumClearancePx": 8,
+       "nodes": [
+        {
+         "id": "plan",
+         "rect": {
+          "x": 168,
+          "y": 217,
+          "width": 92,
+          "height": 52
+         }
+        },
+        {
+         "id": "run",
+         "rect": {
+          "x": 168,
+          "y": 217,
+          "width": 92,
+          "height": 52
+         }
+        }
+       ]
+      },
+      "supportedFixes": [
+       "set /nodes/2/col to verified free column 2",
+       "set /nodes/2/col to verified free column 3"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow nodes \"plan\" and \"run\" are less than 8px apart in lane \"rt\".",
+    "diagnostics": [
+     {
+      "code": "workflow/node-overlap",
+      "severity": "error",
+      "message": "Workflow nodes \"plan\" and \"run\" are less than 8px apart in lane \"rt\".",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "run",
+       "path": "/nodes/2"
+      },
+      "evidence": {
+       "lane": "rt",
+       "minimumClearancePx": 8,
+       "nodes": [
+        {
+         "id": "plan",
+         "rect": {
+          "x": 168,
+          "y": 217,
+          "width": 92,
+          "height": 52
+         }
+        },
+        {
+         "id": "run",
+         "rect": {
+          "x": 168,
+          "y": 217,
+          "width": 92,
+          "height": 52
+         }
+        }
+       ]
+      },
+      "supportedFixes": [
+       "set /nodes/2/col to verified free column 2",
+       "set /nodes/2/col to verified free column 3"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow nodes \"plan\" and \"run\" are less than 8px apart in lane \"rt\".",
+    "diagnostics": [
+     {
+      "code": "workflow/node-overlap",
+      "severity": "error",
+      "message": "Workflow nodes \"plan\" and \"run\" are less than 8px apart in lane \"rt\".",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "run",
+       "path": "/nodes/2"
+      },
+      "evidence": {
+       "lane": "rt",
+       "minimumClearancePx": 8,
+       "nodes": [
+        {
+         "id": "plan",
+         "rect": {
+          "x": 168,
+          "y": 217,
+          "width": 92,
+          "height": 52
+         }
+        },
+        {
+         "id": "run",
+         "rect": {
+          "x": 168,
+          "y": 217,
+          "width": 92,
+          "height": 52
+         }
+        }
+       ]
+      },
+      "supportedFixes": [
+       "set /nodes/2/col to verified free column 2",
+       "set /nodes/2/col to verified free column 3"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/node-overlap",
+     "severity": "error",
+     "message": "Workflow nodes \"plan\" and \"run\" are less than 8px apart in lane \"rt\".",
+     "subject": {
+      "diagramType": "workflow",
+      "node": "run",
+      "path": "/nodes/2"
+     },
+     "evidence": {
+      "lane": "rt",
+      "minimumClearancePx": 8,
+      "nodes": [
+       {
+        "id": "plan",
+        "rect": {
+         "x": 168,
+         "y": 217,
+         "width": 92,
+         "height": 52
+        }
+       },
+       {
+        "id": "run",
+        "rect": {
+         "x": 168,
+         "y": 217,
+         "width": 92,
+         "height": 52
+        }
+       }
+      ]
+     },
+     "supportedFixes": [
+      "set /nodes/2/col to verified free column 2",
+      "set /nodes/2/col to verified free column 3"
+     ]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

@@ -229,6 +229,12 @@ impl AppState {
         self.set_viewer_kind(&key, viewer, cx);
     }
 
+    /// Create or replace the host file at `path`, a place the user picked in the native save
+    /// dialog. Answered with `HostFileExported` or `HostFileError`.
+    pub fn save_host_file_as(&mut self, path: String, bytes: Vec<u8>) {
+        self.bus.send(Message::SaveHostFileAs { path, bytes });
+    }
+
     /// Re-read one open file from disk when nothing in its tab is unsaved, answering whether a
     /// read went out (`D204`).
     ///
@@ -704,6 +710,7 @@ impl AppState {
                 project_id: project,
                 rel_path,
                 depth: EXPAND_DEPTH,
+                prefetch: false,
             });
         }
         cx.notify();

@@ -22,13 +22,6 @@ impl AppState {
         // command line, a Finder open, a dock-icon drop — has somewhere to be delivered.
         OpenWindows::register(window_id, cx.weak_entity(), cx);
 
-        let agent_input = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .placeholder("Describe a task for this agent\u{2026}")
-                .auto_grow(1, 6)
-                .submit_on_enter(true)
-        });
-
         // The whole pool, before the first frame. Each one's placeholder names the agent its
         // column is showing and is set when the column opens or changes tab; until then it says
         // what the field is for.
@@ -692,24 +685,6 @@ impl AppState {
         // picker in all of them. Another window taking a project is also a change this window has
         // to act on, and it learns about it the same way it learns about its own.
         subscriptions.push(cx.observe_global::<WindowRegistry>(|this, cx| this.sync_projects(cx)));
-
-        subscriptions.push(cx.subscribe_in(
-            &agent_input,
-            window,
-            |this, input, event: &InputEvent, window, cx| match event {
-                InputEvent::Change => {
-                    let draft = input.read(cx).value().to_string();
-                    // A window with no project has no composer on screen to have typed into, so
-                    // there is nothing to mirror it onto.
-                    if let Some(graph) = this.graph_mut(cx) {
-                        graph.draft = draft;
-                    }
-                    cx.notify();
-                }
-                InputEvent::PressEnter { shift: false, .. } => this.send_to_agent(window, cx),
-                _ => {}
-            },
-        ));
 
         // One subscription per column composer, each carrying the slot it belongs to. What is
         // typed lands in that slot of the project's drafts, and in the agent's own conversation —
@@ -1842,7 +1817,6 @@ impl AppState {
             viewport_drag: RefCell::new(None),
             vim: VimState::default(),
             vim_focus: None,
-            agent_input,
             column_inputs,
             transcript_scrolls: (0..COMPOSER_SLOTS).map(|_| Default::default()).collect(),
             composer_rows: vec![None; COMPOSER_SLOTS],
@@ -1970,7 +1944,6 @@ impl AppState {
             sink_project_hex,
             picker_scroll: ScrollHandle::new(),
             explorer_scroll: ScrollHandle::new(),
-            graph_scroll: ScrollHandle::new(),
             teams_scroll: ScrollHandle::new(),
             teamsim_scroll: ScrollHandle::new(),
             mission_scroll: ScrollHandle::new(),

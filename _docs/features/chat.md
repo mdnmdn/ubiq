@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-05
+updated: 2026-10-06
 verified: 2026-10-05
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
@@ -46,8 +46,8 @@ so a label would be a third copy.
   tab is offered the start too; the conversation it leaves is one click away on the list.
 - **Every other row is a conversation to move to**: the conversations this window holds
   (`AgentsView::live`), under a hairline drawn only when something is below it. Typing filters; the hairline
-  goes when a query empties the list. The host's projection is wider (it carries the mock work thread's
-  fixtures, which have nothing behind them), so `state::chat::attach_choices` narrows to the live set before
+  goes when a query empties the list. The host's projection can be wider than what this window holds, so
+  `state::chat::attach_choices` narrows to the live set before
   the query does — the chevron and the `+` menu's second stage answer the same way.
 - A conversation attached to a *different* chat tab draws disabled and is never dropped from the list (a
   vanished row reads as ended). The tab's own attachment stays selectable.

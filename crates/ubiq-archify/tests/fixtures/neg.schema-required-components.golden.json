@@ -1,0 +1,143 @@
+{
+ "name": "neg.schema-required-components",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/required",
+ "expect_codes": [
+  "schema/required"
+ ],
+ "source_sha256": "527149525a4dddf1e268d52371b0b1170f2352d8226b63e6f3f583af1817d065",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  / must have required property 'components' {\"missingProperty\":\"components\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/ must have required property 'components' {\"missingProperty\":\"components\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "components"
+      },
+      "supportedFixes": [
+       "add required property \"components\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  / must have required property 'components' {\"missingProperty\":\"components\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/ must have required property 'components' {\"missingProperty\":\"components\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "components"
+      },
+      "supportedFixes": [
+       "add required property \"components\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  / must have required property 'components' {\"missingProperty\":\"components\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/ must have required property 'components' {\"missingProperty\":\"components\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "components"
+      },
+      "supportedFixes": [
+       "add required property \"components\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  / must have required property 'components' {\"missingProperty\":\"components\"}\n[schema/required] / must have required property 'components' {\"missingProperty\":\"components\"} Fix: add required property \"components\".\n"
+ },
+ "layout_json_by_quality": {}
+}

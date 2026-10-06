@@ -1,0 +1,2829 @@
+{
+ "archify_version": "3.0.1",
+ "generated_by": "the Archify 3.0.1 Node oracle",
+ "node": "v24.11.0",
+ "cases": [
+  {
+   "name": "agent-run.lifecycle",
+   "group": "example",
+   "type": "lifecycle",
+   "source": "archify/examples/agent-run.lifecycle.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "agent-tool-call.workflow",
+   "group": "example",
+   "type": "workflow",
+   "source": "archify/examples/agent-tool-call.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "async-job-roundtrip.sequence",
+   "group": "example",
+   "type": "sequence",
+   "source": "archify/examples/async-job-roundtrip.sequence.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "brand-aware-delivery.architecture",
+   "group": "example",
+   "type": "architecture",
+   "source": "archify/examples/brand-aware-delivery.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "cache-miss-request.sequence",
+   "group": "example",
+   "type": "sequence",
+   "source": "archify/examples/cache-miss-request.sequence.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "checkout-platform.base.architecture",
+   "group": "example",
+   "type": "architecture",
+   "source": "archify/examples/checkout-platform.base.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "checkout-platform.head.architecture",
+   "group": "example",
+   "type": "architecture",
+   "source": "archify/examples/checkout-platform.head.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "deployment-release.lifecycle",
+   "group": "example",
+   "type": "lifecycle",
+   "source": "archify/examples/deployment-release.lifecycle.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "event-stream.dataflow",
+   "group": "example",
+   "type": "dataflow",
+   "source": "archify/examples/event-stream.dataflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "fixture.automatic-routing-node-border-clearance.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/automatic-routing-node-border-clearance.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.issue-126.custom-widths.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/issue-126/custom-widths.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.issue-126.explicit-route.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/issue-126/explicit-route.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.issue-126.explicit-viewbox.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/issue-126/explicit-viewbox.workflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/desktop-readability",
+    "standard": "ok+w:composition/desktop-readability",
+    "showcase": "composition/desktop-readability"
+   }
+  },
+  {
+   "name": "fixture.issue-126.labels.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/issue-126/labels.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.japanese-locale.architecture",
+   "group": "fixture",
+   "type": "architecture",
+   "source": "archify/test/fixtures/japanese-locale.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.korean-locale.architecture",
+   "group": "fixture",
+   "type": "architecture",
+   "source": "archify/test/fixtures/korean-locale.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.lifecycle-planner.approval.lifecycle",
+   "group": "fixture",
+   "type": "lifecycle",
+   "source": "archify/test/fixtures/lifecycle-planner/approval.lifecycle.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.lifecycle-planner.band-title-overlap.lifecycle",
+   "group": "fixture",
+   "type": "lifecycle",
+   "source": "archify/test/fixtures/lifecycle-planner/band-title-overlap.lifecycle.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.lifecycle-planner.review-hub.lifecycle",
+   "group": "fixture",
+   "type": "lifecycle",
+   "source": "archify/test/fixtures/lifecycle-planner/review-hub.lifecycle.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.v1-baseline.agent-run.lifecycle",
+   "group": "fixture",
+   "type": "lifecycle",
+   "source": "archify/test/fixtures/v1-baseline/agent-run.lifecycle.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/proper-crossing,w:composition/viewport-height",
+    "standard": "ok+w:composition/proper-crossing,w:composition/viewport-height",
+    "showcase": "composition/proper-crossing"
+   }
+  },
+  {
+   "name": "fixture.v1-baseline.agent-tool-call.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/v1-baseline/agent-tool-call.workflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "fixture.v1-baseline.cache-miss-request.sequence",
+   "group": "fixture",
+   "type": "sequence",
+   "source": "archify/test/fixtures/v1-baseline/cache-miss-request.sequence.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "fixture.v1-baseline.event-stream.dataflow",
+   "group": "fixture",
+   "type": "dataflow",
+   "source": "archify/test/fixtures/v1-baseline/event-stream.dataflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "fixture.v1-baseline.product-analytics.dataflow",
+   "group": "fixture",
+   "type": "dataflow",
+   "source": "archify/test/fixtures/v1-baseline/product-analytics.dataflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/container-border-run,w:composition/viewport-height",
+    "standard": "composition/container-border-run",
+    "showcase": "composition/container-border-run"
+   }
+  },
+  {
+   "name": "fixture.v1-baseline.production-deployment.architecture",
+   "group": "fixture",
+   "type": "architecture",
+   "source": "archify/test/fixtures/v1-baseline/production-deployment.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.v1-baseline.web-app.architecture",
+   "group": "fixture",
+   "type": "architecture",
+   "source": "archify/test/fixtures/v1-baseline/web-app.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.v1-workflow-700x400.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/v1-workflow-700x400.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.v1-workflow-explicit-coordinates.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/v1-workflow-explicit-coordinates.workflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "fixture.workflow-routing-clarity.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/workflow-routing-clarity.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "fixture.workflow-shared-trunks.workflow",
+   "group": "fixture",
+   "type": "workflow",
+   "source": "archify/test/fixtures/workflow-shared-trunks.workflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "holiday-planning.workflow",
+   "group": "example",
+   "type": "workflow",
+   "source": "archify/examples/holiday-planning.workflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "incident-response.workflow",
+   "group": "example",
+   "type": "workflow",
+   "source": "archify/examples/incident-response.workflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "neg.arch-grid-col-exceeds",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "architecture/grid-cell",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.arch-grid-shared-cell",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "architecture/grid-cell",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/edge-through-node,layout/constraint",
+    "standard": "clean-flow/edge-through-node,layout/constraint",
+    "showcase": "clean-flow/edge-through-node,composition/ambiguous-corridor,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.arch-placement-missing-free",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "architecture/placement-missing",
+   "expect_codes": [
+    "internal/unclassified"
+   ],
+   "diagnostics": {
+    "authored": "internal/unclassified",
+    "standard": "internal/unclassified",
+    "showcase": "internal/unclassified"
+   }
+  },
+  {
+   "name": "neg.arch-placement-missing-grid",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "architecture/placement-missing",
+   "expect_codes": [
+    "internal/unclassified"
+   ],
+   "diagnostics": {
+    "authored": "internal/unclassified",
+    "standard": "internal/unclassified",
+    "showcase": "internal/unclassified"
+   }
+  },
+  {
+   "name": "neg.clean-edge-through-node",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "clean-flow/edge-through-node",
+   "expect_codes": [
+    "clean-flow/edge-through-node"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/edge-through-node,layout/constraint",
+    "standard": "clean-flow/edge-through-node,layout/constraint",
+    "showcase": "clean-flow/edge-through-node,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.clean-endpoint-side-direction",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "clean-flow/endpoint-side-direction",
+   "expect_codes": [
+    "clean-flow/endpoint-side-direction"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/endpoint-side-direction",
+    "standard": "clean-flow/endpoint-side-direction",
+    "showcase": "clean-flow/endpoint-side-direction"
+   }
+  },
+  {
+   "name": "neg.comp-ambiguous-corridor",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/ambiguous-corridor",
+   "expect_codes": [
+    "composition/ambiguous-corridor"
+   ],
+   "diagnostics": {
+    "authored": "composition/ambiguous-corridor",
+    "standard": "ok+w:composition/ambiguous-corridor",
+    "showcase": "composition/ambiguous-corridor"
+   }
+  },
+  {
+   "name": "neg.comp-container-border-run",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/container-border-run",
+   "expect_codes": [
+    "composition/container-border-run"
+   ],
+   "diagnostics": {
+    "authored": "composition/container-border-run",
+    "standard": "composition/container-border-run",
+    "showcase": "composition/container-border-run"
+   }
+  },
+  {
+   "name": "neg.comp-excessive-route-detour",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/excessive-route-detour",
+   "expect_codes": [
+    "composition/excessive-route-detour"
+   ],
+   "diagnostics": {
+    "authored": "composition/excessive-route-detour",
+    "standard": "composition/excessive-route-detour",
+    "showcase": "composition/excessive-route-detour"
+   }
+  },
+  {
+   "name": "neg.comp-label-canvas-containment",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/label-canvas-containment",
+   "expect_codes": [
+    "composition/label-canvas-containment"
+   ],
+   "diagnostics": {
+    "authored": "composition/label-canvas-containment",
+    "standard": "ok+w:composition/label-canvas-containment",
+    "showcase": "composition/label-canvas-containment"
+   }
+  },
+  {
+   "name": "neg.comp-label-gap",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/label-gap",
+   "expect_codes": [
+    "composition/label-gap"
+   ],
+   "diagnostics": {
+    "authored": "composition/label-gap",
+    "standard": "composition/label-gap",
+    "showcase": "composition/label-gap"
+   }
+  },
+  {
+   "name": "neg.comp-label-route-clearance",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/label-route-clearance",
+   "expect_codes": [
+    "composition/label-route-clearance"
+   ],
+   "diagnostics": {
+    "authored": "composition/label-route-clearance",
+    "standard": "ok",
+    "showcase": "composition/label-route-clearance"
+   }
+  },
+  {
+   "name": "neg.comp-micro-segment",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/micro-segment",
+   "expect_codes": [
+    "composition/micro-segment"
+   ],
+   "diagnostics": {
+    "authored": "composition/micro-segment",
+    "standard": "ok+w:composition/micro-segment",
+    "showcase": "composition/micro-segment"
+   }
+  },
+  {
+   "name": "neg.comp-proper-crossing",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/proper-crossing",
+   "expect_codes": [
+    "composition/proper-crossing"
+   ],
+   "diagnostics": {
+    "authored": "composition/proper-crossing",
+    "standard": "ok+w:composition/proper-crossing",
+    "showcase": "composition/proper-crossing"
+   }
+  },
+  {
+   "name": "neg.comp-short-interior-segment",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "composition/short-interior-segment",
+   "expect_codes": [
+    "composition/short-interior-segment"
+   ],
+   "diagnostics": {
+    "authored": "composition/short-interior-segment",
+    "standard": "ok+w:composition/short-interior-segment",
+    "showcase": "composition/short-interior-segment"
+   }
+  },
+  {
+   "name": "neg.df-diagonal-via",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "dataflow/diagonal-via",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.df-flow-too-short",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "geom/edge-too-short",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.df-label-too-wide",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "geom/label-too-wide",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.df-node-out-of-bounds",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "geom/node-out-of-bounds",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "composition/label-canvas-containment,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.df-node-overlap",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "geom/node-overlap",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint",
+    "standard": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint",
+    "showcase": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.df-row-range",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "dataflow/row-range",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.df-stage-range",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "dataflow/stage-range",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/edge-through-node,layout/constraint",
+    "standard": "clean-flow/edge-through-node,layout/constraint",
+    "showcase": "clean-flow/edge-through-node,composition/micro-segment,composition/label-route-clearance,composition/label-canvas-containment,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.df-text-min-fit",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "geom/text-min-fit",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.eng-boundary-kind",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of deployment",
+   "rule": "engineering/deployment-boundary-kind",
+   "expect_codes": [
+    "engineering/deployment-boundary-kind"
+   ],
+   "diagnostics": {
+    "authored": "engineering/deployment-boundary-kind,engineering/deployment-private-state",
+    "standard": "engineering/deployment-boundary-kind,engineering/deployment-private-state",
+    "showcase": "engineering/deployment-boundary-kind,engineering/deployment-private-state"
+   }
+  },
+  {
+   "name": "neg.eng-crossing-mechanism",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of deployment",
+   "rule": "engineering/deployment-crossing-mechanism",
+   "expect_codes": [
+    "engineering/deployment-crossing-mechanism"
+   ],
+   "diagnostics": {
+    "authored": "engineering/deployment-crossing-mechanism",
+    "standard": "engineering/deployment-crossing-mechanism",
+    "showcase": "engineering/deployment-crossing-mechanism"
+   }
+  },
+  {
+   "name": "neg.eng-owner-missing",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of deployment",
+   "rule": "engineering/deployment-owner-missing",
+   "expect_codes": [
+    "engineering/deployment-owner-missing"
+   ],
+   "diagnostics": {
+    "authored": "engineering/deployment-owner-missing",
+    "standard": "engineering/deployment-owner-missing",
+    "showcase": "engineering/deployment-owner-missing"
+   }
+  },
+  {
+   "name": "neg.eng-private-region-consistency",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of deployment",
+   "rule": "engineering/deployment-private-region-consistency",
+   "expect_codes": [
+    "engineering/deployment-private-region-consistency"
+   ],
+   "diagnostics": {
+    "authored": "engineering/deployment-private-region-consistency",
+    "standard": "engineering/deployment-private-region-consistency",
+    "showcase": "engineering/deployment-private-region-consistency"
+   }
+  },
+  {
+   "name": "neg.eng-private-state",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of deployment",
+   "rule": "engineering/deployment-private-state",
+   "expect_codes": [
+    "engineering/deployment-private-state"
+   ],
+   "diagnostics": {
+    "authored": "engineering/deployment-private-state",
+    "standard": "engineering/deployment-private-state",
+    "showcase": "engineering/deployment-private-state"
+   }
+  },
+  {
+   "name": "neg.eng-region-ambiguous",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of deployment",
+   "rule": "engineering/deployment-region-ambiguous",
+   "expect_codes": [
+    "engineering/deployment-region-ambiguous"
+   ],
+   "diagnostics": {
+    "authored": "engineering/deployment-region-ambiguous",
+    "standard": "engineering/deployment-region-ambiguous",
+    "showcase": "engineering/deployment-region-ambiguous"
+   }
+  },
+  {
+   "name": "neg.eng-region-scope",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of deployment",
+   "rule": "engineering/deployment-region-scope",
+   "expect_codes": [
+    "engineering/deployment-region-scope"
+   ],
+   "diagnostics": {
+    "authored": "engineering/deployment-region-scope",
+    "standard": "engineering/deployment-region-scope",
+    "showcase": "engineering/deployment-region-scope"
+   }
+  },
+  {
+   "name": "neg.geom-boundary-out-of-bounds",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "layout/boundary-out-of-bounds",
+   "expect_codes": [
+    "layout/boundary-out-of-bounds"
+   ],
+   "diagnostics": {
+    "authored": "layout/boundary-out-of-bounds",
+    "standard": "layout/boundary-out-of-bounds",
+    "showcase": "layout/boundary-out-of-bounds"
+   }
+  },
+  {
+   "name": "neg.geom-boundary-title-outside-viewbox",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "architecture/boundary-title",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint,layout/boundary-out-of-bounds",
+    "standard": "layout/constraint,layout/boundary-out-of-bounds",
+    "showcase": "layout/constraint,layout/boundary-out-of-bounds"
+   }
+  },
+  {
+   "name": "neg.geom-brand-rail",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "geom/brand-rail",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.geom-edge-too-short-architecture",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "geom/edge-too-short",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.geom-label-too-wide-architecture",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "geom/label-too-wide",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.geom-label-too-wide-cjk",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "geom/label-too-wide",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.geom-node-out-of-bounds-architecture",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "geom/node-out-of-bounds",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint,layout/boundary-out-of-bounds",
+    "standard": "layout/constraint,layout/boundary-out-of-bounds",
+    "showcase": "composition/label-canvas-containment,layout/constraint,layout/boundary-out-of-bounds"
+   }
+  },
+  {
+   "name": "neg.geom-node-overlap-architecture",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "geom/node-overlap",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.geom-route-out-of-bounds",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "layout/route-out-of-bounds",
+   "expect_codes": [
+    "layout/route-out-of-bounds"
+   ],
+   "diagnostics": {
+    "authored": "layout/route-out-of-bounds",
+    "standard": "layout/route-out-of-bounds",
+    "showcase": "layout/route-out-of-bounds"
+   }
+  },
+  {
+   "name": "neg.geom-self-loop-ports",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "layout/self-loop-ports",
+   "expect_codes": [
+    "layout/self-loop-ports"
+   ],
+   "diagnostics": {
+    "authored": "layout/self-loop-ports",
+    "standard": "layout/self-loop-ports",
+    "showcase": "layout/self-loop-ports"
+   }
+  },
+  {
+   "name": "neg.geom-text-min-fit-architecture",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "geom/text-min-fit",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-group-v1",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "graph/duplicate-container-id",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-lane-lifecycle",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "graph/duplicate-container-id",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-lane-workflow-v2",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/duplicate-lane-id",
+   "expect_codes": [
+    "workflow/duplicate-lane-id"
+   ],
+   "diagnostics": {
+    "authored": "workflow/duplicate-lane-id",
+    "standard": "workflow/duplicate-lane-id",
+    "showcase": "workflow/duplicate-lane-id"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-node-architecture",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "graph/duplicate-node-id",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-node-dataflow",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "graph/duplicate-node-id",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-node-lifecycle",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "graph/duplicate-node-id",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-node-sequence",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "graph/duplicate-node-id",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-node-workflow-v2",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/duplicate-node-id",
+   "expect_codes": [
+    "workflow/duplicate-node-id"
+   ],
+   "diagnostics": {
+    "authored": "workflow/duplicate-node-id",
+    "standard": "workflow/duplicate-node-id",
+    "showcase": "workflow/duplicate-node-id"
+   }
+  },
+  {
+   "name": "neg.graph-duplicate-phase-v1",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "graph/duplicate-container-id",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-container-activation",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "graph/unknown-container",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-container-boundary-wraps",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "graph/unknown-container",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-container-group-lane",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "graph/unknown-container",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-container-node-lane-v1",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "graph/unknown-container",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-container-node-lane-v2",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/unknown-node-lane",
+   "expect_codes": [
+    "workflow/unknown-node-lane"
+   ],
+   "diagnostics": {
+    "authored": "workflow/unknown-node-lane",
+    "standard": "workflow/unknown-node-lane",
+    "showcase": "workflow/unknown-node-lane"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-container-state-lane",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "graph/unknown-container",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-endpoint-architecture",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "graph/unknown-endpoint",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-endpoint-dataflow",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "graph/unknown-endpoint",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-endpoint-lifecycle",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "graph/unknown-endpoint",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-endpoint-sequence",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "graph/unknown-endpoint",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-endpoint-workflow-v1",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "graph/unknown-endpoint",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.graph-unknown-endpoint-workflow-v2",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/unknown-edge-endpoint",
+   "expect_codes": [
+    "workflow/unknown-edge-endpoint"
+   ],
+   "diagnostics": {
+    "authored": "workflow/unknown-edge-endpoint",
+    "standard": "workflow/unknown-edge-endpoint",
+    "showcase": "workflow/unknown-edge-endpoint"
+   }
+  },
+  {
+   "name": "neg.i18n-locale-fallback",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "i18n/locale-fallback",
+   "expect_codes": [],
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "neg.i18n-translation-coverage",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "i18n/translation-coverage",
+   "expect_codes": [],
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "neg.input-json-empty",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "input/json-parse",
+   "expect_codes": [
+    "input/json-parse"
+   ],
+   "diagnostics": {
+    "authored": "input/json-parse",
+    "standard": "input/json-parse",
+    "showcase": "input/json-parse"
+   }
+  },
+  {
+   "name": "neg.input-json-parse",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "input/json-parse",
+   "expect_codes": [
+    "input/json-parse"
+   ],
+   "diagnostics": {
+    "authored": "input/json-parse",
+    "standard": "input/json-parse",
+    "showcase": "input/json-parse"
+   }
+  },
+  {
+   "name": "neg.input-read-missing",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "input/read",
+   "expect_codes": [
+    "input/read"
+   ],
+   "diagnostics": {
+    "authored": "input/read",
+    "standard": "input/read",
+    "showcase": "input/read"
+   }
+  },
+  {
+   "name": "neg.lc-col-range-v1-event-band",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lc-v1",
+   "rule": "lifecycle/col-range",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint",
+    "standard": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint",
+    "showcase": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.lc-col-range-v2",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "lifecycle/col-range",
+   "expect_codes": [
+    "schema/maximum"
+   ],
+   "diagnostics": {
+    "authored": "schema/maximum",
+    "standard": "schema/maximum",
+    "showcase": "schema/maximum"
+   }
+  },
+  {
+   "name": "neg.lc-label-too-wide",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "geom/label-too-wide",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.lc-main-lane-required",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "lifecycle/main-lane-required",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.lc-node-out-of-bounds",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "geom/node-out-of-bounds",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "composition/label-canvas-containment,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.lc-node-overlap",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "geom/node-overlap",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint",
+    "standard": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,layout/constraint",
+    "showcase": "clean-flow/endpoint-side-direction,clean-flow/edge-through-node,composition/label-route-clearance,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.lc-v1-canvas",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lc-v1",
+   "rule": "lifecycle/v1-canvas",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.lc-v1-label-too-wide",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lc-v1",
+   "rule": "geom/label-too-wide",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.legend-content-overlap",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "legend/content-overlap",
+   "expect_codes": [
+    "legend/content-overlap"
+   ],
+   "diagnostics": {
+    "authored": "legend/content-overlap",
+    "standard": "legend/content-overlap",
+    "showcase": "legend/content-overlap"
+   }
+  },
+  {
+   "name": "neg.legend-label-too-wide",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "legend/label-too-wide",
+   "expect_codes": [
+    "legend/label-too-wide"
+   ],
+   "diagnostics": {
+    "authored": "legend/label-too-wide",
+    "standard": "legend/label-too-wide",
+    "showcase": "legend/label-too-wide"
+   }
+  },
+  {
+   "name": "neg.legend-vertical-overflow",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "legend/vertical-overflow",
+   "expect_codes": [
+    "legend/vertical-overflow"
+   ],
+   "diagnostics": {
+    "authored": "legend/vertical-overflow",
+    "standard": "legend/vertical-overflow",
+    "showcase": "legend/vertical-overflow"
+   }
+  },
+  {
+   "name": "neg.output-absolute",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-absolute"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-absolute",
+    "standard": "output/meta-absolute",
+    "showcase": "output/meta-absolute"
+   }
+  },
+  {
+   "name": "neg.output-backslash",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-dot-segment",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-drive-relative",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-empty",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-empty-segment",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-extension",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "output/meta-extension",
+   "expect_codes": [
+    "output/meta-extension"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-extension",
+    "standard": "output/meta-extension",
+    "showcase": "output/meta-extension"
+   }
+  },
+  {
+   "name": "neg.output-reserved-name",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-trailing-dot",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-uri",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.output-wildcard",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "portable-path/*",
+   "expect_codes": [
+    "output/meta-path-syntax"
+   ],
+   "diagnostics": {
+    "authored": "output/meta-path-syntax",
+    "standard": "output/meta-path-syntax",
+    "showcase": "output/meta-path-syntax"
+   }
+  },
+  {
+   "name": "neg.rel-duplicate-id-connection",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "relationship/duplicate-id",
+   "expect_codes": [
+    "relationship/duplicate-id"
+   ],
+   "diagnostics": {
+    "authored": "relationship/duplicate-id",
+    "standard": "relationship/duplicate-id",
+    "showcase": "relationship/duplicate-id"
+   }
+  },
+  {
+   "name": "neg.rel-duplicate-id-edge",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "relationship/duplicate-id",
+   "expect_codes": [
+    "relationship/duplicate-id"
+   ],
+   "diagnostics": {
+    "authored": "relationship/duplicate-id",
+    "standard": "relationship/duplicate-id",
+    "showcase": "relationship/duplicate-id"
+   }
+  },
+  {
+   "name": "neg.rel-duplicate-id-flow",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "relationship/duplicate-id",
+   "expect_codes": [
+    "relationship/duplicate-id"
+   ],
+   "diagnostics": {
+    "authored": "relationship/duplicate-id",
+    "standard": "relationship/duplicate-id",
+    "showcase": "relationship/duplicate-id"
+   }
+  },
+  {
+   "name": "neg.rel-duplicate-id-message",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "relationship/duplicate-id",
+   "expect_codes": [
+    "relationship/duplicate-id"
+   ],
+   "diagnostics": {
+    "authored": "relationship/duplicate-id",
+    "standard": "relationship/duplicate-id",
+    "showcase": "relationship/duplicate-id"
+   }
+  },
+  {
+   "name": "neg.rel-duplicate-id-transition",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "relationship/duplicate-id",
+   "expect_codes": [
+    "relationship/duplicate-id"
+   ],
+   "diagnostics": {
+    "authored": "relationship/duplicate-id",
+    "standard": "relationship/duplicate-id",
+    "showcase": "relationship/duplicate-id"
+   }
+  },
+  {
+   "name": "neg.repo-link-mode-enum",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/link-mode-invalid",
+   "expect_codes": [
+    "schema/enum"
+   ],
+   "diagnostics": {
+    "authored": "schema/enum",
+    "standard": "schema/enum",
+    "showcase": "schema/enum"
+   }
+  },
+  {
+   "name": "neg.repo-links-unsupported",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/links-unsupported",
+   "expect_codes": [
+    "repository-evidence/links-unsupported"
+   ],
+   "diagnostics": {
+    "authored": "repository-evidence/links-unsupported",
+    "standard": "repository-evidence/links-unsupported",
+    "showcase": "repository-evidence/links-unsupported"
+   }
+  },
+  {
+   "name": "neg.repo-provider-enum",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/provider-invalid",
+   "expect_codes": [
+    "schema/enum"
+   ],
+   "diagnostics": {
+    "authored": "schema/enum",
+    "standard": "schema/enum",
+    "showcase": "schema/enum"
+   }
+  },
+  {
+   "name": "neg.repo-provider-mismatch",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/provider-invalid",
+   "expect_codes": [
+    "repository-evidence/provider-invalid"
+   ],
+   "diagnostics": {
+    "authored": "repository-evidence/provider-invalid",
+    "standard": "repository-evidence/provider-invalid",
+    "showcase": "repository-evidence/provider-invalid"
+   }
+  },
+  {
+   "name": "neg.repo-required",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/repository-required",
+   "expect_codes": [
+    "repository-evidence/repository-required"
+   ],
+   "diagnostics": {
+    "authored": "repository-evidence/repository-required",
+    "standard": "repository-evidence/repository-required",
+    "showcase": "repository-evidence/repository-required"
+   }
+  },
+  {
+   "name": "neg.repo-revision-invalid",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/revision-invalid",
+   "expect_codes": [
+    "schema/pattern"
+   ],
+   "diagnostics": {
+    "authored": "schema/pattern",
+    "standard": "schema/pattern",
+    "showcase": "schema/pattern"
+   }
+  },
+  {
+   "name": "neg.repo-root-required",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/root-required",
+   "expect_codes": [
+    "repository-evidence/root-required"
+   ],
+   "diagnostics": {
+    "authored": "repository-evidence/root-required",
+    "standard": "repository-evidence/root-required",
+    "showcase": "repository-evidence/root-required"
+   }
+  },
+  {
+   "name": "neg.repo-sources-too-many",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/maxItems",
+   "expect_codes": [
+    "schema/maxItems"
+   ],
+   "diagnostics": {
+    "authored": "schema/maxItems",
+    "standard": "schema/maxItems",
+    "showcase": "schema/maxItems"
+   }
+  },
+  {
+   "name": "neg.repo-url-invalid",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "repository-evidence/url-invalid",
+   "expect_codes": [
+    "repository-evidence/url-invalid"
+   ],
+   "diagnostics": {
+    "authored": "repository-evidence/url-invalid",
+    "standard": "repository-evidence/url-invalid",
+    "showcase": "repository-evidence/url-invalid"
+   }
+  },
+  {
+   "name": "neg.schema-additional-property",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/additionalProperties",
+   "expect_codes": [
+    "schema/additionalProperties"
+   ],
+   "diagnostics": {
+    "authored": "schema/additionalProperties",
+    "standard": "schema/additionalProperties",
+    "showcase": "schema/additionalProperties"
+   }
+  },
+  {
+   "name": "neg.schema-anyOf-brand",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/anyOf",
+   "expect_codes": [
+    "schema/anyOf"
+   ],
+   "diagnostics": {
+    "authored": "schema/maxLength,schema/pattern,schema/anyOf,schema/type,schema/oneOf",
+    "standard": "schema/maxLength,schema/pattern,schema/anyOf,schema/type,schema/oneOf",
+    "showcase": "schema/maxLength,schema/pattern,schema/anyOf,schema/type,schema/oneOf"
+   }
+  },
+  {
+   "name": "neg.schema-const-diagram-type",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/const",
+   "expect_codes": [
+    "schema/const"
+   ],
+   "diagnostics": {
+    "authored": "schema/const",
+    "standard": "schema/const",
+    "showcase": "schema/const"
+   }
+  },
+  {
+   "name": "neg.schema-const-schema-version",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/const",
+   "expect_codes": [
+    "schema/const"
+   ],
+   "diagnostics": {
+    "authored": "schema/const",
+    "standard": "schema/const",
+    "showcase": "schema/const"
+   }
+  },
+  {
+   "name": "neg.schema-enum-component-type",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/enum",
+   "expect_codes": [
+    "schema/enum"
+   ],
+   "diagnostics": {
+    "authored": "schema/enum",
+    "standard": "schema/enum",
+    "showcase": "schema/enum"
+   }
+  },
+  {
+   "name": "neg.schema-enum-variant",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/enum",
+   "expect_codes": [
+    "schema/enum"
+   ],
+   "diagnostics": {
+    "authored": "schema/enum",
+    "standard": "schema/enum",
+    "showcase": "schema/enum"
+   }
+  },
+  {
+   "name": "neg.schema-enum-workflow-version",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "schema/enum",
+   "expect_codes": [
+    "schema/enum"
+   ],
+   "diagnostics": {
+    "authored": "schema/enum",
+    "standard": "schema/enum",
+    "showcase": "schema/enum"
+   }
+  },
+  {
+   "name": "neg.schema-exclusiveMinimum-size",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/exclusiveMinimum",
+   "expect_codes": [
+    "schema/exclusiveMinimum"
+   ],
+   "diagnostics": {
+    "authored": "schema/exclusiveMinimum",
+    "standard": "schema/exclusiveMinimum",
+    "showcase": "schema/exclusiveMinimum"
+   }
+  },
+  {
+   "name": "neg.schema-maximum-grid-cols",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/maximum",
+   "expect_codes": [
+    "schema/maximum"
+   ],
+   "diagnostics": {
+    "authored": "schema/maximum",
+    "standard": "schema/maximum",
+    "showcase": "schema/maximum"
+   }
+  },
+  {
+   "name": "neg.schema-maximum-node-col",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "schema/maximum",
+   "expect_codes": [
+    "schema/maximum"
+   ],
+   "diagnostics": {
+    "authored": "schema/maximum",
+    "standard": "schema/maximum",
+    "showcase": "schema/maximum"
+   }
+  },
+  {
+   "name": "neg.schema-maxItems-lifecycle-lanes",
+   "group": "negative",
+   "type": "lifecycle",
+   "source": "mutation of lifecycle",
+   "rule": "schema/maxItems",
+   "expect_codes": [
+    "schema/maxItems"
+   ],
+   "diagnostics": {
+    "authored": "schema/maxItems",
+    "standard": "schema/maxItems",
+    "showcase": "schema/maxItems"
+   }
+  },
+  {
+   "name": "neg.schema-maxItems-stages",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "schema/maxItems",
+   "expect_codes": [
+    "schema/maxItems"
+   ],
+   "diagnostics": {
+    "authored": "schema/maxItems",
+    "standard": "schema/maxItems",
+    "showcase": "schema/maxItems"
+   }
+  },
+  {
+   "name": "neg.schema-maxLength-locale",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/maxLength",
+   "expect_codes": [
+    "schema/maxLength"
+   ],
+   "diagnostics": {
+    "authored": "schema/maxLength",
+    "standard": "schema/maxLength",
+    "showcase": "schema/maxLength"
+   }
+  },
+  {
+   "name": "neg.schema-minimum-message-y",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "schema/minimum",
+   "expect_codes": [
+    "schema/minimum"
+   ],
+   "diagnostics": {
+    "authored": "schema/minimum",
+    "standard": "schema/minimum",
+    "showcase": "schema/minimum"
+   }
+  },
+  {
+   "name": "neg.schema-minimum-viewbox",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/minimum",
+   "expect_codes": [
+    "schema/minimum"
+   ],
+   "diagnostics": {
+    "authored": "schema/minimum",
+    "standard": "schema/minimum",
+    "showcase": "schema/minimum"
+   }
+  },
+  {
+   "name": "neg.schema-minItems-participants",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "schema/minItems",
+   "expect_codes": [
+    "schema/minItems"
+   ],
+   "diagnostics": {
+    "authored": "schema/minItems",
+    "standard": "schema/minItems",
+    "showcase": "schema/minItems"
+   }
+  },
+  {
+   "name": "neg.schema-minItems-stages",
+   "group": "negative",
+   "type": "dataflow",
+   "source": "mutation of dataflow",
+   "rule": "schema/minItems",
+   "expect_codes": [
+    "schema/minItems"
+   ],
+   "diagnostics": {
+    "authored": "schema/minItems",
+    "standard": "schema/minItems",
+    "showcase": "schema/minItems"
+   }
+  },
+  {
+   "name": "neg.schema-minLength-label",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/minLength",
+   "expect_codes": [
+    "schema/minLength"
+   ],
+   "diagnostics": {
+    "authored": "schema/minLength",
+    "standard": "schema/minLength",
+    "showcase": "schema/minLength"
+   }
+  },
+  {
+   "name": "neg.schema-minProperties-legend-entry",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/minProperties",
+   "expect_codes": [
+    "schema/minProperties"
+   ],
+   "diagnostics": {
+    "authored": "schema/minProperties",
+    "standard": "schema/minProperties",
+    "showcase": "schema/minProperties"
+   }
+  },
+  {
+   "name": "neg.schema-oneOf-brand",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/oneOf",
+   "expect_codes": [
+    "schema/oneOf"
+   ],
+   "diagnostics": {
+    "authored": "schema/type,schema/required,schema/oneOf",
+    "standard": "schema/type,schema/required,schema/oneOf",
+    "showcase": "schema/type,schema/required,schema/oneOf"
+   }
+  },
+  {
+   "name": "neg.schema-pattern-id",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/pattern",
+   "expect_codes": [
+    "schema/pattern"
+   ],
+   "diagnostics": {
+    "authored": "schema/pattern",
+    "standard": "schema/pattern",
+    "showcase": "schema/pattern"
+   }
+  },
+  {
+   "name": "neg.schema-pattern-locale",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/pattern",
+   "expect_codes": [
+    "schema/pattern"
+   ],
+   "diagnostics": {
+    "authored": "schema/pattern",
+    "standard": "schema/pattern",
+    "showcase": "schema/pattern"
+   }
+  },
+  {
+   "name": "neg.schema-point-extra-item",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/maxItems",
+   "expect_codes": [
+    "schema/maxItems"
+   ],
+   "diagnostics": {
+    "authored": "schema/maxItems",
+    "standard": "schema/maxItems",
+    "showcase": "schema/maxItems"
+   }
+  },
+  {
+   "name": "neg.schema-propertyNames-translations",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/propertyNames",
+   "expect_codes": [
+    "schema/propertyNames"
+   ],
+   "diagnostics": {
+    "authored": "schema/pattern,schema/propertyNames",
+    "standard": "schema/pattern,schema/propertyNames",
+    "showcase": "schema/pattern,schema/propertyNames"
+   }
+  },
+  {
+   "name": "neg.schema-required-components",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/required",
+   "expect_codes": [
+    "schema/required"
+   ],
+   "diagnostics": {
+    "authored": "schema/required",
+    "standard": "schema/required",
+    "showcase": "schema/required"
+   }
+  },
+  {
+   "name": "neg.schema-required-output",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/required",
+   "expect_codes": [
+    "schema/required"
+   ],
+   "diagnostics": {
+    "authored": "schema/required",
+    "standard": "schema/required",
+    "showcase": "schema/required"
+   }
+  },
+  {
+   "name": "neg.schema-required-title",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/required",
+   "expect_codes": [
+    "schema/required"
+   ],
+   "diagnostics": {
+    "authored": "schema/required",
+    "standard": "schema/required",
+    "showcase": "schema/required"
+   }
+  },
+  {
+   "name": "neg.schema-type-label",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/type",
+   "expect_codes": [
+    "schema/type"
+   ],
+   "diagnostics": {
+    "authored": "schema/type",
+    "standard": "schema/type",
+    "showcase": "schema/type"
+   }
+  },
+  {
+   "name": "neg.schema-type-root",
+   "group": "negative",
+   "type": "architecture",
+   "source": "mutation of architecture",
+   "rule": "schema/type",
+   "expect_codes": [
+    "schema/type"
+   ],
+   "diagnostics": {
+    "authored": "schema/type",
+    "standard": "schema/type",
+    "showcase": "schema/type"
+   }
+  },
+  {
+   "name": "neg.seq-activation-inverted",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "sequence/inverted-range",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.seq-label-too-wide",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "geom/label-too-wide",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.seq-message-span-short",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "geom/edge-too-short",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.seq-message-y-out-of-range",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "sequence/timeline",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.seq-messages-too-close",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "sequence/timeline",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "composition/label-route-clearance,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.seq-participants-exceed-width",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "geom/node-out-of-bounds",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.seq-segment-inverted",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "sequence/inverted-range",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.seq-segment-out-of-range",
+   "group": "negative",
+   "type": "sequence",
+   "source": "mutation of sequence",
+   "rule": "sequence/timeline",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-group-empty",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/group-empty",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-group-range",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/group-range",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-invalid-node-column-v1",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "workflow/invalid-node-column",
+   "expect_codes": [
+    "schema/type"
+   ],
+   "diagnostics": {
+    "authored": "schema/type",
+    "standard": "schema/type",
+    "showcase": "schema/type"
+   }
+  },
+  {
+   "name": "neg.wf-main-path-backward",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/main-path",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-main-path-no-edge",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/main-path",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-main-path-unknown",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/main-path",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-phase-overlap",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/phase-overlap",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-phase-range",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/phase-range",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-required-edge",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/required-edge",
+   "expect_codes": [
+    "workflow/required-edge"
+   ],
+   "diagnostics": {
+    "authored": "workflow/required-edge",
+    "standard": "workflow/required-edge",
+    "showcase": "workflow/required-edge"
+   }
+  },
+  {
+   "name": "neg.wf-required-path",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/required-path",
+   "expect_codes": [
+    "workflow/required-path"
+   ],
+   "diagnostics": {
+    "authored": "workflow/required-path",
+    "standard": "workflow/required-path",
+    "showcase": "workflow/required-path"
+   }
+  },
+  {
+   "name": "neg.wf-semantic-node-reference",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/semantic-node-reference",
+   "expect_codes": [
+    "workflow/semantic-node-reference"
+   ],
+   "diagnostics": {
+    "authored": "workflow/semantic-node-reference",
+    "standard": "workflow/semantic-node-reference",
+    "showcase": "workflow/semantic-node-reference"
+   }
+  },
+  {
+   "name": "neg.wf-unexpected-root",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/unexpected-root",
+   "expect_codes": [
+    "workflow/unexpected-root"
+   ],
+   "diagnostics": {
+    "authored": "workflow/unexpected-root",
+    "standard": "workflow/unexpected-root",
+    "showcase": "workflow/unexpected-root"
+   }
+  },
+  {
+   "name": "neg.wf-unexpected-terminal",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/unexpected-terminal",
+   "expect_codes": [
+    "workflow/unexpected-terminal"
+   ],
+   "diagnostics": {
+    "authored": "workflow/unexpected-terminal",
+    "standard": "workflow/unexpected-terminal",
+    "showcase": "workflow/unexpected-terminal"
+   }
+  },
+  {
+   "name": "neg.wf-v1-column-capacity",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "workflow/column-capacity",
+   "expect_codes": [
+    "workflow/column-capacity"
+   ],
+   "diagnostics": {
+    "authored": "workflow/column-capacity",
+    "standard": "workflow/column-capacity",
+    "showcase": "workflow/column-capacity"
+   }
+  },
+  {
+   "name": "neg.wf-v1-edge-through-node",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "clean-flow/edge-through-node",
+   "expect_codes": [
+    "clean-flow/edge-through-node"
+   ],
+   "diagnostics": {
+    "authored": "clean-flow/edge-through-node,layout/constraint",
+    "standard": "clean-flow/edge-through-node,layout/constraint",
+    "showcase": "clean-flow/edge-through-node,layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-v1-short-edge-vertical",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of wf-v1",
+   "rule": "workflow/short-edge",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-v2-explicit-pin-conflict",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/explicit-pin-conflict",
+   "expect_codes": [
+    "workflow/explicit-pin-conflict"
+   ],
+   "diagnostics": {
+    "authored": "workflow/explicit-pin-conflict",
+    "standard": "workflow/explicit-pin-conflict",
+    "showcase": "workflow/explicit-pin-conflict"
+   }
+  },
+  {
+   "name": "neg.wf-v2-label-too-wide",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "geom/label-too-wide",
+   "expect_codes": [
+    "layout/constraint"
+   ],
+   "diagnostics": {
+    "authored": "layout/constraint",
+    "standard": "layout/constraint",
+    "showcase": "layout/constraint"
+   }
+  },
+  {
+   "name": "neg.wf-v2-node-overlap",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/node-overlap",
+   "expect_codes": [
+    "workflow/node-overlap"
+   ],
+   "diagnostics": {
+    "authored": "workflow/node-overlap",
+    "standard": "workflow/node-overlap",
+    "showcase": "workflow/node-overlap"
+   }
+  },
+  {
+   "name": "neg.wf-v2-pinned-label-over-node",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/label-node-overlap",
+   "expect_codes": [
+    "workflow/explicit-pin-conflict"
+   ],
+   "diagnostics": {
+    "authored": "workflow/explicit-pin-conflict",
+    "standard": "workflow/explicit-pin-conflict",
+    "showcase": "workflow/explicit-pin-conflict"
+   }
+  },
+  {
+   "name": "neg.wf-v2-route-preset-conflict",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/route-preset-conflict",
+   "expect_codes": [
+    "workflow/route-preset-conflict"
+   ],
+   "diagnostics": {
+    "authored": "workflow/route-preset-conflict",
+    "standard": "workflow/route-preset-conflict",
+    "showcase": "workflow/route-preset-conflict"
+   }
+  },
+  {
+   "name": "neg.wf-v2-viewbox-capacity",
+   "group": "negative",
+   "type": "workflow",
+   "source": "mutation of workflow",
+   "rule": "workflow/viewbox-capacity",
+   "expect_codes": [
+    "workflow/viewbox-capacity"
+   ],
+   "diagnostics": {
+    "authored": "workflow/viewbox-capacity",
+    "standard": "workflow/viewbox-capacity",
+    "showcase": "workflow/viewbox-capacity"
+   }
+  },
+  {
+   "name": "product-analytics.dataflow",
+   "group": "example",
+   "type": "dataflow",
+   "source": "archify/examples/product-analytics.dataflow.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "production-deployment.architecture",
+   "group": "example",
+   "type": "architecture",
+   "source": "archify/examples/production-deployment.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  },
+  {
+   "name": "release-delivery.workflow",
+   "group": "example",
+   "type": "workflow",
+   "source": "archify/examples/release-delivery.workflow.json",
+   "diagnostics": {
+    "authored": "ok+w:composition/viewport-height",
+    "standard": "ok+w:composition/viewport-height",
+    "showcase": "ok+w:composition/viewport-height"
+   }
+  },
+  {
+   "name": "web-app.architecture",
+   "group": "example",
+   "type": "architecture",
+   "source": "archify/examples/web-app.architecture.json",
+   "diagnostics": {
+    "authored": "ok",
+    "standard": "ok",
+    "showcase": "ok"
+   }
+  }
+ ]
+}

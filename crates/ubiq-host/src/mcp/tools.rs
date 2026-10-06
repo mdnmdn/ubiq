@@ -26,11 +26,11 @@ use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
 use super::catalogue::{
-    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, UBIQ_MISSION, UBIQ_PLAN,
+    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ARCHIFY, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, UBIQ_MISSION, UBIQ_PLAN,
     UBIQ_SQL_READ, UBIQ_SQL_WRITE, USE_MISSION, USE_TASK,
 };
 use super::registry::AgentFacts;
-use super::{AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
+use super::{ArchifyReach, AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
 /// the tool has not, so an unknown one ends here as the in-band error a model sees.
@@ -48,6 +48,7 @@ pub fn call(
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
     sql: Option<&SqlReach>,
+    archify: Option<&ArchifyReach>,
 ) -> Result<Value, String> {
     match (server, tool) {
         (TEST, "send_notification") => send_notification(arguments, facts, voice),
@@ -102,6 +103,12 @@ pub fn call(
         // Reached on a thread [`super::server::handle`] spawned for it, like the ask arm: a query
         // can run for minutes and the listener must stay free (`D202`).
         (UBIQ_SQL_READ | UBIQ_SQL_WRITE, _) => sql_call(server, tool, arguments, facts, sql),
+        // Reached on a thread of its own too: a compile can take a second (`D138`).
+        (UBIQ_ARCHIFY, _) => {
+            let reach = archify
+                .ok_or_else(|| "this host has no diagram server for agents to reach".to_string())?;
+            super::archify::call(tool, arguments, facts, reach)
+        }
         _ => Err(format!("unknown tool: {server}/{tool}")),
     }
 }

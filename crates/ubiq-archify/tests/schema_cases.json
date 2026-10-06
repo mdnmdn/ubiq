@@ -1,0 +1,4626 @@
+{
+ "archify": "3.0.1",
+ "cases": [
+  {
+   "name": "arch-missing-title",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "del",
+     "/meta/title"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/meta must have required property 'title' {\"missingProperty\":\"title\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "title"
+     },
+     "supportedFixes": [
+      "add required property \"title\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-missing-components",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "del",
+     "/components"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'components' {\"missingProperty\":\"components\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "components"
+     },
+     "supportedFixes": [
+      "add required property \"components\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-missing-output",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "del",
+     "/meta/output"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/meta must have required property 'output' {\"missingProperty\":\"output\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "output"
+     },
+     "supportedFixes": [
+      "add required property \"output\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-extra-root",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/foo",
+     1
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/ must NOT have additional properties {\"additionalProperty\":\"foo\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "foo"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"foo\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-extra-component",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/colour",
+     "red"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/components/0 (id/label: \"users\") must NOT have additional properties {\"additionalProperty\":\"colour\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "colour"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"colour\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-wrong-label-type",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/label",
+     5
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/label (id/label: \"users\") must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/label",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /components/0/label"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-empty-label",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/label",
+     ""
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/components/0/label (id/label: \"users\") must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/label",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-meta-not-object",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta",
+     "x"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /meta"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-components-not-array",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components",
+     {}
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components must be array {\"type\":\"array\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "array"
+     },
+     "supportedFixes": [
+      "use \"array\" at /components"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-empty-components",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components",
+     []
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/components must NOT have fewer than 1 items {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-bad-component-type",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/type",
+     "gizmo"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/components/0/type (id/label: \"users\") must be equal to one of the allowed values {\"allowedValues\":[\"frontend\",\"backend\",\"database\",\"cloud\",\"security\",\"messagebus\",\"external\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/type",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "frontend",
+       "backend",
+       "database",
+       "cloud",
+       "security",
+       "messagebus",
+       "external"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"frontend\",\"backend\",\"database\",\"cloud\",\"security\",\"messagebus\",\"external\"]"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-bad-icon",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/icon",
+     "rocket"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/components/0/icon (id/label: \"users\") must be equal to one of the allowed values {\"allowedValues\":[\"calendar\",\"clock\",\"person\",\"briefcase\",\"flag\",\"moon\",\"frontend\",\"backend\",\"database\",\"cloud\",\"security\",\"messagebus\",\"external\",\"start\",\"active\",\"waiting\",\"success\",\"failure\",\"neutral\",\"none\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/icon",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "calendar",
+       "clock",
+       "person",
+       "briefcase",
+       "flag",
+       "moon",
+       "frontend",
+       "backend",
+       "database",
+       "cloud",
+       "security",
+       "messagebus",
+       "external",
+       "start",
+       "active",
+       "waiting",
+       "success",
+       "failure",
+       "neutral",
+       "none"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"calendar\",\"clock\",\"person\",\"briefcase\",\"flag\",\"moon\",\"frontend\",\"backend\",\"database\",\"cloud\",\"security\",\"messagebus\",\"external\",\"start\",\"active\",\"waiting\",\"success\",\"failure\",\"neutral\",\"none\"]"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-bad-id",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/id",
+     "9 bad"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/components/0/id (id/label: \"9 bad\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/id",
+      "identity": "9 bad"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-version",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/schema_version",
+     2
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/const",
+     "severity": "error",
+     "message": "/schema_version must be equal to constant {\"allowedValue\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/schema_version"
+     },
+     "evidence": {
+      "keyword": "const",
+      "allowedValue": 1
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "arch-diagram-type",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/diagram_type",
+     "workflow"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/const",
+     "severity": "error",
+     "message": "/diagram_type must be equal to constant {\"allowedValue\":\"architecture\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/diagram_type"
+     },
+     "evidence": {
+      "keyword": "const",
+      "allowedValue": "architecture"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "arch-bad-variant",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/connections/0/variant",
+     "loud"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/connections/0/variant (id/label: \"users-to-cdn\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/connections/0/variant",
+      "identity": "users-to-cdn"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "default",
+       "emphasis",
+       "security",
+       "dashed"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"default\",\"emphasis\",\"security\",\"dashed\"]"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-bad-quality",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/quality_profile",
+     "gold"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/meta/quality_profile must be equal to one of the allowed values {\"allowedValues\":[\"standard\",\"showcase\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/quality_profile"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "standard",
+       "showcase"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"standard\",\"showcase\"]"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-bad-preset",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/visual_preset",
+     "neon"
+    ],
+    [
+     "set",
+     "/meta/animation",
+     "spin"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/meta/animation must be equal to one of the allowed values {\"allowedValues\":[\"trace\",\"none\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/animation"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "trace",
+       "none"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"trace\",\"none\"]"
+     ]
+    },
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/meta/visual_preset must be equal to one of the allowed values {\"allowedValues\":[\"classic\",\"signal-flow\",\"blueprint\",\"editorial\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/visual_preset"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "classic",
+       "signal-flow",
+       "blueprint",
+       "editorial"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"classic\",\"signal-flow\",\"blueprint\",\"editorial\"]"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-bad-locale",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/locale",
+     "EN"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/locale"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-long-locale",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/locale",
+     "en-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxLength",
+     "severity": "error",
+     "message": "/meta/locale must NOT have more than 35 characters {\"limit\":35}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/locale"
+     },
+     "evidence": {
+      "keyword": "maxLength",
+      "limit": 35
+     },
+     "supportedFixes": [
+      "provide at most 35 character(s)"
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/locale"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-row-float",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/row",
+     1.5
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/row (id/label: \"users\") must be integer {\"type\":\"integer\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/row",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "integer"
+     },
+     "supportedFixes": [
+      "use \"integer\" at /components/0/row"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-row-integral-float",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/row",
+     2
+    ]
+   ],
+   "diagnostics": []
+  },
+  {
+   "name": "arch-row-negative",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/col",
+     -1
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/components/0/col (id/label: \"users\") must be >= 0 {\"comparison\":\">=\",\"limit\":0}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/col",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 0
+     },
+     "supportedFixes": [
+      "use a value >= 0"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-pos-three",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/pos",
+     [
+      1,
+      2,
+      3
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxItems",
+     "severity": "error",
+     "message": "/components/0/pos (id/label: \"users\") must NOT have more than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/pos",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "maxItems",
+      "limit": 2
+     },
+     "supportedFixes": [
+      "provide at most 2 item(s)"
+     ]
+    },
+    {
+     "code": "schema/items",
+     "severity": "error",
+     "message": "/components/0/pos (id/label: \"users\") must NOT have more than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/pos",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "items",
+      "limit": 2
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "arch-pos-one",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/pos",
+     [
+      1
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/components/0/pos (id/label: \"users\") must NOT have fewer than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/pos",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 2
+     },
+     "supportedFixes": [
+      "provide at least 2 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-pos-strings",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/pos",
+     [
+      "a",
+      "b"
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/pos/0 (id/label: \"users\") must be number {\"type\":\"number\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/pos/0",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "number"
+     },
+     "supportedFixes": [
+      "use \"number\" at /components/0/pos/0"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/pos/1 (id/label: \"users\") must be number {\"type\":\"number\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/pos/1",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "number"
+     },
+     "supportedFixes": [
+      "use \"number\" at /components/0/pos/1"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-size-zero",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/size",
+     [
+      0,
+      60
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/exclusiveMinimum",
+     "severity": "error",
+     "message": "/components/0/size/0 (id/label: \"users\") must be > 0 {\"comparison\":\">\",\"limit\":0}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/size/0",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "exclusiveMinimum",
+      "comparison": ">",
+      "limit": 0
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "arch-size-negative",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/size",
+     [
+      -1,
+      -2
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/exclusiveMinimum",
+     "severity": "error",
+     "message": "/components/0/size/0 (id/label: \"users\") must be > 0 {\"comparison\":\">\",\"limit\":0}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/size/0",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "exclusiveMinimum",
+      "comparison": ">",
+      "limit": 0
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/exclusiveMinimum",
+     "severity": "error",
+     "message": "/components/0/size/1 (id/label: \"users\") must be > 0 {\"comparison\":\">\",\"limit\":0}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/size/1",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "exclusiveMinimum",
+      "comparison": ">",
+      "limit": 0
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "arch-viewbox-small",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/viewBox",
+     [
+      100,
+      100
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/viewBox/0"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 320
+     },
+     "supportedFixes": [
+      "use a value >= 320"
+     ]
+    },
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/viewBox/1"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 240
+     },
+     "supportedFixes": [
+      "use a value >= 240"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-viewbox-three",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/viewBox",
+     [
+      400,
+      300,
+      1
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxItems",
+     "severity": "error",
+     "message": "/meta/viewBox must NOT have more than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/viewBox"
+     },
+     "evidence": {
+      "keyword": "maxItems",
+      "limit": 2
+     },
+     "supportedFixes": [
+      "provide at most 2 item(s)"
+     ]
+    },
+    {
+     "code": "schema/items",
+     "severity": "error",
+     "message": "/meta/viewBox must NOT have more than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/viewBox"
+     },
+     "evidence": {
+      "keyword": "items",
+      "limit": 2
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "arch-viewbox-ok",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/viewBox",
+     [
+      1200,
+      700
+     ]
+    ]
+   ],
+   "diagnostics": []
+  },
+  {
+   "name": "out-extension",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "a.htm"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/output must match pattern \"(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$\" {\"pattern\":\"(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "out-empty",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     ""
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/output must match pattern \"(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$\" {\"pattern\":\"(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"(?:^|/)[^/]+[.][Hh][Tt][Mm][Ll]$\""
+     ]
+    },
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/meta/output must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/output must match pattern \"^[^/]+(?:/[^/]+)*$\" {\"pattern\":\"^[^/]+(?:/[^/]+)*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[^/]+(?:/[^/]+)*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[^/]+(?:/[^/]+)*$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "out-absolute",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "/a.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/output must match pattern \"^[^/]+(?:/[^/]+)*$\" {\"pattern\":\"^[^/]+(?:/[^/]+)*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[^/]+(?:/[^/]+)*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[^/]+(?:/[^/]+)*$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "out-colon",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "a:b.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-backslash",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "a\\b.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-dotdot",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "../a.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-dot",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "./a.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-empty-segment",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "a//b.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/output must match pattern \"^[^/]+(?:/[^/]+)*$\" {\"pattern\":\"^[^/]+(?:/[^/]+)*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[^/]+(?:/[^/]+)*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[^/]+(?:/[^/]+)*$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "out-reserved",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "out/CON.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-short-name",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "PROGRA~1.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-trailing-dot",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "a./b.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-control",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "a\u0007b.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-segment-256",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-wrapper-too-long",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€.html"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/portablePath",
+     "severity": "error",
+     "message": "/meta/output must satisfy the portable output path contract {\"reason\":\"component-too-long\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "portablePath",
+      "reason": "component-too-long"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "out-wrapper-and-schema-error",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€.html"
+    ],
+    [
+     "set",
+     "/foo",
+     1
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/ must NOT have additional properties {\"additionalProperty\":\"foo\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "foo"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"foo\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "out-not-string",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     5
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/not",
+     "severity": "error",
+     "message": "/meta/output must NOT be valid",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "not"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/output must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/output"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /meta/output"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "out-upper-html-ok",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/output",
+     "a/B.HTML"
+    ]
+   ],
+   "diagnostics": []
+  },
+  {
+   "name": "brand-number",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     5
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/oneOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "oneOf",
+      "passingSchemas": null
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "brand-long-text",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxLength",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must NOT have more than 80 characters {\"limit\":80}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "maxLength",
+      "limit": 80
+     },
+     "supportedFixes": [
+      "provide at most 80 character(s)"
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^https?://"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^https?://\""
+     ]
+    },
+    {
+     "code": "schema/anyOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match a schema in anyOf",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "anyOf"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/oneOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "oneOf",
+      "passingSchemas": null
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "brand-newline",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     "a\nb"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match pattern \"^[^\\r\\n]+$\" {\"pattern\":\"^[^\\\\r\\\\n]+$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[^\\r\\n]+$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[^\\\\r\\\\n]+$\""
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^https?://"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^https?://\""
+     ]
+    },
+    {
+     "code": "schema/anyOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match a schema in anyOf",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "anyOf"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/oneOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "oneOf",
+      "passingSchemas": null
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "brand-empty",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     ""
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match pattern \"^[^\\r\\n]+$\" {\"pattern\":\"^[^\\\\r\\\\n]+$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[^\\r\\n]+$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[^\\\\r\\\\n]+$\""
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^https?://"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^https?://\""
+     ]
+    },
+    {
+     "code": "schema/anyOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match a schema in anyOf",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "anyOf"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/oneOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "oneOf",
+      "passingSchemas": null
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "brand-url-ok",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     "https://example.test/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ]
+   ],
+   "diagnostics": []
+  },
+  {
+   "name": "brand-object-partial",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     {
+      "url": "https://example.test/a.png"
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "sha256"
+     },
+     "supportedFixes": [
+      "add required property \"sha256\""
+     ]
+    },
+    {
+     "code": "schema/oneOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "oneOf",
+      "passingSchemas": null
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "brand-object-bad-sha",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     {
+      "url": "https://example.test/a.png",
+      "sha256": "XYZ"
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/components/0/brand/sha256 (id/label: \"users\") must match pattern \"^[a-f0-9]{64}$\" {\"pattern\":\"^[a-f0-9]{64}$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand/sha256",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-f0-9]{64}$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-f0-9]{64}$\""
+     ]
+    },
+    {
+     "code": "schema/oneOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "oneOf",
+      "passingSchemas": null
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "brand-object-extra",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/brand",
+     {
+      "url": "http://a.test",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "more": 1
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /components/0/brand"
+     ]
+    },
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must NOT have additional properties {\"additionalProperty\":\"more\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "more"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"more\""
+     ]
+    },
+    {
+     "code": "schema/oneOf",
+     "severity": "error",
+     "message": "/components/0/brand (id/label: \"users\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/brand",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "oneOf",
+      "passingSchemas": null
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "tr-bad-key",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/translations",
+     {
+      "Bad": "x",
+      "ok": "y"
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\""
+     ]
+    },
+    {
+     "code": "schema/propertyNames",
+     "severity": "error",
+     "message": "/meta/translations property name must be valid {\"propertyName\":\"Bad\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations"
+     },
+     "evidence": {
+      "keyword": "propertyNames",
+      "propertyName": "Bad"
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "tr-empty-value",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/translations",
+     {
+      "a.b": ""
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/meta/translations/a.b must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations/a.b"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tr-slash-key",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/translations",
+     {
+      "a/b": ""
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\""
+     ]
+    },
+    {
+     "code": "schema/propertyNames",
+     "severity": "error",
+     "message": "/meta/translations property name must be valid {\"propertyName\":\"a/b\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations"
+     },
+     "evidence": {
+      "keyword": "propertyNames",
+      "propertyName": "a/b"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/meta/translations/a~1b must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations/a~1b"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tr-tilde-key",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/translations",
+     {
+      "a~b": 5
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\""
+     ]
+    },
+    {
+     "code": "schema/propertyNames",
+     "severity": "error",
+     "message": "/meta/translations property name must be valid {\"propertyName\":\"a~b\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations"
+     },
+     "evidence": {
+      "keyword": "propertyNames",
+      "propertyName": "a~b"
+     },
+     "supportedFixes": []
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/translations/a~0b must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations/a~0b"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /meta/translations/a~0b"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tr-long-value",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/translations",
+     {
+      "k": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxLength",
+     "severity": "error",
+     "message": "/meta/translations/k must NOT have more than 400 characters {\"limit\":400}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations/k"
+     },
+     "evidence": {
+      "keyword": "maxLength",
+      "limit": 400
+     },
+     "supportedFixes": [
+      "provide at most 400 character(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tr-too-many",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "fill",
+     "/meta/translations",
+     601
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxProperties",
+     "severity": "error",
+     "message": "/meta/translations must NOT have more than 600 properties {\"limit\":600}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/translations"
+     },
+     "evidence": {
+      "keyword": "maxProperties",
+      "limit": 600
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "tr-ok-many",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "fill",
+     "/meta/translations",
+     600
+    ]
+   ],
+   "diagnostics": []
+  },
+  {
+   "name": "legend-unknown-key",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/legend",
+     {
+      "entries": {
+       "nope": {
+        "label": "x"
+       }
+      }
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/meta/legend/entries must NOT have additional properties {\"additionalProperty\":\"nope\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/legend/entries"
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "nope"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"nope\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "legend-empty-entry",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/legend",
+     {
+      "mode": "all",
+      "entries": {
+       "frontend": {}
+      }
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minProperties",
+     "severity": "error",
+     "message": "/meta/legend/entries/frontend must NOT have fewer than 1 properties {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/legend/entries/frontend"
+     },
+     "evidence": {
+      "keyword": "minProperties",
+      "limit": 1
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "legend-bad-mode",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/legend",
+     {
+      "mode": "some"
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/meta/legend/mode must be equal to one of the allowed values {\"allowedValues\":[\"auto\",\"all\",\"hidden\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/legend/mode"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "auto",
+       "all",
+       "hidden"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"auto\",\"all\",\"hidden\"]"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "legend-entry-bad",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/legend",
+     {
+      "entries": {
+       "frontend": {
+        "label": "",
+        "visible": "yes",
+        "extra": 1
+       }
+      }
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/meta/legend/entries/frontend (id/label: \"\") must NOT have additional properties {\"additionalProperty\":\"extra\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/legend/entries/frontend",
+      "identity": ""
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "extra"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"extra\""
+     ]
+    },
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/meta/legend/entries/frontend/label (id/label: \"\") must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/legend/entries/frontend/label",
+      "identity": ""
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/legend/entries/frontend/visible (id/label: \"\") must be boolean {\"type\":\"boolean\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/legend/entries/frontend/visible",
+      "identity": ""
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "boolean"
+     },
+     "supportedFixes": [
+      "use \"boolean\" at /meta/legend/entries/frontend/visible"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cards-bad",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/cards",
+     [
+      {
+       "dot": "pink",
+       "title": "",
+       "items": [
+        1
+       ]
+      }
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/cards/0/dot must be equal to one of the allowed values {\"allowedValues\":[\"cyan\",\"emerald\",\"violet\",\"amber\",\"rose\",\"orange\",\"slate\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/cards/0/dot"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "cyan",
+       "emerald",
+       "violet",
+       "amber",
+       "rose",
+       "orange",
+       "slate"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"cyan\",\"emerald\",\"violet\",\"amber\",\"rose\",\"orange\",\"slate\"]"
+     ]
+    },
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/cards/0/title must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/cards/0/title"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/cards/0/items/0 must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/cards/0/items/0"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /cards/0/items/0"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cards-missing",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/cards",
+     [
+      {}
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/cards/0 must have required property 'dot' {\"missingProperty\":\"dot\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/cards/0"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "dot"
+     },
+     "supportedFixes": [
+      "add required property \"dot\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/cards/0 must have required property 'title' {\"missingProperty\":\"title\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/cards/0"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "title"
+     },
+     "supportedFixes": [
+      "add required property \"title\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/cards/0 must have required property 'items' {\"missingProperty\":\"items\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/cards/0"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "items"
+     },
+     "supportedFixes": [
+      "add required property \"items\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "sources-empty",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/sources",
+     []
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/components/0/sources (id/label: \"users\") must NOT have fewer than 1 items {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/sources",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "sources-four",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/sources",
+     [
+      {
+       "path": "f1"
+      },
+      {
+       "path": "f2"
+      },
+      {
+       "path": "f3"
+      },
+      {
+       "path": "f4"
+      }
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxItems",
+     "severity": "error",
+     "message": "/components/0/sources (id/label: \"users\") must NOT have more than 3 items {\"limit\":3}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/sources",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "maxItems",
+      "limit": 3
+     },
+     "supportedFixes": [
+      "provide at most 3 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "sources-bad",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/components/0/sources",
+     [
+      {
+       "path": "",
+       "line": 0,
+       "end_line": 1.5,
+       "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/components/0/sources/0/path (id/label: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\") must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/sources/0/path",
+      "identity": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    },
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/components/0/sources/0/line (id/label: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\") must be >= 1 {\"comparison\":\">=\",\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/sources/0/line",
+      "identity": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "use a value >= 1"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/components/0/sources/0/end_line (id/label: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\") must be integer {\"type\":\"integer\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/sources/0/end_line",
+      "identity": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "integer"
+     },
+     "supportedFixes": [
+      "use \"integer\" at /components/0/sources/0/end_line"
+     ]
+    },
+    {
+     "code": "schema/maxLength",
+     "severity": "error",
+     "message": "/components/0/sources/0/label (id/label: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\") must NOT have more than 48 characters {\"limit\":48}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/sources/0/label",
+      "identity": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     "evidence": {
+      "keyword": "maxLength",
+      "limit": 48
+     },
+     "supportedFixes": [
+      "provide at most 48 character(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "repository-bad",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/repository",
+     {
+      "url": "",
+      "revision": "abc",
+      "provider": "gitlab"
+     }
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/meta/repository/url must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/repository/url"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    },
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/repository/provider"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "github",
+       "gitee"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"github\",\"gitee\"]"
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/repository/revision"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-fA-F0-9]{40}$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-fA-F0-9]{40}$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "repository-missing",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/repository",
+     {}
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/meta/repository must have required property 'url' {\"missingProperty\":\"url\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/repository"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "url"
+     },
+     "supportedFixes": [
+      "add required property \"url\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/meta/repository must have required property 'revision' {\"missingProperty\":\"revision\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/repository"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "revision"
+     },
+     "supportedFixes": [
+      "add required property \"revision\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "views-ok",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/views",
+     [
+      {
+       "id": "v",
+       "label": "V",
+       "focus": [
+        "users"
+       ]
+      }
+     ]
+    ]
+   ],
+   "diagnostics": []
+  },
+  {
+   "name": "views-bad",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "set",
+     "/meta/views",
+     [
+      {
+       "id": "v 1",
+       "label": "",
+       "focus": []
+      },
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxItems",
+     "severity": "error",
+     "message": "/meta/views must NOT have more than 5 items {\"limit\":5}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views"
+     },
+     "evidence": {
+      "keyword": "maxItems",
+      "limit": 5
+     },
+     "supportedFixes": [
+      "provide at most 5 item(s)"
+     ]
+    },
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/meta/views/0/id (id/label: \"v 1\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/0/id",
+      "identity": "v 1"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\""
+     ]
+    },
+    {
+     "code": "schema/minLength",
+     "severity": "error",
+     "message": "/meta/views/0/label (id/label: \"v 1\") must NOT have fewer than 1 characters {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/0/label",
+      "identity": "v 1"
+     },
+     "evidence": {
+      "keyword": "minLength",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 character(s)"
+     ]
+    },
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/meta/views/0/focus (id/label: \"v 1\") must NOT have fewer than 1 items {\"limit\":1}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/0/focus",
+      "identity": "v 1"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 item(s)"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/views/1 must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/1"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /meta/views/1"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/views/2 must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/2"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /meta/views/2"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/views/3 must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/3"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /meta/views/3"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/views/4 must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/4"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /meta/views/4"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/meta/views/5 must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta/views/5"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /meta/views/5"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-missing-lanes",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "del",
+     "/lanes"
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'lanes' {\"missingProperty\":\"lanes\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "lanes"
+     },
+     "supportedFixes": [
+      "add required property \"lanes\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-version",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/schema_version",
+     3
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/schema_version must be equal to one of the allowed values {\"allowedValues\":[1,2]}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/schema_version"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       1,
+       2
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [1,2]"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-col-range",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/nodes/0/col",
+     6
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maximum",
+     "severity": "error",
+     "message": "/nodes/0/col (id/label: \"user\") must be <= 5 {\"comparison\":\"<=\",\"limit\":5}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/nodes/0/col",
+      "identity": "user"
+     },
+     "evidence": {
+      "keyword": "maximum",
+      "comparison": "<=",
+      "limit": 5
+     },
+     "supportedFixes": [
+      "use a value <= 5"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-col-negative-float",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/nodes/1/col",
+     -0.5
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/nodes/1/col (id/label: \"chat\") must be integer {\"type\":\"integer\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/nodes/1/col",
+      "identity": "chat"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "integer"
+     },
+     "supportedFixes": [
+      "use \"integer\" at /nodes/1/col"
+     ]
+    },
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/nodes/1/col (id/label: \"chat\") must be >= 0 {\"comparison\":\">=\",\"limit\":0}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/nodes/1/col",
+      "identity": "chat"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 0
+     },
+     "supportedFixes": [
+      "use a value >= 0"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-semantic-checks-empty",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/semanticChecks",
+     {}
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minProperties",
+     "severity": "error",
+     "message": "/semanticChecks must NOT have fewer than 1 properties {\"limit\":1}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/semanticChecks"
+     },
+     "evidence": {
+      "keyword": "minProperties",
+      "limit": 1
+     },
+     "supportedFixes": []
+    }
+   ]
+  },
+  {
+   "name": "wf-mainpath-one",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/mainPath",
+     [
+      "user"
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/mainPath must NOT have fewer than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/mainPath"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 2
+     },
+     "supportedFixes": [
+      "provide at least 2 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-mainpath-bad-id",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/mainPath",
+     [
+      "user",
+      "bad id"
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/pattern",
+     "severity": "error",
+     "message": "/mainPath/1 must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/mainPath/1"
+     },
+     "evidence": {
+      "keyword": "pattern",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+     },
+     "supportedFixes": [
+      "match the required pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-node-width",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/nodes/0/width",
+     10
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/nodes/0/width (id/label: \"user\") must be >= 32 {\"comparison\":\">=\",\"limit\":32}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/nodes/0/width",
+      "identity": "user"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 32
+     },
+     "supportedFixes": [
+      "use a value >= 32"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-edge-width",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/edges/0/width",
+     0.1
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/edges/0/width (id/label: \"request-chat\") must be >= 0.5 {\"comparison\":\">=\",\"limit\":0.5}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/edges/0/width",
+      "identity": "request-chat"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 0.5
+     },
+     "supportedFixes": [
+      "use a value >= 0.5"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-viewbox",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/meta/viewBox",
+     [
+      500,
+      100
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/0 must be >= 700 {\"comparison\":\">=\",\"limit\":700}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/meta/viewBox/0"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 700
+     },
+     "supportedFixes": [
+      "use a value >= 700"
+     ]
+    },
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/meta/viewBox/1"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 240
+     },
+     "supportedFixes": [
+      "use a value >= 240"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "wf-phase-range",
+   "type": "workflow",
+   "base": "agent-tool-call.workflow.json",
+   "ops": [
+    [
+     "set",
+     "/phases/0/toCol",
+     9
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maximum",
+     "severity": "error",
+     "message": "/phases/0/toCol (id/label: \"intake\") must be <= 5 {\"comparison\":\"<=\",\"limit\":5}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/phases/0/toCol",
+      "identity": "intake"
+     },
+     "evidence": {
+      "keyword": "maximum",
+      "comparison": "<=",
+      "limit": 5
+     },
+     "supportedFixes": [
+      "use a value <= 5"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "seq-one-participant",
+   "type": "sequence",
+   "base": "async-job-roundtrip.sequence.json",
+   "ops": [
+    [
+     "set",
+     "/participants",
+     [
+      {
+       "id": "a",
+       "type": "backend",
+       "label": "A"
+      }
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/participants must NOT have fewer than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "sequence",
+      "path": "/participants"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 2
+     },
+     "supportedFixes": [
+      "provide at least 2 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "seq-message-y",
+   "type": "sequence",
+   "base": "async-job-roundtrip.sequence.json",
+   "ops": [
+    [
+     "set",
+     "/messages/0/y",
+     100
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/messages/0/y (id/label: \"POST /jobs\") must be >= 160 {\"comparison\":\">=\",\"limit\":160}",
+     "subject": {
+      "diagramType": "sequence",
+      "path": "/messages/0/y",
+      "identity": "POST /jobs"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 160
+     },
+     "supportedFixes": [
+      "use a value >= 160"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "seq-no-messages",
+   "type": "sequence",
+   "base": "async-job-roundtrip.sequence.json",
+   "ops": [
+    [
+     "set",
+     "/messages",
+     []
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/messages must NOT have fewer than 1 items {\"limit\":1}",
+     "subject": {
+      "diagramType": "sequence",
+      "path": "/messages"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 1
+     },
+     "supportedFixes": [
+      "provide at least 1 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "seq-viewbox",
+   "type": "sequence",
+   "base": "async-job-roundtrip.sequence.json",
+   "ops": [
+    [
+     "set",
+     "/meta/viewBox",
+     [
+      100,
+      900
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/0 must be >= 480 {\"comparison\":\">=\",\"limit\":480}",
+     "subject": {
+      "diagramType": "sequence",
+      "path": "/meta/viewBox/0"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 480
+     },
+     "supportedFixes": [
+      "use a value >= 480"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "df-six-stages",
+   "type": "dataflow",
+   "base": "product-analytics.dataflow.json",
+   "ops": [
+    [
+     "set",
+     "/stages",
+     [
+      {
+       "label": "S1"
+      },
+      {
+       "label": "S2"
+      },
+      {
+       "label": "S3"
+      },
+      {
+       "label": "S4"
+      },
+      {
+       "label": "S5"
+      },
+      {
+       "label": "S6"
+      }
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxItems",
+     "severity": "error",
+     "message": "/stages must NOT have more than 5 items {\"limit\":5}",
+     "subject": {
+      "diagramType": "dataflow",
+      "path": "/stages"
+     },
+     "evidence": {
+      "keyword": "maxItems",
+      "limit": 5
+     },
+     "supportedFixes": [
+      "provide at most 5 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "df-one-stage",
+   "type": "dataflow",
+   "base": "product-analytics.dataflow.json",
+   "ops": [
+    [
+     "set",
+     "/stages",
+     [
+      {
+       "label": "S"
+      }
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/stages must NOT have fewer than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "dataflow",
+      "path": "/stages"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 2
+     },
+     "supportedFixes": [
+      "provide at least 2 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "df-stage-negative",
+   "type": "dataflow",
+   "base": "product-analytics.dataflow.json",
+   "ops": [
+    [
+     "set",
+     "/nodes/0/stage",
+     -1
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/nodes/0/stage (id/label: \"web\") must be >= 0 {\"comparison\":\">=\",\"limit\":0}",
+     "subject": {
+      "diagramType": "dataflow",
+      "path": "/nodes/0/stage",
+      "identity": "web"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 0
+     },
+     "supportedFixes": [
+      "use a value >= 0"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "df-viewbox",
+   "type": "dataflow",
+   "base": "product-analytics.dataflow.json",
+   "ops": [
+    [
+     "set",
+     "/meta/viewBox",
+     [
+      300,
+      300
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/0 must be >= 360 {\"comparison\":\">=\",\"limit\":360}",
+     "subject": {
+      "diagramType": "dataflow",
+      "path": "/meta/viewBox/0"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 360
+     },
+     "supportedFixes": [
+      "use a value >= 360"
+     ]
+    },
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/1 must be >= 360 {\"comparison\":\">=\",\"limit\":360}",
+     "subject": {
+      "diagramType": "dataflow",
+      "path": "/meta/viewBox/1"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 360
+     },
+     "supportedFixes": [
+      "use a value >= 360"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "lc-five-lanes",
+   "type": "lifecycle",
+   "base": "agent-run.lifecycle.json",
+   "ops": [
+    [
+     "set",
+     "/lanes",
+     [
+      {
+       "id": "l1",
+       "label": "L1"
+      },
+      {
+       "id": "l2",
+       "label": "L2"
+      },
+      {
+       "id": "l3",
+       "label": "L3"
+      },
+      {
+       "id": "l4",
+       "label": "L4"
+      },
+      {
+       "id": "l5",
+       "label": "L5"
+      }
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maxItems",
+     "severity": "error",
+     "message": "/lanes must NOT have more than 4 items {\"limit\":4}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/lanes"
+     },
+     "evidence": {
+      "keyword": "maxItems",
+      "limit": 4
+     },
+     "supportedFixes": [
+      "provide at most 4 item(s)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "lc-col-range",
+   "type": "lifecycle",
+   "base": "agent-run.lifecycle.json",
+   "ops": [
+    [
+     "set",
+     "/states/0/col",
+     5
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/maximum",
+     "severity": "error",
+     "message": "/states/0/col (id/label: \"queued\") must be <= 4 {\"comparison\":\"<=\",\"limit\":4}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/states/0/col",
+      "identity": "queued"
+     },
+     "evidence": {
+      "keyword": "maximum",
+      "comparison": "<=",
+      "limit": 4
+     },
+     "supportedFixes": [
+      "use a value <= 4"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "lc-extra-state",
+   "type": "lifecycle",
+   "base": "agent-run.lifecycle.json",
+   "ops": [
+    [
+     "set",
+     "/states/1/zzz",
+     true
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/states/1 (id/label: \"planning\") must NOT have additional properties {\"additionalProperty\":\"zzz\"}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/states/1",
+      "identity": "planning"
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "zzz"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"zzz\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "lc-viewbox",
+   "type": "lifecycle",
+   "base": "agent-run.lifecycle.json",
+   "ops": [
+    [
+     "set",
+     "/meta/viewBox",
+     [
+      400,
+      200
+     ]
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/0 must be >= 420 {\"comparison\":\">=\",\"limit\":420}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/meta/viewBox/0"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 420
+     },
+     "supportedFixes": [
+      "use a value >= 420"
+     ]
+    },
+    {
+     "code": "schema/minimum",
+     "severity": "error",
+     "message": "/meta/viewBox/1 must be >= 300 {\"comparison\":\">=\",\"limit\":300}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/meta/viewBox/1"
+     },
+     "evidence": {
+      "keyword": "minimum",
+      "comparison": ">=",
+      "limit": 300
+     },
+     "supportedFixes": [
+      "use a value >= 300"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "doc-null",
+   "type": "architecture",
+   "doc": null,
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/ must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "doc-array",
+   "type": "dataflow",
+   "doc": [],
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/ must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "dataflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "doc-string",
+   "type": "sequence",
+   "doc": "x",
+   "diagnostics": [
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/ must be object {\"type\":\"object\"}",
+     "subject": {
+      "diagramType": "sequence",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "object"
+     },
+     "supportedFixes": [
+      "use \"object\" at /"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "doc-empty-object",
+   "type": "workflow",
+   "doc": {},
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'schema_version' {\"missingProperty\":\"schema_version\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "schema_version"
+     },
+     "supportedFixes": [
+      "add required property \"schema_version\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'diagram_type' {\"missingProperty\":\"diagram_type\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "diagram_type"
+     },
+     "supportedFixes": [
+      "add required property \"diagram_type\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'meta' {\"missingProperty\":\"meta\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "meta"
+     },
+     "supportedFixes": [
+      "add required property \"meta\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'lanes' {\"missingProperty\":\"lanes\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "lanes"
+     },
+     "supportedFixes": [
+      "add required property \"lanes\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'nodes' {\"missingProperty\":\"nodes\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "nodes"
+     },
+     "supportedFixes": [
+      "add required property \"nodes\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'edges' {\"missingProperty\":\"edges\"}",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "edges"
+     },
+     "supportedFixes": [
+      "add required property \"edges\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "doc-empty-object-lifecycle",
+   "type": "lifecycle",
+   "doc": {},
+   "diagnostics": [
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'schema_version' {\"missingProperty\":\"schema_version\"}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "schema_version"
+     },
+     "supportedFixes": [
+      "add required property \"schema_version\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'diagram_type' {\"missingProperty\":\"diagram_type\"}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "diagram_type"
+     },
+     "supportedFixes": [
+      "add required property \"diagram_type\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'meta' {\"missingProperty\":\"meta\"}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "meta"
+     },
+     "supportedFixes": [
+      "add required property \"meta\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'lanes' {\"missingProperty\":\"lanes\"}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "lanes"
+     },
+     "supportedFixes": [
+      "add required property \"lanes\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'states' {\"missingProperty\":\"states\"}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "states"
+     },
+     "supportedFixes": [
+      "add required property \"states\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/ must have required property 'transitions' {\"missingProperty\":\"transitions\"}",
+     "subject": {
+      "diagramType": "lifecycle",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "transitions"
+     },
+     "supportedFixes": [
+      "add required property \"transitions\""
+     ]
+    }
+   ]
+  },
+  {
+   "name": "arch-many",
+   "type": "architecture",
+   "base": "web-app.architecture.json",
+   "ops": [
+    [
+     "del",
+     "/meta/title"
+    ],
+    [
+     "set",
+     "/components/0/type",
+     "x"
+    ],
+    [
+     "set",
+     "/components/1/pos",
+     [
+      1
+     ]
+    ],
+    [
+     "set",
+     "/connections/0/label",
+     3
+    ],
+    [
+     "set",
+     "/boundaries/0/kind",
+     "zone"
+    ],
+    [
+     "set",
+     "/extra",
+     0
+    ]
+   ],
+   "diagnostics": [
+    {
+     "code": "schema/additionalProperties",
+     "severity": "error",
+     "message": "/ must NOT have additional properties {\"additionalProperty\":\"extra\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/"
+     },
+     "evidence": {
+      "keyword": "additionalProperties",
+      "additionalProperty": "extra"
+     },
+     "supportedFixes": [
+      "remove unsupported property \"extra\""
+     ]
+    },
+    {
+     "code": "schema/required",
+     "severity": "error",
+     "message": "/meta must have required property 'title' {\"missingProperty\":\"title\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/meta"
+     },
+     "evidence": {
+      "keyword": "required",
+      "missingProperty": "title"
+     },
+     "supportedFixes": [
+      "add required property \"title\""
+     ]
+    },
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/components/0/type (id/label: \"users\") must be equal to one of the allowed values {\"allowedValues\":[\"frontend\",\"backend\",\"database\",\"cloud\",\"security\",\"messagebus\",\"external\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/0/type",
+      "identity": "users"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "frontend",
+       "backend",
+       "database",
+       "cloud",
+       "security",
+       "messagebus",
+       "external"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"frontend\",\"backend\",\"database\",\"cloud\",\"security\",\"messagebus\",\"external\"]"
+     ]
+    },
+    {
+     "code": "schema/minItems",
+     "severity": "error",
+     "message": "/components/1/pos (id/label: \"auth\") must NOT have fewer than 2 items {\"limit\":2}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/components/1/pos",
+      "identity": "auth"
+     },
+     "evidence": {
+      "keyword": "minItems",
+      "limit": 2
+     },
+     "supportedFixes": [
+      "provide at least 2 item(s)"
+     ]
+    },
+    {
+     "code": "schema/enum",
+     "severity": "error",
+     "message": "/boundaries/0/kind (id/label: \"AWS Region: us-west-2\") must be equal to one of the allowed values {\"allowedValues\":[\"region\",\"security-group\"]}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/boundaries/0/kind",
+      "identity": "AWS Region: us-west-2"
+     },
+     "evidence": {
+      "keyword": "enum",
+      "allowedValues": [
+       "region",
+       "security-group"
+      ]
+     },
+     "supportedFixes": [
+      "choose one of [\"region\",\"security-group\"]"
+     ]
+    },
+    {
+     "code": "schema/type",
+     "severity": "error",
+     "message": "/connections/0/label (id/label: \"users-to-cdn\") must be string {\"type\":\"string\"}",
+     "subject": {
+      "diagramType": "architecture",
+      "path": "/connections/0/label",
+      "identity": "users-to-cdn"
+     },
+     "evidence": {
+      "keyword": "type",
+      "type": "string"
+     },
+     "supportedFixes": [
+      "use \"string\" at /connections/0/label"
+     ]
+    }
+   ]
+  }
+ ]
+}

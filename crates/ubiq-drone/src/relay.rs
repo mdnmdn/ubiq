@@ -565,10 +565,12 @@ impl Relay {
                 project_id,
                 rel_path,
                 depth,
+                prefetch,
             } => {
                 let request = files::Request::Tree {
                     rel_path: rel_path.clone(),
                     depth,
+                    prefetch,
                 };
                 self.file_job(host, client, project_id, &rel_path, request);
             }

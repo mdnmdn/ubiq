@@ -1,0 +1,1668 @@
+{
+ "name": "agent-run.lifecycle",
+ "group": "example",
+ "source": "archify/examples/agent-run.lifecycle.json",
+ "type": "lifecycle",
+ "source_sha256": "230242a7557663877766c43a9fe7cffe8b4fb66e4866457dccd24c63175b4917",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "Agent Run Lifecycle",
+   "output": "examples/lifecycle-agent-run.html",
+   "viewBox": [1030,630],
+   "animation": "trace",
+   "quality_profile": "showcase"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Lifecycle phases"
+   },
+   {
+    "id": "waiting",
+    "label": "Interruptions"
+   },
+   {
+    "id": "exceptions",
+    "label": "Recovery loop"
+   },
+   {
+    "id": "terminal",
+    "label": "Terminal exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "sublabel": "request accepted",
+    "lane": "main",
+    "col": 0,
+    "step": "01",
+    "tag": "entry"
+   },
+   {
+    "id": "planning",
+    "type": "active",
+    "label": "Planning",
+    "sublabel": "build task graph",
+    "lane": "main",
+    "col": 1,
+    "step": "02",
+    "tag": "model"
+   },
+   {
+    "id": "executing",
+    "type": "active",
+    "label": "Executing",
+    "sublabel": "tool calls",
+    "lane": "main",
+    "col": 2,
+    "step": "03",
+    "tag": "work"
+   },
+   {
+    "id": "reviewing",
+    "type": "decision",
+    "label": "Reviewing",
+    "sublabel": "quality gate",
+    "lane": "main",
+    "col": 3,
+    "step": "04",
+    "tag": "check"
+   },
+   {
+    "id": "completed",
+    "type": "success",
+    "label": "Completed",
+    "sublabel": "final response",
+    "lane": "main",
+    "col": 4,
+    "step": "05",
+    "tag": "done"
+   },
+   {
+    "id": "approval",
+    "type": "waiting",
+    "label": "Needs Approval",
+    "sublabel": "human gate",
+    "lane": "waiting",
+    "col": 0,
+    "tag": "pause"
+   },
+   {
+    "id": "blocked",
+    "type": "waiting",
+    "label": "Blocked",
+    "sublabel": "missing input",
+    "lane": "waiting",
+    "col": 1,
+    "tag": "wait"
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "sublabel": "recoverable error",
+    "lane": "exceptions",
+    "col": 0,
+    "yOffset": 78,
+    "tag": "retryable"
+   },
+   {
+    "id": "cancelled",
+    "type": "failure",
+    "label": "Cancelled",
+    "sublabel": "user stopped",
+    "lane": "terminal",
+    "col": 0,
+    "tag": "terminal"
+   },
+   {
+    "id": "expired",
+    "type": "failure",
+    "label": "Expired",
+    "sublabel": "timeout",
+    "lane": "terminal",
+    "col": 1,
+    "tag": "terminal"
+   }
+  ],
+  "transitions": [
+   {
+    "id": "approval-needed",
+    "from": "executing",
+    "to": "approval",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "straight"
+   },
+   {
+    "id": "review-blocked",
+    "from": "reviewing",
+    "to": "blocked",
+    "variant": "default",
+    "route": "drop"
+   },
+   {
+    "id": "execution-failed",
+    "from": "executing",
+    "to": "failed",
+    "variant": "security",
+    "fromSide": "left",
+    "toSide": "left",
+    "via": [[320,157],[320,385]]
+   },
+   {
+    "id": "failed-retry",
+    "from": "failed",
+    "to": "executing",
+    "variant": "emphasis",
+    "fromSide": "left",
+    "toSide": "top",
+    "via": [[20,385],[20,80],[402,80]]
+   },
+   {
+    "id": "block-expired",
+    "from": "blocked",
+    "to": "expired",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "straight"
+   },
+   {
+    "id": "approval-cancelled",
+    "from": "approval",
+    "to": "cancelled",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "via": [[480,336],[480,432],[402,432]]
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "Main Path + Waits",
+    "items": [
+     "The run has five ordered phases from queue to completion",
+     "Approval and missing input pause the run without ending it"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Recovery + Terminal Exits",
+    "items": [
+     "Failed loops back while retry budget remains",
+     "Cancelled and Expired are terminal exits with no return path"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "230242a7557663877766c43a9fe7cffe8b4fb66e4866457dccd24c63175b4917",
+     "bytes": 3405
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "230242a7557663877766c43a9fe7cffe8b4fb66e4866457dccd24c63175b4917",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.320388349514563,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 2,
+      "maxStretch": 3.267,
+      "routesOverSuggestedStretch": 2,
+      "minSegmentPx": 18,
+      "minInteriorSegmentPx": 78,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "failed-retry",
+         "from": "failed",
+         "to": "executing",
+         "label": "",
+         "collectionIndex": 3,
+         "artifactIndex": 5
+        },
+        "bends": 3,
+        "stretch": 3.267,
+        "directCorridorBlockers": [
+         {
+          "id": "approval",
+          "label": "Needs Approval",
+          "box": [339,278,126,58]
+         }
+        ]
+       },
+       {
+        "relationship": {
+         "id": "approval-cancelled",
+         "from": "approval",
+         "to": "cancelled",
+         "label": "",
+         "collectionIndex": 5,
+         "artifactIndex": 7
+        },
+        "bends": 3,
+        "stretch": 2.368,
+        "directCorridorBlockers": [
+         {
+          "id": "failed",
+          "label": "Failed",
+          "box": [339,356,126,58]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "queued"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.320388349514563,
+      "semanticTextCount": 20
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "230242a7557663877766c43a9fe7cffe8b4fb66e4866457dccd24c63175b4917",
+     "bytes": 3405
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "230242a7557663877766c43a9fe7cffe8b4fb66e4866457dccd24c63175b4917",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.320388349514563,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 2,
+      "maxStretch": 3.267,
+      "routesOverSuggestedStretch": 2,
+      "minSegmentPx": 18,
+      "minInteriorSegmentPx": 78,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "failed-retry",
+         "from": "failed",
+         "to": "executing",
+         "label": "",
+         "collectionIndex": 3,
+         "artifactIndex": 5
+        },
+        "bends": 3,
+        "stretch": 3.267,
+        "directCorridorBlockers": [
+         {
+          "id": "approval",
+          "label": "Needs Approval",
+          "box": [339,278,126,58]
+         }
+        ]
+       },
+       {
+        "relationship": {
+         "id": "approval-cancelled",
+         "from": "approval",
+         "to": "cancelled",
+         "label": "",
+         "collectionIndex": 5,
+         "artifactIndex": 7
+        },
+        "bends": 3,
+        "stretch": 2.368,
+        "directCorridorBlockers": [
+         {
+          "id": "failed",
+          "label": "Failed",
+          "box": [339,356,126,58]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "queued"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.320388349514563,
+      "semanticTextCount": 20
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "230242a7557663877766c43a9fe7cffe8b4fb66e4866457dccd24c63175b4917",
+     "bytes": 3405
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "230242a7557663877766c43a9fe7cffe8b4fb66e4866457dccd24c63175b4917",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.320388349514563,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 2,
+      "maxStretch": 3.267,
+      "routesOverSuggestedStretch": 2,
+      "minSegmentPx": 18,
+      "minInteriorSegmentPx": 78,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "failed-retry",
+         "from": "failed",
+         "to": "executing",
+         "label": "",
+         "collectionIndex": 3,
+         "artifactIndex": 5
+        },
+        "bends": 3,
+        "stretch": 3.267,
+        "directCorridorBlockers": [
+         {
+          "id": "approval",
+          "label": "Needs Approval",
+          "box": [339,278,126,58]
+         }
+        ]
+       },
+       {
+        "relationship": {
+         "id": "approval-cancelled",
+         "from": "approval",
+         "to": "cancelled",
+         "label": "",
+         "collectionIndex": 5,
+         "artifactIndex": 7
+        },
+        "bends": 3,
+        "stretch": 2.368,
+        "directCorridorBlockers": [
+         {
+          "id": "failed",
+          "label": "Failed",
+          "box": [339,356,126,58]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "queued"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.320388349514563,
+      "semanticTextCount": 20
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1030,630],
+  "svg_attrs": {
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Agent Run Lifecycle",
+  "nodes": [
+   {
+    "id": "queued",
+    "kind": "start",
+    "label": "Queued",
+    "sublabel": "request accepted",
+    "tag": "entry",
+    "context": "Lifecycle phases",
+    "rect": {
+     "x": 35,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 58,
+      "y": 140,
+      "font_size": 7,
+      "text": "01",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 94,
+      "y": 147,
+      "font_size": 10,
+      "text": "Queued",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 94,
+      "y": 163,
+      "font_size": 7,
+      "text": "request accepted",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 94,
+      "y": 177,
+      "font_size": 7,
+      "text": "entry",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "start",
+     "transform": "translate(41 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5,
+    "initial_marker": true
+   },
+   {
+    "id": "planning",
+    "kind": "active",
+    "label": "Planning",
+    "sublabel": "build task graph",
+    "tag": "model",
+    "context": "Lifecycle phases",
+    "rect": {
+     "x": 189,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 212,
+      "y": 140,
+      "font_size": 7,
+      "text": "02",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 248.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Planning",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 248,
+      "y": 163,
+      "font_size": 7,
+      "text": "build task graph",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 248,
+      "y": 177,
+      "font_size": 7,
+      "text": "model",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(195 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "executing",
+    "kind": "active",
+    "label": "Executing",
+    "sublabel": "tool calls",
+    "tag": "work",
+    "context": "Lifecycle phases",
+    "rect": {
+     "x": 343,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 366,
+      "y": 140,
+      "font_size": 7,
+      "text": "03",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 405.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Executing",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 163,
+      "font_size": 7,
+      "text": "tool calls",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 177,
+      "font_size": 7,
+      "text": "work",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(349 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "reviewing",
+    "kind": "decision",
+    "label": "Reviewing",
+    "sublabel": "quality gate",
+    "tag": "check",
+    "context": "Lifecycle phases",
+    "rect": {
+     "x": 497,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 520,
+      "y": 140,
+      "font_size": 7,
+      "text": "04",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-database"
+     },
+     {
+      "x": 559.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Reviewing",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 163,
+      "font_size": 7,
+      "text": "quality gate",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 556,
+      "y": 177,
+      "font_size": 7,
+      "text": "check",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "neutral",
+     "transform": "translate(503 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "completed",
+    "kind": "success",
+    "label": "Completed",
+    "sublabel": "final response",
+    "tag": "done",
+    "context": "Lifecycle phases",
+    "rect": {
+     "x": 651,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 674,
+      "y": 140,
+      "font_size": 7,
+      "text": "05",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-backend"
+     },
+     {
+      "x": 713.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Completed",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 163,
+      "font_size": 7,
+      "text": "final response",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 710,
+      "y": 177,
+      "font_size": 7,
+      "text": "done",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "success",
+     "transform": "translate(657 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "approval",
+    "kind": "waiting",
+    "label": "Needs Approval",
+    "sublabel": "human gate",
+    "tag": "pause",
+    "context": "Interruptions",
+    "rect": {
+     "x": 339,
+     "y": 278,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 402,
+      "y": 299,
+      "font_size": 10,
+      "text": "Needs Approval",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 315,
+      "font_size": 7,
+      "text": "human gate",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 325,
+      "font_size": 7,
+      "text": "pause",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(345 284) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "blocked",
+    "kind": "waiting",
+    "label": "Blocked",
+    "sublabel": "missing input",
+    "tag": "wait",
+    "context": "Interruptions",
+    "rect": {
+     "x": 493,
+     "y": 278,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 556,
+      "y": 299,
+      "font_size": 10,
+      "text": "Blocked",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 315,
+      "font_size": 7,
+      "text": "missing input",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 556,
+      "y": 325,
+      "font_size": 7,
+      "text": "wait",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(499 284) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "failed",
+    "kind": "failure",
+    "label": "Failed",
+    "sublabel": "recoverable error",
+    "tag": "retryable",
+    "context": "Recovery loop",
+    "rect": {
+     "x": 339,
+     "y": 356,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 402,
+      "y": 377,
+      "font_size": 10,
+      "text": "Failed",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 393,
+      "font_size": 7,
+      "text": "recoverable error",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 403,
+      "font_size": 7,
+      "text": "retryable",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(345 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "cancelled",
+    "kind": "failure",
+    "label": "Cancelled",
+    "sublabel": "user stopped",
+    "tag": "terminal",
+    "context": "Terminal exits",
+    "rect": {
+     "x": 343,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 402,
+      "y": 471,
+      "font_size": 10,
+      "text": "Cancelled",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 487,
+      "font_size": 7,
+      "text": "user stopped",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 497,
+      "font_size": 7,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(349 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "expired",
+    "kind": "failure",
+    "label": "Expired",
+    "sublabel": "timeout",
+    "tag": "terminal",
+    "context": "Terminal exits",
+    "rect": {
+     "x": 497,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 556,
+      "y": 471,
+      "font_size": 10,
+      "text": "Expired",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 487,
+      "font_size": 7,
+      "text": "timeout",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 556,
+      "y": 497,
+      "font_size": 7,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(503 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "approval-needed",
+    "from": "executing",
+    "to": "approval",
+    "points": [[402,188],[402,278]],
+    "d": "M 402 188 L 402 278",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 1,
+    "id": "review-blocked",
+    "from": "reviewing",
+    "to": "blocked",
+    "points": [[556,188],[556,233],[556,233],[556,278]],
+    "d": "M 556 188 L 556 233 L 556 233 L 556 278",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "id": "execution-failed",
+    "from": "executing",
+    "to": "failed",
+    "points": [[343,157],[320,157],[320,385],[339,385]],
+    "d": "M 343 157 L 330 157 Q 320 157 320 167 L 320 375.5 Q 320 385 329.5 385 L 339 385",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 3,
+    "id": "failed-retry",
+    "from": "failed",
+    "to": "executing",
+    "points": [[339,385],[20,385],[20,80],[402,80],[402,126]],
+    "d": "M 339 385 L 30 385 Q 20 385 20 375 L 20 90 Q 20 80 30 80 L 392 80 Q 402 80 402 90 L 402 126",
+    "variant": "emphasis",
+    "stroke_width": 2,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "id": "block-expired",
+    "from": "blocked",
+    "to": "expired",
+    "points": [[556,336],[556,450]],
+    "d": "M 556 336 L 556 450",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 5,
+    "id": "approval-cancelled",
+    "from": "approval",
+    "to": "cancelled",
+    "points": [[402,336],[480,336],[480,432],[402,432],[402,450]],
+    "d": "M 402 336 L 470 336 Q 480 336 480 346 L 480 422 Q 480 432 470 432 L 411 432 Q 402 432 402 441 L 402 450",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "marker_end": "arrowhead-security"
+   }
+  ],
+  "labels": [],
+  "frames": [],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "start",
+     "kind": "start",
+     "label": "initial state",
+     "x": 40,
+     "baseline": 594,
+     "width": 120,
+     "shapes": [
+      {
+       "tag": "circle",
+       "cx": 44.5,
+       "cy": 590.5,
+       "r": 4.5
+      },
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 49 590.5 L 58 590.5"
+      },
+      {
+       "tag": "path",
+       "d": "M 57 587 L 64 590.5 L 57 594 Z"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 74,
+       "y": 594,
+       "font_size": 10,
+       "text": "initial state"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "active",
+     "kind": "active",
+     "label": "active",
+     "x": 182,
+     "baseline": 594,
+     "width": 73,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 182,
+       "y": 586,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 204,
+       "y": 594,
+       "font_size": 10,
+       "text": "active"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "waiting",
+     "kind": "waiting",
+     "label": "waiting",
+     "x": 277,
+     "baseline": 594,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 277,
+       "y": 586,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 299,
+       "y": 594,
+       "font_size": 10,
+       "text": "waiting"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "decision",
+     "kind": "decision",
+     "label": "decision",
+     "x": 377,
+     "baseline": 594,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 377,
+       "y": 586,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 399,
+       "y": 594,
+       "font_size": 10,
+       "text": "decision"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "success",
+     "kind": "success",
+     "label": "success",
+     "x": 482,
+     "baseline": 594,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 482,
+       "y": 586,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 504,
+       "y": 594,
+       "font_size": 10,
+       "text": "success"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "failure",
+     "kind": "failure",
+     "label": "failure / exit",
+     "x": 582,
+     "baseline": 594,
+     "width": 113,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 582,
+       "y": 586,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 604,
+       "y": 594,
+       "font_size": 10,
+       "text": "failure / exit"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "final",
+     "x": 717,
+     "baseline": 594,
+     "width": 79,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 717,
+       "y": 586,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 719.5,
+       "y": 588.5,
+       "width": 9,
+       "height": 4,
+       "rx": 1
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 741,
+       "y": 594,
+       "font_size": 10,
+       "text": "final state"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Lifecycle bands": [
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 112 L 958 112",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 100,
+     "font_size": 10,
+     "text": "01 / Lifecycle phases"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 264 L 958 264",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 252,
+     "font_size": 10,
+     "text": "02 / Interruptions + Recovery loop"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 436 L 958 436",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 424,
+     "font_size": 10,
+     "text": "03 / Terminal exits"
+    }
+   ],
+   "Primary lifecycle rail": [
+    {
+     "tag": "path",
+     "class": "a-emphasis",
+     "d": "M 154 157 L 748 157",
+     "data": {
+      "data-lifecycle-rail": ""
+     }
+    }
+   ]
+  }
+ }
+}

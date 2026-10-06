@@ -1,0 +1,215 @@
+{
+ "name": "neg.graph-unknown-container-state-lane",
+ "group": "negative",
+ "source": "mutation of lifecycle",
+ "type": "lifecycle",
+ "rule": "graph/unknown-container",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "784c50f9d9d7821f53edc372bb1794380eeb69c7c6734e2fa03b13f3b2d78855",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "LC",
+   "output": "lc.html"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Phases"
+   },
+   {
+    "id": "terminal",
+    "label": "Exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "lane": "main",
+    "col": 0
+   },
+   {
+    "id": "running",
+    "type": "active",
+    "label": "Running",
+    "lane": "ghost",
+    "col": 1
+   },
+   {
+    "id": "done",
+    "type": "success",
+    "label": "Done",
+    "lane": "terminal",
+    "col": 1
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "lane": "terminal",
+    "col": 2
+   }
+  ],
+  "transitions": [
+   {
+    "id": "t1",
+    "from": "queued",
+    "to": "running",
+    "label": "start"
+   },
+   {
+    "id": "t2",
+    "from": "running",
+    "to": "done",
+    "label": "finish"
+   },
+   {
+    "id": "t3",
+    "from": "running",
+    "to": "failed",
+    "label": "error"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"running\" uses unknown lane \"ghost\".\n- Transition \"start\" is too short (0px; minimum 32px) — route it through a channel or drop its label.\n- Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [182,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [200,135] or set labelDy 57 (below); or set labelAt [200,47] or set labelDy -31 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"running\" uses unknown lane \"ghost\".",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Transition \"start\" is too short (0px; minimum 32px) — route it through a channel or drop its label.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [182,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [200,135] or set labelDy 57 (below); or set labelAt [200,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"running\" uses unknown lane \"ghost\".\n- Transition \"start\" is too short (0px; minimum 32px) — route it through a channel or drop its label.\n- Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [182,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [200,135] or set labelDy 57 (below); or set labelAt [200,47] or set labelDy -31 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"running\" uses unknown lane \"ghost\".",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Transition \"start\" is too short (0px; minimum 32px) — route it through a channel or drop its label.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [182,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [200,135] or set labelDy 57 (below); or set labelAt [200,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"running\" uses unknown lane \"ghost\".\n- Transition \"start\" is too short (0px; minimum 32px) — route it through a channel or drop its label.\n- Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [182,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [200,135] or set labelDy 57 (below); or set labelAt [200,47] or set labelDy -31 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"running\" uses unknown lane \"ghost\".",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Transition \"start\" is too short (0px; minimum 32px) — route it through a channel or drop its label.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [182,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [200,135] or set labelDy 57 (below); or set labelAt [200,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

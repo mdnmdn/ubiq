@@ -1,0 +1,2399 @@
+{
+ "name": "fixture.lifecycle-planner.approval.lifecycle",
+ "group": "fixture",
+ "source": "archify/test/fixtures/lifecycle-planner/approval.lifecycle.json",
+ "type": "lifecycle",
+ "source_sha256": "20e92122dc3becfb4bb08dae809dc57b807085729657923b711b3a1edafa0735",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "Document Approval Lifecycle",
+   "output": "approval.lifecycle.html",
+   "locale": "en",
+   "quality_profile": "showcase"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Approval phases"
+   },
+   {
+    "id": "held",
+    "label": "Held states"
+   },
+   {
+    "id": "terminal",
+    "label": "Exits + retry"
+   }
+  ],
+  "states": [
+   {
+    "id": "draft",
+    "type": "start",
+    "label": "Draft",
+    "sublabel": "author editing",
+    "lane": "main",
+    "col": 0,
+    "step": "01",
+    "tag": "editable"
+   },
+   {
+    "id": "submitted",
+    "type": "waiting",
+    "label": "Submitted",
+    "sublabel": "awaiting reviewer, SLA 72h",
+    "lane": "main",
+    "col": 1,
+    "step": "02",
+    "tag": "timer"
+   },
+   {
+    "id": "under_review",
+    "type": "decision",
+    "label": "Under Review",
+    "sublabel": "reviewer decides",
+    "lane": "main",
+    "col": 2,
+    "step": "03",
+    "tag": "gate"
+   },
+   {
+    "id": "approved",
+    "type": "active",
+    "label": "Approved",
+    "sublabel": "ready to schedule",
+    "lane": "main",
+    "col": 3,
+    "step": "04",
+    "tag": "signed off"
+   },
+   {
+    "id": "published",
+    "type": "success",
+    "label": "Published",
+    "sublabel": "publicly visible",
+    "lane": "main",
+    "col": 4,
+    "step": "05",
+    "tag": "live"
+   },
+   {
+    "id": "changes_requested",
+    "type": "failure",
+    "label": "Changes Requested",
+    "sublabel": "reviewer feedback",
+    "lane": "held",
+    "col": 0,
+    "tag": "rework"
+   },
+   {
+    "id": "scheduled",
+    "type": "waiting",
+    "label": "Scheduled",
+    "sublabel": "publish date set",
+    "lane": "held",
+    "col": 1,
+    "tag": "timer"
+   },
+   {
+    "id": "archived",
+    "type": "neutral",
+    "label": "Archived",
+    "sublabel": "read-only record",
+    "lane": "held",
+    "col": 2,
+    "tag": "terminal"
+   },
+   {
+    "id": "rejected",
+    "type": "failure",
+    "label": "Rejected",
+    "sublabel": "reviewer declined",
+    "lane": "terminal",
+    "col": 0,
+    "tag": "terminal"
+   },
+   {
+    "id": "withdrawn",
+    "type": "neutral",
+    "label": "Withdrawn",
+    "sublabel": "author pulled back",
+    "lane": "terminal",
+    "col": 1,
+    "tag": "terminal"
+   },
+   {
+    "id": "publish_failed",
+    "type": "failure",
+    "label": "Publish Failed",
+    "sublabel": "one automatic retry",
+    "lane": "terminal",
+    "col": 2,
+    "tag": "retry"
+   }
+  ],
+  "transitions": [
+   {
+    "id": "t-submit",
+    "from": "draft",
+    "to": "submitted",
+    "label": "author submits"
+   },
+   {
+    "id": "t-claim",
+    "from": "submitted",
+    "to": "under_review",
+    "label": "reviewer claims within 72h"
+   },
+   {
+    "id": "t-approve",
+    "from": "under_review",
+    "to": "approved",
+    "label": "reviewer approves"
+   },
+   {
+    "id": "t-schedule",
+    "from": "approved",
+    "to": "scheduled",
+    "label": "publish date set"
+   },
+   {
+    "id": "t-publish",
+    "from": "scheduled",
+    "to": "published",
+    "label": "publish time reached"
+   },
+   {
+    "id": "t-archive",
+    "from": "published",
+    "to": "archived",
+    "label": "retention period ends"
+   },
+   {
+    "id": "t-changes",
+    "from": "under_review",
+    "to": "changes_requested",
+    "label": "reviewer requests changes",
+    "variant": "dashed"
+   },
+   {
+    "id": "t-rework",
+    "from": "changes_requested",
+    "to": "draft",
+    "label": "author reopens draft",
+    "variant": "dashed"
+   },
+   {
+    "id": "t-fail",
+    "from": "scheduled",
+    "to": "publish_failed",
+    "label": "publish job errors",
+    "variant": "dashed"
+   },
+   {
+    "id": "t-retry",
+    "from": "publish_failed",
+    "to": "scheduled",
+    "label": "automatic retry (1x)",
+    "variant": "dashed"
+   },
+   {
+    "id": "t-reject",
+    "from": "under_review",
+    "to": "rejected",
+    "label": "reviewer rejects",
+    "variant": "security"
+   },
+   {
+    "id": "t-withdraw-submitted",
+    "from": "submitted",
+    "to": "withdrawn",
+    "label": "author withdraws",
+    "variant": "security"
+   },
+   {
+    "id": "t-withdraw-review",
+    "from": "under_review",
+    "to": "withdrawn",
+    "label": "author withdraws",
+    "variant": "security"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Main Rail",
+    "items": [
+     "Five ordered phases from Draft to Published",
+     "Under Review is the only decision point",
+     "Archived closes the record after the retention period"
+    ]
+   },
+   {
+    "dot": "amber",
+    "title": "Wait States",
+    "items": [
+     "Submitted waits for a reviewer under a 72h SLA",
+     "Scheduled holds an approved document until its publish time",
+     "A failed publish job gets exactly one automatic retry"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Loops and Exits",
+    "items": [
+     "Changes Requested returns the document to Draft for rework",
+     "Rejected is a reviewer decision; Withdrawn is an author decision",
+     "Withdrawn is reachable from Submitted or Under Review"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "20e92122dc3becfb4bb08dae809dc57b807085729657923b711b3a1edafa0735",
+     "bytes": 5437
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "20e92122dc3becfb4bb08dae809dc57b807085729657923b711b3a1edafa0735",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 3,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 5,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 6,
+      "routesOverSuggestedBends": 3,
+      "maxStretch": 1.504,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 55.3,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [
+       {
+        "left": {
+         "id": "t-changes",
+         "from": "under_review",
+         "to": "changes_requested",
+         "label": "reviewer requests changes",
+         "collectionIndex": 6,
+         "artifactIndex": 8
+        },
+        "right": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "point": [388,212]
+       },
+       {
+        "left": {
+         "id": "t-rework",
+         "from": "changes_requested",
+         "to": "draft",
+         "label": "author reopens draft",
+         "collectionIndex": 7,
+         "artifactIndex": 9
+        },
+        "right": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "point": [336,307]
+       },
+       {
+        "left": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "right": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "point": [402,215.4]
+       }
+      ],
+      "detours": [
+       {
+        "relationship": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "bends": 4,
+        "stretch": 1.504,
+        "directCorridorBlockers": [
+         {
+          "id": "changes_requested",
+          "label": "Changes Requested",
+          "box": [339,278,126,58]
+         }
+        ]
+       },
+       {
+        "relationship": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "bends": 6,
+        "stretch": 1
+       },
+       {
+        "relationship": {
+         "id": "t-withdraw-review",
+         "from": "under_review",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 12,
+         "artifactIndex": 14
+        },
+        "bends": 3,
+        "stretch": 1
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "draft"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 35
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "20e92122dc3becfb4bb08dae809dc57b807085729657923b711b3a1edafa0735",
+     "bytes": 5437
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "20e92122dc3becfb4bb08dae809dc57b807085729657923b711b3a1edafa0735",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 3,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 5,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 6,
+      "routesOverSuggestedBends": 3,
+      "maxStretch": 1.504,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 55.3,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [
+       {
+        "left": {
+         "id": "t-changes",
+         "from": "under_review",
+         "to": "changes_requested",
+         "label": "reviewer requests changes",
+         "collectionIndex": 6,
+         "artifactIndex": 8
+        },
+        "right": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "point": [388,212]
+       },
+       {
+        "left": {
+         "id": "t-rework",
+         "from": "changes_requested",
+         "to": "draft",
+         "label": "author reopens draft",
+         "collectionIndex": 7,
+         "artifactIndex": 9
+        },
+        "right": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "point": [336,307]
+       },
+       {
+        "left": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "right": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "point": [402,215.4]
+       }
+      ],
+      "detours": [
+       {
+        "relationship": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "bends": 4,
+        "stretch": 1.504,
+        "directCorridorBlockers": [
+         {
+          "id": "changes_requested",
+          "label": "Changes Requested",
+          "box": [339,278,126,58]
+         }
+        ]
+       },
+       {
+        "relationship": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "bends": 6,
+        "stretch": 1
+       },
+       {
+        "relationship": {
+         "id": "t-withdraw-review",
+         "from": "under_review",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 12,
+         "artifactIndex": 14
+        },
+        "bends": 3,
+        "stretch": 1
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "draft"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 35
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "lifecycle",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "20e92122dc3becfb4bb08dae809dc57b807085729657923b711b3a1edafa0735",
+     "bytes": 5437
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "lifecycle",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "20e92122dc3becfb4bb08dae809dc57b807085729657923b711b3a1edafa0735",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 3,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 5,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 6,
+      "routesOverSuggestedBends": 3,
+      "maxStretch": 1.504,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 55.3,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [
+       {
+        "left": {
+         "id": "t-changes",
+         "from": "under_review",
+         "to": "changes_requested",
+         "label": "reviewer requests changes",
+         "collectionIndex": 6,
+         "artifactIndex": 8
+        },
+        "right": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "point": [388,212]
+       },
+       {
+        "left": {
+         "id": "t-rework",
+         "from": "changes_requested",
+         "to": "draft",
+         "label": "author reopens draft",
+         "collectionIndex": 7,
+         "artifactIndex": 9
+        },
+        "right": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "point": [336,307]
+       },
+       {
+        "left": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "right": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "point": [402,215.4]
+       }
+      ],
+      "detours": [
+       {
+        "relationship": {
+         "id": "t-reject",
+         "from": "under_review",
+         "to": "rejected",
+         "label": "reviewer rejects",
+         "collectionIndex": 10,
+         "artifactIndex": 12
+        },
+        "bends": 4,
+        "stretch": 1.504,
+        "directCorridorBlockers": [
+         {
+          "id": "changes_requested",
+          "label": "Changes Requested",
+          "box": [339,278,126,58]
+         }
+        ]
+       },
+       {
+        "relationship": {
+         "id": "t-withdraw-submitted",
+         "from": "submitted",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 11,
+         "artifactIndex": 13
+        },
+        "bends": 6,
+        "stretch": 1
+       },
+       {
+        "relationship": {
+         "id": "t-withdraw-review",
+         "from": "under_review",
+         "to": "withdrawn",
+         "label": "author withdraws",
+         "collectionIndex": 12,
+         "artifactIndex": 14
+        },
+        "bends": 3,
+        "stretch": 1
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "draft"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 35
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,980,660],
+  "svg_attrs": {
+   "data-reader-fit": "intrinsic-height",
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Document Approval Lifecycle",
+  "nodes": [
+   {
+    "id": "draft",
+    "kind": "start",
+    "label": "Draft",
+    "sublabel": "author editing",
+    "tag": "editable",
+    "context": "Approval phases",
+    "rect": {
+     "x": 35,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 58,
+      "y": 140,
+      "font_size": 7,
+      "text": "01",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 94,
+      "y": 147,
+      "font_size": 10,
+      "text": "Draft",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 94,
+      "y": 163,
+      "font_size": 7,
+      "text": "author editing",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 94,
+      "y": 177,
+      "font_size": 7,
+      "text": "editable",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "start",
+     "transform": "translate(41 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5,
+    "initial_marker": true
+   },
+   {
+    "id": "submitted",
+    "kind": "waiting",
+    "label": "Submitted",
+    "sublabel": "awaiting reviewer, SLA 72h",
+    "tag": "timer",
+    "context": "Approval phases",
+    "rect": {
+     "x": 189,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 212,
+      "y": 140,
+      "font_size": 7,
+      "text": "02",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-cloud"
+     },
+     {
+      "x": 251.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Submitted",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 248,
+      "y": 163,
+      "font_size": 7,
+      "text": "awaiting reviewer, SLA 72h",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 248,
+      "y": 177,
+      "font_size": 7,
+      "text": "timer",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(195 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "under_review",
+    "kind": "decision",
+    "label": "Under Review",
+    "sublabel": "reviewer decides",
+    "tag": "gate",
+    "context": "Approval phases",
+    "rect": {
+     "x": 343,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 366,
+      "y": 140,
+      "font_size": 7,
+      "text": "03",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-database"
+     },
+     {
+      "x": 414.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Under Review",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 163,
+      "font_size": 7,
+      "text": "reviewer decides",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 177,
+      "font_size": 7,
+      "text": "gate",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "neutral",
+     "transform": "translate(349 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "approved",
+    "kind": "active",
+    "label": "Approved",
+    "sublabel": "ready to schedule",
+    "tag": "signed off",
+    "context": "Approval phases",
+    "rect": {
+     "x": 497,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 520,
+      "y": 140,
+      "font_size": 7,
+      "text": "04",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-frontend"
+     },
+     {
+      "x": 556.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Approved",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 163,
+      "font_size": 7,
+      "text": "ready to schedule",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 556,
+      "y": 177,
+      "font_size": 7,
+      "text": "signed off",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "active",
+     "transform": "translate(503 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "published",
+    "kind": "success",
+    "label": "Published",
+    "sublabel": "publicly visible",
+    "tag": "live",
+    "context": "Approval phases",
+    "rect": {
+     "x": 651,
+     "y": 126,
+     "width": 118,
+     "height": 62,
+     "rx": 7
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 674,
+      "y": 140,
+      "font_size": 7,
+      "text": "05",
+      "font_weight": "700",
+      "detail": "fine",
+      "class": "t-backend"
+     },
+     {
+      "x": 713.6,
+      "y": 147,
+      "font_size": 10,
+      "text": "Published",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 163,
+      "font_size": 7,
+      "text": "publicly visible",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 710,
+      "y": 177,
+      "font_size": 7,
+      "text": "live",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "success",
+     "transform": "translate(657 132) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "changes_requested",
+    "kind": "failure",
+    "label": "Changes Requested",
+    "sublabel": "reviewer feedback",
+    "tag": "rework",
+    "context": "Held states",
+    "rect": {
+     "x": 339,
+     "y": 278,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 409,
+      "y": 299,
+      "font_size": 10,
+      "text": "Changes Requested",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 315,
+      "font_size": 7,
+      "text": "reviewer feedback",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 325,
+      "font_size": 7,
+      "text": "rework",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(345 284) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "scheduled",
+    "kind": "waiting",
+    "label": "Scheduled",
+    "sublabel": "publish date set",
+    "tag": "timer",
+    "context": "Held states",
+    "rect": {
+     "x": 493,
+     "y": 278,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 556,
+      "y": 299,
+      "font_size": 10,
+      "text": "Scheduled",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 315,
+      "font_size": 7,
+      "text": "publish date set",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 556,
+      "y": 325,
+      "font_size": 7,
+      "text": "timer",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "waiting",
+     "transform": "translate(499 284) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "archived",
+    "kind": "neutral",
+    "label": "Archived",
+    "sublabel": "read-only record",
+    "tag": "terminal",
+    "context": "Held states",
+    "rect": {
+     "x": 647,
+     "y": 278,
+     "width": 126,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 710,
+      "y": 299,
+      "font_size": 10,
+      "text": "Archived",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 315,
+      "font_size": 7,
+      "text": "read-only record",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 710,
+      "y": 325,
+      "font_size": 7,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "neutral",
+     "transform": "translate(653 284) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "rejected",
+    "kind": "failure",
+    "label": "Rejected",
+    "sublabel": "reviewer declined",
+    "tag": "terminal",
+    "context": "Exits + retry",
+    "rect": {
+     "x": 343,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 402,
+      "y": 471,
+      "font_size": 10,
+      "text": "Rejected",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 402,
+      "y": 487,
+      "font_size": 7,
+      "text": "reviewer declined",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 402,
+      "y": 497,
+      "font_size": 7,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(349 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "withdrawn",
+    "kind": "neutral",
+    "label": "Withdrawn",
+    "sublabel": "author pulled back",
+    "tag": "terminal",
+    "context": "Exits + retry",
+    "rect": {
+     "x": 497,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 556,
+      "y": 471,
+      "font_size": 10,
+      "text": "Withdrawn",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 556,
+      "y": 487,
+      "font_size": 7,
+      "text": "author pulled back",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 556,
+      "y": 497,
+      "font_size": 7,
+      "text": "terminal",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "neutral",
+     "transform": "translate(503 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "publish_failed",
+    "kind": "failure",
+    "label": "Publish Failed",
+    "sublabel": "one automatic retry",
+    "tag": "retry",
+    "context": "Exits + retry",
+    "rect": {
+     "x": 651,
+     "y": 450,
+     "width": 118,
+     "height": 58,
+     "rx": 7
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 712,
+      "y": 471,
+      "font_size": 10,
+      "text": "Publish Failed",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 487,
+      "font_size": 7,
+      "text": "one automatic retry",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 710,
+      "y": 497,
+      "font_size": 7,
+      "text": "retry",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "failure",
+     "transform": "translate(657 456) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "t-submit",
+    "from": "draft",
+    "to": "submitted",
+    "label": "author submits",
+    "points": [[153,150],[189,150]],
+    "d": "M 153 150 L 189 150",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 1,
+    "id": "t-claim",
+    "from": "submitted",
+    "to": "under_review",
+    "label": "reviewer claims within 72h",
+    "points": [[307,157],[343,157]],
+    "d": "M 307 157 L 343 157",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "id": "t-approve",
+    "from": "under_review",
+    "to": "approved",
+    "label": "reviewer approves",
+    "points": [[461,157],[497,157]],
+    "d": "M 461 157 L 497 157",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "id": "t-schedule",
+    "from": "approved",
+    "to": "scheduled",
+    "label": "publish date set",
+    "points": [[556,188],[556,278]],
+    "d": "M 556 188 L 556 278",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "id": "t-publish",
+    "from": "scheduled",
+    "to": "published",
+    "label": "publish time reached",
+    "points": [[619,307],[635,307],[635,157],[651,157]],
+    "d": "M 619 307 L 627 307 Q 635 307 635 299 L 635 165 Q 635 157 643 157 L 651 157",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 5,
+    "id": "t-archive",
+    "from": "published",
+    "to": "archived",
+    "label": "retention period ends",
+    "points": [[710,188],[710,278]],
+    "d": "M 710 188 L 710 278",
+    "variant": "default",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "id": "t-changes",
+    "from": "under_review",
+    "to": "changes_requested",
+    "label": "reviewer requests changes",
+    "points": [[388,188],[388,278]],
+    "d": "M 388 188 L 388 278",
+    "variant": "dashed",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 7,
+    "id": "t-rework",
+    "from": "changes_requested",
+    "to": "draft",
+    "label": "author reopens draft",
+    "points": [[339,307],[177,307],[177,164],[153,164]],
+    "d": "M 339 307 L 185 307 Q 177 307 177 299 L 177 172 Q 177 164 169 164 L 153 164",
+    "variant": "dashed",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 8,
+    "id": "t-fail",
+    "from": "scheduled",
+    "to": "publish_failed",
+    "label": "publish job errors",
+    "points": [[549,336],[549,393],[703,393],[703,450]],
+    "d": "M 549 336 L 549 385 Q 549 393 557 393 L 695 393 Q 703 393 703 401 L 703 450",
+    "variant": "dashed",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 9,
+    "id": "t-retry",
+    "from": "publish_failed",
+    "to": "scheduled",
+    "label": "automatic retry (1x)",
+    "points": [[717,450],[717,393],[563,393],[563,336]],
+    "d": "M 717 450 L 717 401 Q 717 393 709 393 L 571 393 Q 563 393 563 385 L 563 336",
+    "variant": "dashed",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 10,
+    "id": "t-reject",
+    "from": "under_review",
+    "to": "rejected",
+    "label": "reviewer rejects",
+    "points": [[402,188],[402,275],[336,275],[336,426],[402,426],[402,450]],
+    "d": "M 402 188 L 402 267 Q 402 275 394 275 L 344 275 Q 336 275 336 283 L 336 418 Q 336 426 344 426 L 394 426 Q 402 426 402 434 L 402 450",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 11,
+    "id": "t-withdraw-submitted",
+    "from": "submitted",
+    "to": "withdrawn",
+    "label": "author withdraws",
+    "points": [[248,188],[248,212],[403,212],[403,267.25],[490,267.25],[490,426],[549,426],[549,450]],
+    "d": "M 248 188 L 248 204 Q 248 212 256 212 L 395 212 Q 403 212 403 220 L 403 259.25 Q 403 267.25 411 267.25 L 482 267.25 Q 490 267.25 490 275.25 L 490 418 Q 490 426 498 426 L 541 426 Q 549 426 549 434 L 549 450",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 12,
+    "id": "t-withdraw-review",
+    "from": "under_review",
+    "to": "withdrawn",
+    "label": "author withdraws",
+    "points": [[402,188],[402,275],[473,275],[473,479],[497,479]],
+    "d": "M 402 188 L 402 267 Q 402 275 410 275 L 465 275 Q 473 275 473 283 L 473 471 Q 473 479 481 479 L 497 479",
+    "variant": "security",
+    "stroke_width": 1.1,
+    "crossover": "halo",
+    "marker_end": "arrowhead-security"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "t-submit",
+    "from": "draft",
+    "to": "submitted",
+    "text": "author submits",
+    "rect": {
+     "x": 231.3,
+     "y": 77,
+     "width": 80.60000000000001,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 271.6,
+      "y": 88,
+      "font_size": 8,
+      "text": "author submits",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "edge_id": "t-claim",
+    "from": "submitted",
+    "to": "under_review",
+    "text": "reviewer claims within 72h",
+    "rect": {
+     "x": 414.7,
+     "y": 84,
+     "width": 139.4,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 484.4,
+      "y": 95,
+      "font_size": 8,
+      "text": "reviewer claims within 72h",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "edge_id": "t-approve",
+    "from": "under_review",
+    "to": "approved",
+    "text": "reviewer approves",
+    "rect": {
+     "x": 316.04999999999995,
+     "y": 84,
+     "width": 95.30000000000001,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 363.7,
+      "y": 95,
+      "font_size": 8,
+      "text": "reviewer approves",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "edge_id": "t-schedule",
+    "from": "approved",
+    "to": "scheduled",
+    "text": "publish date set",
+    "rect": {
+     "x": 459.6,
+     "y": 225,
+     "width": 90.4,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 504.8,
+      "y": 236,
+      "font_size": 8,
+      "text": "publish date set",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "edge_id": "t-publish",
+    "from": "scheduled",
+    "to": "published",
+    "text": "publish time reached",
+    "rect": {
+     "x": 580,
+     "y": 211,
+     "width": 110,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 635,
+      "y": 222,
+      "font_size": 8,
+      "text": "publish time reached",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "edge_id": "t-archive",
+    "from": "published",
+    "to": "archived",
+    "text": "retention period ends",
+    "rect": {
+     "x": 716,
+     "y": 225,
+     "width": 114.9,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 773.45,
+      "y": 236,
+      "font_size": 8,
+      "text": "retention period ends",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "edge_id": "t-changes",
+    "from": "under_review",
+    "to": "changes_requested",
+    "text": "reviewer requests changes",
+    "rect": {
+     "x": 247.5,
+     "y": 225,
+     "width": 134.5,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 314.75,
+      "y": 236,
+      "font_size": 8,
+      "text": "reviewer requests changes",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "edge_id": "t-rework",
+    "from": "changes_requested",
+    "to": "draft",
+    "text": "author reopens draft",
+    "rect": {
+     "x": 122,
+     "y": 214.5,
+     "width": 110,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 177,
+      "y": 225.5,
+      "font_size": 8,
+      "text": "author reopens draft",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "edge_id": "t-fail",
+    "from": "scheduled",
+    "to": "publish_failed",
+    "text": "publish job errors",
+    "rect": {
+     "x": 575.9,
+     "y": 402,
+     "width": 100.2,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 626,
+      "y": 413,
+      "font_size": 8,
+      "text": "publish job errors",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "edge_id": "t-retry",
+    "from": "publish_failed",
+    "to": "scheduled",
+    "text": "automatic retry (1x)",
+    "rect": {
+     "x": 585,
+     "y": 372,
+     "width": 110,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 640,
+      "y": 383,
+      "font_size": 8,
+      "text": "automatic retry (1x)",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "edge_id": "t-reject",
+    "from": "under_review",
+    "to": "rejected",
+    "text": "reviewer rejects",
+    "rect": {
+     "x": 408,
+     "y": 201.75,
+     "width": 90.4,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 453.2,
+      "y": 212.75,
+      "font_size": 8,
+      "text": "reviewer rejects",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "edge_id": "t-withdraw-submitted",
+    "from": "submitted",
+    "to": "withdrawn",
+    "text": "author withdraws",
+    "rect": {
+     "x": 280.3,
+     "y": 191,
+     "width": 90.4,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 325.5,
+      "y": 202,
+      "font_size": 8,
+      "text": "author withdraws",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 12,
+    "edge_id": "t-withdraw-review",
+    "from": "under_review",
+    "to": "withdrawn",
+    "text": "author withdraws",
+    "rect": {
+     "x": 408,
+     "y": 245.25,
+     "width": 90.4,
+     "height": 16,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 453.2,
+      "y": 256.25,
+      "font_size": 8,
+      "text": "author withdraws",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   }
+  ],
+  "frames": [],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "start",
+     "kind": "start",
+     "label": "initial state",
+     "x": 40,
+     "baseline": 624,
+     "width": 120,
+     "shapes": [
+      {
+       "tag": "circle",
+       "cx": 44.5,
+       "cy": 620.5,
+       "r": 4.5
+      },
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 49 620.5 L 58 620.5"
+      },
+      {
+       "tag": "path",
+       "d": "M 57 617 L 64 620.5 L 57 624 Z"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 74,
+       "y": 624,
+       "font_size": 10,
+       "text": "initial state"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "active",
+     "kind": "active",
+     "label": "active",
+     "x": 182,
+     "baseline": 624,
+     "width": 73,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 182,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 204,
+       "y": 624,
+       "font_size": 10,
+       "text": "active"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "waiting",
+     "kind": "waiting",
+     "label": "waiting",
+     "x": 277,
+     "baseline": 624,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 277,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 299,
+       "y": 624,
+       "font_size": 10,
+       "text": "waiting"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "decision",
+     "kind": "decision",
+     "label": "decision",
+     "x": 377,
+     "baseline": 624,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 377,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 399,
+       "y": 624,
+       "font_size": 10,
+       "text": "decision"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "success",
+     "kind": "success",
+     "label": "success",
+     "x": 482,
+     "baseline": 624,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 482,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 504,
+       "y": 624,
+       "font_size": 10,
+       "text": "success"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "failure",
+     "kind": "failure",
+     "label": "failure / exit",
+     "x": 582,
+     "baseline": 624,
+     "width": 113,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 582,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 604,
+       "y": 624,
+       "font_size": 10,
+       "text": "failure / exit"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "neutral",
+     "kind": "neutral",
+     "label": "neutral",
+     "x": 717,
+     "baseline": 624,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 717,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 739,
+       "y": 624,
+       "font_size": 10,
+       "text": "neutral"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "final",
+     "x": 817,
+     "baseline": 624,
+     "width": 79,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 817,
+       "y": 616,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 819.5,
+       "y": 618.5,
+       "width": 9,
+       "height": 4,
+       "rx": 1
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 841,
+       "y": 624,
+       "font_size": 10,
+       "text": "final state"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Lifecycle bands": [
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 112 L 908 112",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 100,
+     "font_size": 10,
+     "text": "01 / Approval phases"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 264 L 908 264",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 252,
+     "font_size": 10,
+     "text": "02 / Held states"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 72 436 L 908 436",
+     "dash": "3,8"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 72,
+     "y": 424,
+     "font_size": 10,
+     "text": "03 / Exits + retry"
+    }
+   ],
+   "Primary lifecycle rail": [
+    {
+     "tag": "path",
+     "class": "a-emphasis",
+     "d": "M 154 157 L 748 157",
+     "data": {
+      "data-lifecycle-rail": ""
+     }
+    }
+   ]
+  }
+ }
+}

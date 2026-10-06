@@ -1,8 +1,7 @@
 //! The Teams screen: a graph of who is working on what, and the tasks belonging to whatever is
 //! selected in it.
 //!
-//! A clone of [`crate::ui::orchestration`] under the new rail mode — same shape, same rules,
-//! independent state. The sessions, agents and tasks it draws are the host's, projected into
+//! The sessions, agents and tasks it draws are the host's, projected into
 //! [`crate::state::work`]; what is selected in them, which states are showing and how far in it is
 //! zoomed are this window's, in [`crate::state::teams`]. Everything on it is live: the
 //! filters filter, the zoom zooms, a card is picked up and put down, and what is selected is what

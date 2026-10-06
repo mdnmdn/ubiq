@@ -1,0 +1,339 @@
+{
+ "name": "neg.df-node-out-of-bounds",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "geom/node-out-of-bounds",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "610e5c2d0b17792ca16592bfddc14d81ecd29e3477f5f16e81bf847ef1a5ac1c",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html",
+   "viewBox": [360,360]
+  },
+  "stages": [
+   {
+    "label": "Ingest"
+   },
+   {
+    "label": "Process"
+   },
+   {
+    "label": "Store"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "Src",
+    "stage": 0,
+    "row": 0
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 2
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f2",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Node \"etl\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"db\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"dlq\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"dlq\" exceeds the readable diagram area — keep y between 104 and 286 (adjust row/yOffset or increase meta.viewBox[1]).\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)\n- Stages exceed viewBox width — set meta.viewBox[0] to at least 638.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"etl\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"db\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"dlq\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"dlq\" exceeds the readable diagram area — keep y between 104 and 286 (adjust row/yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Stages exceed viewBox width — set meta.viewBox[0] to at least 638.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Node \"etl\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"db\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"dlq\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"dlq\" exceeds the readable diagram area — keep y between 104 and 286 (adjust row/yOffset or increase meta.viewBox[1]).\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)\n- Stages exceed viewBox width — set meta.viewBox[0] to at least 638.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"etl\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"db\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"dlq\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"dlq\" exceeds the readable diagram area — keep y between 104 and 286 (adjust row/yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Stages exceed viewBox width — set meta.viewBox[0] to at least 638.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Node \"etl\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"db\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"dlq\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- Node \"dlq\" exceeds the readable diagram area — keep y between 104 and 286 (adjust row/yOffset or increase meta.viewBox[1]).\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)\n- [composition/label-canvas-containment] showcase dataflow label \"rows\" on flows[1] id \"f2\" \"etl\" -> \"db\" extends past the right edge by 79.5px (label rect [406,136,34,16]; viewBox 360x360) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.\n- Stages exceed viewBox width — set meta.viewBox[0] to at least 638.",
+    "diagnostics": [
+     {
+      "code": "composition/label-canvas-containment",
+      "severity": "error",
+      "message": "[composition/label-canvas-containment] showcase dataflow label \"rows\" on flows[1] id \"f2\" \"etl\" -> \"db\" extends past the right edge by 79.5px (label rect [406,136,34,16]; viewBox 360x360) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 1,
+       "id": "f2",
+       "from": "etl",
+       "to": "db"
+      },
+      "evidence": {
+       "label": "rows",
+       "labelRect": {
+        "x": 405.5,
+        "y": 136,
+        "width": 34,
+        "height": 16
+       },
+       "viewBox": [360,360],
+       "overflowPx": {
+        "right": 79.5
+       },
+       "tolerancePx": 0.5
+      },
+      "supportedFixes": [
+       "adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"etl\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"db\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"dlq\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"dlq\" exceeds the readable diagram area — keep y between 104 and 286 (adjust row/yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Stages exceed viewBox width — set meta.viewBox[0] to at least 638.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

@@ -1,0 +1,1695 @@
+{
+ "name": "checkout-platform.head.architecture",
+ "group": "example",
+ "source": "archify/examples/checkout-platform.head.architecture.json",
+ "type": "architecture",
+ "source_sha256": "eb4ae056035dd3316414a5d7f6599525107b5d1af7bedbd905460ade77daf5c6",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Checkout Platform — Fraud Gate",
+   "output": "checkout-platform.head.html",
+   "visual_preset": "signal-flow"
+  },
+  "components": [
+   {
+    "id": "buyers",
+    "type": "external",
+    "label": "Buyers",
+    "sublabel": "Web + mobile",
+    "pos": [40,250],
+    "size": [120,60]
+   },
+   {
+    "id": "edge",
+    "type": "cloud",
+    "label": "Edge Gateway",
+    "sublabel": "TLS + routing",
+    "pos": [220,250],
+    "size": [130,60]
+   },
+   {
+    "id": "checkout",
+    "type": "backend",
+    "label": "Checkout API",
+    "sublabel": "v2 idempotent",
+    "pos": [430,250],
+    "size": [130,60]
+   },
+   {
+    "id": "fraud",
+    "type": "security",
+    "label": "Fraud Gate",
+    "sublabel": "policy scoring",
+    "pos": [640,100],
+    "size": [130,60],
+    "tag": "new owner"
+   },
+   {
+    "id": "orders",
+    "type": "database",
+    "label": "Orders",
+    "sublabel": "PostgreSQL",
+    "pos": [640,250],
+    "size": [130,60]
+   },
+   {
+    "id": "queue",
+    "type": "messagebus",
+    "label": "Order Events",
+    "sublabel": "durable queue",
+    "pos": [430,420],
+    "size": [130,60]
+   },
+   {
+    "id": "worker",
+    "type": "backend",
+    "label": "Fulfilment",
+    "sublabel": "async worker",
+    "pos": [640,400],
+    "size": [130,60]
+   },
+   {
+    "id": "payments",
+    "type": "external",
+    "label": "Payment Rail",
+    "sublabel": "external",
+    "pos": [850,250],
+    "size": [130,60]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Production region",
+    "wraps": [
+     "edge",
+     "checkout",
+     "fraud",
+     "orders",
+     "queue",
+     "worker"
+    ]
+   },
+   {
+    "kind": "security-group",
+    "label": "Checkout trust zone",
+    "wraps": [
+     "checkout",
+     "fraud",
+     "orders"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "buyer-request",
+    "from": "buyers",
+    "to": "edge",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "edge-checkout",
+    "from": "edge",
+    "to": "checkout"
+   },
+   {
+    "id": "fraud-check",
+    "from": "checkout",
+    "to": "fraud",
+    "label": "screen",
+    "variant": "security",
+    "fromSide": "top",
+    "toSide": "bottom",
+    "labelDy": -66
+   },
+   {
+    "id": "persist-order",
+    "from": "checkout",
+    "to": "orders",
+    "label": "SQL tx"
+   },
+   {
+    "id": "publish-order",
+    "from": "checkout",
+    "to": "queue",
+    "label": "accepted",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "labelDy": 76
+   },
+   {
+    "id": "consume-order",
+    "from": "queue",
+    "to": "worker"
+   },
+   {
+    "id": "authorize-payment",
+    "from": "fraud",
+    "to": "payments",
+    "label": "authorize",
+    "variant": "security",
+    "fromSide": "right",
+    "toSide": "top",
+    "via": [[820,130],[915,130]]
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "eb4ae056035dd3316414a5d7f6599525107b5d1af7bedbd905460ade77daf5c6",
+     "bytes": 2413
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "eb4ae056035dd3316414a5d7f6599525107b5d1af7bedbd905460ade77daf5c6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 55,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.5,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 20,
+      "minInteriorSegmentPx": 20,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 70,
+      "emptyTopRatio": 0.123,
+      "occupiedTop": 70,
+      "viewBoxTop": 0,
+      "canvasHeight": 568,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 956.25,
+      "actualBudgetPx": 956.25,
+      "actualReaderWidth": 986.25,
+      "desiredReaderWidth": 986.25,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "buyer-request",
+       "from": "buyers",
+       "to": "edge"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.5,
+      "semanticTextCount": 23
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "eb4ae056035dd3316414a5d7f6599525107b5d1af7bedbd905460ade77daf5c6",
+     "bytes": 2413
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "eb4ae056035dd3316414a5d7f6599525107b5d1af7bedbd905460ade77daf5c6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 55,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.5,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 20,
+      "minInteriorSegmentPx": 20,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 70,
+      "emptyTopRatio": 0.123,
+      "occupiedTop": 70,
+      "viewBoxTop": 0,
+      "canvasHeight": 568,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 956.25,
+      "actualBudgetPx": 956.25,
+      "actualReaderWidth": 986.25,
+      "desiredReaderWidth": 986.25,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "buyer-request",
+       "from": "buyers",
+       "to": "edge"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.5,
+      "semanticTextCount": 23
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "eb4ae056035dd3316414a5d7f6599525107b5d1af7bedbd905460ade77daf5c6",
+     "bytes": 2413
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "eb4ae056035dd3316414a5d7f6599525107b5d1af7bedbd905460ade77daf5c6",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 55,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.5,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 20,
+      "minInteriorSegmentPx": 20,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 70,
+      "emptyTopRatio": 0.123,
+      "occupiedTop": 70,
+      "viewBoxTop": 0,
+      "canvasHeight": 568,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 956.25,
+      "actualBudgetPx": 956.25,
+      "actualReaderWidth": 986.25,
+      "desiredReaderWidth": 986.25,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "buyer-request",
+       "from": "buyers",
+       "to": "edge"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.5,
+      "semanticTextCount": 23
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [1020,568],
+   "components": [
+    {
+     "id": "buyers",
+     "type": "external",
+     "label": "Buyers",
+     "x": 40,
+     "y": 250,
+     "width": 120,
+     "height": 60,
+     "pos": [40,250]
+    },
+    {
+     "id": "edge",
+     "type": "cloud",
+     "label": "Edge Gateway",
+     "x": 220,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "pos": [220,250]
+    },
+    {
+     "id": "checkout",
+     "type": "backend",
+     "label": "Checkout API",
+     "x": 430,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "pos": [430,250]
+    },
+    {
+     "id": "fraud",
+     "type": "security",
+     "label": "Fraud Gate",
+     "x": 640,
+     "y": 100,
+     "width": 130,
+     "height": 60,
+     "pos": [640,100]
+    },
+    {
+     "id": "orders",
+     "type": "database",
+     "label": "Orders",
+     "x": 640,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "pos": [640,250]
+    },
+    {
+     "id": "queue",
+     "type": "messagebus",
+     "label": "Order Events",
+     "x": 430,
+     "y": 420,
+     "width": 130,
+     "height": 60,
+     "pos": [430,420]
+    },
+    {
+     "id": "worker",
+     "type": "backend",
+     "label": "Fulfilment",
+     "x": 640,
+     "y": 400,
+     "width": 130,
+     "height": 60,
+     "pos": [640,400]
+    },
+    {
+     "id": "payments",
+     "type": "external",
+     "label": "Payment Rail",
+     "x": 850,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "pos": [850,250]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "Production region",
+     "x": 190,
+     "y": 70,
+     "width": 610,
+     "height": 430,
+     "wraps": [
+      "edge",
+      "checkout",
+      "fraud",
+      "orders",
+      "queue",
+      "worker"
+     ]
+    },
+    {
+     "kind": "security-group",
+     "label": "Checkout trust zone",
+     "x": 400,
+     "y": 70,
+     "width": 400,
+     "height": 260,
+     "wraps": [
+      "checkout",
+      "fraud",
+      "orders"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "buyers",
+     "to": "edge",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,280],[220,280]],
+     "labelAt": [190,270]
+    },
+    {
+     "from": "edge",
+     "to": "checkout",
+     "label": null,
+     "variant": "default",
+     "route": "auto",
+     "points": [[350,280],[430,280]]
+    },
+    {
+     "from": "checkout",
+     "to": "fraud",
+     "label": "screen",
+     "variant": "security",
+     "route": "auto",
+     "points": [[495,250],[495,205],[705,205],[705,160]],
+     "labelAt": [600,129]
+    },
+    {
+     "from": "checkout",
+     "to": "orders",
+     "label": "SQL tx",
+     "variant": "default",
+     "route": "auto",
+     "points": [[560,280],[640,280]],
+     "labelAt": [600,270]
+    },
+    {
+     "from": "checkout",
+     "to": "queue",
+     "label": "accepted",
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[495,310],[495,420]],
+     "labelAt": [495,376]
+    },
+    {
+     "from": "queue",
+     "to": "worker",
+     "label": null,
+     "variant": "default",
+     "route": "auto",
+     "points": [[560,450],[600,450],[600,430],[640,430]]
+    },
+    {
+     "from": "fraud",
+     "to": "payments",
+     "label": "authorize",
+     "variant": "security",
+     "route": "auto",
+     "points": [[770,130],[820,130],[915,130],[915,250]],
+     "labelAt": [868,120]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 173,
+     "y": 260,
+     "width": 34,
+     "height": 14,
+     "labelAt": [190,270]
+    },
+    {
+     "text": "screen",
+     "x": 581,
+     "y": 119,
+     "width": 39,
+     "height": 14,
+     "labelAt": [600,129]
+    },
+    {
+     "text": "SQL tx",
+     "x": 581,
+     "y": 260,
+     "width": 39,
+     "height": 14,
+     "labelAt": [600,270]
+    },
+    {
+     "text": "accepted",
+     "x": 471,
+     "y": 366,
+     "width": 48,
+     "height": 14,
+     "labelAt": [495,376]
+    },
+    {
+     "text": "authorize",
+     "x": 841,
+     "y": 110,
+     "width": 53,
+     "height": 14,
+     "labelAt": [868,120]
+    }
+   ]
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1020,568],
+  "svg_attrs": {
+   "lang": "en",
+   "data-preset": "signal-flow",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory",
+   "data-reader-fit": "intrinsic-height",
+   "data-reader-min-text": "7.5",
+   "data-reader-primary-text": "14"
+  },
+  "title": "Checkout Platform — Fraud Gate",
+  "nodes": [
+   {
+    "id": "buyers",
+    "kind": "external",
+    "label": "Buyers",
+    "sublabel": "Web + mobile",
+    "context": "Architecture component",
+    "rect": {
+     "x": 40,
+     "y": 250,
+     "width": 120,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 100,
+      "y": 278,
+      "font_size": 11,
+      "text": "Buyers",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 100,
+      "y": 294,
+      "font_size": 9,
+      "text": "Web + mobile",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(46 256) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "edge",
+    "kind": "cloud",
+    "label": "Edge Gateway",
+    "sublabel": "TLS + routing",
+    "context": "Production region",
+    "rect": {
+     "x": 220,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 285,
+      "y": 278,
+      "font_size": 11,
+      "text": "Edge Gateway",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 285,
+      "y": 294,
+      "font_size": 9,
+      "text": "TLS + routing",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(226 256) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "checkout",
+    "kind": "backend",
+    "label": "Checkout API",
+    "sublabel": "v2 idempotent",
+    "context": "Production region › Checkout trust zone",
+    "rect": {
+     "x": 430,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 495,
+      "y": 278,
+      "font_size": 11,
+      "text": "Checkout API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 495,
+      "y": 294,
+      "font_size": 9,
+      "text": "v2 idempotent",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(436 256) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "fraud",
+    "kind": "security",
+    "label": "Fraud Gate",
+    "sublabel": "policy scoring",
+    "tag": "new owner",
+    "context": "Production region › Checkout trust zone",
+    "rect": {
+     "x": 640,
+     "y": 100,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 705,
+      "y": 128,
+      "font_size": 11,
+      "text": "Fraud Gate",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 705,
+      "y": 144,
+      "font_size": 9,
+      "text": "policy scoring",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 705,
+      "y": 152,
+      "font_size": 7,
+      "text": "new owner",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(646 106) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "orders",
+    "kind": "database",
+    "label": "Orders",
+    "sublabel": "PostgreSQL",
+    "context": "Production region › Checkout trust zone",
+    "rect": {
+     "x": 640,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 705,
+      "y": 278,
+      "font_size": 11,
+      "text": "Orders",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 705,
+      "y": 294,
+      "font_size": 9,
+      "text": "PostgreSQL",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(646 256) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "queue",
+    "kind": "messagebus",
+    "label": "Order Events",
+    "sublabel": "durable queue",
+    "context": "Production region",
+    "rect": {
+     "x": 430,
+     "y": 420,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 495,
+      "y": 448,
+      "font_size": 11,
+      "text": "Order Events",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 495,
+      "y": 464,
+      "font_size": 9,
+      "text": "durable queue",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(436 426) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "worker",
+    "kind": "backend",
+    "label": "Fulfilment",
+    "sublabel": "async worker",
+    "context": "Production region",
+    "rect": {
+     "x": 640,
+     "y": 400,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 705,
+      "y": 428,
+      "font_size": 11,
+      "text": "Fulfilment",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 705,
+      "y": 444,
+      "font_size": 9,
+      "text": "async worker",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(646 406) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "payments",
+    "kind": "external",
+    "label": "Payment Rail",
+    "sublabel": "external",
+    "context": "Architecture component",
+    "rect": {
+     "x": 850,
+     "y": 250,
+     "width": 130,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 915,
+      "y": 278,
+      "font_size": 11,
+      "text": "Payment Rail",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 915,
+      "y": 294,
+      "font_size": 9,
+      "text": "external",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(856 256) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "buyer-request",
+    "from": "buyers",
+    "to": "edge",
+    "label": "HTTPS",
+    "points": [[160,280],[220,280]],
+    "d": "M 160 280 L 220 280",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "id": "edge-checkout",
+    "from": "edge",
+    "to": "checkout",
+    "points": [[350,280],[430,280]],
+    "d": "M 350 280 L 430 280",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "id": "fraud-check",
+    "from": "checkout",
+    "to": "fraud",
+    "label": "screen",
+    "points": [[495,250],[495,205],[705,205],[705,160]],
+    "d": "M 495 250 L 495 213 Q 495 205 503 205 L 697 205 Q 705 205 705 197 L 705 160",
+    "variant": "security",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 3,
+    "id": "persist-order",
+    "from": "checkout",
+    "to": "orders",
+    "label": "SQL tx",
+    "points": [[560,280],[640,280]],
+    "d": "M 560 280 L 640 280",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "id": "publish-order",
+    "from": "checkout",
+    "to": "queue",
+    "label": "accepted",
+    "points": [[495,310],[495,420]],
+    "d": "M 495 310 L 495 420",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 5,
+    "id": "consume-order",
+    "from": "queue",
+    "to": "worker",
+    "points": [[560,450],[600,450],[600,430],[640,430]],
+    "d": "M 560 450 L 592 450 Q 600 450 600 442 L 600 438 Q 600 430 608 430 L 640 430",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "id": "authorize-payment",
+    "from": "fraud",
+    "to": "payments",
+    "label": "authorize",
+    "points": [[770,130],[820,130],[915,130],[915,250]],
+    "d": "M 770 130 L 812 130 Q 820 130 828 130 L 907 130 Q 915 130 915 138 L 915 250",
+    "variant": "security",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead-security"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "buyer-request",
+    "from": "buyers",
+    "to": "edge",
+    "text": "HTTPS",
+    "rect": {
+     "x": 173,
+     "y": 260,
+     "width": 34,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 190,
+      "y": 270,
+      "font_size": 8,
+      "text": "HTTPS",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "edge_id": "fraud-check",
+    "from": "checkout",
+    "to": "fraud",
+    "text": "screen",
+    "rect": {
+     "x": 580.6,
+     "y": 119,
+     "width": 38.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 600,
+      "y": 129,
+      "font_size": 8,
+      "text": "screen",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "edge_id": "persist-order",
+    "from": "checkout",
+    "to": "orders",
+    "text": "SQL tx",
+    "rect": {
+     "x": 580.6,
+     "y": 260,
+     "width": 38.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 600,
+      "y": 270,
+      "font_size": 8,
+      "text": "SQL tx",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "edge_id": "publish-order",
+    "from": "checkout",
+    "to": "queue",
+    "text": "accepted",
+    "rect": {
+     "x": 470.8,
+     "y": 366,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 495,
+      "y": 376,
+      "font_size": 8,
+      "text": "accepted",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "edge_id": "authorize-payment",
+    "from": "fraud",
+    "to": "payments",
+    "text": "authorize",
+    "rect": {
+     "x": 840.9,
+     "y": 110,
+     "width": 53.199999999999996,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 867.5,
+      "y": 120,
+      "font_size": 8,
+      "text": "authorize",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "region",
+    "id": "0",
+    "label": "Production region",
+    "class": "c-region",
+    "rect": {
+     "x": 190,
+     "y": 70,
+     "width": 610,
+     "height": 430,
+     "rx": 12
+    }
+   },
+   {
+    "kind": "security-group",
+    "id": "1",
+    "label": "Checkout trust zone",
+    "class": "c-security-group",
+    "rect": {
+     "x": 400,
+     "y": 70,
+     "width": 400,
+     "height": 260,
+     "rx": 8
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Backend",
+     "x": 40,
+     "baseline": 552,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 40,
+       "y": 543,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 62,
+       "y": 552,
+       "font_size": 10,
+       "text": "Backend"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "Database",
+     "x": 140,
+     "baseline": 552,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 140,
+       "y": 543,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 162,
+       "y": 552,
+       "font_size": 10,
+       "text": "Database"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "cloud",
+     "kind": "cloud",
+     "label": "Cloud",
+     "x": 245,
+     "baseline": 552,
+     "width": 68,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 245,
+       "y": 543,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 267,
+       "y": 552,
+       "font_size": 10,
+       "text": "Cloud"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "Security",
+     "x": 335,
+     "baseline": 552,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 335,
+       "y": 543,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 357,
+       "y": 552,
+       "font_size": 10,
+       "text": "Security"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "Message bus",
+     "x": 440,
+     "baseline": 552,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 440,
+       "y": 543,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 462,
+       "y": 552,
+       "font_size": 10,
+       "text": "Message bus"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "External",
+     "x": 560,
+     "baseline": 552,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 560,
+       "y": 543,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 582,
+       "y": 552,
+       "font_size": 10,
+       "text": "External"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Boundary labels": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 194,
+     "y": 80,
+     "width": 101.8,
+     "height": 16,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "0",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "Production region"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-cloud",
+     "x": 198,
+     "y": 93,
+     "font_size": 9,
+     "text": "Production region",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "0",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "Production region",
+      "data-boundary-label": ""
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 404,
+     "y": 80,
+     "width": 112.6,
+     "height": 16,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "1",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "Checkout trust zone"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 408,
+     "y": 93,
+     "font_size": 9,
+     "text": "Checkout trust zone",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "1",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "Checkout trust zone",
+      "data-boundary-label": ""
+     }
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,785 @@
+{
+ "name": "fixture.issue-126.explicit-viewbox.workflow",
+ "group": "fixture",
+ "source": "archify/test/fixtures/issue-126/explicit-viewbox.workflow.json",
+ "type": "workflow",
+ "source_sha256": "52931dae3dcea3a171ee257250a29d5a0740b11674643748ea92071b912074b1",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Sanitized explicit viewBox",
+   "output": "issue-126-explicit-viewbox.html",
+   "viewBox": [1600,520],
+   "legend": {
+    "mode": "hidden"
+   }
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Main flow"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "start",
+    "lane": "main",
+    "col": 0,
+    "type": "frontend",
+    "label": "Start"
+   },
+   {
+    "id": "finish",
+    "lane": "main",
+    "col": 5,
+    "type": "backend",
+    "label": "Finish"
+   }
+  ],
+  "edges": [
+   {
+    "id": "start-finish",
+    "from": "start",
+    "to": "finish",
+    "label": "complete"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "52931dae3dcea3a171ee257250a29d5a0740b11674643748ea92071b912074b1",
+     "bytes": 582
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "52931dae3dcea3a171ee257250a29d5a0740b11674643748ea92071b912074b1",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 1,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 4.65,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 508,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": false,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "start-finish",
+       "from": "start",
+       "to": "finish"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 4.65,
+      "semanticTextCount": 3
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/desktop-readability",
+       "owner": {
+        "kind": "edge",
+        "id": "start-finish",
+        "from": "start",
+        "to": "finish"
+       },
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "availableDiagramWidth": 930,
+       "budgetBasis": "legacy-930",
+       "readerContract": "declared-wide-v1",
+       "requestedTargetPx": null,
+       "requestedTargetMet": null,
+       "budgetLimit": "legacy",
+       "viewBoxWidth": 1600,
+       "scale": 0.58125,
+       "text": "complete",
+       "detail": "edge",
+       "sourceFontPx": 8,
+       "projectedFontPx": 4.65,
+       "minimumProjectedFontPx": 6
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "52931dae3dcea3a171ee257250a29d5a0740b11674643748ea92071b912074b1",
+     "bytes": 582
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "52931dae3dcea3a171ee257250a29d5a0740b11674643748ea92071b912074b1",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 1,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 4.65,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 508,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": false,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "start-finish",
+       "from": "start",
+       "to": "finish"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 4.65,
+      "semanticTextCount": 3
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/desktop-readability",
+       "owner": {
+        "kind": "edge",
+        "id": "start-finish",
+        "from": "start",
+        "to": "finish"
+       },
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "availableDiagramWidth": 930,
+       "budgetBasis": "legacy-930",
+       "readerContract": "declared-wide-v1",
+       "requestedTargetPx": null,
+       "requestedTargetMet": null,
+       "budgetLimit": "legacy",
+       "viewBoxWidth": 1600,
+       "scale": 0.58125,
+       "text": "complete",
+       "detail": "edge",
+       "sourceFontPx": 8,
+       "projectedFontPx": 4.65,
+       "minimumProjectedFontPx": 6
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "check",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Final artifact check failed.",
+    "diagnostics": [
+     {
+      "code": "composition/desktop-readability",
+      "severity": "error",
+      "message": "Final artifact failed composition/desktop-readability.",
+      "subject": {
+       "check": "composition"
+      },
+      "evidence": {
+       "owner": {
+        "kind": "edge",
+        "id": "start-finish",
+        "from": "start",
+        "to": "finish"
+       },
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "availableDiagramWidth": 930,
+       "budgetBasis": "legacy-930",
+       "readerContract": "declared-wide-v1",
+       "requestedTargetPx": null,
+       "requestedTargetMet": null,
+       "budgetLimit": "legacy",
+       "viewBoxWidth": 1600,
+       "scale": 0.58125,
+       "text": "complete",
+       "detail": "edge",
+       "sourceFontPx": 8,
+       "projectedFontPx": 4.65,
+       "minimumProjectedFontPx": 6
+      },
+      "supportedFixes": [
+       "Preserve the semantic text and any supplied coordinates, routes, sides, channels, and labels. Compactly reflow automatic spacing and empty corridors so the complete viewBox width is at most 1240px (current 1600px; 8px source text at 930px desktop budget). If supplied geometry fixes that width, use a renderer-supported semantic text-size setting or renderer-level fix instead. Position-only label controls cannot repair its projection."
+      ]
+     }
+    ],
+    "checker": {
+     "ok": false,
+     "file": "<input>",
+     "artifact": {
+      "sha256": "ce56e91107dfd9fa2c42ca26ba62f9a42d50fa51c1482e21c6046199f743761e",
+      "bytes": 741104
+     },
+     "checks": [
+      {
+       "name": "single_svg",
+       "ok": true,
+       "details": [
+        "found 1 <svg> block(s)"
+       ]
+      },
+      {
+       "name": "finite_svg",
+       "ok": true,
+       "details": []
+      },
+      {
+       "name": "orthogonal_arrows",
+       "ok": true,
+       "details": []
+      },
+      {
+       "name": "label_route_clearance",
+       "ok": true,
+       "details": []
+      },
+      {
+       "name": "relationship_crossings",
+       "ok": true,
+       "details": []
+      },
+      {
+       "name": "relationship_corridors",
+       "ok": true,
+       "details": []
+      },
+      {
+       "name": "container_border_runs",
+       "ok": true,
+       "details": []
+      },
+      {
+       "name": "route_rhythm",
+       "ok": true,
+       "details": []
+      },
+      {
+       "name": "legend_clearance",
+       "ok": true,
+       "details": []
+      }
+     ],
+     "composition": {
+      "schemaVersion": 1,
+      "profile": "showcase",
+      "status": "fail",
+      "summary": {
+       "errors": 1,
+       "warnings": 0
+      },
+      "metrics": {
+       "properCrossings": 0,
+       "resolvedCrossovers": 0,
+       "ambiguousCorridors": 0,
+       "arrowheadCollisions": 0,
+       "containerBorderRuns": 0,
+       "labelRouteClearanceIssues": 0,
+       "labelCanvasOverflowIssues": 0,
+       "minLabelRouteClearance": null,
+       "desktopReadabilityIssues": 1,
+       "viewportHeightIssues": 0,
+       "minProjectedNodeTextPx": 4.65,
+       "maxBends": 0,
+       "routesOverSuggestedBends": 0,
+       "maxStretch": 1,
+       "routesOverSuggestedStretch": 0,
+       "minSegmentPx": 508,
+       "minInteriorSegmentPx": null,
+       "shortSegmentCount": 0,
+       "shortEndpointSegmentCount": 0,
+       "shortInteriorSegmentCount": 0,
+       "microSegmentCount": 0
+      },
+      "suggestedLimits": {
+       "bendsPerRelationship": 2,
+       "stretch": 1.35,
+       "segmentPx": 16,
+       "microSegmentPx": 8
+      },
+      "routeReview": {
+       "crossings": [],
+       "detours": []
+      },
+      "leadingSpace": {
+       "measured": false,
+       "reviewSuggested": false
+      },
+      "desktopReadability": {
+       "budgetBasis": "legacy-930",
+       "readerContract": "declared-wide-v1",
+       "availableDiagramWidth": 930,
+       "actualBudgetPx": 930,
+       "limit": "legacy",
+       "requestedTargetPx": null,
+       "requestedTargetMet": null,
+       "hardFloorPx": 6,
+       "hardFloorMet": false,
+       "minimumOwner": {
+        "kind": "edge",
+        "id": "start-finish",
+        "from": "start",
+        "to": "finish"
+       },
+       "minimumSourceTextPx": 8,
+       "minimumProjectedTextPx": 4.65,
+       "semanticTextCount": 3
+      },
+      "issues": [
+       {
+        "severity": "error",
+        "code": "composition/desktop-readability",
+        "owner": {
+         "kind": "edge",
+         "id": "start-finish",
+         "from": "start",
+         "to": "finish"
+        },
+        "viewportWidth": 1440,
+        "viewportHeight": 900,
+        "availableDiagramWidth": 930,
+        "budgetBasis": "legacy-930",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetPx": null,
+        "requestedTargetMet": null,
+        "budgetLimit": "legacy",
+        "viewBoxWidth": 1600,
+        "scale": 0.58125,
+        "text": "complete",
+        "detail": "edge",
+        "sourceFontPx": 8,
+        "projectedFontPx": 4.65,
+        "minimumProjectedFontPx": 6
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "readable-v2",
+   "viewBox": [1600,520],
+   "requiredViewBox": [768,280],
+   "columns": [94,214,334,454,574,694],
+   "nodes": [
+    {
+     "id": "start",
+     "lane": "main",
+     "col": 0,
+     "x": 48,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "finish",
+     "lane": "main",
+     "col": 5,
+     "x": 648,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": "start-finish",
+     "from": "start",
+     "to": "finish",
+     "points": [[140,119],[648,119]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": "start-finish",
+     "label": "complete",
+     "x": 394,
+     "y": 109,
+     "width": 48.4,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1600,520],
+  "svg_attrs": {
+   "data-layout-contract": "readable-v2",
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory"
+  },
+  "title": "Sanitized explicit viewBox",
+  "nodes": [
+   {
+    "id": "start",
+    "kind": "frontend",
+    "label": "Start",
+    "context": "Main flow",
+    "rect": {
+     "x": 48,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 94,
+      "y": 114,
+      "font_size": 11,
+      "text": "Start",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(54 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "finish",
+    "kind": "backend",
+    "label": "Finish",
+    "context": "Main flow",
+    "rect": {
+     "x": 648,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 694,
+      "y": 114,
+      "font_size": 11,
+      "text": "Finish",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(654 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "start-finish",
+    "from": "start",
+    "to": "finish",
+    "label": "complete",
+    "points": [[140,119],[648,119]],
+    "d": "M 140 119 L 648 119",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "start-finish",
+    "from": "start",
+    "to": "finish",
+    "text": "complete",
+    "rect": {
+     "x": 369.8,
+     "y": 99,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 394,
+      "y": 109,
+      "font_size": 8,
+      "text": "complete",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 712,
+     "height": 104,
+     "rx": 10
+    }
+   }
+  ],
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / Main flow"
+    }
+   ]
+  }
+ }
+}

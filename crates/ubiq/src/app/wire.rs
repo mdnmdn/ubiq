@@ -535,6 +535,9 @@ impl AppState {
         let Some(message) = self.receive_kb(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_archify(host, message, cx) else {
+            return;
+        };
         let Some(message) = self.receive_work(host, message, cx) else {
             return;
         };
@@ -824,13 +827,31 @@ impl AppState {
                 rel_path,
                 listings,
             } => {
+                let started = std::time::Instant::now();
                 let open = self.projects.get_mut(&project_id)?;
                 open.explorer.set_loading(&rel_path, false);
+                let mut ask_full = false;
+                if open.explorer.cache_answered(&rel_path)
+                    && !listings.iter().any(|listing| listing.rel_path == rel_path)
+                {
+                    // An ignored folder, skipped by the prefetch: it opens empty forever unless
+                    // whoever wanted it open now asks in full.
+                    ask_full = open.explorer.cache_skipped(&rel_path, &open.wanted);
+                }
                 let filter = self.workbench.file_filter.clone();
+                let folders = listings.len();
                 for listing in listings {
                     open.explorer.merge(listing);
                 }
                 open.explorer.reanchor(&filter);
+                if ask_full {
+                    self.bus.send(Message::ProjectTree {
+                        project_id,
+                        rel_path: rel_path.clone(),
+                        depth: EXPAND_DEPTH,
+                        prefetch: false,
+                    });
+                }
                 // A listing can put a remembered folder within reach, which is what makes
                 // restoring a deep one terminate: each answer either resolves one or drops it.
                 self.reach_wanted(project_id, cx);
@@ -845,6 +866,10 @@ impl AppState {
                 // The cache fills in the background from project open: each reply names more
                 // folders, and those are asked about next, until the skip set is all that remains.
                 self.fill_explorer_cache(project_id);
+                tracing::debug!(
+                    "tree listing {rel_path:?}: {folders} folders merged in {:?}",
+                    started.elapsed()
+                );
                 if !self.workbench.file_filter.trim().is_empty() {
                     let text = self.workbench.file_filter.clone();
                     self.spawn_explorer_filter(text, cx);
@@ -989,6 +1014,11 @@ impl AppState {
             }
             Message::HostFileError { path, error } => {
                 let reason = describe(&error);
+                // An export the viewer sent is no guest tab: its error is the viewer's to raise.
+                if crate::state::archify::ui(cx).exports.remove(&path) {
+                    crate::ui::archify::viewer::say(self, &format!("Export failed: {reason}"), cx);
+                    return None;
+                }
                 tracing::warn!("guest file {path}: {reason}");
                 // Only a write this tab actually had in flight is worth a modal, on
                 // `file_failed`'s own reasoning — there is no `FileDialog::OverwriteFile` here,
@@ -1125,6 +1155,7 @@ impl AppState {
                         project_id,
                         rel_path: dir,
                         depth: EXPAND_DEPTH,
+                        prefetch: false,
                     });
                 }
                 for (path, _) in reload {
@@ -1393,6 +1424,53 @@ impl AppState {
         None
     }
 
+    /// The diagram viewer's family: an agent's render opens the file, its tool calls feed the tab's
+    /// chip, and an export the viewer sent is answered.
+    ///
+    /// Answers with the message when it belongs to another family.
+    fn receive_archify(
+        &mut self,
+        _host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
+        use crate::state::archify::ui as archify;
+        match message {
+            Message::ArchifyShow { project_id, rel } => {
+                if self.projects.contains_key(&project_id) {
+                    self.open_file_with(
+                        rel,
+                        ViewerKind::Contributed(crate::ext::ids::ARCHIFY_VIEWER),
+                        cx,
+                    );
+                }
+            }
+            Message::ArchifyToolCall {
+                project_id,
+                rel,
+                tool,
+                ok,
+            } => {
+                if self.projects.contains_key(&project_id) {
+                    let key = rel.map(|rel| tab_key(&rel, Subject::File));
+                    let notice = archify(cx).agent_called(key, tool, ok, std::time::Instant::now());
+                    if let Some(notice) = notice {
+                        self.raise_notification(crate::ui::archify::agent::notification(notice));
+                    }
+                    crate::ui::archify::agent::keep_fresh(cx);
+                    cx.notify();
+                }
+            }
+            Message::HostFileExported { path } => {
+                if archify(cx).exports.remove(&path) {
+                    crate::ui::archify::viewer::say(self, &format!("Saved {path}."), cx);
+                }
+            }
+            other => return Some(other),
+        }
+        None
+    }
+
     /// The knowledge-base family.
     ///
     /// Every arm is guarded on the project still being held, the file family's rule: a reply can
@@ -1596,16 +1674,9 @@ impl AppState {
                 // the first moment there is anything to check it against, and the check is cheap
                 // enough to repeat on every list.
                 open.board.prune(&open.work);
-                open.graph.relayout(&open.work);
-                // Pointing the screen at the first agent was the fixture constructor's job. It
-                // belongs to whoever first learns there is one to point at, and only then: a
-                // second `ListWork` must not move a selection the user has since made.
-                if open.graph.selection.is_none() {
-                    open.graph.selection = open.work.agents.first().map(|a| Selection::Agent(a.id));
-                }
-                // Teams draws its own narrower work and lays it out here too, the same as `graph`
-                // — the projection update every card's arrival goes through, rather than a frame
-                // discovering the count changed.
+                // Teams draws its own narrower work and lays it out here — the projection update
+                // every card's arrival goes through, rather than a frame discovering the count
+                // changed.
                 open.teams
                     .relayout(&live_work(&open.work, &open.agents.live));
                 // The agents screen lays its columns out the first time it hears there is work,
@@ -1629,7 +1700,6 @@ impl AppState {
                 let open = self.projects.get_mut(&project_id)?;
                 let id = task.id;
                 open.work.apply_task(task);
-                open.graph.absorb_new(&open.work);
                 open.teams
                     .absorb_new(&live_work(&open.work, &open.agents.live));
                 // The task that arrives is the one to select, because the interface could not know
@@ -1670,7 +1740,6 @@ impl AppState {
                 let selected = open.board.selected == Some(task.id);
                 let editing = open.board.editing.is_some();
                 open.work.apply_task(task);
-                open.graph.absorb_new(&open.work);
                 open.teams
                     .absorb_new(&live_work(&open.work, &open.agents.live));
                 // Refill the panel from what the host actually stored — it trims a title, and a
@@ -1711,7 +1780,6 @@ impl AppState {
                 self.workbench.work_error = None;
                 let open = self.projects.get_mut(&project_id)?;
                 open.work.apply_agent(*agent);
-                open.graph.absorb_new(&open.work);
                 open.teams
                     .absorb_new(&live_work(&open.work, &open.agents.live));
                 // An arriving agent is not put in a column: the arrangement is the user's, and the
@@ -2086,7 +2154,6 @@ impl AppState {
                 // before its heading exists is an agent drawn nowhere.
                 open.work.apply_session(session);
                 open.work.apply_agent(*agent);
-                open.graph.absorb_new(&open.work);
                 let conversation = open
                     .conversations
                     .entry(id)
@@ -2325,7 +2392,6 @@ impl AppState {
                 open.work.remove_agent(agent_id);
                 open.agents.live = open.conversations.keys().copied().collect();
                 open.agents.prune(&open.work);
-                open.graph.absorb_new(&open.work);
                 open.teams
                     .absorb_new(&live_work(&open.work, &open.agents.live));
                 // **Every held project is swept, not only the owning one** (`T-149`). A tab is the
@@ -2365,6 +2431,17 @@ impl AppState {
                     .find_map(|open| open.conversations.get_mut(&agent_id))
                 {
                     conversation.error = Some(error.clone());
+                } else {
+                    // A start refused before `ConversationStarted` has no transcript to carry the
+                    // sentence, and `work_error` is drawn only by the task form (`T-275`): the
+                    // bell is the one surface every screen has.
+                    self.raise_notification(
+                        NotificationRequest::error(
+                            Family::Agents,
+                            format!("The agent could not start: {error}"),
+                        )
+                        .with_category("start"),
+                    );
                 }
                 self.workbench.work_error = Some(error);
                 cx.notify();
@@ -3270,6 +3347,7 @@ impl AppState {
                 project_id,
                 rel_path: dir,
                 depth: EXPAND_DEPTH,
+                prefetch: false,
             });
         }
 
@@ -3312,6 +3390,7 @@ impl AppState {
                 project_id,
                 rel_path: into,
                 depth: EXPAND_DEPTH,
+                prefetch: false,
             });
         }
         if let Some(first) = imported.first()
@@ -3371,8 +3450,10 @@ impl AppState {
         self.fail_attachment_preview(project, &rel_path, &reason);
 
         let mut question = None;
+        let mut cache_freed = false;
         if let Some(open) = self.projects.get_mut(&project) {
             open.explorer.set_loading(&rel_path, false);
+            cache_freed = open.explorer.cache_answered(&rel_path);
             open.wanted.retain(|wanted| wanted != &rel_path);
             if let Some(file) = open.editor.find_mut(&rel_path) {
                 match file.is_loading() {
@@ -3402,6 +3483,10 @@ impl AppState {
         }
         if let Some(dialog) = question {
             self.workbench.file_dialog = Some(dialog);
+        }
+        // A failed cache listing frees its slot like an answered one, or the crawl would stall.
+        if cache_freed {
+            self.fill_explorer_cache(project);
         }
 
         if matches!(error, FileError::Missing | FileError::Denied(_)) {

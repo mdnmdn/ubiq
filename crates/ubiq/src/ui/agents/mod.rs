@@ -2,13 +2,12 @@
 //! and the ones the user is working with drawn as **parallel columns** of conversation across the
 //! rest.
 //!
-//! **Not everything the host reports.** The projection is wider than what a column can talk to —
-//! it carries the mock work thread's fixtures too — so every reader on this screen goes through
-//! [`crate::state::AgentsView::live_agents`]. The Teams screen keeps reading the whole projection,
-//! because a graph is a map of who spawned whom and a mock has a place on one.
+//! **Not everything the host reports.** The projection can be wider than what a column can talk
+//! to, so every reader on this screen goes through [`crate::state::AgentsView::live_agents`] — as
+//! the Teams screen does, through `state::teams::live_work`.
 //!
 //! This is the screen for *talking to* the agents. The screen for *arranging* them is
-//! [`crate::ui::orchestration`], and the two never share a view: a graph is a map of who spawned
+//! [`crate::ui::teams`], and the two never share a view: a graph is a map of who spawned
 //! whom, a column is a transcript and a composer.
 //!
 //! Three things are on screen and each answers one question. The **sidebar** answers *what is

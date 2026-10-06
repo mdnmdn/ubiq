@@ -1,0 +1,161 @@
+{
+ "name": "neg.rel-duplicate-id-flow",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "relationship/duplicate-id",
+ "expect_codes": [
+  "relationship/duplicate-id"
+ ],
+ "source_sha256": "2efcc704a7ddda7e0cfc81bfa5007a71f47381d9155ed2ebbbc1cdcccc6583fb",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html"
+  },
+  "stages": [
+   {
+    "label": "Ingest"
+   },
+   {
+    "label": "Process"
+   },
+   {
+    "label": "Store"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "Src",
+    "stage": 0,
+    "row": 0
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 2
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f1",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /flows/1/id duplicates relationship id \"f1\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/flows/1/id duplicates relationship id \"f1\"",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /flows/1/id duplicates relationship id \"f1\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/flows/1/id duplicates relationship id \"f1\"",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /flows/1/id duplicates relationship id \"f1\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/flows/1/id duplicates relationship id \"f1\"",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

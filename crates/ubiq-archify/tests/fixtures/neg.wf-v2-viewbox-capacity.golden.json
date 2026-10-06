@@ -1,0 +1,260 @@
+{
+ "name": "neg.wf-v2-viewbox-capacity",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/viewbox-capacity",
+ "expect_codes": [
+  "workflow/viewbox-capacity"
+ ],
+ "source_sha256": "014260909be453ba6c5deefb90275919e6c6c116f34a4e5840eaaad2e2ff5b97",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html",
+   "viewBox": [700,240]
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow viewBox 700×240 cannot contain the readable-v2 layout; minimum 768×404.",
+    "diagnostics": [
+     {
+      "code": "workflow/viewbox-capacity",
+      "severity": "error",
+      "message": "Workflow viewBox 700×240 cannot contain the readable-v2 layout; minimum 768×404.",
+      "subject": {
+       "diagramType": "workflow",
+       "path": "/meta/viewBox"
+      },
+      "evidence": {
+       "actualViewBox": [700,240],
+       "requiredViewBox": [768,404],
+       "contentBounds": [20,27,752,342],
+       "contributors": [
+        "legend title",
+        "phase header band",
+        "workflow lanes",
+        "legend"
+       ]
+      },
+      "supportedFixes": [
+       "set meta.viewBox to at least [768,404]",
+       "omit meta.viewBox so the compiler can use its measured intrinsic canvas"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow viewBox 700×240 cannot contain the readable-v2 layout; minimum 768×404.",
+    "diagnostics": [
+     {
+      "code": "workflow/viewbox-capacity",
+      "severity": "error",
+      "message": "Workflow viewBox 700×240 cannot contain the readable-v2 layout; minimum 768×404.",
+      "subject": {
+       "diagramType": "workflow",
+       "path": "/meta/viewBox"
+      },
+      "evidence": {
+       "actualViewBox": [700,240],
+       "requiredViewBox": [768,404],
+       "contentBounds": [20,27,752,342],
+       "contributors": [
+        "legend title",
+        "phase header band",
+        "workflow lanes",
+        "legend"
+       ]
+      },
+      "supportedFixes": [
+       "set meta.viewBox to at least [768,404]",
+       "omit meta.viewBox so the compiler can use its measured intrinsic canvas"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow viewBox 700×240 cannot contain the readable-v2 layout; minimum 768×404.",
+    "diagnostics": [
+     {
+      "code": "workflow/viewbox-capacity",
+      "severity": "error",
+      "message": "Workflow viewBox 700×240 cannot contain the readable-v2 layout; minimum 768×404.",
+      "subject": {
+       "diagramType": "workflow",
+       "path": "/meta/viewBox"
+      },
+      "evidence": {
+       "actualViewBox": [700,240],
+       "requiredViewBox": [768,404],
+       "contentBounds": [20,27,752,342],
+       "contributors": [
+        "legend title",
+        "phase header band",
+        "workflow lanes",
+        "legend"
+       ]
+      },
+      "supportedFixes": [
+       "set meta.viewBox to at least [768,404]",
+       "omit meta.viewBox so the compiler can use its measured intrinsic canvas"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/viewbox-capacity",
+     "severity": "error",
+     "message": "Workflow viewBox 700×240 cannot contain the readable-v2 layout; minimum 768×404.",
+     "subject": {
+      "diagramType": "workflow",
+      "path": "/meta/viewBox"
+     },
+     "evidence": {
+      "actualViewBox": [700,240],
+      "requiredViewBox": [768,404],
+      "contentBounds": [20,27,752,342],
+      "contributors": [
+       "legend title",
+       "phase header band",
+       "workflow lanes",
+       "legend"
+      ]
+     },
+     "supportedFixes": [
+      "set meta.viewBox to at least [768,404]",
+      "omit meta.viewBox so the compiler can use its measured intrinsic canvas"
+     ]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

@@ -1,0 +1,160 @@
+{
+ "name": "neg.schema-const-schema-version",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/const",
+ "expect_codes": [
+  "schema/const"
+ ],
+ "source_sha256": "19b7427b02c7d24cf55cd084b20a23f750d86408d69591ef7a31d53a5d65bf4a",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /schema_version must be equal to constant {\"allowedValue\":1}",
+    "diagnostics": [
+     {
+      "code": "schema/const",
+      "severity": "error",
+      "message": "/schema_version must be equal to constant {\"allowedValue\":1}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/schema_version"
+      },
+      "evidence": {
+       "keyword": "const",
+       "allowedValue": 1
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /schema_version must be equal to constant {\"allowedValue\":1}",
+    "diagnostics": [
+     {
+      "code": "schema/const",
+      "severity": "error",
+      "message": "/schema_version must be equal to constant {\"allowedValue\":1}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/schema_version"
+      },
+      "evidence": {
+       "keyword": "const",
+       "allowedValue": 1
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /schema_version must be equal to constant {\"allowedValue\":1}",
+    "diagnostics": [
+     {
+      "code": "schema/const",
+      "severity": "error",
+      "message": "/schema_version must be equal to constant {\"allowedValue\":1}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/schema_version"
+      },
+      "evidence": {
+       "keyword": "const",
+       "allowedValue": 1
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /schema_version must be equal to constant {\"allowedValue\":1}\n[schema/const] /schema_version must be equal to constant {\"allowedValue\":1}\n"
+ },
+ "layout_json_by_quality": {}
+}

@@ -134,15 +134,10 @@ pub fn dock_height() -> f32 {
     scaled(DOCK_HEIGHT)
 }
 
-/// The orchestration screen: the inspector beside the graph, the tasks drawer under it, and the
-/// pitch of the graph's dotted ground at 100% zoom.
-pub const INSPECTOR_WIDTH: f32 = 420.0;
+/// The Teams screen: the tasks drawer under the graph, and the pitch of the graph's dotted ground
+/// at 100% zoom.
 pub const TASKS_HEIGHT: f32 = 220.0;
 pub const GRAPH_DOT_PITCH: f32 = 28.0;
-
-pub fn inspector_width() -> f32 {
-    scaled(INSPECTOR_WIDTH)
-}
 
 pub fn tasks_height() -> f32 {
     scaled(TASKS_HEIGHT)

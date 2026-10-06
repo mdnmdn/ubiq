@@ -1,0 +1,2284 @@
+{
+ "name": "agent-tool-call.workflow",
+ "group": "example",
+ "source": "archify/examples/agent-tool-call.workflow.json",
+ "type": "workflow",
+ "source_sha256": "d67965d50872c97e4ff3476271e645bf19fab6b3ab44e111bdb44b063e3aa36f",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Agent Tool Call Workflow",
+   "animation": "trace",
+   "visual_preset": "signal-flow",
+   "quality_profile": "showcase",
+   "output": "examples/workflow-agent-tool-call-rendered.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "User Interface"
+   },
+   {
+    "id": "agent",
+    "label": "Agent Runtime"
+   },
+   {
+    "id": "policy",
+    "label": "Policy & Recovery",
+    "variant": "exception"
+   },
+   {
+    "id": "tools",
+    "label": "Tool Execution & Evidence"
+   }
+  ],
+  "phases": [
+   {
+    "id": "intake",
+    "label": "Intake",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "reasoning",
+    "label": "Plan + route",
+    "fromCol": 2,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "execution",
+    "label": "Execute + report",
+    "fromCol": 4,
+    "toCol": 5,
+    "variant": "dashed"
+   }
+  ],
+  "groups": [
+   {
+    "id": "agent_loop",
+    "label": "Planning loop",
+    "lane": "agent",
+    "fromCol": 2,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "exception_path",
+    "label": "Human or policy stop",
+    "lane": "policy",
+    "fromCol": 3,
+    "toCol": 5,
+    "variant": "security"
+   },
+   {
+    "id": "evidence_path",
+    "label": "Evidence path",
+    "lane": "tools",
+    "fromCol": 1,
+    "toCol": 2,
+    "variant": "dashed"
+   },
+   {
+    "id": "tool_work",
+    "label": "Tool work",
+    "lane": "tools",
+    "fromCol": 4,
+    "toCol": 5,
+    "variant": "dashed"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "chat",
+   "planner",
+   "router",
+   "approval",
+   "tool",
+   "external",
+   "final"
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User",
+    "sublabel": "asks for work",
+    "width": 132
+   },
+   {
+    "id": "chat",
+    "lane": "ui",
+    "col": 1,
+    "type": "frontend",
+    "label": "Chat Surface",
+    "sublabel": "thread + files",
+    "width": 132
+   },
+   {
+    "id": "final",
+    "lane": "ui",
+    "col": 5,
+    "type": "backend",
+    "label": "Final Reply",
+    "sublabel": "answer + changes",
+    "width": 132
+   },
+   {
+    "id": "planner",
+    "lane": "agent",
+    "col": 2,
+    "type": "backend",
+    "label": "Agent Planner",
+    "sublabel": "plan next step",
+    "tag": "context aware",
+    "width": 132
+   },
+   {
+    "id": "router",
+    "lane": "agent",
+    "col": 3,
+    "type": "backend",
+    "label": "Tool Router",
+    "sublabel": "choose capability",
+    "width": 132
+   },
+   {
+    "id": "approval",
+    "lane": "policy",
+    "col": 3,
+    "type": "security",
+    "label": "Approval Gate",
+    "sublabel": "scope + consent",
+    "tag": "block risky ops",
+    "width": 132
+   },
+   {
+    "id": "blocked",
+    "lane": "policy",
+    "col": 4,
+    "type": "security",
+    "label": "Blocked",
+    "sublabel": "wait or reject",
+    "width": 132
+   },
+   {
+    "id": "retry",
+    "lane": "policy",
+    "col": 5,
+    "type": "messagebus",
+    "label": "Retry Path",
+    "sublabel": "revise request",
+    "width": 132
+   },
+   {
+    "id": "tool",
+    "lane": "tools",
+    "col": 4,
+    "type": "messagebus",
+    "label": "Tool Call",
+    "sublabel": "shell / browser / MCP",
+    "tag": "structured result",
+    "width": 132
+   },
+   {
+    "id": "external",
+    "lane": "tools",
+    "col": 5,
+    "type": "cloud",
+    "label": "External API",
+    "sublabel": "network service",
+    "width": 132
+   },
+   {
+    "id": "store",
+    "lane": "tools",
+    "col": 1,
+    "type": "database",
+    "label": "Context Store",
+    "sublabel": "repo + memory",
+    "width": 132
+   },
+   {
+    "id": "trace",
+    "lane": "tools",
+    "col": 2,
+    "type": "database",
+    "label": "Trace Log",
+    "sublabel": "events + output",
+    "width": 132
+   }
+  ],
+  "edges": [
+   {
+    "id": "request-chat",
+    "from": "user",
+    "to": "chat",
+    "variant": "default"
+   },
+   {
+    "id": "plan-request",
+    "from": "chat",
+    "to": "planner",
+    "label": "plan",
+    "variant": "emphasis"
+   },
+   {
+    "id": "planner-route",
+    "from": "planner",
+    "to": "router",
+    "variant": "default"
+   },
+   {
+    "id": "approval-check",
+    "from": "router",
+    "to": "approval",
+    "label": "needs approval?",
+    "variant": "security"
+   },
+   {
+    "id": "approved-tool",
+    "from": "approval",
+    "to": "tool",
+    "variant": "emphasis"
+   },
+   {
+    "id": "approval-denied",
+    "from": "approval",
+    "to": "blocked",
+    "label": "denied",
+    "variant": "security",
+    "role": "error"
+   },
+   {
+    "id": "retry-request",
+    "from": "blocked",
+    "to": "retry",
+    "variant": "dashed",
+    "role": "branch"
+   },
+   {
+    "id": "tool-external-call",
+    "from": "tool",
+    "to": "external",
+    "variant": "default"
+   },
+   {
+    "id": "external-reply",
+    "from": "external",
+    "to": "final",
+    "variant": "emphasis",
+    "role": "return",
+    "fromSide": "right",
+    "toSide": "right",
+    "route": "outside-right",
+    "width": 1.2
+   },
+   {
+    "id": "record-result",
+    "from": "external",
+    "to": "trace",
+    "label": "record result",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "bottom",
+    "route": "bottom-channel",
+    "labelSegment": 1
+   },
+   {
+    "id": "write-trace-memory",
+    "from": "store",
+    "to": "trace",
+    "label": "trace + memory",
+    "variant": "dashed"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Compiler Contract",
+    "items": [
+     "Lanes and columns determine node placement",
+     "Labels reserve clearance; routes stay orthogonal"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Runtime Semantics",
+    "items": [
+     "Approval gates risky work before tool execution",
+     "Evidence returns through isolated trace and memory"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "d67965d50872c97e4ff3476271e645bf19fab6b3ab44e111bdb44b063e3aa36f",
+     "bytes": 4939
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "d67965d50872c97e4ff3476271e645bf19fab6b3ab44e111bdb44b063e3aa36f",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 29,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.788321167883212,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 1.225,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 82,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "approval-check",
+         "from": "router",
+         "to": "approval",
+         "label": "needs approval?",
+         "collectionIndex": 0,
+         "artifactIndex": 1
+        },
+        "bends": 3,
+        "stretch": 1.184
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.788321167883212,
+      "semanticTextCount": 29
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "d67965d50872c97e4ff3476271e645bf19fab6b3ab44e111bdb44b063e3aa36f",
+     "bytes": 4939
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "d67965d50872c97e4ff3476271e645bf19fab6b3ab44e111bdb44b063e3aa36f",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 29,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.788321167883212,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 1.225,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 82,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "approval-check",
+         "from": "router",
+         "to": "approval",
+         "label": "needs approval?",
+         "collectionIndex": 0,
+         "artifactIndex": 1
+        },
+        "bends": 3,
+        "stretch": 1.184
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.788321167883212,
+      "semanticTextCount": 29
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "d67965d50872c97e4ff3476271e645bf19fab6b3ab44e111bdb44b063e3aa36f",
+     "bytes": 4939
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "d67965d50872c97e4ff3476271e645bf19fab6b3ab44e111bdb44b063e3aa36f",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 29,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.788321167883212,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 1.225,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 16,
+      "minInteriorSegmentPx": 82,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "approval-check",
+         "from": "router",
+         "to": "approval",
+         "label": "needs approval?",
+         "collectionIndex": 0,
+         "artifactIndex": 1
+        },
+        "bends": 3,
+        "stretch": 1.184
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.788321167883212,
+      "semanticTextCount": 29
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "readable-v2",
+   "viewBox": [1096,684],
+   "requiredViewBox": [1096,684],
+   "columns": [114,274,491.2,651.2,830,990],
+   "nodes": [
+    {
+     "id": "user",
+     "lane": "ui",
+     "col": 0,
+     "x": 48,
+     "y": 94,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "chat",
+     "lane": "ui",
+     "col": 1,
+     "x": 208,
+     "y": 94,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "final",
+     "lane": "ui",
+     "col": 5,
+     "x": 924,
+     "y": 94,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "planner",
+     "lane": "agent",
+     "col": 2,
+     "x": 425.2,
+     "y": 219,
+     "width": 132,
+     "height": 68
+    },
+    {
+     "id": "router",
+     "lane": "agent",
+     "col": 3,
+     "x": 585.2,
+     "y": 227,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "approval",
+     "lane": "policy",
+     "col": 3,
+     "x": 585.2,
+     "y": 353,
+     "width": 132,
+     "height": 68
+    },
+    {
+     "id": "blocked",
+     "lane": "policy",
+     "col": 4,
+     "x": 764,
+     "y": 361,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "retry",
+     "lane": "policy",
+     "col": 5,
+     "x": 924,
+     "y": 361,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "store",
+     "lane": "tools",
+     "col": 1,
+     "x": 208,
+     "y": 495,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "trace",
+     "lane": "tools",
+     "col": 2,
+     "x": 425.2,
+     "y": 495,
+     "width": 132,
+     "height": 52
+    },
+    {
+     "id": "tool",
+     "lane": "tools",
+     "col": 4,
+     "x": 764,
+     "y": 487,
+     "width": 132,
+     "height": 68
+    },
+    {
+     "id": "external",
+     "lane": "tools",
+     "col": 5,
+     "x": 924,
+     "y": 495,
+     "width": 132,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": "approval-check",
+     "from": "router",
+     "to": "approval",
+     "points": [[651.2,279],[651.2,302],[569.2,302],[569.2,387],[585.2,387]]
+    },
+    {
+     "id": "approval-denied",
+     "from": "approval",
+     "to": "blocked",
+     "points": [[651.2,421],[651.2,442],[830,442],[830,413]]
+    },
+    {
+     "id": "approved-tool",
+     "from": "approval",
+     "to": "tool",
+     "points": [[639.2,421],[639.2,521],[764,521]]
+    },
+    {
+     "id": "external-reply",
+     "from": "external",
+     "to": "final",
+     "points": [[1056,521],[1080,521],[1080,120],[1056,120]]
+    },
+    {
+     "id": "plan-request",
+     "from": "chat",
+     "to": "planner",
+     "points": [[274,146],[274,253],[425.2,253]]
+    },
+    {
+     "id": "planner-route",
+     "from": "planner",
+     "to": "router",
+     "points": [[557.2,253],[585.2,253]]
+    },
+    {
+     "id": "record-result",
+     "from": "external",
+     "to": "trace",
+     "points": [[990,547],[990,579],[491.2,579],[491.2,547]]
+    },
+    {
+     "id": "request-chat",
+     "from": "user",
+     "to": "chat",
+     "points": [[180,120],[208,120]]
+    },
+    {
+     "id": "retry-request",
+     "from": "blocked",
+     "to": "retry",
+     "points": [[896,387],[924,387]]
+    },
+    {
+     "id": "tool-external-call",
+     "from": "tool",
+     "to": "external",
+     "points": [[896,521],[924,521]]
+    },
+    {
+     "id": "write-trace-memory",
+     "from": "store",
+     "to": "trace",
+     "points": [[340,521],[425.2,521]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": "approval-check",
+     "label": "needs approval?",
+     "x": 610.2,
+     "y": 292,
+     "width": 82,
+     "height": 14
+    },
+    {
+     "edge": "approval-denied",
+     "label": "denied",
+     "x": 740.6,
+     "y": 432,
+     "width": 38.8,
+     "height": 14
+    },
+    {
+     "edge": "plan-request",
+     "label": "plan",
+     "x": 349.6,
+     "y": 243,
+     "width": 30,
+     "height": 14
+    },
+    {
+     "edge": "record-result",
+     "label": "record result",
+     "x": 740.6,
+     "y": 569,
+     "width": 72.4,
+     "height": 14
+    },
+    {
+     "edge": "write-trace-memory",
+     "label": "trace + memory",
+     "x": 382.6,
+     "y": 511,
+     "width": 77.2,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1096,684],
+  "svg_attrs": {
+   "data-layout-contract": "readable-v2",
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "signal-flow",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Agent Tool Call Workflow",
+  "nodes": [
+   {
+    "id": "user",
+    "kind": "external",
+    "label": "User",
+    "sublabel": "asks for work",
+    "context": "User Interface › Intake",
+    "rect": {
+     "x": 48,
+     "y": 94,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 114,
+      "y": 115,
+      "font_size": 11,
+      "text": "User",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 114,
+      "y": 132,
+      "font_size": 8,
+      "text": "asks for work",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(54 100) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "chat",
+    "kind": "frontend",
+    "label": "Chat Surface",
+    "sublabel": "thread + files",
+    "context": "User Interface › Intake",
+    "rect": {
+     "x": 208,
+     "y": 94,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 274,
+      "y": 115,
+      "font_size": 11,
+      "text": "Chat Surface",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 274,
+      "y": 132,
+      "font_size": 8,
+      "text": "thread + files",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(214 100) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "final",
+    "kind": "backend",
+    "label": "Final Reply",
+    "sublabel": "answer + changes",
+    "context": "User Interface › Execute + report",
+    "rect": {
+     "x": 924,
+     "y": 94,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 990,
+      "y": 115,
+      "font_size": 11,
+      "text": "Final Reply",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 990,
+      "y": 132,
+      "font_size": 8,
+      "text": "answer + changes",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(930 100) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "planner",
+    "kind": "backend",
+    "label": "Agent Planner",
+    "sublabel": "plan next step",
+    "tag": "context aware",
+    "context": "Agent Runtime › Planning loop › Plan + route",
+    "rect": {
+     "x": 425.2,
+     "y": 219,
+     "width": 132,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 491.2,
+      "y": 240,
+      "font_size": 11,
+      "text": "Agent Planner",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 491.2,
+      "y": 257,
+      "font_size": 8,
+      "text": "plan next step",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 491.2,
+      "y": 275,
+      "font_size": 7,
+      "text": "context aware",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(431.2 225) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "router",
+    "kind": "backend",
+    "label": "Tool Router",
+    "sublabel": "choose capability",
+    "context": "Agent Runtime › Planning loop › Plan + route",
+    "rect": {
+     "x": 585.2,
+     "y": 227,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 651.2,
+      "y": 248,
+      "font_size": 11,
+      "text": "Tool Router",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 651.2,
+      "y": 265,
+      "font_size": 8,
+      "text": "choose capability",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(591.2 233) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "approval",
+    "kind": "security",
+    "label": "Approval Gate",
+    "sublabel": "scope + consent",
+    "tag": "block risky ops",
+    "context": "Policy & Recovery › Human or policy stop › Plan + route",
+    "rect": {
+     "x": 585.2,
+     "y": 353,
+     "width": 132,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 651.2,
+      "y": 374,
+      "font_size": 11,
+      "text": "Approval Gate",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 651.2,
+      "y": 391,
+      "font_size": 8,
+      "text": "scope + consent",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 651.2,
+      "y": 409,
+      "font_size": 7,
+      "text": "block risky ops",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(591.2 359) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "blocked",
+    "kind": "security",
+    "label": "Blocked",
+    "sublabel": "wait or reject",
+    "context": "Policy & Recovery › Human or policy stop › Execute + report",
+    "rect": {
+     "x": 764,
+     "y": 361,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 830,
+      "y": 382,
+      "font_size": 11,
+      "text": "Blocked",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 830,
+      "y": 399,
+      "font_size": 8,
+      "text": "wait or reject",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(770 367) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "retry",
+    "kind": "messagebus",
+    "label": "Retry Path",
+    "sublabel": "revise request",
+    "context": "Policy & Recovery › Human or policy stop › Execute + report",
+    "rect": {
+     "x": 924,
+     "y": 361,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 990,
+      "y": 382,
+      "font_size": 11,
+      "text": "Retry Path",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 990,
+      "y": 399,
+      "font_size": 8,
+      "text": "revise request",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(930 367) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "store",
+    "kind": "database",
+    "label": "Context Store",
+    "sublabel": "repo + memory",
+    "context": "Tool Execution & Evidence › Evidence path › Intake",
+    "rect": {
+     "x": 208,
+     "y": 495,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 274,
+      "y": 516,
+      "font_size": 11,
+      "text": "Context Store",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 274,
+      "y": 533,
+      "font_size": 8,
+      "text": "repo + memory",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(214 501) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "trace",
+    "kind": "database",
+    "label": "Trace Log",
+    "sublabel": "events + output",
+    "context": "Tool Execution & Evidence › Evidence path › Plan + route",
+    "rect": {
+     "x": 425.2,
+     "y": 495,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 491.2,
+      "y": 516,
+      "font_size": 11,
+      "text": "Trace Log",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 491.2,
+      "y": 533,
+      "font_size": 8,
+      "text": "events + output",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(431.2 501) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "tool",
+    "kind": "messagebus",
+    "label": "Tool Call",
+    "sublabel": "shell / browser / MCP",
+    "tag": "structured result",
+    "context": "Tool Execution & Evidence › Tool work › Execute + report",
+    "rect": {
+     "x": 764,
+     "y": 487,
+     "width": 132,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 830,
+      "y": 508,
+      "font_size": 11,
+      "text": "Tool Call",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 830,
+      "y": 525,
+      "font_size": 8,
+      "text": "shell / browser / MCP",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 830,
+      "y": 543,
+      "font_size": 7,
+      "text": "structured result",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(770 493) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "external",
+    "kind": "cloud",
+    "label": "External API",
+    "sublabel": "network service",
+    "context": "Tool Execution & Evidence › Tool work › Execute + report",
+    "rect": {
+     "x": 924,
+     "y": 495,
+     "width": 132,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 990,
+      "y": 516,
+      "font_size": 11,
+      "text": "External API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 990,
+      "y": 533,
+      "font_size": 8,
+      "text": "network service",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(930 501) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "approval-check",
+    "from": "router",
+    "to": "approval",
+    "label": "needs approval?",
+    "points": [[651.2,279],[651.2,302],[569.2,302],[569.2,387],[585.2,387]],
+    "d": "M 651.2 279 L 651.2 302 L 569.2 302 L 569.2 387 L 585.2 387",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 1,
+    "id": "approval-denied",
+    "from": "approval",
+    "to": "blocked",
+    "label": "denied",
+    "points": [[651.2,421],[651.2,442],[830,442],[830,413]],
+    "d": "M 651.2 421 L 651.2 442 L 830 442 L 830 413",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "role": "error",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 2,
+    "id": "approved-tool",
+    "from": "approval",
+    "to": "tool",
+    "points": [[639.2,421],[639.2,521],[764,521]],
+    "d": "M 639.2 421 L 639.2 521 L 764 521",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 3,
+    "id": "external-reply",
+    "from": "external",
+    "to": "final",
+    "points": [[1056,521],[1080,521],[1080,120],[1056,120]],
+    "d": "M 1056 521 L 1080 521 L 1080 120 L 1056 120",
+    "variant": "emphasis",
+    "stroke_width": 1.2,
+    "role": "return",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "id": "plan-request",
+    "from": "chat",
+    "to": "planner",
+    "label": "plan",
+    "points": [[274,146],[274,253],[425.2,253]],
+    "d": "M 274 146 L 274 253 L 425.2 253",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 5,
+    "id": "planner-route",
+    "from": "planner",
+    "to": "router",
+    "points": [[557.2,253],[585.2,253]],
+    "d": "M 557.2 253 L 585.2 253",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "id": "record-result",
+    "from": "external",
+    "to": "trace",
+    "label": "record result",
+    "points": [[990,547],[990,579],[491.2,579],[491.2,547]],
+    "d": "M 990 547 L 990 579 L 491.2 579 L 491.2 547",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 7,
+    "id": "request-chat",
+    "from": "user",
+    "to": "chat",
+    "points": [[180,120],[208,120]],
+    "d": "M 180 120 L 208 120",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 8,
+    "id": "retry-request",
+    "from": "blocked",
+    "to": "retry",
+    "points": [[896,387],[924,387]],
+    "d": "M 896 387 L 924 387",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "branch",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 9,
+    "id": "tool-external-call",
+    "from": "tool",
+    "to": "external",
+    "points": [[896,521],[924,521]],
+    "d": "M 896 521 L 924 521",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 10,
+    "id": "write-trace-memory",
+    "from": "store",
+    "to": "trace",
+    "label": "trace + memory",
+    "points": [[340,521],[425.2,521]],
+    "d": "M 340 521 L 425.2 521",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "approval-check",
+    "from": "router",
+    "to": "approval",
+    "text": "needs approval?",
+    "rect": {
+     "x": 569.2,
+     "y": 282,
+     "width": 82,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 610.2,
+      "y": 292,
+      "font_size": 8,
+      "text": "needs approval?",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "edge_id": "approval-denied",
+    "from": "approval",
+    "to": "blocked",
+    "text": "denied",
+    "rect": {
+     "x": 721.2,
+     "y": 422,
+     "width": 38.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 740.6,
+      "y": 432,
+      "font_size": 8,
+      "text": "denied",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "edge_id": "plan-request",
+    "from": "chat",
+    "to": "planner",
+    "text": "plan",
+    "rect": {
+     "x": 334.6,
+     "y": 233,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 349.6,
+      "y": 243,
+      "font_size": 8,
+      "text": "plan",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "edge_id": "record-result",
+    "from": "external",
+    "to": "trace",
+    "text": "record result",
+    "rect": {
+     "x": 704.4,
+     "y": 559,
+     "width": 72.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 740.6,
+      "y": 569,
+      "font_size": 8,
+      "text": "record result",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "edge_id": "write-trace-memory",
+    "from": "store",
+    "to": "trace",
+    "text": "trace + memory",
+    "rect": {
+     "x": 344,
+     "y": 501,
+     "width": 77.2,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 382.6,
+      "y": 511,
+      "font_size": 8,
+      "text": "trace + memory",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 1028,
+     "height": 106,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 178,
+     "width": 1028,
+     "height": 114,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 312,
+     "width": 1028,
+     "height": 114,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "exception-lane",
+    "id": "lane-2-exception",
+    "class": "c-security-group",
+    "rect": {
+     "x": 46,
+     "y": 318,
+     "width": 1016,
+     "height": 102,
+     "rx": 8
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-3",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 446,
+     "width": 1028,
+     "height": 114,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 421.2,
+     "y": 216,
+     "width": 300.00000000000006,
+     "height": 72,
+     "rx": 9
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-1",
+    "class": "c-security-group",
+    "rect": {
+     "x": 581.2,
+     "y": 350,
+     "width": 478.79999999999995,
+     "height": 72,
+     "rx": 9
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 204,
+     "y": 484,
+     "width": 357.20000000000005,
+     "height": 72,
+     "rx": 9
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-3",
+    "class": "c-lane",
+    "rect": {
+     "x": 760,
+     "y": 484,
+     "width": 300,
+     "height": 72,
+     "rx": 9
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "frontend",
+     "kind": "frontend",
+     "label": "User UI",
+     "x": 20,
+     "baseline": 604,
+     "width": 74,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 20,
+       "y": 596,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 42,
+       "y": 604,
+       "font_size": 7.5,
+       "text": "User UI"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Agent logic",
+     "x": 101,
+     "baseline": 604,
+     "width": 91,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 101,
+       "y": 596,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 123,
+       "y": 604,
+       "font_size": 7.5,
+       "text": "Agent logic"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "Policy",
+     "x": 199,
+     "baseline": 604,
+     "width": 70,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 199,
+       "y": 596,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 221,
+       "y": 604,
+       "font_size": 7.5,
+       "text": "Policy"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "Tool action",
+     "x": 276,
+     "baseline": 604,
+     "width": 91,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 276,
+       "y": 596,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 298,
+       "y": 604,
+       "font_size": 7.5,
+       "text": "Tool action"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "Context / trace",
+     "x": 374,
+     "baseline": 604,
+     "width": 109,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 374,
+       "y": 596,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 396,
+       "y": 604,
+       "font_size": 7.5,
+       "text": "Context / trace"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "cloud",
+     "kind": "cloud",
+     "label": "Cloud service",
+     "x": 490,
+     "baseline": 604,
+     "width": 100,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 490,
+       "y": 596,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 512,
+       "y": 604,
+       "font_size": 7.5,
+       "text": "Cloud service"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "External system",
+     "x": 597,
+     "baseline": 604,
+     "width": 109,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 597,
+       "y": 596,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 619,
+       "y": 604,
+       "font_size": 7.5,
+       "text": "External system"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / User Interface"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 200,
+     "font_size": 10,
+     "text": "02 / Agent Runtime"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 54,
+     "y": 334,
+     "font_size": 10,
+     "text": "EX / Policy & Recovery"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 468,
+     "font_size": 10,
+     "text": "04 / Tool Execution & Evidence"
+    }
+   ],
+   "Phase headers": [
+    {
+     "tag": "line",
+     "class": "a-default",
+     "x1": 68,
+     "y1": 35,
+     "x2": 320,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 68,
+     "y": 27,
+     "width": 252,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-muted",
+     "x": 194,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Intake"
+    },
+    {
+     "tag": "line",
+     "class": "a-emphasis",
+     "x1": 445.20000000000005,
+     "y1": 35,
+     "x2": 697.2,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 445.20000000000005,
+     "y": 27,
+     "width": 252.00000000000006,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 571.2,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Plan + route"
+    },
+    {
+     "tag": "line",
+     "class": "a-dashed",
+     "x1": 784,
+     "y1": 35,
+     "x2": 1036,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 784,
+     "y": 27,
+     "width": 252,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 910,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Execute + report"
+    }
+   ],
+   "Workflow groups": [
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 431.2,
+     "y": 214,
+     "font_size": 7,
+     "text": "Planning loop"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 591.2,
+     "y": 348,
+     "font_size": 7,
+     "text": "Human or policy stop"
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 214,
+     "y": 482,
+     "font_size": 7,
+     "text": "Evidence path"
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 770,
+     "y": 482,
+     "font_size": 7,
+     "text": "Tool work"
+    }
+   ]
+  }
+ }
+}

@@ -4,7 +4,7 @@
 //! never refreshes the index: [`git2::StatusOptions::update_index`] stays false, which is `D30`
 //! applied to the git directory.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -102,8 +102,22 @@ pub(crate) fn observe_repo(
     let submodules = submodules(repo, &scoped_to);
 
     let (counts, tree) = if full && !is_bare {
+        let started = std::time::Instant::now();
         let (mut entries, mut truncated) = status_entries(repo, &scoped_to)?;
-        let found = nested::discover(root);
+        tracing::debug!(
+            "status of {}: {} entries in {:?}",
+            root.display(),
+            entries.len(),
+            started.elapsed()
+        );
+        // The downward walk does not descend where the status walk already said git ignores: a
+        // build's output folder can hold more directories than the rest of the project together.
+        let ignored: HashSet<String> = entries
+            .iter()
+            .filter(|entry| entry.ignored)
+            .map(|entry| entry.rel_path.clone())
+            .collect();
+        let found = nested::discover_pruned(root, &ignored);
         truncated |= found.truncated;
         drop_nested_roots(&mut entries, &found.roots);
         // The project's own counts are its own repository's: the outer repository's account of

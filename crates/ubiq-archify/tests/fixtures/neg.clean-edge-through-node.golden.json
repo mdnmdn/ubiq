@@ -1,0 +1,369 @@
+{
+ "name": "neg.clean-edge-through-node",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "clean-flow/edge-through-node",
+ "expect_codes": [
+  "clean-flow/edge-through-node"
+ ],
+ "source_sha256": "8648a48b74656ab31d36404b9f8240db72d4d657c2ea3425d71464d0ea15cd82",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,200]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   },
+   {
+    "id": "cache",
+    "type": "database",
+    "label": "Cache",
+    "pos": [170,70],
+    "size": [60,60]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis",
+    "via": [[70,100],[330,100]]
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.\n- Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "obstacleKind": "component",
+       "obstacleId": "cache",
+       "segmentIndex": 1,
+       "from": [70,100],
+       "to": [330,100],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.\n- Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "obstacleKind": "component",
+       "obstacleId": "cache",
+       "segmentIndex": 1,
+       "from": [70,100],
+       "to": [330,100],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.\n- Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "obstacleKind": "component",
+       "obstacleId": "cache",
+       "segmentIndex": 1,
+       "from": [70,100],
+       "to": [330,100],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [750,328],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 200,
+     "width": 120,
+     "height": 60,
+     "pos": [40,200]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 300,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [300,80]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    },
+    {
+     "id": "cache",
+     "type": "database",
+     "label": "Cache",
+     "x": 170,
+     "y": 70,
+     "width": 60,
+     "height": 60,
+     "pos": [170,70]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "Prod",
+     "x": 270,
+     "y": 50,
+     "width": 440,
+     "height": 110,
+     "wraps": [
+      "api",
+      "db"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,230],[70,100],[330,100],[300,110]],
+     "labelAt": [200,90]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[420,110],[560,110]],
+     "labelAt": [490,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 183,
+     "y": 80,
+     "width": 34,
+     "height": 14,
+     "labelAt": [200,90]
+    },
+    {
+     "text": "SQL",
+     "x": 475,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [490,100]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- [clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.\n- Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+   "diagnostics": [
+    {
+     "code": "clean-flow/edge-through-node",
+     "severity": "error",
+     "message": "[clean-flow/edge-through-node] architecture connections[0] id \"web-api\" \"web\" -> \"api\" crosses component \"cache\" (unrelated to this relationship) on segment 1 [70,100] -> [330,100] (2px clearance) — if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component.",
+     "subject": {
+      "diagramType": "architecture",
+      "collection": "connections",
+      "index": 0,
+      "id": "web-api",
+      "from": "web",
+      "to": "api"
+     },
+     "evidence": {
+      "obstacleKind": "component",
+      "obstacleId": "cache",
+      "segmentIndex": 1,
+      "from": [70,100],
+      "to": [330,100],
+      "clearancePx": 2
+     },
+     "supportedFixes": [
+      "if the authored via are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust fromSide/toSide, set route/via, or move the component"
+     ]
+    },
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Label \"HTTPS\" overlaps component \"cache\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [183,80,34,14]\n  component \"cache\" rect: [170,70,60,60]\n  Suggested fix: set labelAt [200,144] or set labelDy 54 (below); or set labelAt [200,62] or set labelDy -28 (above)",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

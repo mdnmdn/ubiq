@@ -11588,6 +11588,7 @@ dependencies = [
  "tree-sitter-rust",
  "tree-sitter-swift",
  "tree-sitter-typescript",
+ "ubiq-archify",
  "ubiq-db",
  "ubiq-md",
  "ubiq-proto",
@@ -11616,6 +11617,19 @@ dependencies = [
  "ubiq",
  "ubiq-host",
  "ubiq-proto",
+]
+
+[[package]]
+name = "ubiq-archify"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kurbo 0.11.3",
+ "regex",
+ "resvg 0.46.0",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -11695,6 +11709,7 @@ dependencies = [
  "toon-format",
  "tracing",
  "trash",
+ "ubiq-archify",
  "ubiq-db",
  "ubiq-proto",
  "ureq",

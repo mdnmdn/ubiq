@@ -1,0 +1,293 @@
+{
+ "name": "neg.comp-label-gap",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "composition/label-gap",
+ "expect_codes": [
+  "composition/label-gap"
+ ],
+ "source_sha256": "5c3c7af01d464b0414d70f6eb4be9445d45aa7bdef08d4450a826da77d0d50a7",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "quality_profile": "showcase"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [200,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "a long connection label",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+    "diagnostics": [
+     {
+      "code": "composition/label-gap",
+      "severity": "error",
+      "message": "Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "clearGapPx": 40,
+       "minimumGapPx": 137,
+       "labelWidthPx": 120.39999999999999,
+       "obstacles": [
+        "web",
+        "api"
+       ]
+      },
+      "supportedFixes": [
+       "increase the clear gap between the connected nodes to at least 137px",
+       "reposition the connected nodes together while preserving the full relationship label"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+    "diagnostics": [
+     {
+      "code": "composition/label-gap",
+      "severity": "error",
+      "message": "Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "clearGapPx": 40,
+       "minimumGapPx": 137,
+       "labelWidthPx": 120.39999999999999,
+       "obstacles": [
+        "web",
+        "api"
+       ]
+      },
+      "supportedFixes": [
+       "increase the clear gap between the connected nodes to at least 137px",
+       "reposition the connected nodes together while preserving the full relationship label"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+    "diagnostics": [
+     {
+      "code": "composition/label-gap",
+      "severity": "error",
+      "message": "Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "clearGapPx": 40,
+       "minimumGapPx": 137,
+       "labelWidthPx": 120.39999999999999,
+       "obstacles": [
+        "web",
+        "api"
+       ]
+      },
+      "supportedFixes": [
+       "increase the clear gap between the connected nodes to at least 137px",
+       "reposition the connected nodes together while preserving the full relationship label"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [720,208],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [40,80]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 200,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [200,80]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "a long connection label",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,110],[200,110]],
+     "labelAt": [180,100]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[320,110],[560,110]],
+     "labelAt": [440,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "a long connection label",
+     "x": 120,
+     "y": 90,
+     "width": 120,
+     "height": 14,
+     "labelAt": [180,100]
+    },
+    {
+     "text": "SQL",
+     "x": 425,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [440,100]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+   "diagnostics": [
+    {
+     "code": "composition/label-gap",
+     "severity": "error",
+     "message": "Label \"a long connection label\" has only 40px between \"web\" and \"api\"; it needs at least 137px to stay beside its route — increase that clear gap or place the connected nodes on another readable row, preserving the label.",
+     "subject": {
+      "diagramType": "architecture",
+      "collection": "connections",
+      "id": "web-api",
+      "from": "web",
+      "to": "api"
+     },
+     "evidence": {
+      "clearGapPx": 40,
+      "minimumGapPx": 137,
+      "labelWidthPx": 120.39999999999999,
+      "obstacles": [
+       "web",
+       "api"
+      ]
+     },
+     "supportedFixes": [
+      "increase the clear gap between the connected nodes to at least 137px",
+      "reposition the connected nodes together while preserving the full relationship label"
+     ]
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

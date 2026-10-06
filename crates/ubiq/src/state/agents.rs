@@ -5,7 +5,7 @@
 //! sessions, agents, tasks — arrives from the host and lives in [`super::work`]; this is the
 //! arrangement over it, which is why every reader takes a [`WorkProjection`] as its first
 //! parameter rather than holding one. The split is what keeps both halves testable without a
-//! frame, and it is the same shape [`super::orchestration`] and [`super::board`] have.
+//! frame, and it is the same shape [`super::teams`] and [`super::board`] have.
 //!
 //! **The arrangement is the interface's own fact.** Nothing outside this window has an opinion
 //! about which column an agent's conversation is drawn in, so no message carries it and no drop
@@ -17,11 +17,10 @@
 //! conversation, so taking it off screen leaves the agent running and puts it on the bench, where
 //! the sidebar still lists it and one click brings it back. Nothing on this screen kills an agent.
 //!
-//! **The screen draws only the agents this window can talk to.** The host's projection is wider
-//! than that — it carries the mock work thread's fixtures too — so every reader here goes through
-//! [`AgentsView::live_agents`] rather than `work.agents`. The Teams mode narrows the same way,
-//! through `state::teams::live_work`, which reads this very list; only `TeamsOld` still draws the
-//! whole projection.
+//! **The screen draws only the agents this window can talk to.** The host's projection can be
+//! wider than that, so every reader here goes through [`AgentsView::live_agents`] rather than
+//! `work.agents`. The Teams mode narrows the same way, through `state::teams::live_work`, which
+//! reads this very list.
 //!
 //! Nothing here draws and nothing here names a colour — an activity says what it *is*, and
 //! `ui::work` decides which token that reads in.
@@ -165,11 +164,9 @@ pub struct AgentsView {
     pub dragging: Option<AgentId>,
     /// The agents this screen may draw: the ones this window holds a live [`Conversation`] for.
     ///
-    /// **The host's projection is wider than what a column can talk to.** It also carries the
-    /// fixtures the mock work thread seeds into every project, which have a name and an activity
-    /// and nothing behind them — a column opened on one would be a transcript with no harness at
-    /// the other end. `TeamsOld` keeps reading the whole projection; the Teams mode reads this
-    /// list too, through `state::teams::live_work`.
+    /// **The host's projection can be wider than what a column can talk to** — a record with no
+    /// conversation in this window behind it would be a transcript with no harness at the other
+    /// end. The Teams mode reads this list too, through `state::teams::live_work`.
     ///
     /// Kept here rather than recomputed per reader so the sidebar, the bench and the columns
     /// cannot disagree about which agents exist. `AppState` refreshes it wherever a conversation

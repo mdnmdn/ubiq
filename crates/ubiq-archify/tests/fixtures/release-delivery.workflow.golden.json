@@ -1,0 +1,2083 @@
+{
+ "name": "release-delivery.workflow",
+ "group": "example",
+ "source": "archify/examples/release-delivery.workflow.json",
+ "type": "workflow",
+ "source_sha256": "dbd5c174af66296caec372e7214cf4df7158b50a563508e16826b95ab8d1cd6c",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Release Delivery Workflow",
+   "output": "examples/release-delivery.html",
+   "animation": "trace",
+   "quality_profile": "showcase"
+  },
+  "lanes": [
+   {
+    "id": "dev",
+    "label": "Developer"
+   },
+   {
+    "id": "ci",
+    "label": "Continuous Integration"
+   },
+   {
+    "id": "approval",
+    "label": "Release Governance"
+   },
+   {
+    "id": "environment",
+    "label": "Production Environment"
+   },
+   {
+    "id": "communication",
+    "label": "Release Communication"
+   },
+   {
+    "id": "exceptions",
+    "label": "Failure + Rollback",
+    "variant": "exception"
+   }
+  ],
+  "phases": [
+   {
+    "id": "change",
+    "label": "Change",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "verify",
+    "label": "Build + verify",
+    "fromCol": 2,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "promote",
+    "label": "Promote + observe",
+    "fromCol": 4,
+    "toCol": 5,
+    "variant": "dashed"
+   }
+  ],
+  "groups": [
+   {
+    "id": "blocking_checks",
+    "label": "Blocking checks",
+    "lane": "ci",
+    "fromCol": 2,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "rollback_work",
+    "label": "Recovery path",
+    "lane": "exceptions",
+    "fromCol": 3,
+    "toCol": 5,
+    "variant": "security"
+   }
+  ],
+  "mainPath": [
+   "commit",
+   "pull_request",
+   "build",
+   "checks",
+   "approval",
+   "deploy",
+   "verify_prod",
+   "announce"
+  ],
+  "nodes": [
+   {
+    "id": "commit",
+    "lane": "dev",
+    "col": 0,
+    "type": "frontend",
+    "label": "Commit",
+    "sublabel": "signed change"
+   },
+   {
+    "id": "pull_request",
+    "lane": "dev",
+    "col": 1,
+    "type": "frontend",
+    "label": "Pull Request",
+    "sublabel": "reviewed diff"
+   },
+   {
+    "id": "build",
+    "lane": "ci",
+    "col": 2,
+    "type": "backend",
+    "label": "Build",
+    "sublabel": "locked inputs",
+    "tag": "reproducible"
+   },
+   {
+    "id": "checks",
+    "lane": "ci",
+    "col": 3,
+    "type": "security",
+    "label": "Quality Gates",
+    "sublabel": "test + scan",
+    "tag": "blocking"
+   },
+   {
+    "id": "approval",
+    "lane": "approval",
+    "col": 4,
+    "type": "security",
+    "label": "Approve",
+    "sublabel": "release owner",
+    "tag": "human gate"
+   },
+   {
+    "id": "deploy",
+    "lane": "environment",
+    "col": 4,
+    "type": "cloud",
+    "label": "Deploy",
+    "sublabel": "canary 10%",
+    "tag": "production"
+   },
+   {
+    "id": "verify_prod",
+    "lane": "environment",
+    "col": 5,
+    "type": "backend",
+    "label": "Verify",
+    "sublabel": "smoke + SLO"
+   },
+   {
+    "id": "announce",
+    "lane": "communication",
+    "col": 5,
+    "type": "external",
+    "label": "Announce",
+    "sublabel": "status + notes"
+   },
+   {
+    "id": "failed",
+    "lane": "exceptions",
+    "col": 2,
+    "type": "security",
+    "label": "Stop Release",
+    "sublabel": "gate failed"
+   },
+   {
+    "id": "rollback",
+    "lane": "exceptions",
+    "col": 4,
+    "width": 64,
+    "type": "messagebus",
+    "label": "Rollback",
+    "sublabel": "last good image",
+    "tag": "owner: on-call"
+   }
+  ],
+  "edges": [
+   {
+    "from": "commit",
+    "to": "pull_request"
+   },
+   {
+    "from": "pull_request",
+    "to": "build",
+    "label": "merge",
+    "variant": "emphasis",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "build",
+    "to": "checks"
+   },
+   {
+    "from": "checks",
+    "to": "approval",
+    "variant": "emphasis",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "approval",
+    "to": "deploy",
+    "variant": "security",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "deploy",
+    "to": "verify_prod"
+   },
+   {
+    "from": "verify_prod",
+    "to": "announce",
+    "label": "healthy",
+    "variant": "emphasis",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "checks",
+    "to": "failed",
+    "label": "red",
+    "variant": "security",
+    "role": "error",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "verify_prod",
+    "to": "rollback",
+    "variant": "security",
+    "role": "error",
+    "route": "outside-right",
+    "fromSide": "right",
+    "toSide": "right"
+   },
+   {
+    "from": "rollback",
+    "to": "deploy",
+    "label": "restore",
+    "variant": "dashed",
+    "role": "return",
+    "route": "return-left",
+    "fromSide": "left",
+    "toSide": "left"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "One Happy Path",
+    "items": [
+     "Every change is reviewed before a reproducible build",
+     "Blocking checks must be green before human approval",
+     "Production is complete only after smoke and SLO verification"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Stop Conditions",
+    "items": [
+     "Test or security failure stops promotion",
+     "Production health can reverse a release",
+     "Rollback ownership is visible before an incident"
+    ]
+   },
+   {
+    "dot": "cyan",
+    "title": "Release Evidence",
+    "items": [
+     "Approval, immutable image, and check results are retained",
+     "The release announcement follows verification",
+     "The main path remains readable without hiding failure"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "dbd5c174af66296caec372e7214cf4df7158b50a563508e16826b95ab8d1cd6c",
+     "bytes": 4510
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "dbd5c174af66296caec372e7214cf4df7158b50a563508e16826b95ab8d1cd6c",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 36.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.2,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.214,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 13,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 1,
+      "shortEndpointSegmentCount": 1,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "rollback"
+      },
+      "minimumSourceTextPx": 6.2,
+      "minimumProjectedTextPx": 6.2,
+      "semanticTextCount": 24
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "dbd5c174af66296caec372e7214cf4df7158b50a563508e16826b95ab8d1cd6c",
+     "bytes": 4510
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "dbd5c174af66296caec372e7214cf4df7158b50a563508e16826b95ab8d1cd6c",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 36.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.2,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.214,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 13,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 1,
+      "shortEndpointSegmentCount": 1,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "rollback"
+      },
+      "minimumSourceTextPx": 6.2,
+      "minimumProjectedTextPx": 6.2,
+      "semanticTextCount": 24
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "dbd5c174af66296caec372e7214cf4df7158b50a563508e16826b95ab8d1cd6c",
+     "bytes": 4510
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "dbd5c174af66296caec372e7214cf4df7158b50a563508e16826b95ab8d1cd6c",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 36.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.2,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.214,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 13,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 1,
+      "shortEndpointSegmentCount": 1,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "rollback"
+      },
+      "minimumSourceTextPx": 6.2,
+      "minimumProjectedTextPx": 6.2,
+      "semanticTextCount": 24
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "fixed-v1",
+   "viewBox": [720,900],
+   "requiredViewBox": [720,900],
+   "columns": [88,220,300,430,500,625],
+   "nodes": [
+    {
+     "id": "commit",
+     "lane": "dev",
+     "col": 0,
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "pull_request",
+     "lane": "dev",
+     "col": 1,
+     "x": 174,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "build",
+     "lane": "ci",
+     "col": 2,
+     "x": 254,
+     "y": 209,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "checks",
+     "lane": "ci",
+     "col": 3,
+     "x": 384,
+     "y": 209,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "approval",
+     "lane": "approval",
+     "col": 4,
+     "x": 454,
+     "y": 333,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "deploy",
+     "lane": "environment",
+     "col": 4,
+     "x": 454,
+     "y": 457,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "verify_prod",
+     "lane": "environment",
+     "col": 5,
+     "x": 579,
+     "y": 465,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "announce",
+     "lane": "communication",
+     "col": 5,
+     "x": 579,
+     "y": 589,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "failed",
+     "lane": "exceptions",
+     "col": 2,
+     "x": 254,
+     "y": 713,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "rollback",
+     "lane": "exceptions",
+     "col": 4,
+     "x": 468,
+     "y": 705,
+     "width": 64,
+     "height": 68
+    }
+   ],
+   "edges": [
+    {
+     "id": null,
+     "from": "commit",
+     "to": "pull_request",
+     "points": [[134,119],[174,119]]
+    },
+    {
+     "id": null,
+     "from": "pull_request",
+     "to": "build",
+     "points": [[220,145],[220,166],[300,166],[300,209]]
+    },
+    {
+     "id": null,
+     "from": "build",
+     "to": "checks",
+     "points": [[346,243],[384,243]]
+    },
+    {
+     "id": null,
+     "from": "checks",
+     "to": "approval",
+     "points": [[430,277],[430,290],[500,290],[500,333]]
+    },
+    {
+     "id": null,
+     "from": "approval",
+     "to": "deploy",
+     "points": [[500,401],[500,414],[500,414],[500,457]]
+    },
+    {
+     "id": null,
+     "from": "deploy",
+     "to": "verify_prod",
+     "points": [[546,491],[579,491]]
+    },
+    {
+     "id": null,
+     "from": "verify_prod",
+     "to": "announce",
+     "points": [[625,517],[625,538],[625,538],[625,589]]
+    },
+    {
+     "id": null,
+     "from": "checks",
+     "to": "failed",
+     "points": [[430,277],[430,476],[300,476],[300,713]]
+    },
+    {
+     "id": null,
+     "from": "verify_prod",
+     "to": "rollback",
+     "points": [[671,491],[692,491],[692,739],[532,739]]
+    },
+    {
+     "id": null,
+     "from": "rollback",
+     "to": "deploy",
+     "points": [[468,739],[426,739],[426,491],[454,491]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": null,
+     "label": "merge",
+     "x": 260,
+     "y": 156,
+     "width": 34,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "healthy",
+     "x": 625,
+     "y": 528,
+     "width": 43.6,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "red",
+     "x": 365,
+     "y": 466,
+     "width": 30,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "restore",
+     "x": 426,
+     "y": 605,
+     "width": 43.6,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,720,900],
+  "svg_attrs": {
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Release Delivery Workflow",
+  "nodes": [
+   {
+    "id": "commit",
+    "kind": "frontend",
+    "label": "Commit",
+    "sublabel": "signed change",
+    "context": "Developer › Change",
+    "rect": {
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 88,
+      "y": 114,
+      "font_size": 11,
+      "text": "Commit",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 88,
+      "y": 131,
+      "font_size": 8,
+      "text": "signed change",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(48 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "pull_request",
+    "kind": "frontend",
+    "label": "Pull Request",
+    "sublabel": "reviewed diff",
+    "context": "Developer › Change",
+    "rect": {
+     "x": 174,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 220,
+      "y": 125.2,
+      "font_size": 11,
+      "text": "Pull Request",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 220,
+      "y": 140.1,
+      "font_size": 8,
+      "text": "reviewed diff",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(180 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "build",
+    "kind": "backend",
+    "label": "Build",
+    "sublabel": "locked inputs",
+    "tag": "reproducible",
+    "context": "Continuous Integration › Blocking checks › Build + verify",
+    "rect": {
+     "x": 254,
+     "y": 209,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 300,
+      "y": 230,
+      "font_size": 11,
+      "text": "Build",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 300,
+      "y": 247,
+      "font_size": 8,
+      "text": "locked inputs",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 300,
+      "y": 265,
+      "font_size": 7,
+      "text": "reproducible",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(260 215) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "checks",
+    "kind": "security",
+    "label": "Quality Gates",
+    "sublabel": "test + scan",
+    "tag": "blocking",
+    "context": "Continuous Integration › Blocking checks › Build + verify",
+    "rect": {
+     "x": 384,
+     "y": 209,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 430,
+      "y": 240.9,
+      "font_size": 10.7,
+      "text": "Quality Gates",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 430,
+      "y": 255.8,
+      "font_size": 8,
+      "text": "test + scan",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 430,
+      "y": 268.6,
+      "font_size": 7,
+      "text": "blocking",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(390 215) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "approval",
+    "kind": "security",
+    "label": "Approve",
+    "sublabel": "release owner",
+    "tag": "human gate",
+    "context": "Release Governance › Promote + observe",
+    "rect": {
+     "x": 454,
+     "y": 333,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 500,
+      "y": 354,
+      "font_size": 11,
+      "text": "Approve",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 500,
+      "y": 371,
+      "font_size": 8,
+      "text": "release owner",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 500,
+      "y": 389,
+      "font_size": 7,
+      "text": "human gate",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(460 339) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "deploy",
+    "kind": "cloud",
+    "label": "Deploy",
+    "sublabel": "canary 10%",
+    "tag": "production",
+    "context": "Production Environment › Promote + observe",
+    "rect": {
+     "x": 454,
+     "y": 457,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 500,
+      "y": 478,
+      "font_size": 11,
+      "text": "Deploy",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 500,
+      "y": 495,
+      "font_size": 8,
+      "text": "canary 10%",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 500,
+      "y": 513,
+      "font_size": 7,
+      "text": "production",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(460 463) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "verify_prod",
+    "kind": "backend",
+    "label": "Verify",
+    "sublabel": "smoke + SLO",
+    "context": "Production Environment › Promote + observe",
+    "rect": {
+     "x": 579,
+     "y": 465,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 625,
+      "y": 486,
+      "font_size": 11,
+      "text": "Verify",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 503,
+      "font_size": 8,
+      "text": "smoke + SLO",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(585 471) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "announce",
+    "kind": "external",
+    "label": "Announce",
+    "sublabel": "status + notes",
+    "context": "Release Communication › Promote + observe",
+    "rect": {
+     "x": 579,
+     "y": 589,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 625,
+      "y": 610,
+      "font_size": 11,
+      "text": "Announce",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 627,
+      "font_size": 8,
+      "text": "status + notes",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(585 595) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "failed",
+    "kind": "security",
+    "label": "Stop Release",
+    "sublabel": "gate failed",
+    "context": "Failure + Rollback › Build + verify",
+    "rect": {
+     "x": 254,
+     "y": 713,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 300,
+      "y": 745.2,
+      "font_size": 11,
+      "text": "Stop Release",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 300,
+      "y": 760.1,
+      "font_size": 8,
+      "text": "gate failed",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(260 719) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "rollback",
+    "kind": "messagebus",
+    "label": "Rollback",
+    "sublabel": "last good image",
+    "tag": "owner: on-call",
+    "context": "Failure + Rollback › Recovery path › Promote + observe",
+    "rect": {
+     "x": 468,
+     "y": 705,
+     "width": 64,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 500,
+      "y": 737.2,
+      "font_size": 11,
+      "text": "Rollback",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 500,
+      "y": 750,
+      "font_size": 6.2,
+      "text": "last good image",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 500,
+      "y": 761.8,
+      "font_size": 6.6,
+      "text": "owner: on-call",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(474 711) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "commit",
+    "to": "pull_request",
+    "points": [[134,119],[174,119]],
+    "d": "M 134 119 L 174 119",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 1,
+    "from": "pull_request",
+    "to": "build",
+    "label": "merge",
+    "points": [[220,145],[220,166],[300,166],[300,209]],
+    "d": "M 220 145 L 220 166 L 300 166 L 300 209",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "from": "build",
+    "to": "checks",
+    "points": [[346,243],[384,243]],
+    "d": "M 346 243 L 384 243",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "from": "checks",
+    "to": "approval",
+    "points": [[430,277],[430,290],[500,290],[500,333]],
+    "d": "M 430 277 L 430 290 L 500 290 L 500 333",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "from": "approval",
+    "to": "deploy",
+    "points": [[500,401],[500,414],[500,414],[500,457]],
+    "d": "M 500 401 L 500 414 L 500 414 L 500 457",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 5,
+    "from": "deploy",
+    "to": "verify_prod",
+    "points": [[546,491],[579,491]],
+    "d": "M 546 491 L 579 491",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "from": "verify_prod",
+    "to": "announce",
+    "label": "healthy",
+    "points": [[625,517],[625,538],[625,538],[625,589]],
+    "d": "M 625 517 L 625 538 L 625 538 L 625 589",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 7,
+    "from": "checks",
+    "to": "failed",
+    "label": "red",
+    "points": [[430,277],[430,476],[300,476],[300,713]],
+    "d": "M 430 277 L 430 476 L 300 476 L 300 713",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 8,
+    "from": "verify_prod",
+    "to": "rollback",
+    "points": [[671,491],[692,491],[692,739],[532,739]],
+    "d": "M 671 491 L 692 491 L 692 739 L 532 739",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 9,
+    "from": "rollback",
+    "to": "deploy",
+    "label": "restore",
+    "points": [[468,739],[426,739],[426,491],[454,491]],
+    "d": "M 468 739 L 426 739 L 426 491 L 454 491",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 1,
+    "from": "pull_request",
+    "to": "build",
+    "text": "merge",
+    "rect": {
+     "x": 243,
+     "y": 146,
+     "width": 34,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 260,
+      "y": 156,
+      "font_size": 8,
+      "text": "merge",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "verify_prod",
+    "to": "announce",
+    "text": "healthy",
+    "rect": {
+     "x": 603.2,
+     "y": 518,
+     "width": 43.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 625,
+      "y": 528,
+      "font_size": 8,
+      "text": "healthy",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "from": "checks",
+    "to": "failed",
+    "text": "red",
+    "rect": {
+     "x": 350,
+     "y": 456,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 365,
+      "y": 466,
+      "font_size": 8,
+      "text": "red",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "rollback",
+    "to": "deploy",
+    "text": "restore",
+    "rect": {
+     "x": 404.2,
+     "y": 595,
+     "width": 43.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 426,
+      "y": 605,
+      "font_size": 8,
+      "text": "restore",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 300,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-3",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 424,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-4",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 548,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-5",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 672,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "exception-lane",
+    "id": "lane-5-exception",
+    "class": "c-security-group",
+    "rect": {
+     "x": 46,
+     "y": 678,
+     "width": 628,
+     "height": 92,
+     "rx": 8
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 250,
+     "y": 214,
+     "width": 230,
+     "height": 58,
+     "rx": 9
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-1",
+    "class": "c-security-group",
+    "rect": {
+     "x": 380,
+     "y": 710,
+     "width": 295,
+     "height": 58,
+     "rx": 9
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "frontend",
+     "kind": "frontend",
+     "label": "User UI",
+     "x": 20,
+     "baseline": 820,
+     "width": 74,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 20,
+       "y": 812,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 42,
+       "y": 820,
+       "font_size": 7.5,
+       "text": "User UI"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Agent logic",
+     "x": 101,
+     "baseline": 820,
+     "width": 91,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 101,
+       "y": 812,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 123,
+       "y": 820,
+       "font_size": 7.5,
+       "text": "Agent logic"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "Policy",
+     "x": 199,
+     "baseline": 820,
+     "width": 70,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 199,
+       "y": 812,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 221,
+       "y": 820,
+       "font_size": 7.5,
+       "text": "Policy"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "Tool action",
+     "x": 276,
+     "baseline": 820,
+     "width": 91,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 276,
+       "y": 812,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 298,
+       "y": 820,
+       "font_size": 7.5,
+       "text": "Tool action"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "cloud",
+     "kind": "cloud",
+     "label": "Cloud service",
+     "x": 374,
+     "baseline": 820,
+     "width": 100,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 374,
+       "y": 812,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 396,
+       "y": 820,
+       "font_size": 7.5,
+       "text": "Cloud service"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "External system",
+     "x": 481,
+     "baseline": 820,
+     "width": 109,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 481,
+       "y": 812,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 503,
+       "y": 820,
+       "font_size": 7.5,
+       "text": "External system"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / Developer"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / Continuous Integration"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 322,
+     "font_size": 10,
+     "text": "03 / Release Governance"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 446,
+     "font_size": 10,
+     "text": "04 / Production Environment"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 570,
+     "font_size": 10,
+     "text": "05 / Release Communication"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 54,
+     "y": 694,
+     "font_size": 10,
+     "text": "EX / Failure + Rollback"
+    }
+   ],
+   "Phase headers": [
+    {
+     "tag": "line",
+     "class": "a-default",
+     "x1": 42,
+     "y1": 35,
+     "x2": 266,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 42,
+     "y": 27,
+     "width": 224,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-muted",
+     "x": 154,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Change"
+    },
+    {
+     "tag": "line",
+     "class": "a-emphasis",
+     "x1": 254,
+     "y1": 35,
+     "x2": 476,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 254,
+     "y": 27,
+     "width": 222,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 365,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Build + verify"
+    },
+    {
+     "tag": "line",
+     "class": "a-dashed",
+     "x1": 454,
+     "y1": 35,
+     "x2": 671,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 454,
+     "y": 27,
+     "width": 217,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 562.5,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Promote + observe"
+    }
+   ],
+   "Workflow groups": [
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 260,
+     "y": 228,
+     "font_size": 7,
+     "text": "Blocking checks"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 390,
+     "y": 724,
+     "font_size": 7,
+     "text": "Recovery path"
+    }
+   ]
+  }
+ }
+}

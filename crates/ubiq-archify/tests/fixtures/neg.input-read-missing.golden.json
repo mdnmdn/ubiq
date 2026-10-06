@@ -1,0 +1,107 @@
+{
+ "name": "neg.input-read-missing",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "input/read",
+ "expect_codes": [
+  "input/read"
+ ],
+ "source_missing": true,
+ "quality": null,
+ "schema_version": null,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "ENOENT: no such file or directory, open '<input>'",
+    "diagnostics": [
+     {
+      "code": "input/read",
+      "severity": "error",
+      "message": "Input could not be read: ENOENT: no such file or directory, open '<input>'",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "systemCode": "ENOENT",
+       "reason": "ENOENT: no such file or directory, open '<input>'"
+      },
+      "supportedFixes": [
+       "provide one readable JSON input file"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "ENOENT: no such file or directory, open '<input>'",
+    "diagnostics": [
+     {
+      "code": "input/read",
+      "severity": "error",
+      "message": "Input could not be read: ENOENT: no such file or directory, open '<input>'",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "systemCode": "ENOENT",
+       "reason": "ENOENT: no such file or directory, open '<input>'"
+      },
+      "supportedFixes": [
+       "provide one readable JSON input file"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "ENOENT: no such file or directory, open '<input>'",
+    "diagnostics": [
+     {
+      "code": "input/read",
+      "severity": "error",
+      "message": "Input could not be read: ENOENT: no such file or directory, open '<input>'",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "systemCode": "ENOENT",
+       "reason": "ENOENT: no such file or directory, open '<input>'"
+      },
+      "supportedFixes": [
+       "provide one readable JSON input file"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "ENOENT: no such file or directory, open '<input>'\n[input/read] Input could not be read: ENOENT: no such file or directory, open '<input>' Fix: provide one readable JSON input file.\n"
+ },
+ "layout_json_by_quality": {}
+}

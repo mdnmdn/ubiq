@@ -1,0 +1,418 @@
+{
+  "ex-incident-response.workflow.json [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "1fbbd7223fe5524cf0d03a3c326e503d3d4b1395e337964d7b882810c348a3b7",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "1fbbd7223fe5524cf0d03a3c326e503d3d4b1395e337964d7b882810c348a3b7",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "ac8bfe8a5b9d73fee89a544257030b594f4d8deb786c1f14e3239f81e4c685d0",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json-2 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "33ab2023ad325e545abb92435990e3488c46bcf0a97adcb82f800c8b39a51e6c",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json-2 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "33ab2023ad325e545abb92435990e3488c46bcf0a97adcb82f800c8b39a51e6c",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json-2 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "f9ef40244b5408272c7649688477dd38ee78d27626819d4e8b4dc6531822fccc",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json-3 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "5748310148d318a5d3f8edd8322c28c76b802fb2a305b89bab919496605b9353",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json-3 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "5748310148d318a5d3f8edd8322c28c76b802fb2a305b89bab919496605b9353",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json-3 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "637bf6cd5d4af4d3eede6d0901d14eb67f7bc651e56c7c209982f47edfc91d27",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-incident-response.workflow.json-4 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "7d159aaf6e8947cbdebb871166ce14d3c5ec0917ad27d57ce6c3aa30073aca99",
+    "diagnostics": [
+      "Final artifact failed composition/desktop-readability."
+    ],
+    "ok": false
+  },
+  "ex-incident-response.workflow.json-4 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "7d159aaf6e8947cbdebb871166ce14d3c5ec0917ad27d57ce6c3aa30073aca99",
+    "diagnostics": [
+      "Final artifact failed composition/desktop-readability."
+    ],
+    "ok": false
+  },
+  "ex-incident-response.workflow.json-4 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "cb387a4ac1d694ac4ebfe2a61c8dda7a0f4bba8acbd17993ef1d888a68c7b461",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "fdcef81bdbe88c70615eb14832aac0cd962b085126ae40858cc3240f0df9f3ea",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "fdcef81bdbe88c70615eb14832aac0cd962b085126ae40858cc3240f0df9f3ea",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "6313facc2e524df54f55706ada0200ecf832c55e7287f68e05a0c3199947dc0a",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json-2 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "1c1fc590542932dc94827b8f06588c27078c60bca56068c1151287337a06f1d9",
+    "diagnostics": [
+      "Final artifact failed composition/desktop-readability."
+    ],
+    "ok": false
+  },
+  "ex-release-delivery.workflow.json-2 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "1c1fc590542932dc94827b8f06588c27078c60bca56068c1151287337a06f1d9",
+    "diagnostics": [
+      "Final artifact failed composition/desktop-readability."
+    ],
+    "ok": false
+  },
+  "ex-release-delivery.workflow.json-2 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "390959d9636f14e5f5a518da397b228c076c55850c8e41be3aa713d5515f7984",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json-3 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "164fc9bd6ee16e4223c696b1ab6b0d71d6958723240e82338cd085a94f370e5e",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json-3 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "164fc9bd6ee16e4223c696b1ab6b0d71d6958723240e82338cd085a94f370e5e",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json-3 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "ba013fa40963304507ba68e9465d9daa4a3d0a864cc773190b39fab7982ea416",
+    "diagnostics": [],
+    "ok": true
+  },
+  "ex-release-delivery.workflow.json-4 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "872584f2b63b10203d74b1383c8fb228cbf9edf09f88d876b686a926311a36c9",
+    "diagnostics": [
+      "Final artifact failed composition/desktop-readability."
+    ],
+    "ok": false
+  },
+  "ex-release-delivery.workflow.json-4 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "872584f2b63b10203d74b1383c8fb228cbf9edf09f88d876b686a926311a36c9",
+    "diagnostics": [
+      "Final artifact failed composition/desktop-readability."
+    ],
+    "ok": false
+  },
+  "ex-release-delivery.workflow.json-4 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "0f610d9dd0ec2920522c7462026d18769574c8d5b2e00aeb801c81feed6a780f",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-138 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "81ab302ac497a3ba0652c8928c25e42d5970db0c95df49675a4ec0f469b165ff",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-138 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "81ab302ac497a3ba0652c8928c25e42d5970db0c95df49675a4ec0f469b165ff",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-138 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "08ac3192e7ad93471ae75be5bc2def800eae0a9dc4dd3de5c03240f299e6d30b",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-144 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "88576864a66e69deccc5b1893b0520dd73aa2fcb9540ff73251397113967f389",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-144 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "2ec411103623cac63b32c2af10fb8a114e2963841454d5488fc03900dc0723c3",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-144 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "88576864a66e69deccc5b1893b0520dd73aa2fcb9540ff73251397113967f389",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-145 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "5ec0cec8510b62524e847910b06a1edbfd50a730e7706d02e6eec9edb01db5d9",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-145 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "325ce8198cb75f09a4e192371913f358301f13f8d8794ca543c38dc31c45091c",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-145 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "5ec0cec8510b62524e847910b06a1edbfd50a730e7706d02e6eec9edb01db5d9",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-151 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "40237a509c050c8e0be68ee70281230d7f5438107f0c2620c28abdf0b37a104b",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-151 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "40237a509c050c8e0be68ee70281230d7f5438107f0c2620c28abdf0b37a104b",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-151 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "e3051c34a67b4f17a7c80ca4e9ba166b4ace437e3912def78d1ffe8402c7512c",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-154 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "2addb37a9dc25a5b51699d64d94fea59e013f0fbc21376bb2b1033862e65c49b",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-154 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "2addb37a9dc25a5b51699d64d94fea59e013f0fbc21376bb2b1033862e65c49b",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-154 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "16d8f51fd00c18160c3e7a9a7ac696c9029e5263cd87eb20ba9b9e4226c803d4",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-155 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "e18cad079c8bc1bef602175a1e5a48967e501d8fcc102d9536d30576ed7b9037",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-155 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "71aa19b743e6eba59eeeee4f3d9a11eb207039712867aa11bea0c50607bd3032",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-155 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "e18cad079c8bc1bef602175a1e5a48967e501d8fcc102d9536d30576ed7b9037",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-4 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "df101ee5d19f683a4c82667f9e7b4a4cda07efe62f7b7c7bca2ff1ff9fd7fa17",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-4 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "999578cfc80377955385bb05b9794f52db6b41dd03e9f10af4d4c2ce371af435",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-4 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "df101ee5d19f683a4c82667f9e7b4a4cda07efe62f7b7c7bca2ff1ff9fd7fa17",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-44 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "70c4a3d86565a4ea49a4775bcaee2ab1a68098c19d84b48dbd7041d7fb24964d",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-44 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "d28a3aa76b7a74fd5078713f8a4f7b9c74d45682dfa94a27f1c887a51df7cb2e",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-44 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "70c4a3d86565a4ea49a4775bcaee2ab1a68098c19d84b48dbd7041d7fb24964d",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-54 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "34268f9d294c981c1d28ab6ca088e5f3cba06d6164966fcbe07455f28df577bb",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-54 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "34268f9d294c981c1d28ab6ca088e5f3cba06d6164966fcbe07455f28df577bb",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-54 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "c44c81c19a3548715b336877f7b7b5a8a58b4e00f26ba34d654bd493eed753ab",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-63 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "40237a509c050c8e0be68ee70281230d7f5438107f0c2620c28abdf0b37a104b",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-63 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "40237a509c050c8e0be68ee70281230d7f5438107f0c2620c28abdf0b37a104b",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-63 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "e3051c34a67b4f17a7c80ca4e9ba166b4ace437e3912def78d1ffe8402c7512c",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-7 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "d5aabdb0af491f8e71f232bfd4881142af7a6cc90f3070463468293944105f05",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-7 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "0e3fd831d7bd025ad43d92acd379185f2219985d17533a01b233b26ba624f2b9",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-7 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "d5aabdb0af491f8e71f232bfd4881142af7a6cc90f3070463468293944105f05",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-80 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "93668064ed41f0a2269c7424de1b071115d883ac50e48cae9f64e8f45f5a4a65",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-80 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "7617d4815f95f5ade1a622f63694ab4a0763eb00d0e0e749e564c59a116dfddb",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-80 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "93668064ed41f0a2269c7424de1b071115d883ac50e48cae9f64e8f45f5a4a65",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-88 [authored]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "6c4f8d852c5a3a90e606c1f24682484f6c19b6f6ed8a923a09437e8587794c34",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-88 [showcase]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "706731785ec441252c755e0494769565de357cb3ef9ee3e409b0dfcdc62f46b8",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-88 [standard]": {
+    "checks": "8e74b9981302fe007540151c89a77d3e70b7107ff477b02b6e93d24adf4ad1fe",
+    "composition": "6c4f8d852c5a3a90e606c1f24682484f6c19b6f6ed8a923a09437e8587794c34",
+    "diagnostics": [],
+    "ok": true
+  },
+  "wf1-89 [authored]": {
+    "checks": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "composition": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "diagnostics": [
+      "Label \"audit\" overlaps node \"n2\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [420, 159, 34, 14]\n  node \"n2\" rect: [384, 110, 92, 52]\n  Suggested fix: set labelAt [437, 176] or set labelDy 7 (below); or set labelAt [437, 102] or set labelDy -67 (above)"
+    ],
+    "ok": false
+  },
+  "wf1-89 [showcase]": {
+    "checks": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "composition": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "diagnostics": [
+      "[composition/label-route-clearance] showcase workflow label \"queue\" on edges[1] \"n1\" -> \"n4\" label \"queue\" is 0px from edges[0] \"n1\" -> \"n4\" segment 0 [293, 170] -> [293, 262] (label rect [290, 213, 34, 14]; minimum 4px) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other relationship route/via/channel.",
+      "[composition/label-route-clearance] showcase workflow label \"audit\" on edges[2] id \"e4\" \"n5\" -> \"n2\" label \"audit\" is 0px from edges[3] \"n2\" -> \"n5\" segment 0 [423, 162] -> [423, 243] (label rect [420, 159, 34, 14]; minimum 4px) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other relationship route/via/channel.",
+      "Label \"audit\" overlaps node \"n2\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [420, 159, 34, 14]\n  node \"n2\" rect: [384, 110, 92, 52]\n  Suggested fix: set labelAt [437, 176] or set labelDy 7 (below); or set labelAt [437, 102] or set labelDy -67 (above)"
+    ],
+    "ok": false
+  },
+  "wf1-89 [standard]": {
+    "checks": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "composition": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    "diagnostics": [
+      "Label \"audit\" overlaps node \"n2\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [420, 159, 34, 14]\n  node \"n2\" rect: [384, 110, 92, 52]\n  Suggested fix: set labelAt [437, 176] or set labelDy 7 (below); or set labelAt [437, 102] or set labelDy -67 (above)"
+    ],
+    "ok": false
+  }
+}

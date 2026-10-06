@@ -1,0 +1,185 @@
+{
+ "name": "neg.schema-maxItems-stages",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "schema/maxItems",
+ "expect_codes": [
+  "schema/maxItems"
+ ],
+ "source_sha256": "cb659ca0b68000d2c4e2ac465632c9f7a70224219e6f8daad15becc49e82c8d5",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html"
+  },
+  "stages": [
+   {
+    "label": "A"
+   },
+   {
+    "label": "B"
+   },
+   {
+    "label": "C"
+   },
+   {
+    "label": "D"
+   },
+   {
+    "label": "E"
+   },
+   {
+    "label": "F"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "Src",
+    "stage": 0,
+    "row": 0
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 2
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f2",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "dataflow schema validation failed:\n  /stages must NOT have more than 5 items {\"limit\":5}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/stages must NOT have more than 5 items {\"limit\":5}",
+      "subject": {
+       "diagramType": "dataflow",
+       "path": "/stages"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 5
+      },
+      "supportedFixes": [
+       "provide at most 5 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "dataflow schema validation failed:\n  /stages must NOT have more than 5 items {\"limit\":5}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/stages must NOT have more than 5 items {\"limit\":5}",
+      "subject": {
+       "diagramType": "dataflow",
+       "path": "/stages"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 5
+      },
+      "supportedFixes": [
+       "provide at most 5 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "dataflow schema validation failed:\n  /stages must NOT have more than 5 items {\"limit\":5}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/stages must NOT have more than 5 items {\"limit\":5}",
+      "subject": {
+       "diagramType": "dataflow",
+       "path": "/stages"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 5
+      },
+      "supportedFixes": [
+       "provide at most 5 item(s)"
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

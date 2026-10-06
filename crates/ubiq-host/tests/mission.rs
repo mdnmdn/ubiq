@@ -1394,9 +1394,19 @@ fn a_message_to_a_member_reaches_a_running_agent() {
     let id = task.id;
     let (mut missions, work, host) = with_work(&dir, project, vec![task]);
 
-    // A member that is actually on the board, so the durable half has a row to land on — the mock
-    // agents `Work::prepare` mints are the only ones a test can have without a harness.
-    let member = work.lock().agents(project).1[0].id;
+    // A member that is actually on the board, so the durable half has a row to land on — a live
+    // agent put in the list the way a harness start puts one.
+    let member = AgentId::generate();
+    work.lock().add_live_agent(
+        project,
+        live(member, Activity::Thinking, None),
+        WorkSession {
+            id: SessionId::generate(),
+            name: "main".to_string(),
+            branch: "main".to_string(),
+            worktree: false,
+        },
+    );
     missions.join(project, id, member, MissionRole::Worker, Actor::Host);
     let _ = prompts(&host);
 

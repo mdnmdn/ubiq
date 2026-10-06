@@ -1,0 +1,776 @@
+{
+ "name": "fixture.automatic-routing-node-border-clearance.workflow",
+ "group": "fixture",
+ "source": "archify/test/fixtures/automatic-routing-node-border-clearance.workflow.json",
+ "type": "workflow",
+ "source_sha256": "1490118d959b0e7b6cc22752196ce0a2135cc2c22cd2fc72b458fac398fd1417",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "自动连线节点边框避让回归",
+   "output": "automatic-routing-node-border-clearance.html",
+   "quality_profile": "showcase",
+   "viewBox": [720,360]
+  },
+  "lanes": [
+   {
+    "id": "orchestrator",
+    "label": "Orchestrator PTY"
+   },
+   {
+    "id": "runtime",
+    "label": "Hive Runtime"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "team_send",
+    "lane": "orchestrator",
+    "col": 2,
+    "type": "backend",
+    "label": "team send 派单",
+    "sublabel": "选择目标 Worker"
+   },
+   {
+    "id": "inject",
+    "lane": "runtime",
+    "col": 1,
+    "type": "security",
+    "label": "校验并注入输入",
+    "sublabel": "UI token → PTY stdin"
+   }
+  ],
+  "edges": [
+   {
+    "id": "stdin",
+    "from": "inject",
+    "to": "team_send",
+    "label": "PTY stdin",
+    "variant": "emphasis"
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "1490118d959b0e7b6cc22752196ce0a2135cc2c22cd2fc72b458fac398fd1417",
+     "bytes": 917
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "1490118d959b0e7b6cc22752196ce0a2135cc2c22cd2fc72b458fac398fd1417",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 1,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 34,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "inject"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 5
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "1490118d959b0e7b6cc22752196ce0a2135cc2c22cd2fc72b458fac398fd1417",
+     "bytes": 917
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "1490118d959b0e7b6cc22752196ce0a2135cc2c22cd2fc72b458fac398fd1417",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 1,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 34,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "inject"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 5
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "1490118d959b0e7b6cc22752196ce0a2135cc2c22cd2fc72b458fac398fd1417",
+     "bytes": 917
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "1490118d959b0e7b6cc22752196ce0a2135cc2c22cd2fc72b458fac398fd1417",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 1,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 34,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "inject"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 5
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "fixed-v1",
+   "viewBox": [720,360],
+   "requiredViewBox": [720,360],
+   "columns": [88,220,300,430,500,625],
+   "nodes": [
+    {
+     "id": "team_send",
+     "lane": "orchestrator",
+     "col": 2,
+     "x": 254,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "inject",
+     "lane": "runtime",
+     "col": 1,
+     "x": 174,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": "stdin",
+     "from": "inject",
+     "to": "team_send",
+     "points": [[220,217],[220,119],[254,119]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": "stdin",
+     "label": "PTY stdin",
+     "x": 220,
+     "y": 168,
+     "width": 53.199999999999996,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,720,360],
+  "svg_attrs": {
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "自动连线节点边框避让回归",
+  "nodes": [
+   {
+    "id": "team_send",
+    "kind": "backend",
+    "label": "team send 派单",
+    "sublabel": "选择目标 Worker",
+    "context": "Orchestrator PTY",
+    "rect": {
+     "x": 254,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 300,
+      "y": 124,
+      "font_size": 10,
+      "text": "team send 派单",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 300,
+      "y": 138.6,
+      "font_size": 8,
+      "text": "选择目标 Worker",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(260 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "inject",
+    "kind": "security",
+    "label": "校验并注入输入",
+    "sublabel": "UI token → PTY stdin",
+    "context": "Hive Runtime",
+    "rect": {
+     "x": 174,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 220,
+      "y": 248,
+      "font_size": 10,
+      "text": "校验并注入输入",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 220,
+      "y": 261.4,
+      "font_size": 7,
+      "text": "UI token → PTY stdin",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(180 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "stdin",
+    "from": "inject",
+    "to": "team_send",
+    "label": "PTY stdin",
+    "points": [[220,217],[220,119],[254,119]],
+    "d": "M 220 217 L 220 119 L 254 119",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "stdin",
+    "from": "inject",
+    "to": "team_send",
+    "text": "PTY stdin",
+    "rect": {
+     "x": 193.4,
+     "y": 158,
+     "width": 53.199999999999996,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 220,
+      "y": 168,
+      "font_size": 8,
+      "text": "PTY stdin",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Agent logic",
+     "x": 20,
+     "baseline": 324,
+     "width": 91,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 20,
+       "y": 316,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 42,
+       "y": 324,
+       "font_size": 7.5,
+       "text": "Agent logic"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "Policy",
+     "x": 118,
+     "baseline": 324,
+     "width": 70,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 118,
+       "y": 316,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 140,
+       "y": 324,
+       "font_size": 7.5,
+       "text": "Policy"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / Orchestrator PTY"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / Hive Runtime"
+    }
+   ]
+  }
+ }
+}

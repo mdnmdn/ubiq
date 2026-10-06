@@ -93,7 +93,9 @@ fn build_blocks(cur: &mut Cursor, src: &str) -> Vec<Block> {
     while let Some((ev, range)) = cur.peek().cloned() {
         match ev {
             Event::End(_) => break,
-            Event::Start(tag) => {
+            // A tight item whose text opens with a mark (`- **Bold:** rest`) hands us the mark's
+            // `Start` here, not a paragraph's. It is inline content: leave it to the arm below.
+            Event::Start(tag) if mark_of(&tag).is_none() => {
                 cur.bump();
                 let b = build_block(tag, range, cur, src, out.len());
                 out.push(b);

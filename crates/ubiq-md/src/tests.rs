@@ -1025,3 +1025,29 @@ fn find_heading_resolves_text_and_slug() {
     assert_eq!(d.find_heading("no such section"), None);
     assert_eq!(d.find_heading("  "), None);
 }
+
+/// A tight list item that opens with an inline mark (`- **Bold:** text`) must keep its inlines in
+/// one paragraph: the mark's `Start` is not a block.
+#[test]
+fn tight_item_starting_with_a_mark_is_one_paragraph() {
+    for src in [
+        "- **Motore:** esegue i processi.\n- b",
+        "- *Motore* esegue\n- b",
+        "- [link](x) esegue\n- b",
+        "- ~~gone~~ esegue\n- b",
+    ] {
+        let doc = parse(src);
+        let BlockKind::List { items, .. } = &doc.blocks[0].kind else {
+            panic!("not a list");
+        };
+        let blocks = &items[0].blocks;
+        assert_eq!(blocks.len(), 1, "{src:?}: {blocks:?}");
+        assert!(matches!(blocks[0].kind, BlockKind::Paragraph), "{src:?}");
+        let marks = blocks[0]
+            .spans
+            .iter()
+            .filter(|(_, i)| matches!(i, Inline::Enter(_)))
+            .count();
+        assert_eq!(marks, 1, "{src:?}");
+    }
+}

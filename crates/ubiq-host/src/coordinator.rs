@@ -955,6 +955,9 @@ impl Coordinator {
             Some(crate::mcp::SqlReach::new(
                 db.agent_handle(host.mailbox(To::Everyone)),
             )),
+            Some(crate::mcp::ArchifyReach {
+                everyone: host.mailbox(To::Everyone),
+            }),
         )
         .inspect_err(|error| {
             tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
@@ -2380,6 +2383,13 @@ impl Coordinator {
             } => {
                 self.host_write_job(client, path, bytes, expected);
             }
+            // The export half: the same worker, the same atomic write, no version to check.
+            Message::SaveHostFileAs { path, bytes } => {
+                self.files.submit(files::Job {
+                    kind: files::JobKind::HostSaveAs { path, bytes },
+                    reply_to: self.host.mailbox(To::Client(client)),
+                });
+            }
 
             // ── the file family ─────────────────────────────────────
             // Five arms, no syscall: the record is a lookup in memory and the work goes to the
@@ -2388,10 +2398,12 @@ impl Coordinator {
                 project_id,
                 rel_path,
                 depth,
+                prefetch,
             } => {
                 let request = files::Request::Tree {
                     rel_path: rel_path.clone(),
                     depth,
+                    prefetch,
                 };
                 self.file_job(client, project_id, &rel_path, request);
             }
@@ -2520,6 +2532,7 @@ impl Coordinator {
                 let request = files::Request::Tree {
                     rel_path: rel_path.clone(),
                     depth,
+                    prefetch: false,
                 };
                 self.kb_job(client, project_id, source, &rel_path, request);
             }
@@ -3844,12 +3857,12 @@ impl Coordinator {
     /// first [`Message::PromptAgent`] (`launch_pending`, below, forwards the prompt afterwards)
     /// and [`Message::ResumeConversation`] (which forwards nothing). `pending` is a clone of the
     /// launch recipe: the row in [`Self::pending_conversations`] itself is left in place, kept for
-    /// the next relaunch, and is only ever removed by [`Self::end_conversation`] or by a launch
-    /// failure here.
+    /// the next relaunch, and is only ever removed by [`Self::end_conversation`]; a launch
+    /// failure leaves it.
     ///
-    /// Returns whether the launch succeeded. A failure has to retract what `start_conversation`
-    /// (a first launch) or the previous run (a resume) already made visible — the `WorkAgent`, its
-    /// owner, and the recipe itself, since nothing can relaunch a harness that will not compose.
+    /// Returns whether the launch succeeded. A failure retracts nothing: the `WorkAgent`, its
+    /// owner, the recipe and the MCP row all stay, so the agent shows as failed and a Resume or a
+    /// prompt retries it, while Close ends it the ordinary way (`end_conversation`).
     ///
     /// `first_prompt` is set only for a one-shot harness, whose turn *is* its argv: there is no
     /// pipe to write a prompt into afterwards. A multi-turn harness passes `None` and is prompted
@@ -3894,8 +3907,8 @@ impl Coordinator {
 
         // Tell the MCP listener who this agent is, *before* the harness exists to ask: the run
         // composed below spawns the process, and the first thing a harness does with an injected
-        // server is call it. A row here for a launch that then fails is taken out again by the
-        // `retire_agent` in the error arm below — the same call that removes its run directory.
+        // server is call it. A row here for a launch that then fails stays, like everything else, for a
+        // retry or for the close that retires it.
         let (name, harness) = self
             .work
             .lock()
@@ -3949,16 +3962,17 @@ impl Coordinator {
                     harness = %pending.agent_type,
                     "starting failed: {error:#}"
                 );
-                self.agents.retire_agent(agent_id);
-                // A run that would not compose has nothing to resume, so its row goes too —
-                // otherwise the next boot restores a recipe that is known not to launch.
-                conversation_record::forget(&self.sessions(), agent_id);
-                self.work
-                    .lock()
-                    .remove_live_agent(pending.project_id, agent_id);
+                // **Put back, never forgotten** — `reap_conversations`' rule (`T-296`) applied one
+                // step earlier (`T-327`). The window already holds this conversation, so dropping
+                // the owner and the pending row here left Close, Resume and the next prompt all
+                // hitting `drives` and vanishing: an errored agent nothing could unload or retry.
+                // Kept pending, a Resume or a prompt retries the launch (with the harness's own
+                // session id when there is one), and Close ends it the ordinary way. The MCP row
+                // registered above stays too: `wake_agent_scheduler` finds the mission through it
+                // when a failed mission worker is closed, a retry's `register` replaces it, and
+                // `retire_agent`/`park_agent` forget it on close. The run directory stays as well,
+                // because a resume's session store lives in it.
                 self.close_asks(agent_id, AskClosed::Gone);
-                self.conversation_owners.remove(&agent_id);
-                self.pending_conversations.remove(&agent_id);
                 self.refuse_conversation(client, agent_id, format!("{error:#}"));
                 return false;
             }
@@ -7287,7 +7301,7 @@ mod tests {
     // These drive `Coordinator`'s methods directly rather than over the bus, because getting a
     // genuinely *live* conversation the honest way needs a real, installed harness binary — the
     // rest of this file's tests never do that even for `claude-code`/`codex` (see
-    // `a_launch_that_fails_retracts_the_agent_it_registered` in `tests/coordinator.rs`, which
+    // `a_launch_that_fails_keeps_the_agent_closable_and_retryable` in `tests/coordinator.rs`, which
     // forces a failure with a bad account rather than depend on one). `test_support::Idle`
     // supplies a `Conversation` whose pump is genuinely alive — blocked in `next_event` — without
     // a process behind it, which is all `unload_conversation`/`resume_conversation` ever look at.
@@ -7570,8 +7584,22 @@ mod tests {
             "expected an unknown-harness refusal, said {error:?}"
         );
         assert!(
-            !coordinator.pending_conversations.contains_key(&agent_id),
-            "a failed relaunch retracts the recipe, the same as a failed first launch"
+            coordinator.pending_conversations.contains_key(&agent_id),
+            "a failed launch keeps the recipe, so a Resume or the next prompt retries it (T-327)"
+        );
+        assert!(
+            coordinator.drives(client.id(), agent_id),
+            "and keeps the owner, so the window can still close it"
+        );
+
+        // Close after the failure is answered, not swallowed by `drives`.
+        coordinator.dispatch(client.id(), Message::EndConversation { agent_id });
+        assert!(
+            drain_all(&client).iter().any(|message| matches!(
+                message,
+                Message::ConversationDeleted { agent_id: id } if *id == agent_id
+            )),
+            "an errored agent can be closed"
         );
     }
 

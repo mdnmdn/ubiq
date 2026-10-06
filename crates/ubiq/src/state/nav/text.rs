@@ -23,7 +23,6 @@ use ubiq_proto::work::AgentId;
 
 use super::{Destination, Locus, View};
 use crate::state::dock::ChatId;
-use crate::state::orchestration::{InspectorTab, Selection};
 use crate::state::teams::{TeamsInspectorTab, TeamsSelection};
 
 const SCHEME: &str = "ubiq://";
@@ -51,7 +50,6 @@ impl View {
             View::Ide { .. } => "ide",
             View::Explorer { .. } => "explorer",
             View::Terminal { .. } => "terminal",
-            View::Graph { .. } => "graph",
             View::Teams { .. } => "teams",
             View::Agents { .. } => "agents",
             View::Tasks { .. } => "tasks",
@@ -75,17 +73,6 @@ impl fmt::Display for Destination {
             View::Explorer { path } => write!(f, "/{}", encode(path))?,
             View::Terminal { pane } => write!(f, "/{pane}")?,
             View::Help { page } => write!(f, "/{}", encode(page))?,
-            View::Graph { selection, tab } => {
-                let (kind, id) = match selection {
-                    Selection::Session(id) => ("s", id.to_string()),
-                    Selection::Agent(id) => ("a", id.to_string()),
-                };
-                let tab = match tab {
-                    InspectorTab::Chat => "chat",
-                    InspectorTab::Tasks => "tasks",
-                };
-                write!(f, "/{kind}:{id}/{tab}")?;
-            }
             View::Teams { selection, tab } => {
                 let (kind, id) = match selection {
                     TeamsSelection::Session(id) => ("s", id.to_string()),
@@ -204,40 +191,16 @@ fn parse_view(slug: &str, item: Option<&str>) -> Result<View, NotALink> {
         "agents" => Ok(View::Agents {
             agent: one()?.parse::<AgentId>().map_err(|_| NotALink)?,
         }),
-        // A selection, then optionally which half of the inspector is up.
-        "graph" => {
-            let item = item.ok_or(NotALink)?;
-            let (sel, tab) = match item.split_once('/') {
-                Some((sel, tab)) => (sel, Some(tab)),
-                None => (item, None),
-            };
-            // The `s:`/`a:` prefix is forced: both ids are 26-character ULIDs and the text alone
-            // cannot tell a session from an agent.
-            let selection = match sel.split_once(':') {
-                Some(("s", id)) => {
-                    Selection::Session(id.parse::<SessionId>().map_err(|_| NotALink)?)
-                }
-                Some(("a", id)) => Selection::Agent(id.parse::<AgentId>().map_err(|_| NotALink)?),
-                _ => return Err(NotALink),
-            };
-            let tab = match tab {
-                None | Some("chat") => InspectorTab::Chat,
-                Some("tasks") => InspectorTab::Tasks,
-                Some(_) => return Err(NotALink),
-            };
-            Ok(View::Graph { selection, tab })
-        }
-        // The same shape as `graph`, plus a third segment for a delegate: a selection, which half
-        // of the inspector is up, and — where the link names one — which subagent of that agent is
-        // being read. The delegate is last and unsplit, so a `Task` call id holding a `/` survives.
+        // A selection, then optionally which half of the inspector is up, then — where the link
+        // names one — which subagent of that agent is being read. The delegate is last and unsplit, so a `Task` call id holding a `/` survives.
         "teams" => {
             let item = item.ok_or(NotALink)?;
             let mut parts = item.splitn(3, '/');
             let sel = parts.next().ok_or(NotALink)?;
             let tab = parts.next();
             let subagent = parts.next();
-            // The `s:`/`a:` prefix is forced, for the same reason `graph`'s is: both ids are
-            // 26-character ULIDs and the text alone cannot tell a session from an agent.
+            // The `s:`/`a:` prefix is forced: both ids are 26-character ULIDs and the text alone
+            // cannot tell a session from an agent.
             let selection = match sel.split_once(':') {
                 Some(("s", id)) => {
                     if subagent.is_some() {

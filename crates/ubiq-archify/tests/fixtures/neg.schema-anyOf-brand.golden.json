@@ -1,0 +1,359 @@
+{
+ "name": "neg.schema-anyOf-brand",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/anyOf",
+ "expect_codes": [
+  "schema/anyOf"
+ ],
+ "source_sha256": "bf74acdba69d2f9bf84d271bd018ec280c661b069c318f94a6d0b1508356f4fa",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "brand": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80}\n  /components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}\n  /components/0/brand (id/label: \"web\") must match a schema in anyOf\n  /components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+    "diagnostics": [
+     {
+      "code": "schema/maxLength",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxLength",
+       "limit": 80
+      },
+      "supportedFixes": [
+       "provide at most 80 character(s)"
+      ]
+     },
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^https?://"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^https?://\""
+      ]
+     },
+     {
+      "code": "schema/anyOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match a schema in anyOf",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "anyOf"
+      },
+      "supportedFixes": []
+     },
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "object"
+      },
+      "supportedFixes": [
+       "use \"object\" at /components/0/brand"
+      ]
+     },
+     {
+      "code": "schema/oneOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "oneOf",
+       "passingSchemas": null
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80}\n  /components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}\n  /components/0/brand (id/label: \"web\") must match a schema in anyOf\n  /components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+    "diagnostics": [
+     {
+      "code": "schema/maxLength",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxLength",
+       "limit": 80
+      },
+      "supportedFixes": [
+       "provide at most 80 character(s)"
+      ]
+     },
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^https?://"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^https?://\""
+      ]
+     },
+     {
+      "code": "schema/anyOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match a schema in anyOf",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "anyOf"
+      },
+      "supportedFixes": []
+     },
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "object"
+      },
+      "supportedFixes": [
+       "use \"object\" at /components/0/brand"
+      ]
+     },
+     {
+      "code": "schema/oneOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "oneOf",
+       "passingSchemas": null
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80}\n  /components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}\n  /components/0/brand (id/label: \"web\") must match a schema in anyOf\n  /components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+    "diagnostics": [
+     {
+      "code": "schema/maxLength",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxLength",
+       "limit": 80
+      },
+      "supportedFixes": [
+       "provide at most 80 character(s)"
+      ]
+     },
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^https?://"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^https?://\""
+      ]
+     },
+     {
+      "code": "schema/anyOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match a schema in anyOf",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "anyOf"
+      },
+      "supportedFixes": []
+     },
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "object"
+      },
+      "supportedFixes": [
+       "use \"object\" at /components/0/brand"
+      ]
+     },
+     {
+      "code": "schema/oneOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "oneOf",
+       "passingSchemas": null
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80}\n  /components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"}\n  /components/0/brand (id/label: \"web\") must match a schema in anyOf\n  /components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}\n[schema/maxLength] /components/0/brand (id/label: \"web\") must NOT have more than 80 characters {\"limit\":80} Fix: provide at most 80 character(s).\n[schema/pattern] /components/0/brand (id/label: \"web\") must match pattern \"^https?://\" {\"pattern\":\"^https?://\"} Fix: match the required pattern \"^https?://\".\n[schema/anyOf] /components/0/brand (id/label: \"web\") must match a schema in anyOf\n[schema/type] /components/0/brand (id/label: \"web\") must be object {\"type\":\"object\"} Fix: use \"object\" at /components/0/brand.\n[schema/oneOf] /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}\n"
+ },
+ "layout_json_by_quality": {}
+}

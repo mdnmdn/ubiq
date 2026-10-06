@@ -1,0 +1,169 @@
+{
+ "name": "neg.schema-pattern-id",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/pattern",
+ "expect_codes": [
+  "schema/pattern"
+ ],
+ "source_sha256": "8769534bcdf9a3d5fd624d7a7871bda78bb874cda4d96f1bff3b3615ea969887",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "bad id",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/id",
+       "identity": "bad id"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/id",
+       "identity": "bad id"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/id",
+       "identity": "bad id"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"}\n[schema/pattern] /components/0/id (id/label: \"bad id\") must match pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\" {\"pattern\":\"^[a-zA-Z][a-zA-Z0-9_-]*$\"} Fix: match the required pattern \"^[a-zA-Z][a-zA-Z0-9_-]*$\".\n"
+ },
+ "layout_json_by_quality": {}
+}

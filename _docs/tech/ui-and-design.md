@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-10-05
+updated: 2026-10-06
 verified: 2026-10-05
 code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
@@ -73,7 +73,7 @@ note.
 **Which token a *state* reads in is the interface's choice, and it is made in one file.**
 `crates/ubiq/src/ui/work.rs` is where a work record's state becomes a token: an activity or a bucket
 becomes a status colour, and a role becomes a glyph. `ubiq_proto::work` keeps the words and this
-document's tokens keep the values, so the agents screen's columns, the orchestration graph, the tasks
+document's tokens keep the values, so the agents screen's columns, the Teams graph, the tasks
 board and the status bar cannot disagree about what running looks like.
 
 Tokens are grouped by role, and the role is the point: a token names what a colour is *for*, so that
@@ -310,7 +310,7 @@ restyling the shell should be one file to visit.
 | `TITLEBAR_HEIGHT`, `STATUS_BAR_HEIGHT`, `RAIL_WIDTH` | The chrome the user cannot drag |
 | `SPLIT_CHEVRON_WIDTH` | The thin half of a split button — every chevron in the titlebar. Half an icon button, flush against the action with no gap, because the pair has to read as one control with a second way in |
 | `EXPLORER_WIDTH`, `CHAT_WIDTH`, `DOCK_HEIGHT` | The size each of the dock's three edge regions opens at. What the user drags one to is remembered per project, inside the arrangement blob, and is what a restored window opens on |
-| `INSPECTOR_WIDTH`, `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The orchestration screen: the inspector beside its graph, the tasks drawer under it, and the pitch of the dotted ground at 100% zoom |
+| `TASKS_HEIGHT`, `GRAPH_DOT_PITCH` | The Teams screen: the tasks drawer under its graph, and the pitch of the dotted ground at 100% zoom |
 | `AGENT_SIDEBAR_WIDTH`, `NEW_COLUMN_STRIP` | The agents screen: the sidebar that lists every agent, and the strip past the last column that a dragged tab is split off into. How narrow a column itself may get is `state::agents::COLUMN_MIN_WIDTH` instead, because that is a fact about a conversation rather than about this window |
 | `EMPTY_START_SIZE`, `EMPTY_START_ICON` | The start control on an empty chat panel: about three times a chrome `kit::icon_button`, because it is the page's whole subject rather than one control among a row of them |
 | `PERMISSION_DETAIL_MAX_H` | A permission ask's own detail — a `switch_mode` prompt's plan, a pre-approval diff — capped and scrolled in its own region rather than left to grow the card without limit (T-175) |
@@ -355,9 +355,9 @@ The Git screen's own four — `SIDEBAR_WIDTH`, `CHANGES_WIDTH`, `DIFF_HEIGHT` an
 `theme.rs`.
 
 A region's constant is what a fresh window opens it at; what the drag will not pass is the dock's
-own, so a region is one number rather than a triple. The orchestration screen's three are the same
-shape for a different reason: its inspector and its drawer are shown and hidden rather than dragged,
-and so is the agents screen's sidebar.
+own, so a region is one number rather than a triple. The Teams screen's drawer is the same shape for
+a different reason: it is shown and hidden rather than dragged, and so is the agents screen's
+sidebar.
 
 Syntax colours are the one thing not tokenised here. They come from the component library's own
 highlighter theme, which `theme::set_theme` keeps in step with Ubiq's palette through the `Mode` the
@@ -395,8 +395,8 @@ page rather than reasoned about.
   active box is the one that is underlined. That treatment is `kit::field` in
   `crates/ubiq/src/ui/kit/controls.rs`, the container every free-text input sits in — a surface with
   a coloured left edge, joined by a bottom underline in the focus colour while the input holds the
-  keyboard. The command field, the project search, the chat composer, the orchestration
-  inspector's composer, each agents column's composer, the board's filter and form fields, and the explorer's and the file picker's
+  keyboard. The command field, the project search, the chat composer,
+  each agents column's composer, the board's filter and form fields, and the explorer's and the file picker's
   filters all draw themselves with it.
 - **Status is shown by colour from the status group**, never by wording alone. A stopped agent and a
   failed one are different colours.
@@ -826,7 +826,7 @@ through a second function, `ui::teams::status::card_colour(status)` (T-106).** I
 own edge and `status_chip` read it rather than `status_colour` directly — one function so the mark,
 the edge and the chip cannot disagree about what "done" looks like on the one surface that draws all
 three. This is a Teams-only override: `ui::work::doing_colour`, which every non-Teams reader of the
-`Doing` dictionary still calls (the tasks board's columns, `[Teams]`'s own cards), keeps mapping
+`Doing` dictionary still calls (the tasks board's columns), keeps mapping
 `Done` to `success` green — a delegate that finished is spent, not merely a passing check, but a
 completed *task* elsewhere in the window still reads as one.
 
@@ -1038,7 +1038,7 @@ To add an area to the window:
 
 `gpui-component` embeds the Lucide set and exposes it as `IconName`, and that is what `icon_button`,
 `Icon::new` and the menus take. What it does not cover — a harness, a pane's state, a permission
-mode, an orchestration node — lives in `assets/icons/` as a monochrome 24x24 SVG, listed with its
+mode, a Teams graph node — lives in `assets/icons/` as a monochrome 24x24 SVG, listed with its
 goal in `assets/icons/icons.yaml`. One name per icon: the file name, the registry key and the Rust
 variant are the same kebab-case word.
 

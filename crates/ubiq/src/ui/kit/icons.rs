@@ -92,7 +92,7 @@ pub enum UbiqIcon {
     ModeSink,
     /// work items that leave the board once done — a square whose corner is open and a tick on its way out through it
     ModeTasks,
-    /// the orchestration graph of agents working together
+    /// the Teams graph of agents working together
     ModeTeams,
     /// the harness has stopped and is waiting for the reader to answer
     PaneAwaiting,

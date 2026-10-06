@@ -201,6 +201,11 @@ pub struct NewAgentForm {
     /// at least one of them are offered, and the Harness tab is not drawn. Empty is no narrowing.
     /// Belongs to how the form was opened, so it survives every re-pick and tab change.
     pub tag_filter: Vec<String>,
+    /// The servers a start was opened with ticked ([`NewAgentOpen::mcps`]). Like
+    /// [`Self::tag_filter`] it belongs to how the form was opened: every re-pick and tab change
+    /// rebuilds [`Self::mcps`] from the new answer and then ticks these again
+    /// ([`Self::tick_opened_mcps`]).
+    pub opened_mcps: Vec<String>,
 }
 
 /// How the New agent modal is asked to open — `AppState::open_new_agent`'s one argument.
@@ -215,6 +220,9 @@ pub struct NewAgentOpen {
     pub autostart: bool,
     /// What the initial-prompt field opens holding — said as the first user turn of the start.
     pub initial_prompt: Option<String>,
+    /// MCP servers the form opens with ticked, by name. A name this build cannot inject is simply
+    /// not offered, so it stays unticked on screen.
+    pub mcps: Vec<String>,
 }
 
 impl NewAgentForm {
@@ -336,6 +344,17 @@ impl NewAgentForm {
             plan_mode: false,
             prompt_suffix: String::new(),
             tag_filter: Vec::new(),
+            opened_mcps: Vec::new(),
+        }
+    }
+
+    /// Tick the servers the form was opened with ([`Self::opened_mcps`]) that are not ticked yet,
+    /// after what is ticked, keeping its order.
+    pub fn tick_opened_mcps(&mut self) {
+        for mcp in &self.opened_mcps {
+            if !self.mcps.contains(mcp) {
+                self.mcps.push(mcp.clone());
+            }
         }
     }
 

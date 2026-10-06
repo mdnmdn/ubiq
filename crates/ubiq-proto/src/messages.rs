@@ -1382,6 +1382,16 @@ pub enum Message {
         bytes: Vec<u8>,
         expected: FileVersion,
     },
+    /// Create or replace the file at an absolute host path the user picked in the native save
+    /// dialog — an export, not an edit of something already read. [`Message::WriteHostFile`]'s
+    /// atomic write without its version check, since the target may not exist. Answered with
+    /// [`Message::HostFileExported`] or [`Message::HostFileError`].
+    SaveHostFileAs {
+        path: String,
+        // See the comment on `Message::TerminalOutput::bytes`: same reasoning, same fix.
+        #[serde(with = "serde_bytes")]
+        bytes: Vec<u8>,
+    },
 
     // ── The host file family: host → UI ─────────────────────────────
     /// The host file as it now is, so a guest tab's next save has a version to name. Sent in
@@ -1390,7 +1400,12 @@ pub enum Message {
         path: String,
         version: FileVersion,
     },
-    /// [`Message::WriteHostFile`] was refused. `path` echoes the request.
+    /// [`Message::SaveHostFileAs`] wrote the file. `path` echoes the request.
+    HostFileExported {
+        path: String,
+    },
+    /// [`Message::WriteHostFile`] or [`Message::SaveHostFileAs`] was refused. `path` echoes the
+    /// request.
     HostFileError {
         path: String,
         error: FileError,
@@ -1403,6 +1418,11 @@ pub enum Message {
         project_id: ProjectId,
         rel_path: String,
         depth: u8,
+        /// The window's background cache is asking, not the user. The host then walks no folder
+        /// version control ignores, and answers a request *for* one with no listings at all, so
+        /// it stays unlisted until the user opens it — which asks again without this.
+        #[serde(default)]
+        prefetch: bool,
     },
     /// Read a file. `max_bytes` narrows the host's own ceiling and never widens it.
     ReadProjectFile {
@@ -1878,6 +1898,24 @@ pub enum Message {
         source: KbSourceId,
         rel_path: String,
         path: String,
+    },
+
+    // ── The Archify family: host → UI ───────────────────────────────
+    // What an agent's diagram tools tell the windows. Both are broadcast and both carry the
+    // project, so a window that does not have it ignores them.
+    /// An agent created or rendered the diagram at `rel`: open it, or focus its tab, in the
+    /// diagram viewer.
+    ArchifyShow {
+        project_id: ProjectId,
+        rel: String,
+    },
+    /// A diagram tool ran: the tab's tool chip and the "fixed it" notice. `rel` is the diagram it
+    /// touched, when it touched one; `ok` is whether the call succeeded.
+    ArchifyToolCall {
+        project_id: ProjectId,
+        rel: Option<String>,
+        tool: String,
+        ok: bool,
     },
 
     // ── Database family: UI → host ──────────────────────────────────
@@ -3455,6 +3493,8 @@ impl Message {
             | Message::KbFileError { project_id, .. }
             | Message::KbChanged { project_id, .. }
             | Message::KbPath { project_id, .. }
+            | Message::ArchifyShow { project_id, .. }
+            | Message::ArchifyToolCall { project_id, .. }
             | Message::DbConnections { project_id, .. }
             | Message::SaveDbConnection { project_id, .. }
             | Message::DeleteDbConnection { project_id, .. }

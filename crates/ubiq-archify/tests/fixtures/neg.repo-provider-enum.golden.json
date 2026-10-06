@@ -1,0 +1,180 @@
+{
+ "name": "neg.repo-provider-enum",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "repository-evidence/provider-invalid",
+ "expect_codes": [
+  "schema/enum"
+ ],
+ "source_sha256": "dd6b7818e899f91e03aa229f029597902372aa7611aeb3f9156db5b3c06b816b",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "repository": {
+    "url": "https://github.com/example/repo",
+    "provider": "gitlab",
+    "revision": "0123456789abcdef0123456789abcdef01234567"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}",
+    "diagnostics": [
+     {
+      "code": "schema/enum",
+      "severity": "error",
+      "message": "/meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/repository/provider"
+      },
+      "evidence": {
+       "keyword": "enum",
+       "allowedValues": [
+        "github",
+        "gitee"
+       ]
+      },
+      "supportedFixes": [
+       "choose one of [\"github\",\"gitee\"]"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}",
+    "diagnostics": [
+     {
+      "code": "schema/enum",
+      "severity": "error",
+      "message": "/meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/repository/provider"
+      },
+      "evidence": {
+       "keyword": "enum",
+       "allowedValues": [
+        "github",
+        "gitee"
+       ]
+      },
+      "supportedFixes": [
+       "choose one of [\"github\",\"gitee\"]"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}",
+    "diagnostics": [
+     {
+      "code": "schema/enum",
+      "severity": "error",
+      "message": "/meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/repository/provider"
+      },
+      "evidence": {
+       "keyword": "enum",
+       "allowedValues": [
+        "github",
+        "gitee"
+       ]
+      },
+      "supportedFixes": [
+       "choose one of [\"github\",\"gitee\"]"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]}\n[schema/enum] /meta/repository/provider must be equal to one of the allowed values {\"allowedValues\":[\"github\",\"gitee\"]} Fix: choose one of [\"github\",\"gitee\"].\n"
+ },
+ "layout_json_by_quality": {}
+}

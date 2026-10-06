@@ -1,0 +1,635 @@
+{
+ "name": "neg.i18n-translation-coverage",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "i18n/translation-coverage",
+ "expect_codes": [],
+ "note": "warning only: printed on stderr, not in the --json receipt; validation passes",
+ "source_sha256": "037af15b507b801a2ea3e9a01b5ab4f1b85e9ca57d1d82afa2ca2dc16c326576",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "locale": "it",
+   "translations": {
+    "legend.title": "Legenda"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "037af15b507b801a2ea3e9a01b5ab4f1b85e9ca57d1d82afa2ca2dc16c326576",
+     "bytes": 1071
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "037af15b507b801a2ea3e9a01b5ab4f1b85e9ca57d1d82afa2ca2dc16c326576",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 173.1,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 8,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 140,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 50,
+      "emptyTopRatio": 0.219,
+      "occupiedTop": 50,
+      "viewBoxTop": 0,
+      "canvasHeight": 228,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "actualReaderWidth": 960,
+      "desiredReaderWidth": 960,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 8,
+      "semanticTextCount": 9
+     },
+     "issues": []
+    }
+   },
+   "stderr": "archify: meta.translations for locale \"it\" covers 1/438 renderer-owned messages (0%); uncovered keys fall back to English.\n"
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "037af15b507b801a2ea3e9a01b5ab4f1b85e9ca57d1d82afa2ca2dc16c326576",
+     "bytes": 1071
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "037af15b507b801a2ea3e9a01b5ab4f1b85e9ca57d1d82afa2ca2dc16c326576",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 173.1,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 8,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 140,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 50,
+      "emptyTopRatio": 0.219,
+      "occupiedTop": 50,
+      "viewBoxTop": 0,
+      "canvasHeight": 228,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "actualReaderWidth": 960,
+      "desiredReaderWidth": 960,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 8,
+      "semanticTextCount": 9
+     },
+     "issues": []
+    }
+   },
+   "stderr": "archify: meta.translations for locale \"it\" covers 1/438 renderer-owned messages (0%); uncovered keys fall back to English.\n"
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "037af15b507b801a2ea3e9a01b5ab4f1b85e9ca57d1d82afa2ca2dc16c326576",
+     "bytes": 1071
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "037af15b507b801a2ea3e9a01b5ab4f1b85e9ca57d1d82afa2ca2dc16c326576",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 173.1,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 8,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 140,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 50,
+      "emptyTopRatio": 0.219,
+      "occupiedTop": 50,
+      "viewBoxTop": 0,
+      "canvasHeight": 228,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "actualReaderWidth": 960,
+      "desiredReaderWidth": 960,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 8,
+      "semanticTextCount": 9
+     },
+     "issues": []
+    }
+   },
+   "stderr": "archify: meta.translations for locale \"it\" covers 1/438 renderer-owned messages (0%); uncovered keys fall back to English.\n"
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [750,228],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [40,80]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 300,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [300,80]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "Prod",
+     "x": 270,
+     "y": 50,
+     "width": 440,
+     "height": 110,
+     "wraps": [
+      "api",
+      "db"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,110],[300,110]],
+     "labelAt": [230,100]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[420,110],[560,110]],
+     "labelAt": [490,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 213,
+     "y": 90,
+     "width": 34,
+     "height": 14,
+     "labelAt": [230,100]
+    },
+    {
+     "text": "SQL",
+     "x": 475,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [490,100]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

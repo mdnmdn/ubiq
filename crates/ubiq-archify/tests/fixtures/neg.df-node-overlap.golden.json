@@ -1,0 +1,525 @@
+{
+ "name": "neg.df-node-overlap",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "geom/node-overlap",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "26f75c8f50c30825e313e1298587ddb28257c0b6419fb4d41f2c939a1f7d163f",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html"
+  },
+  "stages": [
+   {
+    "label": "Ingest"
+   },
+   {
+    "label": "Process"
+   },
+   {
+    "label": "Store"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "Src",
+    "stage": 0,
+    "row": 0
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 0,
+    "yOffset": 20
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f2",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Nodes \"etl\" and \"dlq\" are less than 10px apart — move one to another stage/row or adjust yOffset.\n- [clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" first segment 0 [315,186] -> [315,148] does not honor inferred fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.\n- [clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" final segment 0 [315,186] -> [315,148] does not honor inferred toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.\n- [clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [156,157] -> [259,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- [clean-flow/edge-through-node] dataflow flows[1] id \"f2\" \"etl\" -> \"db\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [371,157] -> [474,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,119] or set labelDy -57 (above)\n- Label \"rejects\" overlaps node \"dlq\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"dlq\" rect: [259,148,112,58]\n  Suggested fix: set labelAt [315,221] or set labelDy 45 (below)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" first segment 0 [315,186] -> [315,148] does not honor inferred fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 2,
+       "id": "f3",
+       "from": "etl",
+       "to": "dlq"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "inferred",
+       "side": "bottom",
+       "segmentIndex": 0,
+       "from": [315,186],
+       "to": [315,148],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" final segment 0 [315,186] -> [315,148] does not honor inferred toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 2,
+       "id": "f3",
+       "from": "etl",
+       "to": "dlq"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "inferred",
+       "side": "top",
+       "segmentIndex": 0,
+       "from": [315,186],
+       "to": [315,148],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward from above"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [156,157] -> [259,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "dlq",
+       "segmentIndex": 0,
+       "from": [156,157],
+       "to": [259,157],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[1] id \"f2\" \"etl\" -> \"db\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [371,157] -> [474,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 1,
+       "id": "f2",
+       "from": "etl",
+       "to": "db"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "dlq",
+       "segmentIndex": 0,
+       "from": [371,157],
+       "to": [474,157],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Nodes \"etl\" and \"dlq\" are less than 10px apart — move one to another stage/row or adjust yOffset.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"dlq\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"dlq\" rect: [259,148,112,58]\n  Suggested fix: set labelAt [315,221] or set labelDy 45 (below)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Nodes \"etl\" and \"dlq\" are less than 10px apart — move one to another stage/row or adjust yOffset.\n- [clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" first segment 0 [315,186] -> [315,148] does not honor inferred fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.\n- [clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" final segment 0 [315,186] -> [315,148] does not honor inferred toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.\n- [clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [156,157] -> [259,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- [clean-flow/edge-through-node] dataflow flows[1] id \"f2\" \"etl\" -> \"db\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [371,157] -> [474,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,119] or set labelDy -57 (above)\n- Label \"rejects\" overlaps node \"dlq\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"dlq\" rect: [259,148,112,58]\n  Suggested fix: set labelAt [315,221] or set labelDy 45 (below)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" first segment 0 [315,186] -> [315,148] does not honor inferred fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 2,
+       "id": "f3",
+       "from": "etl",
+       "to": "dlq"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "inferred",
+       "side": "bottom",
+       "segmentIndex": 0,
+       "from": [315,186],
+       "to": [315,148],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" final segment 0 [315,186] -> [315,148] does not honor inferred toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 2,
+       "id": "f3",
+       "from": "etl",
+       "to": "dlq"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "inferred",
+       "side": "top",
+       "segmentIndex": 0,
+       "from": [315,186],
+       "to": [315,148],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward from above"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [156,157] -> [259,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "dlq",
+       "segmentIndex": 0,
+       "from": [156,157],
+       "to": [259,157],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[1] id \"f2\" \"etl\" -> \"db\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [371,157] -> [474,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 1,
+       "id": "f2",
+       "from": "etl",
+       "to": "db"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "dlq",
+       "segmentIndex": 0,
+       "from": [371,157],
+       "to": [474,157],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Nodes \"etl\" and \"dlq\" are less than 10px apart — move one to another stage/row or adjust yOffset.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"dlq\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"dlq\" rect: [259,148,112,58]\n  Suggested fix: set labelAt [315,221] or set labelDy 45 (below)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Nodes \"etl\" and \"dlq\" are less than 10px apart — move one to another stage/row or adjust yOffset.\n- [clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" first segment 0 [315,186] -> [315,148] does not honor inferred fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.\n- [clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" final segment 0 [315,186] -> [315,148] does not honor inferred toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.\n- [clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [156,157] -> [259,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- [clean-flow/edge-through-node] dataflow flows[1] id \"f2\" \"etl\" -> \"db\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [371,157] -> [474,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,119] or set labelDy -57 (above)\n- Label \"rejects\" overlaps node \"dlq\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"dlq\" rect: [259,148,112,58]\n  Suggested fix: set labelAt [315,221] or set labelDy 45 (below)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" first segment 0 [315,186] -> [315,148] does not honor inferred fromSide \"bottom\" — it must run vertical downward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 2,
+       "id": "f3",
+       "from": "etl",
+       "to": "dlq"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "inferred",
+       "side": "bottom",
+       "segmentIndex": 0,
+       "from": [315,186],
+       "to": [315,148],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] dataflow flows[2] id \"f3\" \"etl\" -> \"dlq\" final segment 0 [315,186] -> [315,148] does not honor inferred toSide \"top\" — it must run vertical downward from above; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 2,
+       "id": "f3",
+       "from": "etl",
+       "to": "dlq"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "inferred",
+       "side": "top",
+       "segmentIndex": 0,
+       "from": [315,186],
+       "to": [315,148],
+       "expectedAxis": "vertical",
+       "expectedDirection": "downward from above"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross node borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [156,157] -> [259,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "dlq",
+       "segmentIndex": 0,
+       "from": [156,157],
+       "to": [259,157],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[1] id \"f2\" \"etl\" -> \"db\" crosses node \"dlq\" (unrelated to this relationship) on segment 0 [371,157] -> [474,157] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 1,
+       "id": "f2",
+       "from": "etl",
+       "to": "db"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "dlq",
+       "segmentIndex": 0,
+       "from": [371,157],
+       "to": [474,157],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Nodes \"etl\" and \"dlq\" are less than 10px apart — move one to another stage/row or adjust yOffset.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"dlq\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"dlq\" rect: [259,148,112,58]\n  Suggested fix: set labelAt [315,221] or set labelDy 45 (below)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

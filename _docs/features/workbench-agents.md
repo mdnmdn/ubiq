@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-10-05
-verified: 2026-10-05
+updated: 2026-10-06
+verified: 2026-10-06
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -293,13 +293,11 @@ to set: the host derives it from the harness's command, with a per-project count
 occurrence onward. What a start eventually makes is a conversation rather than a pane — the same
 question asked of the other face of a workspace, and a conversation has no size.
 
-**The agents screen lists only what this window can talk to.** The work projection is wider than
-that — it carries the host's mock work-thread fixtures too — so every reader on this screen goes
-through `AgentsView::live_agents`, which keeps the agents this window holds a live `Conversation`
+**The agents screen lists only what this window can talk to.** The work projection can be wider
+than that, so every reader on this screen goes through `AgentsView::live_agents`, which keeps the agents this window holds a live `Conversation`
 for. The sidebar, the empty page's note and the column refill all read it. `Teams` narrows the same
 way, through `state::teams::live_work`, once per project its span names rather than for the active
-project alone; `[Teams]` reads the whole projection, because a graph is a map of who spawned whom
-and a fixture has a place on one.
+project alone.
 
 **Closing a tab benches the agent; it does not end it.** This is the one place the screen
 deliberately reads differently from a terminal pane, whose close kills the harness behind it —
@@ -557,6 +555,14 @@ live conversation here is silent rather than drawn wrong.
 `ConversationStarted`, `ConversationUpdate`, `ConversationEnded` and `ConversationError`. An update
 is a delta rather than a record, so the transcript is a fold the window keeps and the host never
 re-sends; the family's payloads and its ordering rule belong to the transport contract.
+
+**A launch that fails is put back, not forgotten** — the same rule a harness that exits unasked
+gets. The host keeps the agent pending and owned, so its `ConversationError` lands on a
+conversation that still answers: the sentence is drawn in the transcript's error strip, wrapped and
+capped in height, beside a **Retry** that is the menu's Resume; the status reads `Unloaded · Failed`
+rather than `Starting`; the next prompt also retries; and Close ends it the ordinary way. A
+`ConversationError` naming no conversation the window holds — a start refused before
+`ConversationStarted` — rings the bell instead.
 
 ## Implementation
 

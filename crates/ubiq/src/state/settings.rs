@@ -204,6 +204,11 @@ pub struct UiSettings {
     /// The open projects, as coloured badges at the bottom of the activity rail.
     #[serde(default = "default_true")]
     pub rail_projects: bool,
+    /// The `Availability::Always` rail modes the user has switched off, for every project and
+    /// window. App-wide: a common mode is the application's, so a project's own
+    /// `ViewPrefs::hidden_modes` is never read for one. Empty by default.
+    #[serde(default)]
+    pub hidden_modes: Vec<crate::state::workbench::RailMode>,
     /// The layout a new markdown tab opens in.
     #[serde(default)]
     pub markdown_open: MarkdownOpen,
@@ -291,6 +296,9 @@ pub struct UiSettings {
     pub excalidraw_theme: crate::state::web_panel::WebTheme,
     #[serde(default)]
     pub drawio_theme: crate::state::web_panel::WebTheme,
+    /// The diagram viewer's preferences (quality override, palette, motion, chart theme).
+    #[serde(default)]
+    pub archify: crate::state::archify::ArchifySettings,
 }
 
 fn default_md_char_scale() -> f32 {
@@ -309,6 +317,7 @@ impl Default for UiSettings {
             explorer_hidden: false,
             capture_enabled: true,
             rail_projects: true,
+            hidden_modes: Vec::new(),
             markdown_open: MarkdownOpen::Preview,
             terminal_close: TabClose::Close,
             agent_terminal_close: TabClose::Close,
@@ -328,6 +337,7 @@ impl Default for UiSettings {
             acp_enabled: BTreeSet::new(),
             excalidraw_theme: Default::default(),
             drawio_theme: Default::default(),
+            archify: Default::default(),
         }
     }
 }

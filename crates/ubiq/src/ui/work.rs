@@ -2,7 +2,7 @@
 //! wears.
 //!
 //! Three screens and the status bar all draw the same records — the agents screen, the
-//! orchestration graph, the tasks board — and none of them may invent a colour for a state the
+//! Teams graph, the tasks board — and none of them may invent a colour for a state the
 //! others already have one for. So the mapping from a state to a token lives here, once, and
 //! `ubiq_proto::work` keeps the words while `crate::theme` keeps the values.
 

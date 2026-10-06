@@ -1,0 +1,1382 @@
+{
+  "fixture.v1-baseline.agent-tool-call.workflow [authored]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "tool",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:6.6",
+        "minimumSourceTextPx": "n:6.6",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:29"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x1020 canvas (ratio 0.71) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1907px tall at the full 1346px width and the page reaches 2033px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1581 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1133",
+          "pageHeightPx": "n:2033",
+          "ratio": "n:0.71",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1907",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:1020",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:2",
+        "maxStretch": "n:1.241",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:58.1",
+        "minProjectedNodeTextPx": "n:6.6",
+        "minSegmentPx": "n:13",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:0",
+        "routesOverSuggestedStretch": "n:0",
+        "shortEndpointSegmentCount": "n:1",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:1",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "standard",
+      "routeReview": {
+        "crossings": [],
+        "detours": []
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "fixture.v1-baseline.agent-tool-call.workflow [showcase]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "tool",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:6.6",
+        "minimumSourceTextPx": "n:6.6",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:29"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x1020 canvas (ratio 0.71) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1907px tall at the full 1346px width and the page reaches 2033px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1581 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1133",
+          "pageHeightPx": "n:2033",
+          "ratio": "n:0.71",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1907",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:1020",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:2",
+        "maxStretch": "n:1.241",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:58.1",
+        "minProjectedNodeTextPx": "n:6.6",
+        "minSegmentPx": "n:13",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:0",
+        "routesOverSuggestedStretch": "n:0",
+        "shortEndpointSegmentCount": "n:1",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:1",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "showcase",
+      "routeReview": {
+        "crossings": [],
+        "detours": []
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "fixture.v1-baseline.agent-tool-call.workflow [standard]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "tool",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:6.6",
+        "minimumSourceTextPx": "n:6.6",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:29"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x1020 canvas (ratio 0.71) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1907px tall at the full 1346px width and the page reaches 2033px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1581 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1133",
+          "pageHeightPx": "n:2033",
+          "ratio": "n:0.71",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1907",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:1020",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:2",
+        "maxStretch": "n:1.241",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:58.1",
+        "minProjectedNodeTextPx": "n:6.6",
+        "minSegmentPx": "n:13",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:0",
+        "routesOverSuggestedStretch": "n:0",
+        "shortEndpointSegmentCount": "n:1",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:1",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "standard",
+      "routeReview": {
+        "crossings": [],
+        "detours": []
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "incident-response.workflow [authored]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "triage",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:7.7",
+        "minimumSourceTextPx": "n:7.7",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:23"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x978 canvas (ratio 0.74) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1828px tall at the full 1346px width and the page reaches 1954px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1516 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1054",
+          "pageHeightPx": "n:1954",
+          "ratio": "n:0.74",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1828",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:978",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:3",
+        "maxStretch": "n:3.482",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:119",
+        "minProjectedNodeTextPx": "n:7.7",
+        "minSegmentPx": "n:21",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:1",
+        "routesOverSuggestedStretch": "n:3",
+        "shortEndpointSegmentCount": "n:0",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:0",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "showcase",
+      "routeReview": {
+        "crossings": [],
+        "detours": [
+          {
+            "bends": "n:2",
+            "relationship": {
+              "artifactIndex": "n:2",
+              "collectionIndex": "n:1",
+              "from": "page",
+              "label": "",
+              "to": "triage"
+            },
+            "stretch": "n:1.8"
+          },
+          {
+            "bends": "n:2",
+            "relationship": {
+              "artifactIndex": "n:4",
+              "collectionIndex": "n:3",
+              "from": "contain",
+              "label": "",
+              "to": "recover"
+            },
+            "stretch": "n:1.914"
+          },
+          {
+            "bends": "n:3",
+            "directCorridorBlockers": [
+              {
+                "box": [
+                  "n:394",
+                  "n:383",
+                  "n:72",
+                  "n:52"
+                ],
+                "id": "contain",
+                "label": "Contain"
+              }
+            ],
+            "relationship": {
+              "artifactIndex": "n:8",
+              "collectionIndex": "n:7",
+              "from": "declare",
+              "label": "",
+              "to": "update"
+            },
+            "stretch": "n:3.482"
+          }
+        ]
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "incident-response.workflow [showcase]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "triage",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:7.7",
+        "minimumSourceTextPx": "n:7.7",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:23"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x978 canvas (ratio 0.74) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1828px tall at the full 1346px width and the page reaches 1954px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1516 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1054",
+          "pageHeightPx": "n:1954",
+          "ratio": "n:0.74",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1828",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:978",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:3",
+        "maxStretch": "n:3.482",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:119",
+        "minProjectedNodeTextPx": "n:7.7",
+        "minSegmentPx": "n:21",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:1",
+        "routesOverSuggestedStretch": "n:3",
+        "shortEndpointSegmentCount": "n:0",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:0",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "showcase",
+      "routeReview": {
+        "crossings": [],
+        "detours": [
+          {
+            "bends": "n:2",
+            "relationship": {
+              "artifactIndex": "n:2",
+              "collectionIndex": "n:1",
+              "from": "page",
+              "label": "",
+              "to": "triage"
+            },
+            "stretch": "n:1.8"
+          },
+          {
+            "bends": "n:2",
+            "relationship": {
+              "artifactIndex": "n:4",
+              "collectionIndex": "n:3",
+              "from": "contain",
+              "label": "",
+              "to": "recover"
+            },
+            "stretch": "n:1.914"
+          },
+          {
+            "bends": "n:3",
+            "directCorridorBlockers": [
+              {
+                "box": [
+                  "n:394",
+                  "n:383",
+                  "n:72",
+                  "n:52"
+                ],
+                "id": "contain",
+                "label": "Contain"
+              }
+            ],
+            "relationship": {
+              "artifactIndex": "n:8",
+              "collectionIndex": "n:7",
+              "from": "declare",
+              "label": "",
+              "to": "update"
+            },
+            "stretch": "n:3.482"
+          }
+        ]
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "incident-response.workflow [standard]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "triage",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:7.7",
+        "minimumSourceTextPx": "n:7.7",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:23"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x978 canvas (ratio 0.74) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1828px tall at the full 1346px width and the page reaches 1954px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1516 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1054",
+          "pageHeightPx": "n:1954",
+          "ratio": "n:0.74",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1828",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:978",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:3",
+        "maxStretch": "n:3.482",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:119",
+        "minProjectedNodeTextPx": "n:7.7",
+        "minSegmentPx": "n:21",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:1",
+        "routesOverSuggestedStretch": "n:3",
+        "shortEndpointSegmentCount": "n:0",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:0",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "standard",
+      "routeReview": {
+        "crossings": [],
+        "detours": [
+          {
+            "bends": "n:2",
+            "relationship": {
+              "artifactIndex": "n:2",
+              "collectionIndex": "n:1",
+              "from": "page",
+              "label": "",
+              "to": "triage"
+            },
+            "stretch": "n:1.8"
+          },
+          {
+            "bends": "n:2",
+            "relationship": {
+              "artifactIndex": "n:4",
+              "collectionIndex": "n:3",
+              "from": "contain",
+              "label": "",
+              "to": "recover"
+            },
+            "stretch": "n:1.914"
+          },
+          {
+            "bends": "n:3",
+            "directCorridorBlockers": [
+              {
+                "box": [
+                  "n:394",
+                  "n:383",
+                  "n:72",
+                  "n:52"
+                ],
+                "id": "contain",
+                "label": "Contain"
+              }
+            ],
+            "relationship": {
+              "artifactIndex": "n:8",
+              "collectionIndex": "n:7",
+              "from": "declare",
+              "label": "",
+              "to": "update"
+            },
+            "stretch": "n:3.482"
+          }
+        ]
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "release-delivery.workflow [authored]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "rollback",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:6.2",
+        "minimumSourceTextPx": "n:6.2",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:24"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x994 canvas (ratio 0.72) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1858px tall at the full 1346px width and the page reaches 1984px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1541 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1084",
+          "pageHeightPx": "n:1984",
+          "ratio": "n:0.72",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1858",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:994",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:2",
+        "maxStretch": "n:1.195",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:36.3",
+        "minProjectedNodeTextPx": "n:6.2",
+        "minSegmentPx": "n:21",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:0",
+        "routesOverSuggestedStretch": "n:0",
+        "shortEndpointSegmentCount": "n:0",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:0",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "showcase",
+      "routeReview": {
+        "crossings": [],
+        "detours": []
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "release-delivery.workflow [showcase]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "rollback",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:6.2",
+        "minimumSourceTextPx": "n:6.2",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:24"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x994 canvas (ratio 0.72) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1858px tall at the full 1346px width and the page reaches 1984px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1541 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1084",
+          "pageHeightPx": "n:1984",
+          "ratio": "n:0.72",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1858",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:994",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:2",
+        "maxStretch": "n:1.195",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:36.3",
+        "minProjectedNodeTextPx": "n:6.2",
+        "minSegmentPx": "n:21",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:0",
+        "routesOverSuggestedStretch": "n:0",
+        "shortEndpointSegmentCount": "n:0",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:0",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "showcase",
+      "routeReview": {
+        "crossings": [],
+        "detours": []
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  },
+  "release-delivery.workflow [standard]": {
+    "checker": null,
+    "checks": [
+      {
+        "details": [
+          "found 1 <svg> block(s)"
+        ],
+        "name": "single_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "finite_svg",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "orthogonal_arrows",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "label_route_clearance",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_crossings",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "relationship_corridors",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "container_border_runs",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "route_rhythm",
+        "ok": true
+      },
+      {
+        "details": [],
+        "name": "legend_clearance",
+        "ok": true
+      }
+    ],
+    "composition": {
+      "desktopReadability": {
+        "actualBudgetPx": "n:930",
+        "availableDiagramWidth": "n:930",
+        "budgetBasis": "legacy-930",
+        "hardFloorMet": true,
+        "hardFloorPx": "n:6",
+        "limit": "legacy",
+        "minimumOwner": {
+          "id": "rollback",
+          "kind": "node"
+        },
+        "minimumProjectedTextPx": "n:6.2",
+        "minimumSourceTextPx": "n:6.2",
+        "readerContract": "declared-wide-v1",
+        "requestedTargetMet": null,
+        "requestedTargetPx": null,
+        "semanticTextCount": "n:24"
+      },
+      "issues": [
+        {
+          "code": "composition/viewport-height",
+          "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x994 canvas (ratio 0.72) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1858px tall at the full 1346px width and the page reaches 1984px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1541 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit.",
+          "fixedChromePx": "n:126",
+          "overflowPx": "n:1084",
+          "pageHeightPx": "n:1984",
+          "ratio": "n:0.72",
+          "readerFit": null,
+          "severity": "warning",
+          "svgHeightPx": "n:1858",
+          "svgWidthPx": "n:1346",
+          "viewBoxHeight": "n:994",
+          "viewBoxWidth": "n:720",
+          "viewportHeight": "n:900",
+          "viewportWidth": "n:1440",
+          "wideRatio": "n:1.55"
+        }
+      ],
+      "leadingSpace": {
+        "measured": false,
+        "reviewSuggested": false
+      },
+      "metrics": {
+        "ambiguousCorridors": "n:0",
+        "arrowheadCollisions": "n:0",
+        "containerBorderRuns": "n:0",
+        "desktopReadabilityIssues": "n:0",
+        "labelCanvasOverflowIssues": "n:0",
+        "labelRouteClearanceIssues": "n:0",
+        "maxBends": "n:2",
+        "maxStretch": "n:1.195",
+        "microSegmentCount": "n:0",
+        "minInteriorSegmentPx": "n:70",
+        "minLabelRouteClearance": "n:36.3",
+        "minProjectedNodeTextPx": "n:6.2",
+        "minSegmentPx": "n:21",
+        "properCrossings": "n:0",
+        "resolvedCrossovers": "n:0",
+        "routesOverSuggestedBends": "n:0",
+        "routesOverSuggestedStretch": "n:0",
+        "shortEndpointSegmentCount": "n:0",
+        "shortInteriorSegmentCount": "n:0",
+        "shortSegmentCount": "n:0",
+        "viewportHeightIssues": "n:1"
+      },
+      "profile": "standard",
+      "routeReview": {
+        "crossings": [],
+        "detours": []
+      },
+      "schemaVersion": "n:1",
+      "status": "pass",
+      "suggestedLimits": {
+        "bendsPerRelationship": "n:2",
+        "microSegmentPx": "n:8",
+        "segmentPx": "n:16",
+        "stretch": "n:1.35"
+      },
+      "summary": {
+        "errors": "n:0",
+        "warnings": "n:1"
+      }
+    },
+    "diagnostics": null,
+    "ok": true,
+    "stage": null
+  }
+}

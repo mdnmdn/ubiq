@@ -1,0 +1,212 @@
+{
+ "name": "neg.schema-propertyNames-translations",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/propertyNames",
+ "expect_codes": [
+  "schema/propertyNames"
+ ],
+ "source_sha256": "6c2b20a1783d9dff966a98ae59a05ed00e8432a6af3a8f87893ed3c1e9f64b98",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "locale": "it",
+   "translations": {
+    "Bad Key": "x"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}\n  /meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/translations"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\""
+      ]
+     },
+     {
+      "code": "schema/propertyNames",
+      "severity": "error",
+      "message": "/meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/translations"
+      },
+      "evidence": {
+       "keyword": "propertyNames",
+       "propertyName": "Bad Key"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}\n  /meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/translations"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\""
+      ]
+     },
+     {
+      "code": "schema/propertyNames",
+      "severity": "error",
+      "message": "/meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/translations"
+      },
+      "evidence": {
+       "keyword": "propertyNames",
+       "propertyName": "Bad Key"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}\n  /meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/translations"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\""
+      ]
+     },
+     {
+      "code": "schema/propertyNames",
+      "severity": "error",
+      "message": "/meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/translations"
+      },
+      "evidence": {
+       "keyword": "propertyNames",
+       "propertyName": "Bad Key"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"}\n  /meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}\n[schema/pattern] /meta/translations must match pattern \"^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$\" {\"pattern\":\"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\"} Fix: match the required pattern \"^[a-z][a-zA-Z0-9]*(\\\\.[a-z][a-zA-Z0-9]*)*$\".\n[schema/propertyNames] /meta/translations property name must be valid {\"propertyName\":\"Bad Key\"}\n"
+ },
+ "layout_json_by_quality": {}
+}

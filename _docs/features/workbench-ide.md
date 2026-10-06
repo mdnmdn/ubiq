@@ -926,8 +926,14 @@ mirror `diagram()`/`drain_diagram_asks()`/`diagram_drawn()` on that tier, and `u
 The file path through the two halves: `select_file()` opens a tab, queues its panel and sends
 `ReadProjectFile`; `open_diff()` opens a tab on a comparison and sends `DiffProjectFile`;
 `toggle_folder()` sends `ProjectTree` when a folder has never been listed; `fill_explorer_cache()`
-sends the same message at `CACHE_DEPTH` for folders the background fill cannot see into yet, from
-project open, not from a keystroke; `schedule_explorer_filter()` debounces the field and
+sends the same message at `CACHE_DEPTH` with `prefetch` set for folders the background fill cannot
+see into yet, from project open, not from a keystroke — at most `CACHE_IN_FLIGHT` (4) at a time, the
+next asked as each answer or failure lands, so a click's listing or read never queues behind the
+whole crawl on the files worker's one thread. With `prefetch` the host walks no git-ignored folder,
+so a build's `bin/`, `obj/` or `Library/` is listed only when the user opens it — an empty prefetch reply for a folder that is open, wanted by a
+restore or reveal, or matched by the filter is followed by an ordinary `ProjectTree` for it. A listing repaints
+git marks only below the folder it names, and a node is found by descending its path, so a reply
+costs what it carries rather than the whole tree; `schedule_explorer_filter()` debounces the field and
 `spawn_explorer_filter()` walks a snapshot on the background executor;
 `save_active_file()` sends
 `WriteProjectFile` with the version the read came with. Holding a project also sends `ProjectGit`

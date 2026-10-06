@@ -1,0 +1,167 @@
+{
+ "name": "neg.schema-pattern-locale",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/pattern",
+ "expect_codes": [
+  "schema/pattern"
+ ],
+ "source_sha256": "7aa77fb4168c095f7fb12f1742b7d4ebb96e437b94aff199e53ee8d194a5d22f",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "locale": "EN_us"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/locale"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/locale"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/locale"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"}\n[schema/pattern] /meta/locale must match pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\" {\"pattern\":\"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\"} Fix: match the required pattern \"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$\".\n"
+ },
+ "layout_json_by_quality": {}
+}

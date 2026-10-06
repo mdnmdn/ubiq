@@ -1,0 +1,283 @@
+{
+ "name": "neg.wf-v1-column-capacity",
+ "group": "negative",
+ "source": "mutation of wf-v1",
+ "type": "workflow",
+ "rule": "workflow/column-capacity",
+ "expect_codes": [
+  "workflow/column-capacity"
+ ],
+ "source_sha256": "9245e3c319a12c6e22e91fe9ddf047a53128d2a240a17aa1ad93841d45d507d8",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Pinned coordinate migration",
+   "output": "pinned-coordinate-migration.html",
+   "viewBox": [720,700],
+   "legend": {
+    "mode": "hidden"
+   }
+  },
+  "lanes": [
+   {
+    "id": "route",
+    "label": "Explicit route"
+   },
+   {
+    "id": "label",
+    "label": "Explicit label"
+   },
+   {
+    "id": "channel-source",
+    "label": "Channel source"
+   },
+   {
+    "id": "channel-target",
+    "label": "Channel target"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "route-a",
+    "lane": "route",
+    "col": 0,
+    "type": "backend",
+    "label": "A"
+   },
+   {
+    "id": "route-b",
+    "lane": "route",
+    "col": 2,
+    "type": "backend",
+    "label": "B"
+   },
+   {
+    "id": "label-a",
+    "lane": "label",
+    "col": 2,
+    "type": "backend",
+    "label": "C"
+   },
+   {
+    "id": "label-b",
+    "lane": "label",
+    "col": 3,
+    "type": "backend",
+    "label": "D"
+   },
+   {
+    "id": "channel-a",
+    "lane": "channel-source",
+    "col": 1,
+    "type": "backend",
+    "label": "E"
+   },
+   {
+    "id": "channel-b",
+    "lane": "channel-target",
+    "col": 1,
+    "type": "backend",
+    "label": "F"
+   },
+   {
+    "id": "cap-a",
+    "lane": "route",
+    "col": 1,
+    "type": "backend",
+    "label": "CapA"
+   },
+   {
+    "id": "cap-b",
+    "lane": "route",
+    "col": 3,
+    "type": "backend",
+    "label": "CapB"
+   }
+  ],
+  "edges": [
+   {
+    "id": "pinned-via",
+    "from": "route-a",
+    "to": "route-b",
+    "via": [[220,119]]
+   },
+   {
+    "id": "pinned-label",
+    "from": "label-a",
+    "to": "label-b",
+    "label": "ok",
+    "labelAt": [365,203]
+   },
+   {
+    "id": "pinned-channel",
+    "from": "channel-a",
+    "to": "channel-b",
+    "fromSide": "right",
+    "toSide": "right",
+    "route": "outside-right",
+    "channelX": 500
+   },
+   {
+    "id": "cap",
+    "from": "cap-a",
+    "to": "route-b"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow columns 1→2 place nodes \"cap-a\" and \"route-b\" so they overlap by 12px under the fixed-v1 layout.",
+    "diagnostics": [
+     {
+      "code": "workflow/column-capacity",
+      "severity": "error",
+      "message": "Workflow columns 1→2 place nodes \"cap-a\" and \"route-b\" so they overlap by 12px under the fixed-v1 layout.",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "cap",
+       "from": "cap-a",
+       "to": "route-b",
+       "fromCol": 1,
+       "toCol": 2
+      },
+      "evidence": {
+       "centerDistancePx": 80,
+       "nodeWidthsPx": [92,92],
+       "actualSignedClearancePx": -12,
+       "requiredDirectClearancePx": 28
+      },
+      "supportedFixes": [],
+      "suppresses": [
+       "workflow/short-edge",
+       "clean-flow/endpoint-side-direction",
+       "workflow/label-node-overlap"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow columns 1→2 place nodes \"cap-a\" and \"route-b\" so they overlap by 12px under the fixed-v1 layout.",
+    "diagnostics": [
+     {
+      "code": "workflow/column-capacity",
+      "severity": "error",
+      "message": "Workflow columns 1→2 place nodes \"cap-a\" and \"route-b\" so they overlap by 12px under the fixed-v1 layout.",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "cap",
+       "from": "cap-a",
+       "to": "route-b",
+       "fromCol": 1,
+       "toCol": 2
+      },
+      "evidence": {
+       "centerDistancePx": 80,
+       "nodeWidthsPx": [92,92],
+       "actualSignedClearancePx": -12,
+       "requiredDirectClearancePx": 28
+      },
+      "supportedFixes": [],
+      "suppresses": [
+       "workflow/short-edge",
+       "clean-flow/endpoint-side-direction",
+       "workflow/label-node-overlap"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow columns 1→2 place nodes \"cap-a\" and \"route-b\" so they overlap by 12px under the fixed-v1 layout.",
+    "diagnostics": [
+     {
+      "code": "workflow/column-capacity",
+      "severity": "error",
+      "message": "Workflow columns 1→2 place nodes \"cap-a\" and \"route-b\" so they overlap by 12px under the fixed-v1 layout.",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "cap",
+       "from": "cap-a",
+       "to": "route-b",
+       "fromCol": 1,
+       "toCol": 2
+      },
+      "evidence": {
+       "centerDistancePx": 80,
+       "nodeWidthsPx": [92,92],
+       "actualSignedClearancePx": -12,
+       "requiredDirectClearancePx": 28
+      },
+      "supportedFixes": [],
+      "suppresses": [
+       "workflow/short-edge",
+       "clean-flow/endpoint-side-direction",
+       "workflow/label-node-overlap"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "fixed-v1",
+   "diagnostics": [
+    {
+     "code": "workflow/column-capacity",
+     "severity": "error",
+     "message": "Workflow columns 1→2 place nodes \"cap-a\" and \"route-b\" so they overlap by 12px under the fixed-v1 layout.",
+     "subject": {
+      "diagramType": "workflow",
+      "edge": "cap",
+      "from": "cap-a",
+      "to": "route-b",
+      "fromCol": 1,
+      "toCol": 2
+     },
+     "evidence": {
+      "centerDistancePx": 80,
+      "nodeWidthsPx": [92,92],
+      "actualSignedClearancePx": -12,
+      "requiredDirectClearancePx": 28
+     },
+     "supportedFixes": [],
+     "suppresses": [
+      "workflow/short-edge",
+      "clean-flow/endpoint-side-direction",
+      "workflow/label-node-overlap"
+     ]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

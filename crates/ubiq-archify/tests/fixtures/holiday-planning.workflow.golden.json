@@ -1,0 +1,1238 @@
+{
+ "name": "holiday-planning.workflow",
+ "group": "example",
+ "source": "archify/examples/holiday-planning.workflow.json",
+ "type": "workflow",
+ "source_sha256": "b98354f921ca45842fed235db09fd4f19d94adc16865876f438c0d699d05e1ea",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "2026年剩余假期安排",
+   "locale": "zh-CN",
+   "quality_profile": "showcase",
+   "legend": {
+    "entries": {
+     "backend": {
+      "label": "假期"
+     },
+     "security": {
+      "label": "补班"
+     },
+     "external": {
+      "label": "时间节点"
+     }
+    }
+   },
+   "output": "holiday-planning.html"
+  },
+  "lanes": [
+   {
+    "id": "calendar",
+    "label": "时间线"
+   },
+   {
+    "id": "makeup",
+    "label": "调休"
+   }
+  ],
+  "mainPath": [
+   "today",
+   "mid_autumn",
+   "national_day",
+   "year_end"
+  ],
+  "nodes": [
+   {
+    "id": "today",
+    "lane": "calendar",
+    "col": 0,
+    "type": "external",
+    "label": "今天 9月22日",
+    "sublabel": "周二 · 距中秋3天",
+    "icon": "clock"
+   },
+   {
+    "id": "mid_autumn",
+    "lane": "calendar",
+    "col": 1,
+    "type": "backend",
+    "label": "中秋节",
+    "sublabel": "9月25日–27日 · 3天",
+    "tag": "无需调休",
+    "icon": "moon"
+   },
+   {
+    "id": "national_day",
+    "lane": "calendar",
+    "col": 3,
+    "type": "backend",
+    "label": "国庆节",
+    "sublabel": "10月1日–7日 · 7天",
+    "tag": "连休",
+    "icon": "calendar"
+   },
+   {
+    "id": "year_end",
+    "lane": "calendar",
+    "col": 5,
+    "type": "external",
+    "label": "此后至年底",
+    "sublabel": "无法定节假日",
+    "icon": "flag"
+   },
+   {
+    "id": "makeup_work",
+    "lane": "makeup",
+    "col": 3,
+    "type": "security",
+    "label": "调休上班",
+    "sublabel": "10月10日（周六）",
+    "tag": "补班",
+    "icon": "briefcase"
+   }
+  ],
+  "edges": [
+   {
+    "id": "to_mid_autumn",
+    "from": "today",
+    "to": "mid_autumn",
+    "label": "3天后连休"
+   },
+   {
+    "id": "mid_to_national",
+    "from": "mid_autumn",
+    "to": "national_day",
+    "label": "节后上班3天"
+   },
+   {
+    "id": "to_year_end",
+    "from": "national_day",
+    "to": "year_end",
+    "label": "假期结束"
+   },
+   {
+    "id": "makeup_branch",
+    "from": "national_day",
+    "to": "makeup_work",
+    "label": "国庆调休",
+    "role": "branch",
+    "variant": "security"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "中秋节",
+    "items": [
+     "9月25日（周五）至27日（周日）放假，共3天",
+     "与周末自然相连，无需额外调休上班"
+    ]
+   },
+   {
+    "dot": "amber",
+    "title": "国庆节",
+    "items": [
+     "10月1日（周四）至7日（周三）放假调休，共7天",
+     "9月20日（周日）上班日已过",
+     "10月10日（周六）需补班"
+    ]
+   },
+   {
+    "dot": "slate",
+    "title": "年底前",
+    "items": [
+     "国庆假期结束后，到2026年底不再有法定节假日安排"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "b98354f921ca45842fed235db09fd4f19d94adc16865876f438c0d699d05e1ea",
+     "bytes": 3019
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "b98354f921ca45842fed235db09fd4f19d94adc16865876f438c0d699d05e1ea",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 57.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 58,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "mid_autumn"
+      },
+      "minimumSourceTextPx": 7.7,
+      "minimumProjectedTextPx": 7.7,
+      "semanticTextCount": 14
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "b98354f921ca45842fed235db09fd4f19d94adc16865876f438c0d699d05e1ea",
+     "bytes": 3019
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "b98354f921ca45842fed235db09fd4f19d94adc16865876f438c0d699d05e1ea",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 57.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 58,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "mid_autumn"
+      },
+      "minimumSourceTextPx": 7.7,
+      "minimumProjectedTextPx": 7.7,
+      "semanticTextCount": 14
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "b98354f921ca45842fed235db09fd4f19d94adc16865876f438c0d699d05e1ea",
+     "bytes": 3019
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "b98354f921ca45842fed235db09fd4f19d94adc16865876f438c0d699d05e1ea",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 57.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 58,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "mid_autumn"
+      },
+      "minimumSourceTextPx": 7.7,
+      "minimumProjectedTextPx": 7.7,
+      "semanticTextCount": 14
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "readable-v2",
+   "viewBox": [802,408],
+   "requiredViewBox": [802,408],
+   "columns": [94,247.2,367.2,487.2,607.2,727.2],
+   "nodes": [
+    {
+     "id": "today",
+     "lane": "calendar",
+     "col": 0,
+     "x": 48,
+     "y": 94,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "mid_autumn",
+     "lane": "calendar",
+     "col": 1,
+     "x": 201.2,
+     "y": 86,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "national_day",
+     "lane": "calendar",
+     "col": 3,
+     "x": 441.2,
+     "y": 86,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "year_end",
+     "lane": "calendar",
+     "col": 5,
+     "x": 681.2,
+     "y": 94,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "makeup_work",
+     "lane": "makeup",
+     "col": 3,
+     "x": 441.2,
+     "y": 212,
+     "width": 92,
+     "height": 68
+    }
+   ],
+   "edges": [
+    {
+     "id": "makeup_branch",
+     "from": "national_day",
+     "to": "makeup_work",
+     "points": [[487.2,154],[487.2,212]]
+    },
+    {
+     "id": "mid_to_national",
+     "from": "mid_autumn",
+     "to": "national_day",
+     "points": [[293.2,120],[441.2,120]]
+    },
+    {
+     "id": "to_mid_autumn",
+     "from": "today",
+     "to": "mid_autumn",
+     "points": [[140,120],[201.2,120]]
+    },
+    {
+     "id": "to_year_end",
+     "from": "national_day",
+     "to": "year_end",
+     "points": [[533.2,120],[681.2,120]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": "makeup_branch",
+     "label": "国庆调休",
+     "x": 487.2,
+     "y": 183,
+     "width": 48.4,
+     "height": 14
+    },
+    {
+     "edge": "mid_to_national",
+     "label": "节后上班3天",
+     "x": 367.2,
+     "y": 110,
+     "width": 62.8,
+     "height": 14
+    },
+    {
+     "edge": "to_mid_autumn",
+     "label": "3天后连休",
+     "x": 170.6,
+     "y": 110,
+     "width": 53.199999999999996,
+     "height": 14
+    },
+    {
+     "edge": "to_year_end",
+     "label": "假期结束",
+     "x": 607.2,
+     "y": 110,
+     "width": 48.4,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,802,408],
+  "svg_attrs": {
+   "data-layout-contract": "readable-v2",
+   "lang": "zh-CN",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "2026年剩余假期安排",
+  "nodes": [
+   {
+    "id": "today",
+    "kind": "external",
+    "label": "今天 9月22日",
+    "sublabel": "周二 · 距中秋3天",
+    "context": "时间线",
+    "rect": {
+     "x": 48,
+     "y": 94,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 94,
+      "y": 126.2,
+      "font_size": 11,
+      "text": "今天 9月22日",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 94,
+      "y": 141.1,
+      "font_size": 8,
+      "text": "周二 · 距中秋3天",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "clock",
+     "transform": "translate(54 100) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "mid_autumn",
+    "kind": "backend",
+    "label": "中秋节",
+    "sublabel": "9月25日–27日 · 3天",
+    "tag": "无需调休",
+    "context": "时间线",
+    "rect": {
+     "x": 201.2,
+     "y": 86,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 247.2,
+      "y": 107,
+      "font_size": 11,
+      "text": "中秋节",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 247.2,
+      "y": 124,
+      "font_size": 7.7,
+      "text": "9月25日–27日 · 3天",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 247.2,
+      "y": 142,
+      "font_size": 7,
+      "text": "无需调休",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "moon",
+     "transform": "translate(207.2 92) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "national_day",
+    "kind": "backend",
+    "label": "国庆节",
+    "sublabel": "10月1日–7日 · 7天",
+    "tag": "连休",
+    "context": "时间线",
+    "rect": {
+     "x": 441.2,
+     "y": 86,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 487.2,
+      "y": 107,
+      "font_size": 11,
+      "text": "国庆节",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 487.2,
+      "y": 124,
+      "font_size": 8,
+      "text": "10月1日–7日 · 7天",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 487.2,
+      "y": 142,
+      "font_size": 7,
+      "text": "连休",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "calendar",
+     "transform": "translate(447.2 92) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "year_end",
+    "kind": "external",
+    "label": "此后至年底",
+    "sublabel": "无法定节假日",
+    "context": "时间线",
+    "rect": {
+     "x": 681.2,
+     "y": 94,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 733.2,
+      "y": 115,
+      "font_size": 11,
+      "text": "此后至年底",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 727.2,
+      "y": 132,
+      "font_size": 8,
+      "text": "无法定节假日",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "flag",
+     "transform": "translate(687.2 100) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "makeup_work",
+    "kind": "security",
+    "label": "调休上班",
+    "sublabel": "10月10日（周六）",
+    "tag": "补班",
+    "context": "调休",
+    "rect": {
+     "x": 441.2,
+     "y": 212,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 487.2,
+      "y": 233,
+      "font_size": 11,
+      "text": "调休上班",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 487.2,
+      "y": 250,
+      "font_size": 8,
+      "text": "10月10日（周六）",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 487.2,
+      "y": 268,
+      "font_size": 7,
+      "text": "补班",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "briefcase",
+     "transform": "translate(447.2 218) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "makeup_branch",
+    "from": "national_day",
+    "to": "makeup_work",
+    "label": "国庆调休",
+    "points": [[487.2,154],[487.2,212]],
+    "d": "M 487.2 154 L 487.2 212",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "role": "branch",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 1,
+    "id": "mid_to_national",
+    "from": "mid_autumn",
+    "to": "national_day",
+    "label": "节后上班3天",
+    "points": [[293.2,120],[441.2,120]],
+    "d": "M 293.2 120 L 441.2 120",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "id": "to_mid_autumn",
+    "from": "today",
+    "to": "mid_autumn",
+    "label": "3天后连休",
+    "points": [[140,120],[201.2,120]],
+    "d": "M 140 120 L 201.2 120",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "id": "to_year_end",
+    "from": "national_day",
+    "to": "year_end",
+    "label": "假期结束",
+    "points": [[533.2,120],[681.2,120]],
+    "d": "M 533.2 120 L 681.2 120",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "makeup_branch",
+    "from": "national_day",
+    "to": "makeup_work",
+    "text": "国庆调休",
+    "rect": {
+     "x": 463,
+     "y": 173,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 487.2,
+      "y": 183,
+      "font_size": 8,
+      "text": "国庆调休",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "edge_id": "mid_to_national",
+    "from": "mid_autumn",
+    "to": "national_day",
+    "text": "节后上班3天",
+    "rect": {
+     "x": 335.8,
+     "y": 100,
+     "width": 62.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 367.2,
+      "y": 110,
+      "font_size": 8,
+      "text": "节后上班3天",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "edge_id": "to_mid_autumn",
+    "from": "today",
+    "to": "mid_autumn",
+    "text": "3天后连休",
+    "rect": {
+     "x": 144,
+     "y": 100,
+     "width": 53.199999999999996,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 170.6,
+      "y": 110,
+      "font_size": 8,
+      "text": "3天后连休",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "edge_id": "to_year_end",
+    "from": "national_day",
+    "to": "year_end",
+    "text": "假期结束",
+    "rect": {
+     "x": 583,
+     "y": 100,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 607.2,
+      "y": 110,
+      "font_size": 8,
+      "text": "假期结束",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 746,
+     "height": 106,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 178,
+     "width": 746,
+     "height": 106,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "图例",
+   "items": [
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "假期",
+     "x": 20,
+     "baseline": 328,
+     "width": 61,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 20,
+       "y": 320,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 42,
+       "y": 328,
+       "font_size": 7.5,
+       "text": "假期"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "补班",
+     "x": 88,
+     "baseline": 328,
+     "width": 61,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 88,
+       "y": 320,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 110,
+       "y": 328,
+       "font_size": 7.5,
+       "text": "补班"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "时间节点",
+     "x": 156,
+     "baseline": 328,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 156,
+       "y": 320,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 178,
+       "y": 328,
+       "font_size": 7.5,
+       "text": "时间节点"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / 时间线"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 200,
+     "font_size": 10,
+     "text": "02 / 调休"
+    }
+   ]
+  }
+ }
+}

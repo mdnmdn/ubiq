@@ -1,0 +1,221 @@
+{
+ "name": "neg.schema-minimum-viewbox",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/minimum",
+ "expect_codes": [
+  "schema/minimum"
+ ],
+ "source_sha256": "6de9576c8cb7b109846ee93645dfc30ce9712e6697b25d43b0c63b19dbd1a07d",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "viewBox": [100,100]
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}\n  /meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+    "diagnostics": [
+     {
+      "code": "schema/minimum",
+      "severity": "error",
+      "message": "/meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/viewBox/0"
+      },
+      "evidence": {
+       "keyword": "minimum",
+       "comparison": ">=",
+       "limit": 320
+      },
+      "supportedFixes": [
+       "use a value >= 320"
+      ]
+     },
+     {
+      "code": "schema/minimum",
+      "severity": "error",
+      "message": "/meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/viewBox/1"
+      },
+      "evidence": {
+       "keyword": "minimum",
+       "comparison": ">=",
+       "limit": 240
+      },
+      "supportedFixes": [
+       "use a value >= 240"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}\n  /meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+    "diagnostics": [
+     {
+      "code": "schema/minimum",
+      "severity": "error",
+      "message": "/meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/viewBox/0"
+      },
+      "evidence": {
+       "keyword": "minimum",
+       "comparison": ">=",
+       "limit": 320
+      },
+      "supportedFixes": [
+       "use a value >= 320"
+      ]
+     },
+     {
+      "code": "schema/minimum",
+      "severity": "error",
+      "message": "/meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/viewBox/1"
+      },
+      "evidence": {
+       "keyword": "minimum",
+       "comparison": ">=",
+       "limit": 240
+      },
+      "supportedFixes": [
+       "use a value >= 240"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}\n  /meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+    "diagnostics": [
+     {
+      "code": "schema/minimum",
+      "severity": "error",
+      "message": "/meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/viewBox/0"
+      },
+      "evidence": {
+       "keyword": "minimum",
+       "comparison": ">=",
+       "limit": 320
+      },
+      "supportedFixes": [
+       "use a value >= 320"
+      ]
+     },
+     {
+      "code": "schema/minimum",
+      "severity": "error",
+      "message": "/meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/viewBox/1"
+      },
+      "evidence": {
+       "keyword": "minimum",
+       "comparison": ">=",
+       "limit": 240
+      },
+      "supportedFixes": [
+       "use a value >= 240"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320}\n  /meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240}\n[schema/minimum] /meta/viewBox/0 must be >= 320 {\"comparison\":\">=\",\"limit\":320} Fix: use a value >= 320.\n[schema/minimum] /meta/viewBox/1 must be >= 240 {\"comparison\":\">=\",\"limit\":240} Fix: use a value >= 240.\n"
+ },
+ "layout_json_by_quality": {}
+}

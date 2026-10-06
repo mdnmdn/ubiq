@@ -1,0 +1,159 @@
+{
+ "name": "neg.arch-placement-missing-grid",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "architecture/placement-missing",
+ "expect_codes": [
+  "internal/unclassified"
+ ],
+ "source_sha256": "4b8536955546ecfeb8af46fb7f807520daf662c7fe07d88b8d0220b93a40066a",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "row": 0,
+    "col": 0
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "row": 0,
+    "col": 2
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ],
+  "layout": {
+   "mode": "grid",
+   "cols": 3
+  }
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Cannot read properties of undefined (reading '0')",
+    "diagnostics": [
+     {
+      "code": "internal/unclassified",
+      "severity": "error",
+      "message": "Cannot read properties of undefined (reading '0')",
+      "subject": {
+       "input": "<archify-tmp>"
+      },
+      "evidence": {
+       "errorName": "TypeError"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Cannot read properties of undefined (reading '0')",
+    "diagnostics": [
+     {
+      "code": "internal/unclassified",
+      "severity": "error",
+      "message": "Cannot read properties of undefined (reading '0')",
+      "subject": {
+       "input": "<archify-tmp>"
+      },
+      "evidence": {
+       "errorName": "TypeError"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Cannot read properties of undefined (reading '0')",
+    "diagnostics": [
+     {
+      "code": "internal/unclassified",
+      "severity": "error",
+      "message": "Cannot read properties of undefined (reading '0')",
+      "subject": {
+       "input": "<archify-tmp>"
+      },
+      "evidence": {
+       "errorName": "TypeError"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "Cannot read properties of undefined (reading '0')\n[internal/unclassified] Cannot read properties of undefined (reading '0')\n"
+ },
+ "layout_json_by_quality": {}
+}

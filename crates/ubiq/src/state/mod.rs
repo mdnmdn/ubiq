@@ -9,6 +9,7 @@
 //! let `ui/` draw the domain without ever mentioning the contract it came across.
 
 pub mod a2ui;
+pub mod archify;
 pub mod agents;
 pub mod ask;
 pub mod board;
@@ -36,7 +37,6 @@ pub mod navigator;
 pub mod new_agent;
 pub mod new_mission;
 pub mod notifications;
-pub mod orchestration;
 pub mod overlay;
 pub mod plan;
 pub mod prefs;
@@ -97,7 +97,6 @@ pub use logs::LogState;
 pub use mission::{MissionTab, MissionView};
 pub use nav::{Destination, Locus, View};
 pub use new_agent::{NewAgentForm, OpenList, Purpose, Target};
-pub use orchestration::{Carry, Grain, GraphView, Held, InspectorTab, Selection};
 pub use overlay::Layer;
 pub use remote::{AttemptId, RemoteConnectState, RemoteConnectStep};
 pub use remote_hosts::{RemoteManagerState, TestOutcome};

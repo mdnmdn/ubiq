@@ -3,7 +3,7 @@ id: workbench-rail
 title: The rail
 summary: The column down the window's left edge — the mark, the modes and the project badges — and how it switches what the centre and the project are.
 keywords: [rail, mark, modes, project badges, switch project]
-targets: [ui.rail, ui.rail.mark, ui.rail.modes, ui.rail.projects, ui.rail.mode.teams, ui.rail.mode.teams-old, ui.rail.mode.sink]
+targets: [ui.rail, ui.rail.mark, ui.rail.modes, ui.rail.projects, ui.rail.mode.teams, ui.rail.mode.sink]
 order: 5
 status: current
 related: [workbench-modes, workbench-panels, git-overview, agents-starting, kb-overview, db-overview]
@@ -43,9 +43,7 @@ bottom.
   project turns it on in settings > General > Modes, and then it sits right after IDE.
 - [**Git**](git-overview) — status, diffs, history and refs for the project's repository.
 - [**Agents**](agents-starting) — every conversation in the project, one column each.
-- **Teams** — groups of agents working a shared brief, split across lanes. An earlier **Teams
-  (previous)** screen is kept alongside it while the new one settles, and goes away once nothing
-  needs it — if both are visible in your build, the newer one is the one to use.
+- **Teams** — groups of agents working a shared brief, split across lanes.
 - [**Knowledge**](kb-overview) — the project's documents, read from wherever they actually live.
 - [**Tasks**](workbench-modes#tasks) — the project's cards: queued, in flight and done, and which
   agent has each one.

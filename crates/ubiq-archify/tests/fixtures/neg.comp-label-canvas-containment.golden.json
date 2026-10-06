@@ -1,0 +1,450 @@
+{
+ "name": "neg.comp-label-canvas-containment",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "composition/label-canvas-containment",
+ "expect_codes": [
+  "composition/label-canvas-containment"
+ ],
+ "source_sha256": "1e4e7fddf689a64ab85e4f99b53cc9f33af8c77a9d228937ebaae92f364009c1",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "quality_profile": "showcase"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis",
+    "labelAt": [-10,20]
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/label-canvas-containment] showcase architecture label \"HTTPS\" on connections[0] id \"web-api\" \"web\" -> \"api\" extends past the left edge by 27px (label rect [-27,10,34,14]; viewBox 720x208) — if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+    "diagnostics": [
+     {
+      "code": "composition/label-canvas-containment",
+      "severity": "error",
+      "message": "[composition/label-canvas-containment] showcase architecture label \"HTTPS\" on connections[0] id \"web-api\" \"web\" -> \"api\" extends past the left edge by 27px (label rect [-27,10,34,14]; viewBox 720x208) — if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "label": "HTTPS",
+       "labelRect": {
+        "x": -27,
+        "y": 10,
+        "width": 34,
+        "height": 14
+       },
+       "viewBox": [720,208],
+       "overflowPx": {
+        "left": 27
+       },
+       "tolerancePx": 0.5
+      },
+      "supportedFixes": [
+       "if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "1e4e7fddf689a64ab85e4f99b53cc9f33af8c77a9d228937ebaae92f364009c1",
+     "bytes": 942
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "1e4e7fddf689a64ab85e4f99b53cc9f33af8c77a9d228937ebaae92f364009c1",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 1,
+      "minLabelRouteClearance": 175.1,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 8,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 140,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 10,
+      "emptyTopRatio": 0.048,
+      "occupiedTop": 10,
+      "viewBoxTop": 0,
+      "canvasHeight": 208,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "actualReaderWidth": 960,
+      "desiredReaderWidth": 960,
+      "viewportCap": 1376,
+      "limit": "source-size",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 8,
+      "semanticTextCount": 8
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/label-canvas-containment",
+       "label": "HTTPS",
+       "relationship": {
+        "id": "web-api",
+        "from": "web",
+        "to": "api",
+        "label": "HTTPS",
+        "collectionIndex": 0,
+        "artifactIndex": 1
+       },
+       "labelRect": {
+        "x": -27,
+        "y": 10,
+        "width": 34,
+        "height": 14
+       },
+       "viewBox": [720,208],
+       "viewBoxOrigin": [0,0],
+       "overflowPx": {
+        "left": 27
+       },
+       "detail": "[composition/label-canvas-containment] standard label \"HTTPS\" on relationship id \"web-api\" (\"web\" -> \"api\") extends past the left edge by 27px (label rect [-27,10,34,14]; viewBox 720x208) — use renderer-supported label controls (shorten the label or reorder participants for sequence; otherwise labelAt, labelDx, labelDy, or labelSegment), or enlarge meta.viewBox."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/label-canvas-containment] showcase architecture label \"HTTPS\" on connections[0] id \"web-api\" \"web\" -> \"api\" extends past the left edge by 27px (label rect [-27,10,34,14]; viewBox 720x208) — if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+    "diagnostics": [
+     {
+      "code": "composition/label-canvas-containment",
+      "severity": "error",
+      "message": "[composition/label-canvas-containment] showcase architecture label \"HTTPS\" on connections[0] id \"web-api\" \"web\" -> \"api\" extends past the left edge by 27px (label rect [-27,10,34,14]; viewBox 720x208) — if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "label": "HTTPS",
+       "labelRect": {
+        "x": -27,
+        "y": 10,
+        "width": 34,
+        "height": 14
+       },
+       "viewBox": [720,208],
+       "overflowPx": {
+        "left": 27
+       },
+       "tolerancePx": 0.5
+      },
+      "supportedFixes": [
+       "if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [720,208],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [40,80]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 300,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [300,80]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,110],[300,110]],
+     "labelAt": [-10,20]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[420,110],[560,110]],
+     "labelAt": [490,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": -27,
+     "y": 10,
+     "width": 34,
+     "height": 14,
+     "labelAt": [-10,20]
+    },
+    {
+     "text": "SQL",
+     "x": 475,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [490,100]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- [composition/label-canvas-containment] showcase architecture label \"HTTPS\" on connections[0] id \"web-api\" \"web\" -> \"api\" extends past the left edge by 27px (label rect [-27,10,34,14]; viewBox 720x208) — if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+   "diagnostics": [
+    {
+     "code": "composition/label-canvas-containment",
+     "severity": "error",
+     "message": "[composition/label-canvas-containment] showcase architecture label \"HTTPS\" on connections[0] id \"web-api\" \"web\" -> \"api\" extends past the left edge by 27px (label rect [-27,10,34,14]; viewBox 720x208) — if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+     "subject": {
+      "diagramType": "architecture",
+      "collection": "connections",
+      "index": 0,
+      "id": "web-api",
+      "from": "web",
+      "to": "api"
+     },
+     "evidence": {
+      "label": "HTTPS",
+      "labelRect": {
+       "x": -27,
+       "y": 10,
+       "width": 34,
+       "height": 14
+      },
+      "viewBox": [720,208],
+      "overflowPx": {
+       "left": 27
+      },
+      "tolerancePx": 0.5
+     },
+     "supportedFixes": [
+      "if the authored labelAt are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox"
+     ]
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

@@ -57,35 +57,6 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 .children(project_menu::window_badge(app, cx))
                 .child(project_menu::render(app, window, cx)),
         )
-        // Add a project and its chevron, one split button: the chevron offers the same three ways
-        // in the project picker's foot does — add, clone, remote — reached without opening the
-        // picker first.
-        .child(
-            split_pair()
-                .child(
-                    icon_button(
-                        "new-project",
-                        IconName::Plus,
-                        false,
-                        cx.listener(|this, _, _, cx| this.choose_folder(None, cx)),
-                    )
-                    .h_full()
-                    .ui_id(ui_id::TITLEBAR_NEW_PROJECT)
-                    .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new("Add a project").build(window, cx)
-                    }),
-                )
-                .child(split_chevron(
-                    "new-project-menu",
-                    Some(ui_id::TITLEBAR_NEW_PROJECT_MENU),
-                    app.workbench.open_menu == Some(MenuId::NewProject),
-                    "Open a project",
-                    cx.listener(|this, event: &ClickEvent, _, cx| {
-                        let at = (f32::from(event.position().x), f32::from(event.position().y));
-                        this.open_new_project_menu(at, cx);
-                    }),
-                )),
-        )
         .when(has_project, |this| {
             let (icon, label) = if temporary {
                 (IconName::Plus, "Keep this project")
@@ -144,16 +115,39 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                     )),
             )
         })
-        // Back and forward belong to the project they walk, so they sit beside it rather than
-        // beside the field: project, its menu, a rule, then the two arrows.
+        .child(rule())
+        // Add a project and its chevron, one split button: the chevron offers the same three ways
+        // in the project picker's foot does — add, clone, remote — reached without opening the
+        // picker first.
         .child(
-            div()
-                .w(px(1.))
-                .h(px(18.))
-                .mx_1()
-                .flex_none()
-                .bg(theme::border()),
+            split_pair()
+                .child(
+                    icon_button(
+                        "new-project",
+                        IconName::Plus,
+                        false,
+                        cx.listener(|this, _, _, cx| this.choose_folder(None, cx)),
+                    )
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_NEW_PROJECT)
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Add a project").build(window, cx)
+                    }),
+                )
+                .child(split_chevron(
+                    "new-project-menu",
+                    Some(ui_id::TITLEBAR_NEW_PROJECT_MENU),
+                    app.workbench.open_menu == Some(MenuId::NewProject),
+                    "Open a project",
+                    cx.listener(|this, event: &ClickEvent, _, cx| {
+                        let at = (f32::from(event.position().x), f32::from(event.position().y));
+                        this.open_new_project_menu(at, cx);
+                    }),
+                )),
         )
+        // Back and forward belong to the project they walk, so they sit beside it rather than
+        // beside the field: settings, web, tools, a rule, add project, a rule, then the two arrows.
+        .child(rule())
         .child(nav_control(
             "nav-back",
             IconName::ChevronLeft,
@@ -441,6 +435,16 @@ fn command_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) ->
     // The navigator hangs off the field it is typed into: its key context and its handlers go on
     // this div, because the keyboard is in the input inside it.
     navigator::attach(bar, app, cx)
+}
+
+/// The 1px rule between groups of controls on the strip.
+fn rule() -> gpui::Div {
+    div()
+        .w(px(1.))
+        .h(px(18.))
+        .mx_1()
+        .flex_none()
+        .bg(theme::border())
 }
 
 /// The container of a split button: the control and its chevron, flush, as one thing.

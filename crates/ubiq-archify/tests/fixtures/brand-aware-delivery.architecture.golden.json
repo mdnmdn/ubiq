@@ -1,0 +1,1696 @@
+{
+ "name": "brand-aware-delivery.architecture",
+ "group": "example",
+ "source": "archify/examples/brand-aware-delivery.architecture.json",
+ "type": "architecture",
+ "source_sha256": "211c126ebdc5f0124617b1067cecfb858143a1a18fd10621d01f5765c7de3b5d",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Brand-aware AI delivery",
+   "output": "brand-aware-delivery.html",
+   "quality_profile": "showcase",
+   "viewBox": [1120,640]
+  },
+  "components": [
+   {
+    "id": "request",
+    "type": "external",
+    "label": "Product request",
+    "sublabel": "Owner brief",
+    "pos": [38,260],
+    "size": [138,68]
+   },
+   {
+    "id": "claude",
+    "type": "frontend",
+    "label": "Claude",
+    "sublabel": "Plan and author",
+    "brand": "claude",
+    "pos": [220,260],
+    "size": [138,68]
+   },
+   {
+    "id": "github",
+    "type": "messagebus",
+    "label": "GitHub",
+    "sublabel": "Review and merge",
+    "brand": "github",
+    "pos": [402,260],
+    "size": [138,68]
+   },
+   {
+    "id": "container",
+    "type": "backend",
+    "label": "Docker service",
+    "sublabel": "Build and run",
+    "brand": "docker",
+    "pos": [584,260],
+    "size": [138,68]
+   },
+   {
+    "id": "edge",
+    "type": "cloud",
+    "label": "Cloudflare",
+    "sublabel": "Global delivery",
+    "brand": "cloudflare",
+    "pos": [766,260],
+    "size": [138,68]
+   },
+   {
+    "id": "customer",
+    "type": "external",
+    "label": "Customers",
+    "sublabel": "Web and mobile",
+    "pos": [948,260],
+    "size": [138,68]
+   },
+   {
+    "id": "database",
+    "type": "database",
+    "label": "PostgreSQL",
+    "sublabel": "Durable state",
+    "brand": "postgresql",
+    "pos": [584,420],
+    "size": [138,68]
+   },
+   {
+    "id": "billing",
+    "type": "external",
+    "label": "Stripe",
+    "sublabel": "Billing events",
+    "brand": "stripe",
+    "pos": [766,420],
+    "size": [138,68]
+   }
+  ],
+  "connections": [
+   {
+    "id": "brief-to-claude",
+    "from": "request",
+    "to": "claude",
+    "label": "brief",
+    "variant": "emphasis"
+   },
+   {
+    "id": "claude-to-github",
+    "from": "claude",
+    "to": "github",
+    "label": "change set",
+    "labelDy": -28
+   },
+   {
+    "id": "github-to-container",
+    "from": "github",
+    "to": "container",
+    "label": "approved build",
+    "labelDy": -28
+   },
+   {
+    "id": "container-to-edge",
+    "from": "container",
+    "to": "edge",
+    "label": "deploy"
+   },
+   {
+    "id": "edge-to-customer",
+    "from": "edge",
+    "to": "customer",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "container-to-database",
+    "from": "container",
+    "to": "database",
+    "label": "SQL",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "labelAt": [625,370]
+   },
+   {
+    "id": "container-to-billing",
+    "from": "container",
+    "to": "billing",
+    "label": "create charge",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "via": [[653,374],[835,374]]
+   },
+   {
+    "id": "billing-to-database",
+    "from": "billing",
+    "to": "database",
+    "label": "webhook",
+    "variant": "dashed"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Identity at a glance",
+    "items": [
+     "Semantic color still explains technical role",
+     "Brand badges identify the actual products"
+    ]
+   },
+   {
+    "dot": "amber",
+    "title": "Portable by default",
+    "items": [
+     "Preset marks ship inside Archify",
+     "Every visual export keeps the same badge"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "211c126ebdc5f0124617b1067cecfb858143a1a18fd10621d01f5765c7de3b5d",
+     "bytes": 2789
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "211c126ebdc5f0124617b1067cecfb858143a1a18fd10621d01f5765c7de3b5d",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 13,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 44,
+      "minInteriorSegmentPx": 182,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "brief-to-claude",
+       "from": "request",
+       "to": "claude"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 24
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "211c126ebdc5f0124617b1067cecfb858143a1a18fd10621d01f5765c7de3b5d",
+     "bytes": 2789
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "211c126ebdc5f0124617b1067cecfb858143a1a18fd10621d01f5765c7de3b5d",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 13,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 44,
+      "minInteriorSegmentPx": 182,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "brief-to-claude",
+       "from": "request",
+       "to": "claude"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 24
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "211c126ebdc5f0124617b1067cecfb858143a1a18fd10621d01f5765c7de3b5d",
+     "bytes": 2789
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "211c126ebdc5f0124617b1067cecfb858143a1a18fd10621d01f5765c7de3b5d",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 13,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.642857142857143,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 44,
+      "minInteriorSegmentPx": 182,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "brief-to-claude",
+       "from": "request",
+       "to": "claude"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.642857142857143,
+      "semanticTextCount": 24
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [1120,640],
+   "components": [
+    {
+     "id": "request",
+     "type": "external",
+     "label": "Product request",
+     "x": 38,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "pos": [38,260]
+    },
+    {
+     "id": "claude",
+     "type": "frontend",
+     "label": "Claude",
+     "x": 220,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "pos": [220,260]
+    },
+    {
+     "id": "github",
+     "type": "messagebus",
+     "label": "GitHub",
+     "x": 402,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "pos": [402,260]
+    },
+    {
+     "id": "container",
+     "type": "backend",
+     "label": "Docker service",
+     "x": 584,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "pos": [584,260]
+    },
+    {
+     "id": "edge",
+     "type": "cloud",
+     "label": "Cloudflare",
+     "x": 766,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "pos": [766,260]
+    },
+    {
+     "id": "customer",
+     "type": "external",
+     "label": "Customers",
+     "x": 948,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "pos": [948,260]
+    },
+    {
+     "id": "database",
+     "type": "database",
+     "label": "PostgreSQL",
+     "x": 584,
+     "y": 420,
+     "width": 138,
+     "height": 68,
+     "pos": [584,420]
+    },
+    {
+     "id": "billing",
+     "type": "external",
+     "label": "Stripe",
+     "x": 766,
+     "y": 420,
+     "width": 138,
+     "height": 68,
+     "pos": [766,420]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "request",
+     "to": "claude",
+     "label": "brief",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[176,294],[220,294]],
+     "labelAt": [198,284]
+    },
+    {
+     "from": "claude",
+     "to": "github",
+     "label": "change set",
+     "variant": "default",
+     "route": "auto",
+     "points": [[358,294],[402,294]],
+     "labelAt": [380,256]
+    },
+    {
+     "from": "github",
+     "to": "container",
+     "label": "approved build",
+     "variant": "default",
+     "route": "auto",
+     "points": [[540,294],[584,294]],
+     "labelAt": [562,256]
+    },
+    {
+     "from": "container",
+     "to": "edge",
+     "label": "deploy",
+     "variant": "default",
+     "route": "auto",
+     "points": [[722,294],[766,294]],
+     "labelAt": [744,284]
+    },
+    {
+     "from": "edge",
+     "to": "customer",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[904,294],[948,294]],
+     "labelAt": [926,284]
+    },
+    {
+     "from": "container",
+     "to": "database",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[653,328],[653,420]],
+     "labelAt": [625,370]
+    },
+    {
+     "from": "container",
+     "to": "billing",
+     "label": "create charge",
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[653,328],[653,374],[835,374],[835,420]],
+     "labelAt": [744,364]
+    },
+    {
+     "from": "billing",
+     "to": "database",
+     "label": "webhook",
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[766,454],[722,454]],
+     "labelAt": [744,444]
+    }
+   ],
+   "labels": [
+    {
+     "text": "brief",
+     "x": 181,
+     "y": 274,
+     "width": 34,
+     "height": 14,
+     "labelAt": [198,284]
+    },
+    {
+     "text": "change set",
+     "x": 351,
+     "y": 246,
+     "width": 58,
+     "height": 14,
+     "labelAt": [380,256]
+    },
+    {
+     "text": "approved build",
+     "x": 523,
+     "y": 246,
+     "width": 77,
+     "height": 14,
+     "labelAt": [562,256]
+    },
+    {
+     "text": "deploy",
+     "x": 725,
+     "y": 274,
+     "width": 39,
+     "height": 14,
+     "labelAt": [744,284]
+    },
+    {
+     "text": "HTTPS",
+     "x": 909,
+     "y": 274,
+     "width": 34,
+     "height": 14,
+     "labelAt": [926,284]
+    },
+    {
+     "text": "SQL",
+     "x": 610,
+     "y": 360,
+     "width": 30,
+     "height": 14,
+     "labelAt": [625,370]
+    },
+    {
+     "text": "create charge",
+     "x": 708,
+     "y": 354,
+     "width": 72,
+     "height": 14,
+     "labelAt": [744,364]
+    },
+    {
+     "text": "webhook",
+     "x": 722,
+     "y": 434,
+     "width": 44,
+     "height": 14,
+     "labelAt": [744,444]
+    }
+   ]
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1120,640],
+  "svg_attrs": {
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase",
+   "data-diagram-type": "architecture",
+   "data-reader-fit": "authored-height"
+  },
+  "title": "Brand-aware AI delivery",
+  "nodes": [
+   {
+    "id": "request",
+    "kind": "external",
+    "label": "Product request",
+    "sublabel": "Owner brief",
+    "context": "Architecture component",
+    "rect": {
+     "x": 38,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 107,
+      "y": 292,
+      "font_size": 11,
+      "text": "Product request",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 107,
+      "y": 308,
+      "font_size": 9,
+      "text": "Owner brief",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(44 266) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "claude",
+    "kind": "frontend",
+    "label": "Claude",
+    "sublabel": "Plan and author",
+    "context": "Architecture component",
+    "rect": {
+     "x": 220,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 289,
+      "y": 292,
+      "font_size": 11,
+      "text": "Claude",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 289,
+      "y": 308,
+      "font_size": 9,
+      "text": "Plan and author",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(226 266) scale(0.6875)"
+    },
+    "data": {
+     "data-node-brand": "Claude",
+     "data-node-brand-id": "claude",
+     "data-node-brand-status": "preset",
+     "data-node-brand-source": "https://claude.ai"
+    },
+    "stroke_width": 1.5
+   },
+   {
+    "id": "github",
+    "kind": "messagebus",
+    "label": "GitHub",
+    "sublabel": "Review and merge",
+    "context": "Architecture component",
+    "rect": {
+     "x": 402,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 471,
+      "y": 292,
+      "font_size": 11,
+      "text": "GitHub",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 471,
+      "y": 308,
+      "font_size": 9,
+      "text": "Review and merge",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(408 266) scale(0.6875)"
+    },
+    "data": {
+     "data-node-brand": "GitHub",
+     "data-node-brand-id": "github",
+     "data-node-brand-status": "preset",
+     "data-node-brand-source": "https://github.com/logos"
+    },
+    "stroke_width": 1.5
+   },
+   {
+    "id": "container",
+    "kind": "backend",
+    "label": "Docker service",
+    "sublabel": "Build and run",
+    "context": "Architecture component",
+    "rect": {
+     "x": 584,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 653,
+      "y": 292,
+      "font_size": 9.7,
+      "text": "Docker service",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 653,
+      "y": 308,
+      "font_size": 9,
+      "text": "Build and run",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(590 266) scale(0.6875)"
+    },
+    "data": {
+     "data-node-brand": "Docker",
+     "data-node-brand-id": "docker",
+     "data-node-brand-status": "preset",
+     "data-node-brand-source": "https://www.docker.com/company/newsroom/media-resources"
+    },
+    "stroke_width": 1.5
+   },
+   {
+    "id": "edge",
+    "kind": "cloud",
+    "label": "Cloudflare",
+    "sublabel": "Global delivery",
+    "context": "Architecture component",
+    "rect": {
+     "x": 766,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 835,
+      "y": 292,
+      "font_size": 11,
+      "text": "Cloudflare",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 835,
+      "y": 308,
+      "font_size": 9,
+      "text": "Global delivery",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(772 266) scale(0.6875)"
+    },
+    "data": {
+     "data-node-brand": "Cloudflare",
+     "data-node-brand-id": "cloudflare",
+     "data-node-brand-status": "preset",
+     "data-node-brand-source": "https://www.cloudflare.com/logo/"
+    },
+    "stroke_width": 1.5
+   },
+   {
+    "id": "customer",
+    "kind": "external",
+    "label": "Customers",
+    "sublabel": "Web and mobile",
+    "context": "Architecture component",
+    "rect": {
+     "x": 948,
+     "y": 260,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 1017,
+      "y": 292,
+      "font_size": 11,
+      "text": "Customers",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 1017,
+      "y": 308,
+      "font_size": 9,
+      "text": "Web and mobile",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(954 266) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "database",
+    "kind": "database",
+    "label": "PostgreSQL",
+    "sublabel": "Durable state",
+    "context": "Architecture component",
+    "rect": {
+     "x": 584,
+     "y": 420,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 653,
+      "y": 452,
+      "font_size": 11,
+      "text": "PostgreSQL",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 653,
+      "y": 468,
+      "font_size": 9,
+      "text": "Durable state",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(590 426) scale(0.6875)"
+    },
+    "data": {
+     "data-node-brand": "PostgreSQL",
+     "data-node-brand-id": "postgresql",
+     "data-node-brand-status": "preset",
+     "data-node-brand-source": "https://wiki.postgresql.org/wiki/Logo"
+    },
+    "stroke_width": 1.5
+   },
+   {
+    "id": "billing",
+    "kind": "external",
+    "label": "Stripe",
+    "sublabel": "Billing events",
+    "context": "Architecture component",
+    "rect": {
+     "x": 766,
+     "y": 420,
+     "width": 138,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 835,
+      "y": 452,
+      "font_size": 11,
+      "text": "Stripe",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 835,
+      "y": 468,
+      "font_size": 9,
+      "text": "Billing events",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(772 426) scale(0.6875)"
+    },
+    "data": {
+     "data-node-brand": "Stripe",
+     "data-node-brand-id": "stripe",
+     "data-node-brand-status": "preset",
+     "data-node-brand-source": "https://stripe.com/newsroom/information"
+    },
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "brief-to-claude",
+    "from": "request",
+    "to": "claude",
+    "label": "brief",
+    "points": [[176,294],[220,294]],
+    "d": "M 176 294 L 220 294",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "id": "claude-to-github",
+    "from": "claude",
+    "to": "github",
+    "label": "change set",
+    "points": [[358,294],[402,294]],
+    "d": "M 358 294 L 402 294",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "id": "github-to-container",
+    "from": "github",
+    "to": "container",
+    "label": "approved build",
+    "points": [[540,294],[584,294]],
+    "d": "M 540 294 L 584 294",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "id": "container-to-edge",
+    "from": "container",
+    "to": "edge",
+    "label": "deploy",
+    "points": [[722,294],[766,294]],
+    "d": "M 722 294 L 766 294",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "id": "edge-to-customer",
+    "from": "edge",
+    "to": "customer",
+    "label": "HTTPS",
+    "points": [[904,294],[948,294]],
+    "d": "M 904 294 L 948 294",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 5,
+    "id": "container-to-database",
+    "from": "container",
+    "to": "database",
+    "label": "SQL",
+    "points": [[653,328],[653,420]],
+    "d": "M 653 328 L 653 420",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "id": "container-to-billing",
+    "from": "container",
+    "to": "billing",
+    "label": "create charge",
+    "points": [[653,328],[653,374],[835,374],[835,420]],
+    "d": "M 653 328 L 653 366 Q 653 374 661 374 L 827 374 Q 835 374 835 382 L 835 420",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 7,
+    "id": "billing-to-database",
+    "from": "billing",
+    "to": "database",
+    "label": "webhook",
+    "points": [[766,454],[722,454]],
+    "d": "M 766 454 L 722 454",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "brief-to-claude",
+    "from": "request",
+    "to": "claude",
+    "text": "brief",
+    "rect": {
+     "x": 181,
+     "y": 274,
+     "width": 34,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 198,
+      "y": 284,
+      "font_size": 8,
+      "text": "brief",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "edge_id": "claude-to-github",
+    "from": "claude",
+    "to": "github",
+    "text": "change set",
+    "rect": {
+     "x": 351,
+     "y": 246,
+     "width": 58,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 380,
+      "y": 256,
+      "font_size": 8,
+      "text": "change set",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "edge_id": "github-to-container",
+    "from": "github",
+    "to": "container",
+    "text": "approved build",
+    "rect": {
+     "x": 523.4,
+     "y": 246,
+     "width": 77.2,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 562,
+      "y": 256,
+      "font_size": 8,
+      "text": "approved build",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "edge_id": "container-to-edge",
+    "from": "container",
+    "to": "edge",
+    "text": "deploy",
+    "rect": {
+     "x": 724.6,
+     "y": 274,
+     "width": 38.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 744,
+      "y": 284,
+      "font_size": 8,
+      "text": "deploy",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "edge_id": "edge-to-customer",
+    "from": "edge",
+    "to": "customer",
+    "text": "HTTPS",
+    "rect": {
+     "x": 909,
+     "y": 274,
+     "width": 34,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 926,
+      "y": 284,
+      "font_size": 8,
+      "text": "HTTPS",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "edge_id": "container-to-database",
+    "from": "container",
+    "to": "database",
+    "text": "SQL",
+    "rect": {
+     "x": 610,
+     "y": 360,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 625,
+      "y": 370,
+      "font_size": 8,
+      "text": "SQL",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "edge_id": "container-to-billing",
+    "from": "container",
+    "to": "billing",
+    "text": "create charge",
+    "rect": {
+     "x": 707.8,
+     "y": 354,
+     "width": 72.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 744,
+      "y": 364,
+      "font_size": 8,
+      "text": "create charge",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "edge_id": "billing-to-database",
+    "from": "billing",
+    "to": "database",
+    "text": "webhook",
+    "rect": {
+     "x": 722.2,
+     "y": 434,
+     "width": 43.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 744,
+      "y": 444,
+      "font_size": 8,
+      "text": "webhook",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "frontend",
+     "kind": "frontend",
+     "label": "Frontend",
+     "x": 40,
+     "baseline": 624,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 40,
+       "y": 615,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 62,
+       "y": 624,
+       "font_size": 10,
+       "text": "Frontend"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Backend",
+     "x": 145,
+     "baseline": 624,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 145,
+       "y": 615,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 167,
+       "y": 624,
+       "font_size": 10,
+       "text": "Backend"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "Database",
+     "x": 245,
+     "baseline": 624,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 245,
+       "y": 615,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 267,
+       "y": 624,
+       "font_size": 10,
+       "text": "Database"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "cloud",
+     "kind": "cloud",
+     "label": "Cloud",
+     "x": 350,
+     "baseline": 624,
+     "width": 68,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 350,
+       "y": 615,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 372,
+       "y": 624,
+       "font_size": 10,
+       "text": "Cloud"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "Message bus",
+     "x": 440,
+     "baseline": 624,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 440,
+       "y": 615,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 462,
+       "y": 624,
+       "font_size": 10,
+       "text": "Message bus"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "External",
+     "x": 560,
+     "baseline": 624,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 560,
+       "y": 615,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 582,
+       "y": 624,
+       "font_size": 10,
+       "text": "External"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {}
+ }
+}

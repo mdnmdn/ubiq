@@ -325,7 +325,7 @@ fn a_blob_from_a_previous_schema_is_discarded_unless_it_has_an_upgrade_arm() {
 /// a round trip, or a window would come back on the wrong one.
 #[test]
 fn both_screens_over_the_work_survive_a_round_trip() {
-    for mode in [RailMode::AGENTS, RailMode::TEAMS_OLD] {
+    for mode in [RailMode::AGENTS, RailMode::TEAMS] {
         let out = ViewPrefs {
             schema: prefs::SCHEMA,
             rail_mode: mode,

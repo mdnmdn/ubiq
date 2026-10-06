@@ -616,6 +616,13 @@ pub struct ExplorerState {
     /// failed would be asked for again as the next reply landed, and a listing still in flight
     /// would be asked twice.
     cache_asked: HashSet<String>,
+    /// Folders in `cache_asked` whose prefetch the host answered with nothing because version
+    /// control ignores them. The cache keeps skipping them; a filter hit or an expand still may
+    /// ask for them in full.
+    cache_ignored: HashSet<String>,
+    /// The cache's own walks still in flight, which the window keeps few so the files worker is
+    /// never queued deep behind them.
+    cache_pending: HashSet<String>,
     /// The last background filter result. Drawn instead of walking the tree on the frame.
     filter_hits: Option<FilterHits>,
     /// Folders the user shut *while filtering*. A filter draws every matching folder open, so

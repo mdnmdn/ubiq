@@ -1,0 +1,151 @@
+{
+ "name": "neg.rel-duplicate-id-connection",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "relationship/duplicate-id",
+ "expect_codes": [
+  "relationship/duplicate-id"
+ ],
+ "source_sha256": "3f267aa6bb2be0dd3fe3f7110dc17f37a90b07daa039f95f2bfa09bc68658f14",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "web-api",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /connections/1/id duplicates relationship id \"web-api\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/connections/1/id duplicates relationship id \"web-api\"",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /connections/1/id duplicates relationship id \"web-api\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/connections/1/id duplicates relationship id \"web-api\"",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /connections/1/id duplicates relationship id \"web-api\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/connections/1/id duplicates relationship id \"web-api\"",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "Relationship identity validation failed:\n- /connections/1/id duplicates relationship id \"web-api\"\n[relationship/duplicate-id] /connections/1/id duplicates relationship id \"web-api\"\n"
+ },
+ "layout_json_by_quality": {}
+}

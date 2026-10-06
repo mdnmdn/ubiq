@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-10-01
+updated: 2026-10-06
 verified: 2026-09-27
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
@@ -362,9 +362,9 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq/src/ui/remote_connect.rs` | The modal itself: its four steps drawn as the body and footer change | A socket call, or parsing of a connection string |
 | `ubiq/src/{state,app,ui}/db/` | DB mode, one folder per layer: the state on the open project, the handlers that are the only senders and receivers of the database family, and the explorer, table tab, SQL tab and connection form | A `ubiq_db::driver` name — the interface links the pure half only — or a decrypted password |
 | `ubiq/src/web_export/` | The on-demand local HTTP server that serves a project's own files read-only, for browsing in a web browser — its own project-root reads, its own `tiny_http` thread, no bus traffic | A proto message, a call into `ubiq-host` |
-| `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, settings overlay, `chat/`, `agents/`, `orchestration/`, `board/` | Anything that names the host |
+| `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, settings overlay, `chat/`, `agents/`, `teams/`, `board/` | Anything that names the host |
 | `ubiq/src/ui/agents/` | The Agents screen: the sidebar of every agent the host reports, and one column per conversation — its tabs, its thread and its composer | Anything that ends an agent; a close that means more than benching one |
-| `ubiq/src/ui/orchestration/` | The Orchestration screen: the graph of who spawned whom, its inspector and its tasks drawer | A position a record would have to carry |
+| `ubiq/src/ui/teams/` | The Teams screen: the graph of who spawned whom and its tasks drawer | A position a record would have to carry |
 | `ubiq/src/ui/work.rs` | What a work record reads as: the token an activity, a bucket or a role takes | A second mapping for a state one screen wants to draw differently |
 | `ubiq/src/ui/dock/` | The window's arrangement: the panel adapter over those areas, and Ubiq's skin over the component library's dock | State of its own — a panel holds what identifies it and reads the rest |
 | `ubiq/src/ui/kit/` | Reusable primitives, and only what the component library lacks | Application state, sample data, or the name `AppState` |

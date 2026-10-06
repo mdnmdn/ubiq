@@ -119,7 +119,7 @@ impl AppState {
         cx.notify();
     }
 
-    /// Put every filter on the orchestration screen back. The one control for "show me all of it".
+    /// Put every filter on the Teams screen back. The one control for "show me all of it".
     pub fn clear_teams_filters(&mut self, cx: &mut Context<Self>) {
         if let Some(graph) = self.teams_mut(cx) {
             graph.clear_filters();

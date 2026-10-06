@@ -1,0 +1,222 @@
+{
+ "name": "neg.schema-additional-property",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/additionalProperties",
+ "expect_codes": [
+  "schema/additionalProperties"
+ ],
+ "source_sha256": "935e3de5acf5586b770d04cddefad59fae16e80a5c19077099d49994ab91c58a",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "colour": "red"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis",
+    "thickness": 3
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"}\n  /connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"}",
+    "diagnostics": [
+     {
+      "code": "schema/additionalProperties",
+      "severity": "error",
+      "message": "/components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "additionalProperties",
+       "additionalProperty": "colour"
+      },
+      "supportedFixes": [
+       "remove unsupported property \"colour\""
+      ]
+     },
+     {
+      "code": "schema/additionalProperties",
+      "severity": "error",
+      "message": "/connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/connections/0",
+       "identity": "web-api"
+      },
+      "evidence": {
+       "keyword": "additionalProperties",
+       "additionalProperty": "thickness"
+      },
+      "supportedFixes": [
+       "remove unsupported property \"thickness\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"}\n  /connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"}",
+    "diagnostics": [
+     {
+      "code": "schema/additionalProperties",
+      "severity": "error",
+      "message": "/components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "additionalProperties",
+       "additionalProperty": "colour"
+      },
+      "supportedFixes": [
+       "remove unsupported property \"colour\""
+      ]
+     },
+     {
+      "code": "schema/additionalProperties",
+      "severity": "error",
+      "message": "/connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/connections/0",
+       "identity": "web-api"
+      },
+      "evidence": {
+       "keyword": "additionalProperties",
+       "additionalProperty": "thickness"
+      },
+      "supportedFixes": [
+       "remove unsupported property \"thickness\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"}\n  /connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"}",
+    "diagnostics": [
+     {
+      "code": "schema/additionalProperties",
+      "severity": "error",
+      "message": "/components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "additionalProperties",
+       "additionalProperty": "colour"
+      },
+      "supportedFixes": [
+       "remove unsupported property \"colour\""
+      ]
+     },
+     {
+      "code": "schema/additionalProperties",
+      "severity": "error",
+      "message": "/connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/connections/0",
+       "identity": "web-api"
+      },
+      "evidence": {
+       "keyword": "additionalProperties",
+       "additionalProperty": "thickness"
+      },
+      "supportedFixes": [
+       "remove unsupported property \"thickness\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"}\n  /connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"}\n[schema/additionalProperties] /components/0 (id/label: \"web\") must NOT have additional properties {\"additionalProperty\":\"colour\"} Fix: remove unsupported property \"colour\".\n[schema/additionalProperties] /connections/0 (id/label: \"web-api\") must NOT have additional properties {\"additionalProperty\":\"thickness\"} Fix: remove unsupported property \"thickness\".\n"
+ },
+ "layout_json_by_quality": {}
+}

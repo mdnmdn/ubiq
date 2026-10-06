@@ -55,6 +55,8 @@ impl AppState {
     ) {
         let mut form = NewAgentForm::new(Purpose::Start);
         form.tag_filter = open.tags.unwrap_or_default();
+        form.opened_mcps = open.mcps;
+        form.tick_opened_mcps();
         self.workbench.new_agent = Some(form);
         self.set_new_agent_prompt("", window, cx);
         let initial = open.initial_prompt.unwrap_or_default();
@@ -180,6 +182,7 @@ impl AppState {
                 tags,
                 autostart: false,
                 initial_prompt: Some(prompt),
+                ..NewAgentOpen::default()
             },
             window,
             cx,
@@ -402,6 +405,7 @@ impl AppState {
         let tab = form.tab;
         // How the form was opened is not part of any answer either.
         let tag_filter = form.tag_filter.clone();
+        let opened_mcps = form.opened_mcps.clone();
         // Nor is the task it was raised for: a task assignment keeps its task, its two checkboxes
         // and the servers it starts with whichever target is picked — dropping them is a Start
         // that never links the agent to the card (T-320), the reason `set_new_agent_tab` keeps
@@ -415,6 +419,7 @@ impl AppState {
                     models,
                     tab,
                     tag_filter,
+                    opened_mcps,
                     ..NewAgentForm::from_definition(&definition, purpose)
                 };
             }
@@ -445,12 +450,16 @@ impl AppState {
                     account,
                     tab,
                     tag_filter,
+                    opened_mcps,
                     ..NewAgentForm::new(purpose)
                 };
             }
             // A definition the host has since dropped: the row is gone by the next answer, and until
             // then picking it answers nothing rather than starting something unnamed.
             (Target::AgentDefinition(_), None) => return,
+        }
+        if let Some(form) = self.new_agent_form_mut() {
+            form.tick_opened_mcps();
         }
         if for_task.is_some()
             && let Some(form) = self.new_agent_form_mut()
@@ -650,6 +659,7 @@ impl AppState {
             return;
         }
         let tag_filter = std::mem::take(&mut form.tag_filter);
+        let opened_mcps = std::mem::take(&mut form.opened_mcps);
         let models = std::mem::take(&mut form.models);
         let purpose = form.purpose;
         // What the *question* answered is dropped; what the form was raised for is not. A task
@@ -670,8 +680,10 @@ impl AppState {
             plan_mode,
             mcps,
             tag_filter,
+            opened_mcps,
             ..NewAgentForm::new(purpose)
         };
+        form.tick_opened_mcps();
         // The initial prompt is the user's own words for this run, not part of either tab's
         // answer, so it stays — except a task assignment's, which is recomposed from the task and
         // the checkboxes, never patched.

@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-05
+updated: 2026-10-06
 verified: 2026-09-29
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -3042,6 +3042,8 @@ drone gains mid-run is invisible to it until the next one.
 
 ### D140 — The new Teams mode is a clone beside `[Teams]`, not a rework of it
 
+**Superseded by `D205`.** `[Teams]` is removed; the record below is why the two stood side by side.
+
 `RailMode::Orchestration` is renamed `RailMode::TeamsOld`, labelled `[Teams]`, its screen
 (`ui/orchestration/*`), its state (`GraphView`) and its `ubiq://<project>/graph/...` nav slug all
 otherwise unchanged. A new `RailMode::Teams`, labelled `Teams`, sits ahead of it in the rail's
@@ -5104,6 +5106,27 @@ submenu, which the kit has no primitive for.
 offer that depends on the head of the text is invisible to the explorer's menu and to the top row's
 `⋯` decision, both of which ask with the path alone; and a live-reloading tab flashes its
 "Reading…" note for the frame between the re-read and the new buffer.
+
+### D205 — `[Teams]` is removed, and the host invents no agents
+
+`RailMode::TeamsOld` and everything only it used are gone: `ui/orchestration/*`, `GraphView` in
+`state/orchestration.rs`, `app/graph.rs`, the inspector's composer (`agent_input`), the
+`View::Graph` link arm and its `ubiq://<project>/graph/...` slug, and the status bar's counts for
+that mode. `Teams` is the one graph screen. The host's work mints none of the eleven mock agents it carried
+(`crates/ubiq-host/src/work/mock.rs` keeps the five sessions): a project's agents are the live ones,
+and a deleted or archived task unlinks the live agents on it. `[Teams]`'s state tests are kept,
+ported onto `TeamsView` as `crates/ubiq/tests/teams_view.rs`.
+
+**Why:** `D140` kept `[Teams]` as the fallback while `Teams` was unfinished. `Teams` carries the
+toolbar, the arrangements, the drag model, the tasks drawer and real conversations, and the mock
+agents existed only to fill a canvas that drew the host's whole projection — the only screen that
+did. Two near-identical implementations were the cost `D140` named, and nothing still pays for it.
+
+**Cost:** a saved rail mode naming `TeamsOld` or `ubiq.rail.teams-old` is read back as `Teams`
+(`ext::rail::decode_id`), so a window left in `[Teams]` reopens on the newer screen rather than the
+one it was in; a `graph` link is not a link; `ctrl-<n>` past `Teams` counts one lower; and the
+`WorkList` a project with nothing running answers carries sessions and no agents, so `SendToAgent`
+reaches only a live agent.
 
 ## Related docs
 

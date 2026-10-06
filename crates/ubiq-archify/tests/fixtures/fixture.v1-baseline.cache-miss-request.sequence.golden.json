@@ -1,0 +1,1749 @@
+{
+ "name": "fixture.v1-baseline.cache-miss-request.sequence",
+ "group": "fixture",
+ "source": "archify/test/fixtures/v1-baseline/cache-miss-request.sequence.json",
+ "type": "sequence",
+ "source_sha256": "047914c4dc4ed753b6b9f100ebaf6e7f15f9b72af0913e3a8e7a223bdef39aaa",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Cache Miss Request Sequence",
+   "subtitle": "Frontend request path with auth, cache fallback, persistence, and async trace",
+   "output": "examples/sequence-cache-miss-request.html",
+   "viewBox": [820,760]
+  },
+  "participants": [
+   {
+    "id": "user",
+    "type": "external",
+    "label": "User",
+    "sublabel": "browser session"
+   },
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web App",
+    "sublabel": "React UI"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "request handler"
+   },
+   {
+    "id": "auth",
+    "type": "security",
+    "label": "Auth",
+    "sublabel": "JWT verify"
+   },
+   {
+    "id": "redis",
+    "type": "database",
+    "label": "Redis",
+    "sublabel": "cache"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "Postgres",
+    "sublabel": "source of truth"
+   },
+   {
+    "id": "trace",
+    "type": "messagebus",
+    "label": "Trace",
+    "sublabel": "async event"
+   }
+  ],
+  "segments": [
+   {
+    "from": 150,
+    "to": 295,
+    "label": "Request"
+   },
+   {
+    "from": 315,
+    "to": 505,
+    "label": "Fallback"
+   },
+   {
+    "from": 525,
+    "to": 665,
+    "label": "Response + trace"
+   }
+  ],
+  "messages": [
+   {
+    "from": "user",
+    "to": "web",
+    "y": 185,
+    "label": "open page",
+    "variant": "default"
+   },
+   {
+    "from": "web",
+    "to": "api",
+    "y": 228,
+    "label": "GET /dashboard",
+    "variant": "emphasis"
+   },
+   {
+    "from": "api",
+    "to": "auth",
+    "y": 270,
+    "label": "verify JWT",
+    "variant": "security"
+   },
+   {
+    "from": "auth",
+    "to": "api",
+    "y": 305,
+    "label": "claims ok",
+    "variant": "return"
+   },
+   {
+    "from": "api",
+    "to": "redis",
+    "y": 354,
+    "label": "read cache",
+    "variant": "default"
+   },
+   {
+    "from": "redis",
+    "to": "api",
+    "y": 391,
+    "label": "miss",
+    "variant": "return"
+   },
+   {
+    "from": "api",
+    "to": "db",
+    "y": 443,
+    "label": "query profile + metrics",
+    "variant": "emphasis"
+   },
+   {
+    "from": "db",
+    "to": "api",
+    "y": 489,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "from": "api",
+    "to": "redis",
+    "y": 536,
+    "label": "set cache",
+    "variant": "dashed"
+   },
+   {
+    "from": "api",
+    "to": "trace",
+    "y": 580,
+    "label": "emit trace",
+    "variant": "dashed"
+   },
+   {
+    "from": "api",
+    "to": "web",
+    "y": 625,
+    "label": "200 JSON",
+    "variant": "return"
+   },
+   {
+    "from": "web",
+    "to": "user",
+    "y": 662,
+    "label": "render",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "web",
+    "from": 220,
+    "to": 668,
+    "type": "frontend"
+   },
+   {
+    "participant": "api",
+    "from": 228,
+    "to": 632,
+    "type": "backend"
+   },
+   {
+    "participant": "auth",
+    "from": 265,
+    "to": 310,
+    "type": "security"
+   },
+   {
+    "participant": "redis",
+    "from": 349,
+    "to": 398,
+    "type": "database"
+   },
+   {
+    "participant": "db",
+    "from": 438,
+    "to": 496,
+    "type": "database"
+   },
+   {
+    "participant": "trace",
+    "from": 575,
+    "to": 630,
+    "type": "messagebus"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "Happy Path",
+    "items": [
+     "The main request is Web App -> API -> data source -> response",
+     "Return messages are quieter than forward calls",
+     "Activation bars make ownership duration visible"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Policy + Fallback",
+    "items": [
+     "JWT verification is colored as a security interaction",
+     "Cache miss is visible without overpowering the main path",
+     "Database access only appears after cache fallback"
+    ]
+   },
+   {
+    "dot": "orange",
+    "title": "Async Trace",
+    "items": [
+     "Trace emission is dashed and secondary",
+     "It does not block the response path",
+     "The diagram separates user-facing latency from observability"
+    ]
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "047914c4dc4ed753b6b9f100ebaf6e7f15f9b72af0913e3a8e7a223bdef39aaa",
+     "bytes": 3550
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "047914c4dc4ed753b6b9f100ebaf6e7f15f9b72af0913e3a8e7a223bdef39aaa",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 15,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 94,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "fixed",
+      "participantCount": 7,
+      "occupiedRight": 753,
+      "viewBoxLeft": 0,
+      "canvasWidth": 820,
+      "emptyRightPx": 67,
+      "emptyRightRatio": 0.082,
+      "typicalParticipantWidth": 86,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 26
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 820,
+       "viewBoxHeight": 760,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.08,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1248,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1374,
+       "overflowPx": 474,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 820x760 canvas (ratio 1.08) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1248px tall at the full 1346px width and the page reaches 1374px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 529 at this width, or spread content sideways so the width is at least 1178 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "047914c4dc4ed753b6b9f100ebaf6e7f15f9b72af0913e3a8e7a223bdef39aaa",
+     "bytes": 3550
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "047914c4dc4ed753b6b9f100ebaf6e7f15f9b72af0913e3a8e7a223bdef39aaa",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 15,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 94,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "fixed",
+      "participantCount": 7,
+      "occupiedRight": 753,
+      "viewBoxLeft": 0,
+      "canvasWidth": 820,
+      "emptyRightPx": 67,
+      "emptyRightRatio": 0.082,
+      "typicalParticipantWidth": 86,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 26
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 820,
+       "viewBoxHeight": 760,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.08,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1248,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1374,
+       "overflowPx": 474,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 820x760 canvas (ratio 1.08) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1248px tall at the full 1346px width and the page reaches 1374px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 529 at this width, or spread content sideways so the width is at least 1178 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "sequence",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "047914c4dc4ed753b6b9f100ebaf6e7f15f9b72af0913e3a8e7a223bdef39aaa",
+     "bytes": 3550
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "sequence",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "047914c4dc4ed753b6b9f100ebaf6e7f15f9b72af0913e3a8e7a223bdef39aaa",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 15,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 94,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "sequenceColumnSpace": {
+      "measured": true,
+      "columnFit": "fixed",
+      "participantCount": 7,
+      "occupiedRight": 753,
+      "viewBoxLeft": 0,
+      "canvasWidth": 820,
+      "emptyRightPx": 67,
+      "emptyRightRatio": 0.082,
+      "typicalParticipantWidth": 86,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "user"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 7,
+      "semanticTextCount": 26
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 820,
+       "viewBoxHeight": 760,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.08,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1248,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1374,
+       "overflowPx": 474,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 820x760 canvas (ratio 1.08) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1248px tall at the full 1346px width and the page reaches 1374px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 529 at this width, or spread content sideways so the width is at least 1178 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,820,760],
+  "svg_attrs": {
+   "data-sequence-column-fit": "fixed",
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory"
+  },
+  "title": "Cache Miss Request Sequence",
+  "nodes": [
+   {
+    "id": "user",
+    "kind": "external",
+    "label": "User",
+    "sublabel": "browser session",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 19,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 62,
+      "y": 108,
+      "font_size": 11,
+      "text": "User",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 62,
+      "y": 122,
+      "font_size": 7,
+      "text": "browser session",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(25 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "web",
+    "kind": "frontend",
+    "label": "Web App",
+    "sublabel": "React UI",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 127,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 170,
+      "y": 108,
+      "font_size": 11,
+      "text": "Web App",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 170,
+      "y": 122,
+      "font_size": 7,
+      "text": "React UI",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(133 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "api",
+    "kind": "backend",
+    "label": "API",
+    "sublabel": "request handler",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 235,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 278,
+      "y": 108,
+      "font_size": 11,
+      "text": "API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 278,
+      "y": 122,
+      "font_size": 7,
+      "text": "request handler",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(241 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "auth",
+    "kind": "security",
+    "label": "Auth",
+    "sublabel": "JWT verify",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 343,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 386,
+      "y": 108,
+      "font_size": 11,
+      "text": "Auth",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 386,
+      "y": 122,
+      "font_size": 7,
+      "text": "JWT verify",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(349 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "redis",
+    "kind": "database",
+    "label": "Redis",
+    "sublabel": "cache",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 451,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 494,
+      "y": 108,
+      "font_size": 11,
+      "text": "Redis",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 494,
+      "y": 122,
+      "font_size": 7,
+      "text": "cache",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(457 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "db",
+    "kind": "database",
+    "label": "Postgres",
+    "sublabel": "source of truth",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 559,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 602,
+      "y": 108,
+      "font_size": 11,
+      "text": "Postgres",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 602,
+      "y": 122,
+      "font_size": 7,
+      "text": "source of truth",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(565 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "trace",
+    "kind": "messagebus",
+    "label": "Trace",
+    "sublabel": "async event",
+    "context": "Sequence participant",
+    "rect": {
+     "x": 667,
+     "y": 72,
+     "width": 86,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 710,
+      "y": 108,
+      "font_size": 11,
+      "text": "Trace",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 710,
+      "y": 122,
+      "font_size": 7,
+      "text": "async event",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(673 78) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "user",
+    "to": "web",
+    "label": "open page",
+    "points": [[69,185],[163,185]],
+    "d": "M 69 185 L 163 185",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 1,
+    "from": "web",
+    "to": "api",
+    "label": "GET /dashboard",
+    "points": [[177,228],[271,228]],
+    "d": "M 177 228 L 271 228",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "from": "api",
+    "to": "auth",
+    "label": "verify JWT",
+    "points": [[285,270],[379,270]],
+    "d": "M 285 270 L 379 270",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 3,
+    "from": "auth",
+    "to": "api",
+    "label": "claims ok",
+    "points": [[379,305],[285,305]],
+    "d": "M 379 305 L 285 305",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "from": "api",
+    "to": "redis",
+    "label": "read cache",
+    "points": [[285,354],[487,354]],
+    "d": "M 285 354 L 487 354",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 5,
+    "from": "redis",
+    "to": "api",
+    "label": "miss",
+    "points": [[487,391],[285,391]],
+    "d": "M 487 391 L 285 391",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "from": "api",
+    "to": "db",
+    "label": "query profile + metrics",
+    "points": [[285,443],[595,443]],
+    "d": "M 285 443 L 595 443",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 7,
+    "from": "db",
+    "to": "api",
+    "label": "rows",
+    "points": [[595,489],[285,489]],
+    "d": "M 595 489 L 285 489",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 8,
+    "from": "api",
+    "to": "redis",
+    "label": "set cache",
+    "points": [[285,536],[487,536]],
+    "d": "M 285 536 L 487 536",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 9,
+    "from": "api",
+    "to": "trace",
+    "label": "emit trace",
+    "points": [[285,580],[703,580]],
+    "d": "M 285 580 L 703 580",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 10,
+    "from": "api",
+    "to": "web",
+    "label": "200 JSON",
+    "points": [[271,625],[177,625]],
+    "d": "M 271 625 L 177 625",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 11,
+    "from": "web",
+    "to": "user",
+    "label": "render",
+    "points": [[163,662],[69,662]],
+    "d": "M 163 662 L 69 662",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "dash": "3,5",
+    "marker_end": "arrowhead"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "user",
+    "to": "web",
+    "text": "open page",
+    "rect": {
+     "x": 86.6,
+     "y": 165,
+     "width": 58.800000000000004,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 116,
+      "y": 175,
+      "font_size": 9,
+      "text": "open page",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "from": "web",
+    "to": "api",
+    "text": "GET /dashboard",
+    "rect": {
+     "x": 181.6,
+     "y": 208,
+     "width": 84.8,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 224,
+      "y": 218,
+      "font_size": 9,
+      "text": "GET /dashboard",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "from": "api",
+    "to": "auth",
+    "text": "verify JWT",
+    "rect": {
+     "x": 300,
+     "y": 250,
+     "width": 64,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 332,
+      "y": 260,
+      "font_size": 9,
+      "text": "verify JWT",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "auth",
+    "to": "api",
+    "text": "claims ok",
+    "rect": {
+     "x": 302.6,
+     "y": 285,
+     "width": 58.800000000000004,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 332,
+      "y": 295,
+      "font_size": 9,
+      "text": "claims ok",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "from": "api",
+    "to": "redis",
+    "text": "read cache",
+    "rect": {
+     "x": 354,
+     "y": 334,
+     "width": 64,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 386,
+      "y": 344,
+      "font_size": 9,
+      "text": "read cache",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "redis",
+    "to": "api",
+    "text": "miss",
+    "rect": {
+     "x": 369,
+     "y": 371,
+     "width": 34,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 386,
+      "y": 381,
+      "font_size": 9,
+      "text": "miss",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "api",
+    "to": "db",
+    "text": "query profile + metrics",
+    "rect": {
+     "x": 374.2,
+     "y": 423,
+     "width": 131.60000000000002,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 440,
+      "y": 433,
+      "font_size": 9,
+      "text": "query profile + metrics",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "from": "db",
+    "to": "api",
+    "text": "rows",
+    "rect": {
+     "x": 423,
+     "y": 469,
+     "width": 34,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 440,
+      "y": 479,
+      "font_size": 9,
+      "text": "rows",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "from": "api",
+    "to": "redis",
+    "text": "set cache",
+    "rect": {
+     "x": 356.6,
+     "y": 516,
+     "width": 58.800000000000004,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 386,
+      "y": 526,
+      "font_size": 9,
+      "text": "set cache",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "api",
+    "to": "trace",
+    "text": "emit trace",
+    "rect": {
+     "x": 462,
+     "y": 560,
+     "width": 64,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 494,
+      "y": 570,
+      "font_size": 9,
+      "text": "emit trace",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "from": "api",
+    "to": "web",
+    "text": "200 JSON",
+    "rect": {
+     "x": 197.2,
+     "y": 605,
+     "width": 53.6,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 224,
+      "y": 615,
+      "font_size": 9,
+      "text": "200 JSON",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "from": "web",
+    "to": "user",
+    "text": "render",
+    "rect": {
+     "x": 94.4,
+     "y": 642,
+     "width": 43.2,
+     "height": 16,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 116,
+      "y": 652,
+      "font_size": 9,
+      "text": "render",
+      "anchor": "middle",
+      "class": "t-muted"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "segment",
+    "id": "0",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 150,
+     "width": 724,
+     "height": 145,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "segment",
+    "id": "1",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 315,
+     "width": 724,
+     "height": 190,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "segment",
+    "id": "2",
+    "class": "c-lane",
+    "rect": {
+     "x": 48,
+     "y": 525,
+     "width": 724,
+     "height": 140,
+     "rx": 10
+    }
+   }
+  ],
+  "decor": {
+   "Lifelines": [
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 62 142 L 62 695",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 170 142 L 170 695",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 278 142 L 278 695",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 386 142 L 386 695",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 494 142 L 494 695",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 602 142 L 602 695",
+     "dash": "3,7"
+    },
+    {
+     "tag": "path",
+     "class": "a-default",
+     "d": "M 710 142 L 710 695",
+     "dash": "3,7"
+    }
+   ],
+   "Activations": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 165,
+     "y": 220,
+     "width": 10,
+     "height": 448,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-frontend",
+     "x": 165,
+     "y": 220,
+     "width": 10,
+     "height": 448,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 273,
+     "y": 228,
+     "width": 10,
+     "height": 404,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-backend",
+     "x": 273,
+     "y": 228,
+     "width": 10,
+     "height": 404,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 381,
+     "y": 265,
+     "width": 10,
+     "height": 45,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-security",
+     "x": 381,
+     "y": 265,
+     "width": 10,
+     "height": 45,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 489,
+     "y": 349,
+     "width": 10,
+     "height": 49,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-database",
+     "x": 489,
+     "y": 349,
+     "width": 10,
+     "height": 49,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 597,
+     "y": 438,
+     "width": 10,
+     "height": 58,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-database",
+     "x": 597,
+     "y": 438,
+     "width": 10,
+     "height": 58,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 705,
+     "y": 575,
+     "width": 10,
+     "height": 55,
+     "rx": 3
+    },
+    {
+     "tag": "rect",
+     "class": "c-messagebus",
+     "x": 705,
+     "y": 575,
+     "width": 10,
+     "height": 55,
+     "rx": 3
+    }
+   ],
+   "Segment Labels": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 128,
+     "width": 50.4,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "0"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 141,
+     "font_size": 9,
+     "text": "Request",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "0"
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 293,
+     "width": 55.6,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "1"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 306,
+     "font_size": 9,
+     "text": "Fallback",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "1"
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 56,
+     "y": 503,
+     "width": 97.2,
+     "height": 18,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "2"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 62,
+     "y": 516,
+     "font_size": 9,
+     "text": "Response + trace",
+     "data": {
+      "data-graph-role": "segment-label",
+      "data-segment-id": "2"
+     }
+    }
+   ]
+  }
+ }
+}

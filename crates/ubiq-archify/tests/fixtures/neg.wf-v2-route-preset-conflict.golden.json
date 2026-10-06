@@ -1,0 +1,266 @@
+{
+ "name": "neg.wf-v2-route-preset-conflict",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/route-preset-conflict",
+ "expect_codes": [
+  "workflow/route-preset-conflict"
+ ],
+ "source_sha256": "9a546cefc24d01b8d648e268db28315a454c88e4c0150c4e17d6492ac4771bf9",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis",
+    "route": "outside-right",
+    "fromSide": "left",
+    "toSide": "left"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow edge \"e1\" cannot satisfy route preset \"outside-right\" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance).",
+    "diagnostics": [
+     {
+      "code": "workflow/route-preset-conflict",
+      "severity": "error",
+      "message": "Workflow edge \"e1\" cannot satisfy route preset \"outside-right\" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance).",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "e1",
+       "from": "user",
+       "to": "plan",
+       "route": "outside-right"
+      },
+      "evidence": {
+       "attemptedCandidateFamily": "outside-right",
+       "points": [[48,119],[764,119],[764,243],[168,243]],
+       "fromSide": "left",
+       "toSide": "left",
+       "requiredEndpointStubPx": 8,
+       "requiredInteriorSegmentPx": 16,
+       "requiredDirectClearancePx": 28
+      },
+      "supportedFixes": [
+       "set edge \"e1\" route to verified preset \"return-left\"",
+       "remove route from edge \"e1\" so readable-v2 can use its verified automatic candidate"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow edge \"e1\" cannot satisfy route preset \"outside-right\" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance).",
+    "diagnostics": [
+     {
+      "code": "workflow/route-preset-conflict",
+      "severity": "error",
+      "message": "Workflow edge \"e1\" cannot satisfy route preset \"outside-right\" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance).",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "e1",
+       "from": "user",
+       "to": "plan",
+       "route": "outside-right"
+      },
+      "evidence": {
+       "attemptedCandidateFamily": "outside-right",
+       "points": [[48,119],[764,119],[764,243],[168,243]],
+       "fromSide": "left",
+       "toSide": "left",
+       "requiredEndpointStubPx": 8,
+       "requiredInteriorSegmentPx": 16,
+       "requiredDirectClearancePx": 28
+      },
+      "supportedFixes": [
+       "set edge \"e1\" route to verified preset \"return-left\"",
+       "remove route from edge \"e1\" so readable-v2 can use its verified automatic candidate"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow edge \"e1\" cannot satisfy route preset \"outside-right\" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance).",
+    "diagnostics": [
+     {
+      "code": "workflow/route-preset-conflict",
+      "severity": "error",
+      "message": "Workflow edge \"e1\" cannot satisfy route preset \"outside-right\" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance).",
+      "subject": {
+       "diagramType": "workflow",
+       "edge": "e1",
+       "from": "user",
+       "to": "plan",
+       "route": "outside-right"
+      },
+      "evidence": {
+       "attemptedCandidateFamily": "outside-right",
+       "points": [[48,119],[764,119],[764,243],[168,243]],
+       "fromSide": "left",
+       "toSide": "left",
+       "requiredEndpointStubPx": 8,
+       "requiredInteriorSegmentPx": 16,
+       "requiredDirectClearancePx": 28
+      },
+      "supportedFixes": [
+       "set edge \"e1\" route to verified preset \"return-left\"",
+       "remove route from edge \"e1\" so readable-v2 can use its verified automatic candidate"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/route-preset-conflict",
+     "severity": "error",
+     "message": "Workflow edge \"e1\" cannot satisfy route preset \"outside-right\" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance).",
+     "subject": {
+      "diagramType": "workflow",
+      "edge": "e1",
+      "from": "user",
+      "to": "plan",
+      "route": "outside-right"
+     },
+     "evidence": {
+      "attemptedCandidateFamily": "outside-right",
+      "points": [[48,119],[764,119],[764,243],[168,243]],
+      "fromSide": "left",
+      "toSide": "left",
+      "requiredEndpointStubPx": 8,
+      "requiredInteriorSegmentPx": 16,
+      "requiredDirectClearancePx": 28
+     },
+     "supportedFixes": [
+      "set edge \"e1\" route to verified preset \"return-left\"",
+      "remove route from edge \"e1\" so readable-v2 can use its verified automatic candidate"
+     ]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

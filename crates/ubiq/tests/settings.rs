@@ -38,6 +38,7 @@ fn a_blob_survives_the_round_trip() {
         explorer_hidden: true,
         capture_enabled: false,
         rail_projects: false,
+        hidden_modes: vec![ubiq::state::workbench::RailMode::GIT],
         markdown_open: MarkdownOpen::Source,
         terminal_close: TabClose::Hide,
         agent_terminal_close: TabClose::Hide,

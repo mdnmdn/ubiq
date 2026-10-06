@@ -41,7 +41,7 @@ use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
-use super::{AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
+use super::{ArchifyReach, AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -109,6 +109,7 @@ pub fn start(
     help: Option<HelpReach>,
     ask: Option<AskReach>,
     sql: Option<SqlReach>,
+    archify: Option<ArchifyReach>,
 ) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
@@ -134,6 +135,7 @@ pub fn start(
                 help,
                 ask,
                 sql,
+                archify,
                 stop_thread,
             )
         })
@@ -165,6 +167,7 @@ fn serve(
     help: Option<HelpReach>,
     ask: Option<AskReach>,
     sql: Option<SqlReach>,
+    archify: Option<ArchifyReach>,
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::SeqCst) {
@@ -180,6 +183,7 @@ fn serve(
                 help.as_ref(),
                 ask.as_ref(),
                 sql.as_ref(),
+                archify.as_ref(),
             ),
             Ok(None) => continue,
             Err(_) => break,
@@ -201,6 +205,7 @@ fn handle(
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
     sql: Option<&SqlReach>,
+    archify: Option<&ArchifyReach>,
 ) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
@@ -291,6 +296,49 @@ fn handle(
         return;
     }
 
+    // A diagram call can compile for a second, so it is served on a thread of its own as well
+    // (`D138`, `D202`); its reach is a mailbox, so there is nothing to bound.
+    if spec.name == catalogue::UBIQ_ARCHIFY
+        && method == "tools/call"
+        && let Some(reach) = archify
+    {
+        let reach = reach.clone();
+        let voice = voice.clone();
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let spawned = std::thread::Builder::new()
+            .name("ubiq-archify-call".to_string())
+            .spawn(move || {
+                let result = super::tools::call(
+                    catalogue::UBIQ_ARCHIFY,
+                    &name,
+                    &arguments,
+                    &facts,
+                    &voice,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(&reach),
+                );
+                let _ = request.respond(json_response(&envelope(&id, tool_result(result))));
+            });
+        if let Err(error) = spawned {
+            tracing::error!("a diagram call could not be served on a thread of its own: {error}");
+        }
+        return;
+    }
+
     // The SQL servers' calls wait on a database, so each is served on a thread of its own, at most
     // [`sql::MAX_CALLS`] at once; beyond that the call is refused as busy rather than queued (`D202`).
     #[cfg(feature = "db")]
@@ -337,6 +385,7 @@ fn handle(
                     None,
                     None,
                     Some(&reach),
+                    None,
                 );
                 let _ = request.respond(json_response(&envelope(&id, tool_result(result))));
             });
@@ -348,7 +397,7 @@ fn handle(
     }
 
     let response = match dispatch(
-        method, params, spec, &facts, voice, work, plan, mission, kb, help, ask, sql,
+        method, params, spec, &facts, voice, work, plan, mission, kb, help, ask, sql, archify,
     ) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
         Err((code, message)) => {
@@ -394,6 +443,7 @@ fn dispatch(
     help: Option<&HelpReach>,
     ask: Option<&AskReach>,
     sql: Option<&SqlReach>,
+    archify: Option<&ArchifyReach>,
 ) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => Ok(json!({
@@ -410,6 +460,7 @@ fn dispatch(
                 .unwrap_or_else(|| json!({}));
             Ok(tool_result(super::tools::call(
                 spec.name, name, &arguments, facts, voice, work, plan, mission, kb, help, ask, sql,
+                archify,
             )))
         }
         _ => Err((-32601, format!("method not found: {method}"))),
@@ -703,6 +754,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         (serving, hub, host)
@@ -724,6 +776,7 @@ mod tests {
             registry,
             host.voice(),
             Some(access),
+            None,
             None,
             None,
             None,
@@ -783,6 +836,7 @@ mod tests {
             host.voice(),
             None,
             Some(reach),
+            None,
             None,
             None,
             None,
@@ -1667,6 +1721,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         (
@@ -1955,6 +2010,7 @@ mod tests {
                 asks: Arc::clone(&asks),
                 armed: Arc::new(crate::armed::Armed::new()),
             }),
+            None,
             None,
         )
         .expect("the listener binds");

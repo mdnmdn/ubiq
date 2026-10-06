@@ -5,6 +5,7 @@
 //! direction: a bounded downward walk from the project's root that names every folder holding a
 //! `.git`. It opens nothing — it answers paths, and `observe` decides what to do with them.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -31,6 +32,16 @@ pub struct Discovered {
 ///
 /// `root` itself is never a member: the project's own repository is the upward walk's answer.
 pub fn discover(root: &Path) -> Discovered {
+    discover_pruned(root, &HashSet::new())
+}
+
+/// [`discover`], not descending into a folder in `ignored` — the outer repository's ignored
+/// folders, project-relative, as its status walk names them. An ignored folder that is itself a
+/// repository is still found (a clone kept in an ignored folder is the common case); one buried
+/// *inside* an ignored folder is not, the same as one under `node_modules` (T-333).
+pub fn discover_pruned(root: &Path, ignored: &HashSet<String>) -> Discovered {
+    let started = std::time::Instant::now();
+    let mut visited = 0usize;
     let mut roots: Vec<String> = Vec::new();
     let mut truncated = false;
     let mut stack: Vec<(std::path::PathBuf, String, usize)> =
@@ -46,6 +57,7 @@ pub fn discover(root: &Path) -> Discovered {
             // blank every badge in the project.
             continue;
         };
+        visited += 1;
         for found in listing.flatten() {
             let name = found.file_name().to_string_lossy().to_string();
             // `WALK_SKIP` holds `.git` itself, along with `node_modules`, `target` and the rest of
@@ -79,10 +91,19 @@ pub fn discover(root: &Path) -> Discovered {
                 // and its submodules are rows on its overview.
                 continue;
             }
+            if ignored.contains(&child_rel) {
+                continue;
+            }
             stack.push((path, child_rel, depth + 1));
         }
     }
 
+    tracing::debug!(
+        "nested repositories under {}: {} found, {visited} folders read in {:?}",
+        root.display(),
+        roots.len(),
+        started.elapsed()
+    );
     roots.sort();
     Discovered { roots, truncated }
 }

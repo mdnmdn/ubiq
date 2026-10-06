@@ -1,6 +1,5 @@
-//! The Teams screen's own view of the work — a clone of [`super::orchestration`]'s under the new
-//! rail mode: what is selected in the graph, which session
-//! and which states it is showing, how far in it is zoomed, and what the pointer has hold of.
+//! The Teams screen's view of the work: what is selected in the graph, which session and which
+//! states it is showing, how far in it is zoomed, and what the pointer has hold of.
 //!
 //! **Every filter can be cleared, and cleared means everything.** A graph showing one session and
 //! four states is the useful default and not the only view: the session row has an "all" and no
@@ -13,8 +12,7 @@
 //! halves testable without a frame, and it is the same shape `BoardState`'s readers have.
 //!
 //! **This mode draws only the agents the window can talk to.** The projection every reader is
-//! handed is [`live_work`]'s, not the host's whole one, so the fixtures the mock work thread seeds
-//! never reach the canvas.
+//! handed is [`live_work`]'s, not the host's whole one.
 //!
 //! Nothing here draws and nothing here names a colour — an activity says what it *is*, and
 //! `ui::work` decides which token that reads in. Nothing here says where anything sits either:
@@ -41,12 +39,10 @@ pub use super::layout::{
 /// The work this mode draws: the host's projection, narrowed to the agents this window actually
 /// holds a conversation with.
 ///
-/// **The host's projection is wider than what a window can talk to.** It carries the mock work
-/// thread's fixtures as well — a name, an activity, a note, and nothing behind any of them — and a
-/// canvas drawing one would be a map of agents that do not exist. So every reader in this mode
-/// goes through here, the way the agents screen goes through [`super::agents::AgentsView::live_agents`],
-/// and a project with nothing running draws as empty rather than as busy with fictions. `TeamsOld`
-/// keeps reading the whole projection.
+/// **The host's projection can be wider than what a window can talk to** — a record with no
+/// conversation in this window behind it would be a card nothing answers. So every reader in this
+/// mode goes through here, the way the agents screen goes through
+/// [`super::agents::AgentsView::live_agents`], and a project with nothing running draws as empty.
 ///
 /// A session with no live agent left in it goes with them, and so does a task no live agent serves
 /// or holds a step in: both are drawn *about* agents, and an outline round nothing is furniture.
@@ -165,10 +161,10 @@ pub enum TeamsSelection {
     Mission(TaskId),
 }
 
-/// Which half of `[Teams]`'s inspector is showing. `Teams` has no inspector of its own — a
-/// selection opens a `Chat` panel in the right dock instead — but keeps the field for the link
-/// grammar `ubiq://` deep links share with `[Teams]` (`state/nav/text.rs`), and sets it to `Chat`
-/// wherever it points at an agent.
+/// Which half of an inspector a `teams` link names. `Teams` has no inspector of its own — a
+/// selection opens a `Chat` panel in the right dock instead — but keeps the field for the
+/// `ubiq://` link grammar (`state/nav/text.rs`), and sets it to `Chat` wherever it points at an
+/// agent.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TeamsInspectorTab {
     Chat,

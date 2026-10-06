@@ -59,9 +59,6 @@ impl AppState {
             View::Chat { chat } => self
                 .pending_panels
                 .push(PanelEdit::Reveal(PanelKind::Chat(*chat))),
-            View::Graph { selection, tab } => {
-                self.reveal_graph(*selection, *tab, dest.locus.as_ref(), cx)
-            }
             View::Teams { selection, tab } => {
                 self.reveal_teams(selection.clone(), *tab, dest.locus.as_ref(), cx)
             }
@@ -151,14 +148,6 @@ impl AppState {
             View::Ide { .. } => self
                 .cursor_line_column(cx)
                 .map(|(line, _)| Locus::Line { line }),
-            View::Graph { .. } => {
-                let offset = self.graph_scroll.offset();
-                Some(Locus::Viewport {
-                    x: f32::from(offset.x),
-                    y: f32::from(offset.y),
-                    scale: self.graph(cx)?.zoom,
-                })
-            }
             View::Teams { .. } => {
                 let offset = self.teams_scroll.offset();
                 Some(Locus::Viewport {
@@ -223,28 +212,8 @@ impl AppState {
         self.reveal_active_file(cx);
     }
 
-    /// Point the graph at a selection, on the inspector tab the destination named.
-    fn reveal_graph(
-        &mut self,
-        selection: Selection,
-        tab: InspectorTab,
-        locus: Option<&Locus>,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(graph) = self.graph_mut(cx) {
-            graph.selection = Some(selection);
-            graph.tab = tab;
-            if let Some(Locus::Viewport { scale, .. }) = locus {
-                graph.zoom = *scale;
-            }
-        }
-        if let Some(Locus::Viewport { x, y, .. }) = locus {
-            self.graph_scroll.set_offset(point(px(*x), px(*y)));
-        }
-        cx.notify();
-    }
-
-    /// The same for the Teams canvas, over its own state and its own scroll.
+    /// Point the Teams canvas at a selection, on the tab the destination named, over its own
+    /// state and its own scroll.
     ///
     /// The selection goes through [`Self::select_in_teams`] rather than being written here,
     /// because arriving at a delegate has to point the conversation at it too — a link that put
@@ -279,7 +248,6 @@ pub fn rail_of(view: &View, from: RailMode) -> Option<RailMode> {
         View::Git => RailMode::GIT,
         View::Db => RailMode::DB,
         View::Ide { .. } | View::Explorer { .. } => RailMode::IDE,
-        View::Graph { .. } => RailMode::TEAMS_OLD,
         // A teams link names the project of what it points at, but the span is not part of the
         // address: the same card is the same card on a canvas showing one project and on one
         // showing six. So a window already on `TeamsAll` stays there rather than being yanked to

@@ -1,0 +1,170 @@
+{
+ "name": "neg.schema-minItems-stages",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "schema/minItems",
+ "expect_codes": [
+  "schema/minItems"
+ ],
+ "source_sha256": "478ee4588b76f3e8acdd4af6abd44b18a1c9e845566c0f775833308280b5a185",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html"
+  },
+  "stages": [
+   {
+    "label": "Only"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "Src",
+    "stage": 0,
+    "row": 0
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 2
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f2",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "dataflow schema validation failed:\n  /stages must NOT have fewer than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/minItems",
+      "severity": "error",
+      "message": "/stages must NOT have fewer than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "dataflow",
+       "path": "/stages"
+      },
+      "evidence": {
+       "keyword": "minItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at least 2 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "dataflow schema validation failed:\n  /stages must NOT have fewer than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/minItems",
+      "severity": "error",
+      "message": "/stages must NOT have fewer than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "dataflow",
+       "path": "/stages"
+      },
+      "evidence": {
+       "keyword": "minItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at least 2 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "dataflow schema validation failed:\n  /stages must NOT have fewer than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/minItems",
+      "severity": "error",
+      "message": "/stages must NOT have fewer than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "dataflow",
+       "path": "/stages"
+      },
+      "evidence": {
+       "keyword": "minItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at least 2 item(s)"
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

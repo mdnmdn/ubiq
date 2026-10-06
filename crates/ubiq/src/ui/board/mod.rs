@@ -1,7 +1,7 @@
 //! The tasks board: every task in the project as a card, in the column that says how far along it
 //! is, with the one that is selected reported beside it.
 //!
-//! It is the third view of the work, beside the agents screen's columns and the orchestration
+//! It is the third view of the work, beside the agents screen's columns and the Teams
 //! graph. The graph answers "who is doing what"; the board answers "what is there, and where has it
 //! got to" — the same tasks, in [`crate::state::work`], read at the scale of the project rather
 //! than of one session. Which is why a card carries an agent's name and a state: the screens are

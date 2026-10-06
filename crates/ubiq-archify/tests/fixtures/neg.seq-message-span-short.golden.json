@@ -1,0 +1,159 @@
+{
+ "name": "neg.seq-message-span-short",
+ "group": "negative",
+ "source": "mutation of sequence",
+ "type": "sequence",
+ "rule": "geom/edge-too-short",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "06e33e88633cadfa23cf50d5a9d9787cf51ff25607cdfd007fec38cddbb3c512",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Seq",
+   "output": "seq.html"
+  },
+  "participants": [
+   {
+    "id": "ui",
+    "type": "frontend",
+    "label": "UI"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB"
+   }
+  ],
+  "messages": [
+   {
+    "id": "m1",
+    "from": "ui",
+    "to": "ui",
+    "y": 180,
+    "label": "GET /x"
+   },
+   {
+    "id": "m2",
+    "from": "api",
+    "to": "db",
+    "y": 230,
+    "label": "SELECT"
+   },
+   {
+    "id": "m3",
+    "from": "db",
+    "to": "api",
+    "y": 280,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "id": "m4",
+    "from": "api",
+    "to": "ui",
+    "y": 330,
+    "label": "200",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "api",
+    "from": 175,
+    "to": 335,
+    "type": "backend"
+   }
+  ],
+  "segments": [
+   {
+    "from": 160,
+    "to": 345,
+    "label": "Read"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Message \"GET /x\" spans 0px (minimum 60px) — give its participants more column distance.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"GET /x\" spans 0px (minimum 60px) — give its participants more column distance.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Message \"GET /x\" spans 0px (minimum 60px) — give its participants more column distance.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"GET /x\" spans 0px (minimum 60px) — give its participants more column distance.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Message \"GET /x\" spans 0px (minimum 60px) — give its participants more column distance.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"GET /x\" spans 0px (minimum 60px) — give its participants more column distance.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

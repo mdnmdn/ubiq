@@ -1,0 +1,1958 @@
+{
+ "name": "product-analytics.dataflow",
+ "group": "example",
+ "source": "archify/examples/product-analytics.dataflow.json",
+ "type": "dataflow",
+ "source_sha256": "8a635db9e51a5b1a8d2955b9d66f5b9a450e0a298432ce8f2e2f0be11f372e05",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "Product Analytics Data Flow",
+   "output": "examples/dataflow-product-analytics.html",
+   "viewBox": [1080,520],
+   "animation": "trace",
+   "quality_profile": "showcase"
+  },
+  "stages": [
+   {
+    "label": "Sources"
+   },
+   {
+    "label": "Ingest"
+   },
+   {
+    "label": "Process"
+   },
+   {
+    "label": "Store"
+   },
+   {
+    "label": "Consume"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web App",
+    "sublabel": "browser SDK",
+    "stage": 0,
+    "row": 0,
+    "tag": "events"
+   },
+   {
+    "id": "mobile",
+    "type": "frontend",
+    "label": "Mobile",
+    "sublabel": "iOS / Android",
+    "stage": 0,
+    "row": 2,
+    "tag": "events"
+   },
+   {
+    "id": "edge",
+    "type": "cloud",
+    "label": "Edge API",
+    "sublabel": "collector",
+    "stage": 1,
+    "row": 1,
+    "tag": "TLS"
+   },
+   {
+    "id": "consent",
+    "type": "security",
+    "label": "Consent Gate",
+    "sublabel": "policy filter",
+    "stage": 2,
+    "row": 0,
+    "tag": "PII guard"
+   },
+   {
+    "id": "stream",
+    "type": "messagebus",
+    "label": "Event Stream",
+    "sublabel": "Kafka topic",
+    "stage": 2,
+    "row": 2,
+    "tag": "ordered"
+   },
+   {
+    "id": "pii",
+    "type": "security",
+    "label": "PII Vault",
+    "sublabel": "encrypted",
+    "stage": 3,
+    "row": 0,
+    "tag": "restricted"
+   },
+   {
+    "id": "warehouse",
+    "type": "database",
+    "label": "Warehouse",
+    "sublabel": "analytics tables",
+    "stage": 3,
+    "row": 1,
+    "tag": "curated"
+   },
+   {
+    "id": "features",
+    "type": "database",
+    "label": "Feature Store",
+    "sublabel": "daily batch",
+    "stage": 3,
+    "row": 2,
+    "tag": "derived"
+   },
+   {
+    "id": "dashboard",
+    "type": "backend",
+    "label": "Dashboards",
+    "sublabel": "product metrics",
+    "stage": 4,
+    "row": 0,
+    "tag": "SQL"
+   },
+   {
+    "id": "model",
+    "type": "backend",
+    "label": "ML Model",
+    "sublabel": "ranking job",
+    "stage": 4,
+    "row": 2,
+    "tag": "features"
+   }
+  ],
+  "flows": [
+   {
+    "id": "web-clickstream",
+    "from": "web",
+    "to": "edge",
+    "label": "clickstream",
+    "classification": "user events",
+    "variant": "emphasis",
+    "fromSide": "right",
+    "toSide": "left",
+    "via": [[205,157],[205,271]],
+    "labelAt": [204,190]
+   },
+   {
+    "id": "mobile-events",
+    "from": "mobile",
+    "to": "edge",
+    "label": "app events",
+    "classification": "device events",
+    "variant": "default",
+    "fromSide": "right",
+    "toSide": "left",
+    "via": [[222,385],[222,271]],
+    "labelAt": [220,342]
+   },
+   {
+    "id": "consent-enrichment",
+    "from": "edge",
+    "to": "consent",
+    "label": "identity + consent",
+    "classification": "PII touch",
+    "variant": "security",
+    "fromSide": "top",
+    "toSide": "left",
+    "via": [[315,112],[450,112],[450,157]],
+    "labelAt": [382,100]
+   },
+   {
+    "id": "accepted-events",
+    "from": "edge",
+    "to": "stream",
+    "label": "accepted events",
+    "classification": "append-only",
+    "variant": "emphasis",
+    "fromSide": "right",
+    "toSide": "left",
+    "via": [[420,271],[420,385]],
+    "labelAt": [438,324]
+   },
+   {
+    "id": "identity-map",
+    "from": "consent",
+    "to": "pii",
+    "label": "identity map",
+    "classification": "encrypted PII",
+    "variant": "security",
+    "route": "straight",
+    "labelAt": [638,144]
+   },
+   {
+    "id": "normalized-facts",
+    "from": "stream",
+    "to": "warehouse",
+    "label": "normalized facts",
+    "classification": "non-PII",
+    "variant": "emphasis",
+    "fromSide": "right",
+    "toSide": "left",
+    "via": [[638,385],[638,271]],
+    "labelAt": [638,326]
+   },
+   {
+    "id": "daily-aggregates",
+    "from": "warehouse",
+    "to": "features",
+    "label": "daily aggregates",
+    "classification": "batch",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "straight",
+    "labelAt": [745,326]
+   },
+   {
+    "id": "metrics-query",
+    "from": "warehouse",
+    "to": "dashboard",
+    "label": "metrics SQL",
+    "classification": "read-only",
+    "variant": "default",
+    "fromSide": "right",
+    "toSide": "bottom",
+    "via": [[852,271],[960,271]],
+    "labelAt": [876,258]
+   },
+   {
+    "id": "feature-vectors",
+    "from": "features",
+    "to": "model",
+    "label": "feature vectors",
+    "classification": "derived",
+    "variant": "dashed",
+    "route": "straight",
+    "labelAt": [852,372]
+   },
+   {
+    "id": "restricted-join",
+    "from": "pii",
+    "to": "dashboard",
+    "label": "restricted join",
+    "classification": "approved only",
+    "variant": "security",
+    "route": "straight",
+    "labelAt": [852,144]
+   }
+  ],
+  "cards": [
+   {
+    "dot": "emerald",
+    "title": "Primary Data Path",
+    "items": [
+     "Events move left to right through source, ingest, process, store, and consume stages",
+     "The hot path stays visually clear even with secondary batch flows",
+     "Labels name data assets instead of generic API verbs"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Sensitive Boundary",
+    "items": [
+     "Consent and PII paths are styled as security flows",
+     "PII lands in a restricted vault, separate from the analytics warehouse",
+     "Restricted joins are visible without implying default access"
+    ]
+   },
+   {
+    "dot": "orange",
+    "title": "Derived Consumers",
+    "items": [
+     "Dashboards read curated facts from the warehouse",
+     "Feature vectors are derived by batch from analytics tables",
+     "Consumption paths stay distinct from collection and consent handling"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "dataflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "8a635db9e51a5b1a8d2955b9d66f5b9a450e0a298432ce8f2e2f0be11f372e05",
+     "bytes": 5035
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "dataflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "8a635db9e51a5b1a8d2955b9d66f5b9a450e0a298432ce8f2e2f0be11f372e05",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 44.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 1.369,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 24,
+      "minInteriorSegmentPx": 45,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "consent-enrichment",
+         "from": "edge",
+         "to": "consent",
+         "label": "identity + consent",
+         "collectionIndex": 2,
+         "artifactIndex": 3
+        },
+        "bends": 3,
+        "stretch": 1.369
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "web"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 30
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "dataflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "8a635db9e51a5b1a8d2955b9d66f5b9a450e0a298432ce8f2e2f0be11f372e05",
+     "bytes": 5035
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "dataflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "8a635db9e51a5b1a8d2955b9d66f5b9a450e0a298432ce8f2e2f0be11f372e05",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 44.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 1.369,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 24,
+      "minInteriorSegmentPx": 45,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "consent-enrichment",
+         "from": "edge",
+         "to": "consent",
+         "label": "identity + consent",
+         "collectionIndex": 2,
+         "artifactIndex": 3
+        },
+        "bends": 3,
+        "stretch": 1.369
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "web"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 30
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "dataflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "8a635db9e51a5b1a8d2955b9d66f5b9a450e0a298432ce8f2e2f0be11f372e05",
+     "bytes": 5035
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "dataflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "8a635db9e51a5b1a8d2955b9d66f5b9a450e0a298432ce8f2e2f0be11f372e05",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 44.3,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 1.369,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 24,
+      "minInteriorSegmentPx": 45,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "consent-enrichment",
+         "from": "edge",
+         "to": "consent",
+         "label": "identity + consent",
+         "collectionIndex": 2,
+         "artifactIndex": 3
+        },
+        "bends": 3,
+        "stretch": 1.369
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "web"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 30
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1080,520],
+  "svg_attrs": {
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "classic",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Product Analytics Data Flow",
+  "nodes": [
+   {
+    "id": "web",
+    "kind": "frontend",
+    "label": "Web App",
+    "sublabel": "browser SDK",
+    "tag": "events",
+    "context": "01 / Sources",
+    "rect": {
+     "x": 44,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 100,
+      "y": 149,
+      "font_size": 10,
+      "text": "Web App",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 100,
+      "y": 165,
+      "font_size": 7,
+      "text": "browser SDK",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 100,
+      "y": 175,
+      "font_size": 7,
+      "text": "events",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(50 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "mobile",
+    "kind": "frontend",
+    "label": "Mobile",
+    "sublabel": "iOS / Android",
+    "tag": "events",
+    "context": "01 / Sources",
+    "rect": {
+     "x": 44,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 100,
+      "y": 377,
+      "font_size": 10,
+      "text": "Mobile",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 100,
+      "y": 393,
+      "font_size": 7,
+      "text": "iOS / Android",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 100,
+      "y": 403,
+      "font_size": 7,
+      "text": "events",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(50 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "edge",
+    "kind": "cloud",
+    "label": "Edge API",
+    "sublabel": "collector",
+    "tag": "TLS",
+    "context": "02 / Ingest",
+    "rect": {
+     "x": 259,
+     "y": 242,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 315,
+      "y": 263,
+      "font_size": 10,
+      "text": "Edge API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 315,
+      "y": 279,
+      "font_size": 7,
+      "text": "collector",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 315,
+      "y": 289,
+      "font_size": 7,
+      "text": "TLS",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(265 248) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "consent",
+    "kind": "security",
+    "label": "Consent Gate",
+    "sublabel": "policy filter",
+    "tag": "PII guard",
+    "context": "03 / Process",
+    "rect": {
+     "x": 474,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 530,
+      "y": 149,
+      "font_size": 10,
+      "text": "Consent Gate",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 530,
+      "y": 165,
+      "font_size": 7,
+      "text": "policy filter",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 530,
+      "y": 175,
+      "font_size": 7,
+      "text": "PII guard",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(480 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "stream",
+    "kind": "messagebus",
+    "label": "Event Stream",
+    "sublabel": "Kafka topic",
+    "tag": "ordered",
+    "context": "03 / Process",
+    "rect": {
+     "x": 474,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 530,
+      "y": 377,
+      "font_size": 10,
+      "text": "Event Stream",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 530,
+      "y": 393,
+      "font_size": 7,
+      "text": "Kafka topic",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 530,
+      "y": 403,
+      "font_size": 7,
+      "text": "ordered",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(480 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "pii",
+    "kind": "security",
+    "label": "PII Vault",
+    "sublabel": "encrypted",
+    "tag": "restricted",
+    "context": "04 / Store",
+    "rect": {
+     "x": 689,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 745,
+      "y": 149,
+      "font_size": 10,
+      "text": "PII Vault",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 745,
+      "y": 165,
+      "font_size": 7,
+      "text": "encrypted",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 745,
+      "y": 175,
+      "font_size": 7,
+      "text": "restricted",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(695 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "warehouse",
+    "kind": "database",
+    "label": "Warehouse",
+    "sublabel": "analytics tables",
+    "tag": "curated",
+    "context": "04 / Store",
+    "rect": {
+     "x": 689,
+     "y": 242,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 745,
+      "y": 263,
+      "font_size": 10,
+      "text": "Warehouse",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 745,
+      "y": 279,
+      "font_size": 7,
+      "text": "analytics tables",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 745,
+      "y": 289,
+      "font_size": 7,
+      "text": "curated",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(695 248) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "features",
+    "kind": "database",
+    "label": "Feature Store",
+    "sublabel": "daily batch",
+    "tag": "derived",
+    "context": "04 / Store",
+    "rect": {
+     "x": 689,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 747,
+      "y": 377,
+      "font_size": 10,
+      "text": "Feature Store",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 745,
+      "y": 393,
+      "font_size": 7,
+      "text": "daily batch",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 745,
+      "y": 403,
+      "font_size": 7,
+      "text": "derived",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(695 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "dashboard",
+    "kind": "backend",
+    "label": "Dashboards",
+    "sublabel": "product metrics",
+    "tag": "SQL",
+    "context": "05 / Consume",
+    "rect": {
+     "x": 904,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 960,
+      "y": 149,
+      "font_size": 10,
+      "text": "Dashboards",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 960,
+      "y": 165,
+      "font_size": 7,
+      "text": "product metrics",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 960,
+      "y": 175,
+      "font_size": 7,
+      "text": "SQL",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(910 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "model",
+    "kind": "backend",
+    "label": "ML Model",
+    "sublabel": "ranking job",
+    "tag": "features",
+    "context": "05 / Consume",
+    "rect": {
+     "x": 904,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 960,
+      "y": 377,
+      "font_size": 10,
+      "text": "ML Model",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 960,
+      "y": 393,
+      "font_size": 7,
+      "text": "ranking job",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 960,
+      "y": 403,
+      "font_size": 7,
+      "text": "features",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(910 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "web-clickstream",
+    "from": "web",
+    "to": "edge",
+    "label": "clickstream",
+    "points": [[156,157],[205,157],[205,271],[259,271]],
+    "d": "M 156 157 L 205 157 L 205 271 L 259 271",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "id": "mobile-events",
+    "from": "mobile",
+    "to": "edge",
+    "label": "app events",
+    "points": [[156,385],[222,385],[222,271],[259,271]],
+    "d": "M 156 385 L 222 385 L 222 271 L 259 271",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "id": "consent-enrichment",
+    "from": "edge",
+    "to": "consent",
+    "label": "identity + consent",
+    "points": [[315,242],[315,112],[450,112],[450,157],[474,157]],
+    "d": "M 315 242 L 315 112 L 450 112 L 450 157 L 474 157",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 3,
+    "id": "accepted-events",
+    "from": "edge",
+    "to": "stream",
+    "label": "accepted events",
+    "points": [[371,271],[420,271],[420,385],[474,385]],
+    "d": "M 371 271 L 420 271 L 420 385 L 474 385",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "id": "identity-map",
+    "from": "consent",
+    "to": "pii",
+    "label": "identity map",
+    "points": [[586,157],[689,157]],
+    "d": "M 586 157 L 689 157",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 5,
+    "id": "normalized-facts",
+    "from": "stream",
+    "to": "warehouse",
+    "label": "normalized facts",
+    "points": [[586,385],[638,385],[638,271],[689,271]],
+    "d": "M 586 385 L 638 385 L 638 271 L 689 271",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 6,
+    "id": "daily-aggregates",
+    "from": "warehouse",
+    "to": "features",
+    "label": "daily aggregates",
+    "points": [[745,300],[745,356]],
+    "d": "M 745 300 L 745 356",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 7,
+    "id": "metrics-query",
+    "from": "warehouse",
+    "to": "dashboard",
+    "label": "metrics SQL",
+    "points": [[801,271],[852,271],[960,271],[960,186]],
+    "d": "M 801 271 L 852 271 L 960 271 L 960 186",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 8,
+    "id": "feature-vectors",
+    "from": "features",
+    "to": "model",
+    "label": "feature vectors",
+    "points": [[801,385],[904,385]],
+    "d": "M 801 385 L 904 385",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 9,
+    "id": "restricted-join",
+    "from": "pii",
+    "to": "dashboard",
+    "label": "restricted join",
+    "points": [[801,157],[904,157]],
+    "d": "M 801 157 L 904 157",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "web-clickstream",
+    "from": "web",
+    "to": "edge",
+    "text": "clickstream",
+    "rect": {
+     "x": 171.05,
+     "y": 179,
+     "width": 65.9,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 204,
+      "y": 190,
+      "font_size": 8,
+      "text": "clickstream",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 204,
+      "y": 201,
+      "font_size": 7,
+      "text": "user events",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "edge_id": "mobile-events",
+    "from": "mobile",
+    "to": "edge",
+    "text": "app events",
+    "rect": {
+     "x": 182.15,
+     "y": 331,
+     "width": 75.7,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 220,
+      "y": 342,
+      "font_size": 8,
+      "text": "app events",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     },
+     {
+      "x": 220,
+      "y": 353,
+      "font_size": 7,
+      "text": "device events",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "edge_id": "consent-enrichment",
+    "from": "edge",
+    "to": "consent",
+    "text": "identity + consent",
+    "rect": {
+     "x": 331.9,
+     "y": 89,
+     "width": 100.2,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 382,
+      "y": 100,
+      "font_size": 8,
+      "text": "identity + consent",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     },
+     {
+      "x": 382,
+      "y": 111,
+      "font_size": 7,
+      "text": "PII touch",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "edge_id": "accepted-events",
+    "from": "edge",
+    "to": "stream",
+    "text": "accepted events",
+    "rect": {
+     "x": 395.25,
+     "y": 313,
+     "width": 85.5,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 438,
+      "y": 324,
+      "font_size": 8,
+      "text": "accepted events",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 438,
+      "y": 335,
+      "font_size": 7,
+      "text": "append-only",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "edge_id": "identity-map",
+    "from": "consent",
+    "to": "pii",
+    "text": "identity map",
+    "rect": {
+     "x": 600.15,
+     "y": 133,
+     "width": 75.7,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 638,
+      "y": 144,
+      "font_size": 8,
+      "text": "identity map",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     },
+     {
+      "x": 638,
+      "y": 155,
+      "font_size": 7,
+      "text": "encrypted PII",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "edge_id": "normalized-facts",
+    "from": "stream",
+    "to": "warehouse",
+    "text": "normalized facts",
+    "rect": {
+     "x": 592.8,
+     "y": 315,
+     "width": 90.4,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 638,
+      "y": 326,
+      "font_size": 8,
+      "text": "normalized facts",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 638,
+      "y": 337,
+      "font_size": 7,
+      "text": "non-PII",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "edge_id": "daily-aggregates",
+    "from": "warehouse",
+    "to": "features",
+    "text": "daily aggregates",
+    "rect": {
+     "x": 699.8,
+     "y": 315,
+     "width": 90.4,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 745,
+      "y": 326,
+      "font_size": 8,
+      "text": "daily aggregates",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     },
+     {
+      "x": 745,
+      "y": 337,
+      "font_size": 7,
+      "text": "batch",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "edge_id": "metrics-query",
+    "from": "warehouse",
+    "to": "dashboard",
+    "text": "metrics SQL",
+    "rect": {
+     "x": 843.05,
+     "y": 247,
+     "width": 65.9,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 876,
+      "y": 258,
+      "font_size": 8,
+      "text": "metrics SQL",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     },
+     {
+      "x": 876,
+      "y": 269,
+      "font_size": 7,
+      "text": "read-only",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "edge_id": "feature-vectors",
+    "from": "features",
+    "to": "model",
+    "text": "feature vectors",
+    "rect": {
+     "x": 809.25,
+     "y": 361,
+     "width": 85.5,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 852,
+      "y": 372,
+      "font_size": 8,
+      "text": "feature vectors",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     },
+     {
+      "x": 852,
+      "y": 383,
+      "font_size": 7,
+      "text": "derived",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "edge_id": "restricted-join",
+    "from": "pii",
+    "to": "dashboard",
+    "text": "restricted join",
+    "rect": {
+     "x": 809.25,
+     "y": 133,
+     "width": 85.5,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 852,
+      "y": 144,
+      "font_size": 8,
+      "text": "restricted join",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     },
+     {
+      "x": 852,
+      "y": 155,
+      "font_size": 7,
+      "text": "approved only",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "stage",
+    "id": "0",
+    "class": "c-lane",
+    "rect": {
+     "x": 16,
+     "y": 46,
+     "width": 168,
+     "height": 400,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "1",
+    "class": "c-lane",
+    "rect": {
+     "x": 231,
+     "y": 46,
+     "width": 168,
+     "height": 400,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "2",
+    "class": "c-lane",
+    "rect": {
+     "x": 446,
+     "y": 46,
+     "width": 168,
+     "height": 400,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "3",
+    "class": "c-lane",
+    "rect": {
+     "x": 661,
+     "y": 46,
+     "width": 168,
+     "height": 400,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "4",
+    "class": "c-lane",
+    "rect": {
+     "x": 876,
+     "y": 46,
+     "width": 168,
+     "height": 400,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "emphasis",
+     "x": 40,
+     "baseline": 484,
+     "width": 103,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 40 481 L 74 481"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 83,
+       "y": 484,
+       "font_size": 10,
+       "text": "primary data"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "x": 165,
+     "baseline": 484,
+     "width": 103,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-security",
+       "d": "M 165 481 L 199 481"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 208,
+       "y": 484,
+       "font_size": 10,
+       "text": "policy / PII"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "dashed",
+     "x": 290,
+     "baseline": 484,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-dashed",
+       "d": "M 290 481 L 324 481"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 333,
+       "y": 484,
+       "font_size": 10,
+       "text": "async batch"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "data store",
+     "x": 410,
+     "baseline": 484,
+     "width": 93,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 410,
+       "y": 476,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 432,
+       "y": 484,
+       "font_size": 10,
+       "text": "data store"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "default",
+     "x": 525,
+     "baseline": 484,
+     "width": 88,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-default",
+       "d": "M 525 481 L 559 481"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 568,
+       "y": 484,
+       "font_size": 10,
+       "text": "data flow"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Data Stages": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 100,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "01 / Sources"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 315,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "02 / Ingest"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 530,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "03 / Process"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 745,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "04 / Store"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 960,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "05 / Consume"
+    }
+   ]
+  }
+ }
+}

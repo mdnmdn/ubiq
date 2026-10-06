@@ -708,6 +708,88 @@ fn discovery_does_not_descend_into_a_repository() {
     assert!(!found.truncated);
 }
 
+/// A full observation does not walk into what the repository ignores looking for repositories —
+/// but a clone kept in an ignored folder is still found (T-333).
+#[test]
+fn discovery_skips_ignored_folders_but_finds_an_ignored_clone() {
+    let dir = repository();
+    fs::write(dir.path().join(".gitignore"), b"build/\nclones/\n").unwrap();
+    let buried = dir.path().join("build/deep/inner");
+    fs::create_dir_all(&buried).unwrap();
+    git(&buried, &["init", "-q", "-b", "main"]);
+    let clone = dir.path().join("clones");
+    fs::create_dir_all(&clone).unwrap();
+    git(&clone, &["init", "-q", "-b", "main"]);
+
+    let repos: Vec<String> = tree_of(&dir)
+        .repos
+        .into_iter()
+        .map(|repo| repo.rel_path)
+        .collect();
+    assert_eq!(repos, vec!["clones".to_string()]);
+}
+
+/// The window's background cache walk does not descend into an ignored folder and is answered
+/// nothing when it asks for one; an explicit listing of the same folder is answered in full. A
+/// repository kept in an ignored folder is its own root and is walked (T-333).
+#[test]
+fn the_cache_walk_skips_ignored_folders_and_an_expand_does_not() {
+    let dir = repository();
+    let root = dir.path();
+    fs::write(root.join(".gitignore"), b"bin/\nvendor/\n").unwrap();
+    for folder in ["bin/a/b", "src/x/y", "vendor/lib/deep"] {
+        fs::create_dir_all(root.join(folder)).unwrap();
+    }
+    git(&root.join("vendor"), &["init", "-q", "-b", "main"]);
+
+    let listed: Vec<String> = ubiq_host::files::prefetch_listing(root, "", 3)
+        .unwrap()
+        .into_iter()
+        .map(|listing| listing.rel_path)
+        .collect();
+    for wanted in ["", "src", "src/x", "vendor", "vendor/lib"] {
+        assert!(
+            listed.iter().any(|p| p == wanted),
+            "{wanted} missing: {listed:?}"
+        );
+    }
+    assert!(
+        !listed.iter().any(|p| p.starts_with("bin")),
+        "an ignored folder was walked: {listed:?}"
+    );
+
+    assert!(
+        ubiq_host::files::prefetch_listing(root, "bin", 3)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        ubiq_host::files::prefetch_listing(root, "bin/a", 3)
+            .unwrap()
+            .is_empty()
+    );
+    let expanded = ubiq_host::files::listing(root, "bin", 1).unwrap();
+    assert_eq!(expanded[0].entries[0].name, "a");
+}
+
+/// A repository above the project that ignores the project's own root must not make every folder
+/// look ignored to the cache walk.
+#[test]
+fn an_enclosing_repository_ignoring_the_project_root_is_no_repository() {
+    let outer = TempDir::new().unwrap();
+    git(outer.path(), &["init", "-q", "-b", "main"]);
+    fs::write(outer.path().join(".gitignore"), b"*\n").unwrap();
+    let root = outer.path().join("proj");
+    fs::create_dir_all(root.join("src/x")).unwrap();
+
+    let listed: Vec<String> = ubiq_host::files::prefetch_listing(&root, "src", 2)
+        .unwrap()
+        .into_iter()
+        .map(|listing| listing.rel_path)
+        .collect();
+    assert_eq!(listed, ["src", "src/x"]);
+}
+
 fn tree_of(dir: &TempDir) -> ubiq_host::git::WorkingTree {
     observe(dir.path(), 1, true, &[])
         .unwrap()

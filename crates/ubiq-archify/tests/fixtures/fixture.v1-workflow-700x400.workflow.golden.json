@@ -1,0 +1,872 @@
+{
+ "name": "fixture.v1-workflow-700x400.workflow",
+ "group": "fixture",
+ "source": "archify/test/fixtures/v1-workflow-700x400.workflow.json",
+ "type": "workflow",
+ "source_sha256": "dfa6989ba4fbe448f6f47c2f187e9c65a35b8903c53296d3b5f7b86845c7591e",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Legacy narrow workflow",
+   "output": "v1-workflow-700x400.html",
+   "viewBox": [700,400]
+  },
+  "lanes": [
+   {
+    "id": "first",
+    "label": "First"
+   },
+   {
+    "id": "second",
+    "label": "Second"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "node_0",
+    "lane": "first",
+    "col": 0,
+    "type": "frontend",
+    "label": "frontend"
+   },
+   {
+    "id": "node_1",
+    "lane": "first",
+    "col": 2,
+    "type": "backend",
+    "label": "backend"
+   },
+   {
+    "id": "node_2",
+    "lane": "first",
+    "col": 4,
+    "type": "database",
+    "label": "database"
+   },
+   {
+    "id": "node_3",
+    "lane": "second",
+    "col": 0,
+    "type": "cloud",
+    "label": "cloud"
+   },
+   {
+    "id": "node_4",
+    "lane": "second",
+    "col": 2,
+    "type": "security",
+    "label": "security"
+   },
+   {
+    "id": "node_5",
+    "lane": "second",
+    "col": 4,
+    "type": "messagebus",
+    "label": "messagebus"
+   },
+   {
+    "id": "node_6",
+    "lane": "second",
+    "col": 5,
+    "type": "external",
+    "label": "external"
+   }
+  ],
+  "edges": []
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "dfa6989ba4fbe448f6f47c2f187e9c65a35b8903c53296d3b5f7b86845c7591e",
+     "bytes": 957
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "dfa6989ba4fbe448f6f47c2f187e9c65a35b8903c53296d3b5f7b86845c7591e",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 11,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": null,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": null,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "node_0"
+      },
+      "minimumSourceTextPx": 11,
+      "minimumProjectedTextPx": 11,
+      "semanticTextCount": 7
+     },
+     "issues": []
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "dfa6989ba4fbe448f6f47c2f187e9c65a35b8903c53296d3b5f7b86845c7591e",
+     "bytes": 957
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "dfa6989ba4fbe448f6f47c2f187e9c65a35b8903c53296d3b5f7b86845c7591e",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 11,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": null,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": null,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "node_0"
+      },
+      "minimumSourceTextPx": 11,
+      "minimumProjectedTextPx": 11,
+      "semanticTextCount": 7
+     },
+     "issues": []
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "dfa6989ba4fbe448f6f47c2f187e9c65a35b8903c53296d3b5f7b86845c7591e",
+     "bytes": 957
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "dfa6989ba4fbe448f6f47c2f187e9c65a35b8903c53296d3b5f7b86845c7591e",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 11,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": null,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": null,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "node_0"
+      },
+      "minimumSourceTextPx": 11,
+      "minimumProjectedTextPx": 11,
+      "semanticTextCount": 7
+     },
+     "issues": []
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "fixed-v1",
+   "viewBox": [700,400],
+   "requiredViewBox": [700,400],
+   "columns": [88,220,300,430,500,625],
+   "nodes": [
+    {
+     "id": "node_0",
+     "lane": "first",
+     "col": 0,
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "node_1",
+     "lane": "first",
+     "col": 2,
+     "x": 254,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "node_2",
+     "lane": "first",
+     "col": 4,
+     "x": 454,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "node_3",
+     "lane": "second",
+     "col": 0,
+     "x": 42,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "node_4",
+     "lane": "second",
+     "col": 2,
+     "x": 254,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "node_5",
+     "lane": "second",
+     "col": 4,
+     "x": 454,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "node_6",
+     "lane": "second",
+     "col": 5,
+     "x": 579,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    }
+   ],
+   "edges": [],
+   "labels": [],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,700,400],
+  "svg_attrs": {
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory"
+  },
+  "title": "Legacy narrow workflow",
+  "nodes": [
+   {
+    "id": "node_0",
+    "kind": "frontend",
+    "label": "frontend",
+    "context": "First",
+    "rect": {
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 88,
+      "y": 114,
+      "font_size": 11,
+      "text": "frontend",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(48 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "node_1",
+    "kind": "backend",
+    "label": "backend",
+    "context": "First",
+    "rect": {
+     "x": 254,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 300,
+      "y": 114,
+      "font_size": 11,
+      "text": "backend",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(260 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "node_2",
+    "kind": "database",
+    "label": "database",
+    "context": "First",
+    "rect": {
+     "x": 454,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 500,
+      "y": 114,
+      "font_size": 11,
+      "text": "database",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(460 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "node_3",
+    "kind": "cloud",
+    "label": "cloud",
+    "context": "Second",
+    "rect": {
+     "x": 42,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 88,
+      "y": 238,
+      "font_size": 11,
+      "text": "cloud",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(48 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "node_4",
+    "kind": "security",
+    "label": "security",
+    "context": "Second",
+    "rect": {
+     "x": 254,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 300,
+      "y": 238,
+      "font_size": 11,
+      "text": "security",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(260 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "node_5",
+    "kind": "messagebus",
+    "label": "messagebus",
+    "context": "Second",
+    "rect": {
+     "x": 454,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 506,
+      "y": 238,
+      "font_size": 11,
+      "text": "messagebus",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(460 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "node_6",
+    "kind": "external",
+    "label": "external",
+    "context": "Second",
+    "rect": {
+     "x": 579,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 625,
+      "y": 238,
+      "font_size": 11,
+      "text": "external",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(585 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [],
+  "labels": [],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   }
+  ],
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / First"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / Second"
+    }
+   ]
+  }
+ }
+}

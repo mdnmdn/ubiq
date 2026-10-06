@@ -1,0 +1,256 @@
+{
+ "name": "neg.wf-semantic-node-reference",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/semantic-node-reference",
+ "expect_codes": [
+  "workflow/semantic-node-reference"
+ ],
+ "source_sha256": "e4f0cb34e9f5b43ede45f06d617af6cee1482886e28a48e41f37007c5a84c5a3",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ],
+  "semanticChecks": {
+   "allowedRoots": [
+    "ghost"
+   ]
+  }
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow semantic contract references unknown node \"ghost\" at /semanticChecks/allowedRoots/0.",
+    "diagnostics": [
+     {
+      "code": "workflow/semantic-node-reference",
+      "severity": "error",
+      "message": "Workflow semantic contract references unknown node \"ghost\" at /semanticChecks/allowedRoots/0.",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "ghost",
+       "path": "/semanticChecks/allowedRoots/0"
+      },
+      "evidence": {
+       "knownNodes": [
+        "user",
+        "show",
+        "plan",
+        "run"
+       ]
+      },
+      "supportedFixes": [
+       "replace \"ghost\" with an existing node id",
+       "add the missing node before compiling"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow semantic contract references unknown node \"ghost\" at /semanticChecks/allowedRoots/0.",
+    "diagnostics": [
+     {
+      "code": "workflow/semantic-node-reference",
+      "severity": "error",
+      "message": "Workflow semantic contract references unknown node \"ghost\" at /semanticChecks/allowedRoots/0.",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "ghost",
+       "path": "/semanticChecks/allowedRoots/0"
+      },
+      "evidence": {
+       "knownNodes": [
+        "user",
+        "show",
+        "plan",
+        "run"
+       ]
+      },
+      "supportedFixes": [
+       "replace \"ghost\" with an existing node id",
+       "add the missing node before compiling"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow semantic contract references unknown node \"ghost\" at /semanticChecks/allowedRoots/0.",
+    "diagnostics": [
+     {
+      "code": "workflow/semantic-node-reference",
+      "severity": "error",
+      "message": "Workflow semantic contract references unknown node \"ghost\" at /semanticChecks/allowedRoots/0.",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "ghost",
+       "path": "/semanticChecks/allowedRoots/0"
+      },
+      "evidence": {
+       "knownNodes": [
+        "user",
+        "show",
+        "plan",
+        "run"
+       ]
+      },
+      "supportedFixes": [
+       "replace \"ghost\" with an existing node id",
+       "add the missing node before compiling"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/semantic-node-reference",
+     "severity": "error",
+     "message": "Workflow semantic contract references unknown node \"ghost\" at /semanticChecks/allowedRoots/0.",
+     "subject": {
+      "diagramType": "workflow",
+      "node": "ghost",
+      "path": "/semanticChecks/allowedRoots/0"
+     },
+     "evidence": {
+      "knownNodes": [
+       "user",
+       "show",
+       "plan",
+       "run"
+      ]
+     },
+     "supportedFixes": [
+      "replace \"ghost\" with an existing node id",
+      "add the missing node before compiling"
+     ]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

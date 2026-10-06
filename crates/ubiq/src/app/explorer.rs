@@ -24,6 +24,7 @@ impl AppState {
                     project_id: project,
                     rel_path: path.clone(),
                     depth: EXPAND_DEPTH,
+                    prefetch: false,
                 });
             }
             Toggle::Refiltered => {
@@ -132,6 +133,7 @@ impl AppState {
                     project_id: project,
                     rel_path,
                     depth: EXPAND_DEPTH,
+                    prefetch: false,
                 });
             }
         }
@@ -147,8 +149,15 @@ impl AppState {
             let Some(open) = self.projects.get_mut(&project) else {
                 return;
             };
-            let asking = open.explorer.unlisted_for_cache();
+            // A few at a time: the files worker is one FIFO thread, and a click's listing or read
+            // queued behind hundreds of background walks is the click doing nothing (T-333).
+            let room = CACHE_IN_FLIGHT.saturating_sub(open.explorer.cache_in_flight());
+            if room == 0 {
+                return;
+            }
+            let asking = open.explorer.unlisted_for_cache_upto(room);
             open.explorer.begin_cache(&asking);
+            open.explorer.cache_sent(&asking);
             asking
         };
         for path in asking {
@@ -156,6 +165,7 @@ impl AppState {
                 project_id: project,
                 rel_path: path,
                 depth: CACHE_DEPTH,
+                prefetch: true,
             });
         }
     }
@@ -169,6 +179,7 @@ impl AppState {
             project_id: project,
             rel_path: path,
             depth: EXPAND_DEPTH,
+            prefetch: false,
         });
         self.remember(project, cx);
         cx.notify();
@@ -604,12 +615,14 @@ impl AppState {
                             project_id: project,
                             rel_path: rel.clone(),
                             depth: EXPAND_DEPTH,
+                            prefetch: false,
                         });
                     } else if open.explorer.is_listed() {
                         self.bus.send(Message::ProjectTree {
                             project_id: project,
                             rel_path: String::new(),
                             depth: EXPAND_DEPTH,
+                            prefetch: false,
                         });
                     }
                 }

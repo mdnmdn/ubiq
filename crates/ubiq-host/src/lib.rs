@@ -116,6 +116,8 @@ pub mod index;
 pub mod kb;
 pub mod links;
 #[cfg(feature = "harness")]
+pub mod archify;
+#[cfg(feature = "harness")]
 pub mod mcp;
 #[cfg(feature = "harness")]
 pub mod mission;

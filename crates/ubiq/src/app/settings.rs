@@ -244,6 +244,7 @@ impl AppState {
                     if self.teams_window.algo == crate::state::layout::Algo::default() {
                         self.teams_window.algo = ui.teams_algo;
                     }
+                    crate::state::archify::ui(cx).load_settings(ui.archify.clone());
                     self.workbench.settings.ui = ui;
                     // The blob can land after a project is open, so the trees are told again.
                     self.sync_explorer_hidden(cx);
@@ -505,6 +506,19 @@ impl AppState {
     /// status bar's chip — so that the readout and the switch can never disagree.
     pub fn toggle_rail_projects(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.ui.rail_projects = !self.workbench.settings.ui.rail_projects;
+        self.remember_settings();
+        cx.notify();
+    }
+
+    /// Change the diagram viewer's preferences and write them down with the rest of the interface's.
+    pub fn update_archify_settings(
+        &mut self,
+        change: impl FnOnce(&mut crate::state::archify::ArchifySettings),
+        cx: &mut Context<Self>,
+    ) {
+        let archify = crate::state::archify::ui(cx);
+        archify.update_settings(change);
+        self.workbench.settings.ui.archify = archify.settings.clone();
         self.remember_settings();
         cx.notify();
     }

@@ -1,0 +1,705 @@
+[
+ {
+  "query": "",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "   ",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "nothing relevant here at all",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "system-overview",
+  "confidence": "high",
+  "matched": [
+   "system-overview"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "System Overview",
+  "confidence": "high",
+  "matched": [
+   "system-overview"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "agent_tool_call",
+  "confidence": "high",
+  "matched": [
+   "agent-tool-call"
+  ],
+  "winner": "agent-tool-call",
+  "alternatives": []
+ },
+ {
+  "query": "object lifecycle",
+  "confidence": "high",
+  "matched": [
+   "object-lifecycle"
+  ],
+  "winner": "object-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "layout-repair",
+  "confidence": "high",
+  "matched": [
+   "layout-repair"
+  ],
+  "winner": "layout-repair",
+  "alternatives": []
+ },
+ {
+  "query": "Give me an architecture of the services in this repository with a trust boundary",
+  "confidence": "high",
+  "matched": [
+   "architecture",
+   "services",
+   "repository",
+   "trust boundary"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "a system overview of our components",
+  "confidence": "high",
+  "matched": [
+   "system overview",
+   "components"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "deployment ownership: who owns each region and security group",
+  "confidence": "high",
+  "matched": [
+   "region",
+   "ownership"
+  ],
+  "winner": "deployment-ownership",
+  "alternatives": []
+ },
+ {
+  "query": "draw the agent tool call loop with an approval gate",
+  "confidence": "high",
+  "matched": [
+   "agent tool call",
+   "tool call",
+   "approval gate"
+  ],
+  "winner": "agent-tool-call",
+  "alternatives": []
+ },
+ {
+  "query": "CI/CD delivery workflow with review and release",
+  "confidence": "high",
+  "matched": [
+   "ci/cd"
+  ],
+  "winner": "delivery-workflow",
+  "alternatives": []
+ },
+ {
+  "query": "incident runbook: triage, escalate, mitigate",
+  "confidence": "high",
+  "matched": [
+   "runbook",
+   "triage"
+  ],
+  "winner": "incident-runbook",
+  "alternatives": []
+ },
+ {
+  "query": "API request sequence: client calls the gateway, which calls the service",
+  "confidence": "high",
+  "matched": [
+   "api request"
+  ],
+  "winner": "api-request",
+  "alternatives": []
+ },
+ {
+  "query": "async roundtrip with a callback and a queue",
+  "confidence": "high",
+  "matched": [
+   "async roundtrip",
+   "callback"
+  ],
+  "winner": "async-roundtrip",
+  "alternatives": []
+ },
+ {
+  "query": "data lineage from source tables to the dashboard",
+  "confidence": "high",
+  "matched": [
+   "data lineage"
+  ],
+  "winner": "data-lineage",
+  "alternatives": []
+ },
+ {
+  "query": "event stream through a topic into consumers",
+  "confidence": "high",
+  "matched": [
+   "event stream",
+   "topic"
+  ],
+  "winner": "event-stream",
+  "alternatives": []
+ },
+ {
+  "query": "order lifecycle: created, paid, shipped, cancelled",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "deployment lifecycle: build, canary, promote, rollback",
+  "confidence": "high",
+  "matched": [
+   "deployment lifecycle"
+  ],
+  "winner": "deployment-lifecycle",
+  "alternatives": [
+   {
+    "id": "delivery-workflow",
+    "score": 8
+   }
+  ]
+ },
+ {
+  "query": "fix the overlapping nodes and the edge through a node in my diagram",
+  "confidence": "high",
+  "matched": [
+   "overlap"
+  ],
+  "winner": "layout-repair",
+  "alternatives": []
+ },
+ {
+  "query": "edges cross and the labels collide, repair the layout",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "repository architecture",
+  "confidence": "high",
+  "matched": [
+   "architecture",
+   "repository"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "架构",
+  "confidence": "medium",
+  "matched": [
+   "架构"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "系统总览 组件 服务",
+  "confidence": "high",
+  "matched": [
+   "系统总览",
+   "组件",
+   "服务"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "请求时序",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "对象生命周期",
+  "confidence": "medium",
+  "matched": [
+   "生命周期"
+  ],
+  "winner": "object-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "数据血缘",
+  "confidence": "high",
+  "matched": [
+   "数据血缘"
+  ],
+  "winner": "data-lineage",
+  "alternatives": []
+ },
+ {
+  "query": "修复布局",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "ＡＰＩ　Ｒｅｑｕｅｓｔ",
+  "confidence": "high",
+  "matched": [
+   "api-request"
+  ],
+  "winner": "api-request",
+  "alternatives": []
+ },
+ {
+  "query": "sequence diagram of an api request",
+  "confidence": "high",
+  "matched": [
+   "api request"
+  ],
+  "winner": "api-request",
+  "alternatives": []
+ },
+ {
+  "query": "state machine",
+  "confidence": "high",
+  "matched": [
+   "state machine"
+  ],
+  "winner": "object-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "workflow",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "dataflow",
+  "confidence": "low",
+  "matched": [],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "system overview",
+  "confidence": "high",
+  "matched": [
+   "system-overview"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "architecture",
+  "confidence": "medium",
+  "matched": [
+   "architecture"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "components",
+  "confidence": "low",
+  "matched": [
+   "components"
+  ],
+  "winner": "system-overview",
+  "alternatives": []
+ },
+ {
+  "query": "deployment-ownership",
+  "confidence": "high",
+  "matched": [
+   "deployment-ownership"
+  ],
+  "winner": "deployment-ownership",
+  "alternatives": []
+ },
+ {
+  "query": "deployment topology",
+  "confidence": "high",
+  "matched": [
+   "deployment topology"
+  ],
+  "winner": "deployment-ownership",
+  "alternatives": []
+ },
+ {
+  "query": "region",
+  "confidence": "medium",
+  "matched": [
+   "region"
+  ],
+  "winner": "deployment-ownership",
+  "alternatives": []
+ },
+ {
+  "query": "vpc",
+  "confidence": "medium",
+  "matched": [
+   "vpc"
+  ],
+  "winner": "deployment-ownership",
+  "alternatives": []
+ },
+ {
+  "query": "agent-tool-call",
+  "confidence": "high",
+  "matched": [
+   "agent-tool-call"
+  ],
+  "winner": "agent-tool-call",
+  "alternatives": []
+ },
+ {
+  "query": "agent tool call",
+  "confidence": "high",
+  "matched": [
+   "agent-tool-call"
+  ],
+  "winner": "agent-tool-call",
+  "alternatives": []
+ },
+ {
+  "query": "tool call",
+  "confidence": "medium",
+  "matched": [
+   "tool call"
+  ],
+  "winner": "agent-tool-call",
+  "alternatives": []
+ },
+ {
+  "query": "approval gate",
+  "confidence": "medium",
+  "matched": [
+   "approval gate"
+  ],
+  "winner": "agent-tool-call",
+  "alternatives": []
+ },
+ {
+  "query": "delivery-workflow",
+  "confidence": "high",
+  "matched": [
+   "delivery-workflow"
+  ],
+  "winner": "delivery-workflow",
+  "alternatives": []
+ },
+ {
+  "query": "ci/cd",
+  "confidence": "high",
+  "matched": [
+   "ci/cd"
+  ],
+  "winner": "delivery-workflow",
+  "alternatives": []
+ },
+ {
+  "query": "release workflow",
+  "confidence": "high",
+  "matched": [
+   "release workflow"
+  ],
+  "winner": "delivery-workflow",
+  "alternatives": []
+ },
+ {
+  "query": "deployment pipeline",
+  "confidence": "medium",
+  "matched": [
+   "deployment pipeline"
+  ],
+  "winner": "delivery-workflow",
+  "alternatives": []
+ },
+ {
+  "query": "incident-runbook",
+  "confidence": "high",
+  "matched": [
+   "incident-runbook"
+  ],
+  "winner": "incident-runbook",
+  "alternatives": []
+ },
+ {
+  "query": "incident response",
+  "confidence": "high",
+  "matched": [
+   "incident response"
+  ],
+  "winner": "incident-runbook",
+  "alternatives": []
+ },
+ {
+  "query": "runbook",
+  "confidence": "medium",
+  "matched": [
+   "runbook"
+  ],
+  "winner": "incident-runbook",
+  "alternatives": []
+ },
+ {
+  "query": "outage",
+  "confidence": "medium",
+  "matched": [
+   "outage"
+  ],
+  "winner": "incident-runbook",
+  "alternatives": []
+ },
+ {
+  "query": "api-request",
+  "confidence": "high",
+  "matched": [
+   "api-request"
+  ],
+  "winner": "api-request",
+  "alternatives": []
+ },
+ {
+  "query": "api request",
+  "confidence": "high",
+  "matched": [
+   "api-request"
+  ],
+  "winner": "api-request",
+  "alternatives": []
+ },
+ {
+  "query": "request response",
+  "confidence": "medium",
+  "matched": [
+   "request response"
+  ],
+  "winner": "api-request",
+  "alternatives": []
+ },
+ {
+  "query": "call chain",
+  "confidence": "medium",
+  "matched": [
+   "call chain"
+  ],
+  "winner": "api-request",
+  "alternatives": []
+ },
+ {
+  "query": "async-roundtrip",
+  "confidence": "high",
+  "matched": [
+   "async-roundtrip"
+  ],
+  "winner": "async-roundtrip",
+  "alternatives": []
+ },
+ {
+  "query": "async roundtrip",
+  "confidence": "high",
+  "matched": [
+   "async-roundtrip"
+  ],
+  "winner": "async-roundtrip",
+  "alternatives": []
+ },
+ {
+  "query": "webhook",
+  "confidence": "high",
+  "matched": [
+   "webhook",
+   "webhook"
+  ],
+  "winner": "async-roundtrip",
+  "alternatives": []
+ },
+ {
+  "query": "callback",
+  "confidence": "medium",
+  "matched": [
+   "callback"
+  ],
+  "winner": "async-roundtrip",
+  "alternatives": []
+ },
+ {
+  "query": "data-lineage",
+  "confidence": "high",
+  "matched": [
+   "data-lineage"
+  ],
+  "winner": "data-lineage",
+  "alternatives": []
+ },
+ {
+  "query": "data lineage",
+  "confidence": "high",
+  "matched": [
+   "data-lineage"
+  ],
+  "winner": "data-lineage",
+  "alternatives": []
+ },
+ {
+  "query": "etl",
+  "confidence": "medium",
+  "matched": [
+   "etl"
+  ],
+  "winner": "data-lineage",
+  "alternatives": []
+ },
+ {
+  "query": "warehouse",
+  "confidence": "medium",
+  "matched": [
+   "warehouse"
+  ],
+  "winner": "data-lineage",
+  "alternatives": []
+ },
+ {
+  "query": "event-stream",
+  "confidence": "high",
+  "matched": [
+   "event-stream"
+  ],
+  "winner": "event-stream",
+  "alternatives": []
+ },
+ {
+  "query": "event stream",
+  "confidence": "high",
+  "matched": [
+   "event-stream"
+  ],
+  "winner": "event-stream",
+  "alternatives": []
+ },
+ {
+  "query": "kafka topology",
+  "confidence": "high",
+  "matched": [
+   "kafka topology"
+  ],
+  "winner": "event-stream",
+  "alternatives": []
+ },
+ {
+  "query": "topic",
+  "confidence": "medium",
+  "matched": [
+   "topic"
+  ],
+  "winner": "event-stream",
+  "alternatives": []
+ },
+ {
+  "query": "object-lifecycle",
+  "confidence": "high",
+  "matched": [
+   "object-lifecycle"
+  ],
+  "winner": "object-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "status transition",
+  "confidence": "medium",
+  "matched": [
+   "status transition"
+  ],
+  "winner": "object-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "deployment-lifecycle",
+  "confidence": "high",
+  "matched": [
+   "deployment-lifecycle"
+  ],
+  "winner": "deployment-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "deployment lifecycle",
+  "confidence": "high",
+  "matched": [
+   "deployment-lifecycle"
+  ],
+  "winner": "deployment-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "release state",
+  "confidence": "medium",
+  "matched": [
+   "release state"
+  ],
+  "winner": "deployment-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "promotion state",
+  "confidence": "medium",
+  "matched": [
+   "promotion state"
+  ],
+  "winner": "deployment-lifecycle",
+  "alternatives": []
+ },
+ {
+  "query": "layout repair",
+  "confidence": "high",
+  "matched": [
+   "layout-repair"
+  ],
+  "winner": "layout-repair",
+  "alternatives": []
+ },
+ {
+  "query": "repair order",
+  "confidence": "high",
+  "matched": [
+   "repair order"
+  ],
+  "winner": "layout-repair",
+  "alternatives": []
+ },
+ {
+  "query": "fix order",
+  "confidence": "high",
+  "matched": [
+   "fix order"
+  ],
+  "winner": "layout-repair",
+  "alternatives": []
+ }
+]

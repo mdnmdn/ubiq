@@ -512,6 +512,7 @@ fn a_tree_request_is_answered_to_the_window_that_asked() {
         project_id,
         rel_path: String::new(),
         depth: 1,
+        prefetch: false,
     });
 
     let listings = loop {
@@ -828,10 +829,10 @@ fn a_work_listing_answers_the_fixture_for_the_project_that_asked() {
 
     let (sessions, agents, tasks) = expect_work_list(&ui, project_id);
     // The invented half a project that never wrote a `tasks.toml` starts with, whole and in one
-    // reply: the graph draws a card and the session it names in the same frame. Tasks are not
-    // invented — a new board starts empty.
+    // reply. Tasks are not invented — a new board starts empty — and neither are agents: with
+    // nothing running, there are none.
     assert_eq!(sessions.len(), 5);
-    assert_eq!(agents.len(), 11);
+    assert!(agents.is_empty());
     assert!(tasks.is_empty());
 }
 
@@ -1105,6 +1106,7 @@ fn a_temporary_project_never_reaches_the_catalogue_file_but_still_resolves() {
         project_id,
         rel_path: String::new(),
         depth: 1,
+        prefetch: false,
     });
     loop {
         match ui.from_host().recv_timeout(PATIENCE) {
@@ -1742,6 +1744,16 @@ fn expect_conversation_error(ui: &Client, agent_id: AgentId) -> String {
     }
 }
 
+fn expect_conversation_deleted(ui: &Client, agent_id: AgentId) {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(Message::ConversationDeleted { agent_id: id }) if id == agent_id => return,
+            Ok(_) => continue,
+            Err(_) => panic!("the close was never answered"),
+        }
+    }
+}
+
 #[test]
 fn a_conversation_is_registered_and_its_models_discovered_before_any_harness_launches() {
     let (_hub, ui) = coordinator();
@@ -1962,8 +1974,11 @@ fn a_harness_with_modes_carries_a_mode_option() {
     assert!(choices.iter().any(|c| c.value == "workspace-write"));
 }
 
+/// A failed launch is put back, not retracted (`T-327`): the window already holds the
+/// conversation, so the agent stays listed and owned — a Resume or the next prompt retries, and
+/// Close ends it the ordinary way.
 #[test]
-fn a_launch_that_fails_retracts_the_agent_it_registered() {
+fn a_launch_that_fails_keeps_the_agent_closable_and_retryable() {
     let (_hub, ui) = coordinator();
     let (project_id, _path) = a_project(&ui);
 
@@ -1980,13 +1995,29 @@ fn a_launch_that_fails_retracts_the_agent_it_registered() {
     let error = expect_conversation_error(&ui, agent_id);
     assert!(error.contains("no-such-account"), "said {error:?}");
 
-    // The failure retracts what registration made visible, on the same terms a live agent's own
-    // end does.
+    ui.send(Message::ListWork { project_id });
+    let (_, agents, _) = expect_work_list(&ui, project_id);
+    assert!(
+        agents.iter().any(|a| a.id == agent_id),
+        "a failed launch keeps the agent the window is still showing"
+    );
+
+    // A retry reaches the launch again rather than vanishing at `drives`.
+    ui.send(Message::PromptAgent {
+        agent_id,
+        text: "hello again".to_string(),
+    });
+    let error = expect_conversation_error(&ui, agent_id);
+    assert!(error.contains("no-such-account"), "said {error:?}");
+
+    // And Close takes it, list and all.
+    ui.send(Message::EndConversation { agent_id });
+    expect_conversation_deleted(&ui, agent_id);
     ui.send(Message::ListWork { project_id });
     let (_, agents, _) = expect_work_list(&ui, project_id);
     assert!(
         !agents.iter().any(|a| a.id == agent_id),
-        "a failed launch must not leave a dead agent in the list"
+        "a closed agent leaves the list"
     );
 }
 
@@ -2015,8 +2046,8 @@ fn resume_conversation_launches_a_still_pending_agent_the_same_way_prompt_agent_
     ui.send(Message::ListWork { project_id });
     let (_, agents, _) = expect_work_list(&ui, project_id);
     assert!(
-        !agents.iter().any(|a| a.id == agent_id),
-        "a failed resume must retract the agent exactly as a failed first launch does"
+        agents.iter().any(|a| a.id == agent_id),
+        "a failed resume keeps the agent exactly as a failed first launch does"
     );
 }
 

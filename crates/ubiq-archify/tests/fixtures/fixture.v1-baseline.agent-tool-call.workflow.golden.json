@@ -1,0 +1,2104 @@
+{
+ "name": "fixture.v1-baseline.agent-tool-call.workflow",
+ "group": "fixture",
+ "source": "archify/test/fixtures/v1-baseline/agent-tool-call.workflow.json",
+ "type": "workflow",
+ "source_sha256": "4903056b3634e02cce9fd7c71b61fb27e6db455480c8d776a7005346b3afc564",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Agent Tool Call Workflow",
+   "subtitle": "Renderer-driven workflow prototype with lanes, anchored nodes, and orthogonal edges",
+   "output": "examples/workflow-agent-tool-call-rendered.html",
+   "viewBox": [720,900]
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "User Interface"
+   },
+   {
+    "id": "agent",
+    "label": "Agent Runtime"
+   },
+   {
+    "id": "policy",
+    "label": "Policy Boundary"
+   },
+   {
+    "id": "exceptions",
+    "label": "Exception Handling",
+    "variant": "exception"
+   },
+   {
+    "id": "tools",
+    "label": "Tool Execution"
+   },
+   {
+    "id": "trace",
+    "label": "Observability"
+   }
+  ],
+  "phases": [
+   {
+    "id": "intake",
+    "label": "Intake",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "reasoning",
+    "label": "Plan + route",
+    "fromCol": 2,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "execution",
+    "label": "Execute + report",
+    "fromCol": 4,
+    "toCol": 5,
+    "variant": "dashed"
+   }
+  ],
+  "groups": [
+   {
+    "id": "agent_loop",
+    "label": "Planning loop",
+    "lane": "agent",
+    "fromCol": 2,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "tool_work",
+    "label": "Tool work",
+    "lane": "tools",
+    "fromCol": 4,
+    "toCol": 5,
+    "variant": "dashed"
+   },
+   {
+    "id": "exception_path",
+    "label": "Human or policy stop",
+    "lane": "exceptions",
+    "fromCol": 3,
+    "toCol": 5,
+    "variant": "security"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "chat",
+   "planner",
+   "router",
+   "approval",
+   "tool",
+   "external",
+   "final"
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User",
+    "sublabel": "asks for work"
+   },
+   {
+    "id": "chat",
+    "lane": "ui",
+    "col": 1,
+    "type": "frontend",
+    "label": "Chat Surface",
+    "sublabel": "thread + files"
+   },
+   {
+    "id": "final",
+    "lane": "ui",
+    "col": 5,
+    "type": "backend",
+    "label": "Final Reply",
+    "sublabel": "answer + changes"
+   },
+   {
+    "id": "planner",
+    "lane": "agent",
+    "col": 2,
+    "type": "backend",
+    "label": "Agent Planner",
+    "sublabel": "plan next step",
+    "tag": "context aware"
+   },
+   {
+    "id": "router",
+    "lane": "agent",
+    "col": 3,
+    "type": "backend",
+    "label": "Tool Router",
+    "sublabel": "choose capability"
+   },
+   {
+    "id": "approval",
+    "lane": "policy",
+    "col": 3,
+    "type": "security",
+    "label": "Approval Gate",
+    "sublabel": "scope + consent",
+    "tag": "block risky ops"
+   },
+   {
+    "id": "blocked",
+    "lane": "exceptions",
+    "col": 4,
+    "type": "security",
+    "label": "Blocked",
+    "sublabel": "wait or reject"
+   },
+   {
+    "id": "retry",
+    "lane": "exceptions",
+    "col": 5,
+    "type": "messagebus",
+    "label": "Retry Path",
+    "sublabel": "revise request"
+   },
+   {
+    "id": "tool",
+    "lane": "tools",
+    "col": 4,
+    "type": "messagebus",
+    "label": "Tool Call",
+    "sublabel": "shell / browser / MCP",
+    "tag": "structured result"
+   },
+   {
+    "id": "external",
+    "lane": "tools",
+    "col": 5,
+    "type": "cloud",
+    "label": "External API",
+    "sublabel": "network service"
+   },
+   {
+    "id": "store",
+    "lane": "trace",
+    "col": 1,
+    "type": "database",
+    "label": "Context Store",
+    "sublabel": "repo + memory"
+   },
+   {
+    "id": "trace",
+    "lane": "trace",
+    "col": 4,
+    "type": "database",
+    "label": "Trace Log",
+    "sublabel": "events + output"
+   }
+  ],
+  "edges": [
+   {
+    "from": "user",
+    "to": "chat",
+    "variant": "default"
+   },
+   {
+    "from": "chat",
+    "to": "planner",
+    "label": "plan",
+    "variant": "emphasis",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "drop",
+    "labelSegment": 1
+   },
+   {
+    "from": "planner",
+    "to": "router",
+    "variant": "default"
+   },
+   {
+    "from": "router",
+    "to": "approval",
+    "label": "needs approval?",
+    "variant": "security",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "drop",
+    "labelSegment": 0,
+    "labelDx": 34,
+    "labelDy": 18
+   },
+   {
+    "from": "approval",
+    "to": "tool",
+    "variant": "emphasis",
+    "fromSide": "left",
+    "toSide": "left",
+    "route": "return-left"
+   },
+   {
+    "from": "approval",
+    "to": "blocked",
+    "label": "denied",
+    "variant": "security",
+    "role": "error",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "route": "drop",
+    "labelSegment": 1,
+    "labelDy": 12
+   },
+   {
+    "from": "blocked",
+    "to": "retry",
+    "variant": "dashed",
+    "role": "branch"
+   },
+   {
+    "from": "tool",
+    "to": "external",
+    "variant": "default"
+   },
+   {
+    "from": "external",
+    "to": "final",
+    "variant": "emphasis",
+    "role": "return",
+    "fromSide": "right",
+    "toSide": "right",
+    "route": "outside-right",
+    "width": 1.2
+   },
+   {
+    "from": "external",
+    "to": "trace",
+    "label": "record result",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "bottom",
+    "route": "bottom-channel",
+    "labelSegment": 1
+   },
+   {
+    "from": "store",
+    "to": "trace",
+    "label": "trace + memory",
+    "variant": "dashed",
+    "labelAt": [365,735]
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Renderer Rules",
+    "items": [
+     "Lanes and columns determine node placement",
+     "Edges attach to explicit node anchors",
+     "Cross-lane paths use orthogonal routing",
+     "Short adjacent links stay unlabeled"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Workflow Semantics",
+    "items": [
+     "Approval is a first-class policy step",
+     "Consent gates are visible in the main path",
+     "External calls stay inside the tool lane",
+     "Trace writes are separate from the hot path"
+    ]
+   },
+   {
+    "dot": "emerald",
+    "title": "Why It Matters",
+    "items": [
+     "This is closer to a diagram_type renderer",
+     "The graph can be edited without SVG surgery",
+     "Layout rules can be tested and improved",
+     "A future IR can reuse this shape directly"
+    ]
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "4903056b3634e02cce9fd7c71b61fb27e6db455480c8d776a7005346b3afc564",
+     "bytes": 5360
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "4903056b3634e02cce9fd7c71b61fb27e6db455480c8d776a7005346b3afc564",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 52.1,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.6,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.257,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 13,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 1,
+      "shortEndpointSegmentCount": 1,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "tool"
+      },
+      "minimumSourceTextPx": 6.6,
+      "minimumProjectedTextPx": 6.6,
+      "semanticTextCount": 29
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "4903056b3634e02cce9fd7c71b61fb27e6db455480c8d776a7005346b3afc564",
+     "bytes": 5360
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "4903056b3634e02cce9fd7c71b61fb27e6db455480c8d776a7005346b3afc564",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 52.1,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.6,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.257,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 13,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 1,
+      "shortEndpointSegmentCount": 1,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "tool"
+      },
+      "minimumSourceTextPx": 6.6,
+      "minimumProjectedTextPx": 6.6,
+      "semanticTextCount": 29
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "4903056b3634e02cce9fd7c71b61fb27e6db455480c8d776a7005346b3afc564",
+     "bytes": 5360
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "4903056b3634e02cce9fd7c71b61fb27e6db455480c8d776a7005346b3afc564",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 52.1,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.6,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.257,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 13,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 1,
+      "shortEndpointSegmentCount": 1,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "tool"
+      },
+      "minimumSourceTextPx": 6.6,
+      "minimumProjectedTextPx": 6.6,
+      "semanticTextCount": 29
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "fixed-v1",
+   "viewBox": [720,900],
+   "requiredViewBox": [720,900],
+   "columns": [88,220,300,430,500,625],
+   "nodes": [
+    {
+     "id": "user",
+     "lane": "ui",
+     "col": 0,
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "chat",
+     "lane": "ui",
+     "col": 1,
+     "x": 174,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "final",
+     "lane": "ui",
+     "col": 5,
+     "x": 579,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "planner",
+     "lane": "agent",
+     "col": 2,
+     "x": 254,
+     "y": 209,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "router",
+     "lane": "agent",
+     "col": 3,
+     "x": 384,
+     "y": 217,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "approval",
+     "lane": "policy",
+     "col": 3,
+     "x": 384,
+     "y": 333,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "blocked",
+     "lane": "exceptions",
+     "col": 4,
+     "x": 454,
+     "y": 465,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "retry",
+     "lane": "exceptions",
+     "col": 5,
+     "x": 579,
+     "y": 465,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "tool",
+     "lane": "tools",
+     "col": 4,
+     "x": 454,
+     "y": 581,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "external",
+     "lane": "tools",
+     "col": 5,
+     "x": 579,
+     "y": 589,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "store",
+     "lane": "trace",
+     "col": 1,
+     "x": 174,
+     "y": 713,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "trace",
+     "lane": "trace",
+     "col": 4,
+     "x": 454,
+     "y": 713,
+     "width": 92,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": null,
+     "from": "user",
+     "to": "chat",
+     "points": [[134,119],[174,119]]
+    },
+    {
+     "id": null,
+     "from": "chat",
+     "to": "planner",
+     "points": [[220,145],[220,166],[300,166],[300,209]]
+    },
+    {
+     "id": null,
+     "from": "planner",
+     "to": "router",
+     "points": [[346,243],[384,243]]
+    },
+    {
+     "id": null,
+     "from": "router",
+     "to": "approval",
+     "points": [[430,269],[430,290],[430,290],[430,333]]
+    },
+    {
+     "id": null,
+     "from": "approval",
+     "to": "tool",
+     "points": [[384,367],[356,367],[356,615],[454,615]]
+    },
+    {
+     "id": null,
+     "from": "approval",
+     "to": "blocked",
+     "points": [[430,401],[430,414],[500,414],[500,465]]
+    },
+    {
+     "id": null,
+     "from": "blocked",
+     "to": "retry",
+     "points": [[546,491],[579,491]]
+    },
+    {
+     "id": null,
+     "from": "tool",
+     "to": "external",
+     "points": [[546,615],[579,615]]
+    },
+    {
+     "id": null,
+     "from": "external",
+     "to": "final",
+     "points": [[671,615],[692,615],[692,119],[671,119]]
+    },
+    {
+     "id": null,
+     "from": "external",
+     "to": "trace",
+     "points": [[625,641],[625,797],[500,797],[500,765]]
+    },
+    {
+     "id": null,
+     "from": "store",
+     "to": "trace",
+     "points": [[266,739],[454,739]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": null,
+     "label": "plan",
+     "x": 260,
+     "y": 156,
+     "width": 30,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "needs approval?",
+     "x": 464,
+     "y": 287.5,
+     "width": 82,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "denied",
+     "x": 465,
+     "y": 416,
+     "width": 38.8,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "record result",
+     "x": 562.5,
+     "y": 787,
+     "width": 72.4,
+     "height": 14
+    },
+    {
+     "edge": null,
+     "label": "trace + memory",
+     "x": 365,
+     "y": 735,
+     "width": 77.2,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,720,900],
+  "svg_attrs": {
+   "lang": "en",
+   "data-preset": "classic",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory"
+  },
+  "title": "Agent Tool Call Workflow",
+  "nodes": [
+   {
+    "id": "user",
+    "kind": "external",
+    "label": "User",
+    "sublabel": "asks for work",
+    "context": "User Interface › Intake",
+    "rect": {
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 88,
+      "y": 114,
+      "font_size": 11,
+      "text": "User",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 88,
+      "y": 131,
+      "font_size": 8,
+      "text": "asks for work",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(48 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "chat",
+    "kind": "frontend",
+    "label": "Chat Surface",
+    "sublabel": "thread + files",
+    "context": "User Interface › Intake",
+    "rect": {
+     "x": 174,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 220,
+      "y": 125.2,
+      "font_size": 11,
+      "text": "Chat Surface",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 220,
+      "y": 140.1,
+      "font_size": 8,
+      "text": "thread + files",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(180 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "final",
+    "kind": "backend",
+    "label": "Final Reply",
+    "sublabel": "answer + changes",
+    "context": "User Interface › Execute + report",
+    "rect": {
+     "x": 579,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 625,
+      "y": 125.2,
+      "font_size": 11,
+      "text": "Final Reply",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 140.1,
+      "font_size": 8,
+      "text": "answer + changes",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(585 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "planner",
+    "kind": "backend",
+    "label": "Agent Planner",
+    "sublabel": "plan next step",
+    "tag": "context aware",
+    "context": "Agent Runtime › Planning loop › Plan + route",
+    "rect": {
+     "x": 254,
+     "y": 209,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 300,
+      "y": 240.9,
+      "font_size": 10.7,
+      "text": "Agent Planner",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 300,
+      "y": 255.8,
+      "font_size": 8,
+      "text": "plan next step",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 300,
+      "y": 268.6,
+      "font_size": 7,
+      "text": "context aware",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(260 215) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "router",
+    "kind": "backend",
+    "label": "Tool Router",
+    "sublabel": "choose capability",
+    "context": "Agent Runtime › Planning loop › Plan + route",
+    "rect": {
+     "x": 384,
+     "y": 217,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 430,
+      "y": 249.2,
+      "font_size": 11,
+      "text": "Tool Router",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 430,
+      "y": 264.1,
+      "font_size": 8,
+      "text": "choose capability",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(390 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "approval",
+    "kind": "security",
+    "label": "Approval Gate",
+    "sublabel": "scope + consent",
+    "tag": "block risky ops",
+    "context": "Policy Boundary › Plan + route",
+    "rect": {
+     "x": 384,
+     "y": 333,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 430,
+      "y": 364.9,
+      "font_size": 10.7,
+      "text": "Approval Gate",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 430,
+      "y": 379.8,
+      "font_size": 8,
+      "text": "scope + consent",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 430,
+      "y": 392.6,
+      "font_size": 7,
+      "text": "block risky ops",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(390 339) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "blocked",
+    "kind": "security",
+    "label": "Blocked",
+    "sublabel": "wait or reject",
+    "context": "Exception Handling › Human or policy stop › Execute + report",
+    "rect": {
+     "x": 454,
+     "y": 465,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 500,
+      "y": 486,
+      "font_size": 11,
+      "text": "Blocked",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 500,
+      "y": 503,
+      "font_size": 8,
+      "text": "wait or reject",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(460 471) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "retry",
+    "kind": "messagebus",
+    "label": "Retry Path",
+    "sublabel": "revise request",
+    "context": "Exception Handling › Human or policy stop › Execute + report",
+    "rect": {
+     "x": 579,
+     "y": 465,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 631,
+      "y": 486,
+      "font_size": 11,
+      "text": "Retry Path",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 503,
+      "font_size": 8,
+      "text": "revise request",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(585 471) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "tool",
+    "kind": "messagebus",
+    "label": "Tool Call",
+    "sublabel": "shell / browser / MCP",
+    "tag": "structured result",
+    "context": "Tool Execution › Tool work › Execute + report",
+    "rect": {
+     "x": 454,
+     "y": 581,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 502.7,
+      "y": 602,
+      "font_size": 11,
+      "text": "Tool Call",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 500,
+      "y": 619,
+      "font_size": 6.6,
+      "text": "shell / browser / MCP",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 500,
+      "y": 637,
+      "font_size": 7,
+      "text": "structured result",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(460 587) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "external",
+    "kind": "cloud",
+    "label": "External API",
+    "sublabel": "network service",
+    "context": "Tool Execution › Tool work › Execute + report",
+    "rect": {
+     "x": 579,
+     "y": 589,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 625,
+      "y": 621.2,
+      "font_size": 11,
+      "text": "External API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 636.1,
+      "font_size": 8,
+      "text": "network service",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(585 595) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "store",
+    "kind": "database",
+    "label": "Context Store",
+    "sublabel": "repo + memory",
+    "context": "Observability › Intake",
+    "rect": {
+     "x": 174,
+     "y": 713,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 220,
+      "y": 744.9,
+      "font_size": 10.7,
+      "text": "Context Store",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 220,
+      "y": 759.8,
+      "font_size": 8,
+      "text": "repo + memory",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(180 719) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "trace",
+    "kind": "database",
+    "label": "Trace Log",
+    "sublabel": "events + output",
+    "context": "Observability › Execute + report",
+    "rect": {
+     "x": 454,
+     "y": 713,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 502.7,
+      "y": 734,
+      "font_size": 11,
+      "text": "Trace Log",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 500,
+      "y": 751,
+      "font_size": 8,
+      "text": "events + output",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(460 719) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "user",
+    "to": "chat",
+    "points": [[134,119],[174,119]],
+    "d": "M 134 119 L 174 119",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 1,
+    "from": "chat",
+    "to": "planner",
+    "label": "plan",
+    "points": [[220,145],[220,166],[300,166],[300,209]],
+    "d": "M 220 145 L 220 166 L 300 166 L 300 209",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "from": "planner",
+    "to": "router",
+    "points": [[346,243],[384,243]],
+    "d": "M 346 243 L 384 243",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "from": "router",
+    "to": "approval",
+    "label": "needs approval?",
+    "points": [[430,269],[430,290],[430,290],[430,333]],
+    "d": "M 430 269 L 430 290 L 430 290 L 430 333",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 4,
+    "from": "approval",
+    "to": "tool",
+    "points": [[384,367],[356,367],[356,615],[454,615]],
+    "d": "M 384 367 L 356 367 L 356 615 L 454 615",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 5,
+    "from": "approval",
+    "to": "blocked",
+    "label": "denied",
+    "points": [[430,401],[430,414],[500,414],[500,465]],
+    "d": "M 430 401 L 430 414 L 500 414 L 500 465",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 6,
+    "from": "blocked",
+    "to": "retry",
+    "points": [[546,491],[579,491]],
+    "d": "M 546 491 L 579 491",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 7,
+    "from": "tool",
+    "to": "external",
+    "points": [[546,615],[579,615]],
+    "d": "M 546 615 L 579 615",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 8,
+    "from": "external",
+    "to": "final",
+    "points": [[671,615],[692,615],[692,119],[671,119]],
+    "d": "M 671 615 L 692 615 L 692 119 L 671 119",
+    "variant": "emphasis",
+    "stroke_width": 1.2,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 9,
+    "from": "external",
+    "to": "trace",
+    "label": "record result",
+    "points": [[625,641],[625,797],[500,797],[500,765]],
+    "d": "M 625 641 L 625 797 L 500 797 L 500 765",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 10,
+    "from": "store",
+    "to": "trace",
+    "label": "trace + memory",
+    "points": [[266,739],[454,739]],
+    "d": "M 266 739 L 454 739",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 1,
+    "from": "chat",
+    "to": "planner",
+    "text": "plan",
+    "rect": {
+     "x": 245,
+     "y": 146,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 260,
+      "y": 156,
+      "font_size": 8,
+      "text": "plan",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "router",
+    "to": "approval",
+    "text": "needs approval?",
+    "rect": {
+     "x": 423,
+     "y": 277.5,
+     "width": 82,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 464,
+      "y": 287.5,
+      "font_size": 8,
+      "text": "needs approval?",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "approval",
+    "to": "blocked",
+    "text": "denied",
+    "rect": {
+     "x": 445.6,
+     "y": 406,
+     "width": 38.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 465,
+      "y": 416,
+      "font_size": 8,
+      "text": "denied",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "external",
+    "to": "trace",
+    "text": "record result",
+    "rect": {
+     "x": 526.3,
+     "y": 777,
+     "width": 72.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 562.5,
+      "y": 787,
+      "font_size": 8,
+      "text": "record result",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "from": "store",
+    "to": "trace",
+    "text": "trace + memory",
+    "rect": {
+     "x": 326.4,
+     "y": 725,
+     "width": 77.2,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 365,
+      "y": 735,
+      "font_size": 8,
+      "text": "trace + memory",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 300,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-3",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 424,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "exception-lane",
+    "id": "lane-3-exception",
+    "class": "c-security-group",
+    "rect": {
+     "x": 46,
+     "y": 430,
+     "width": 628,
+     "height": 92,
+     "rx": 8
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-4",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 548,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-5",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 672,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 250,
+     "y": 214,
+     "width": 230,
+     "height": 58,
+     "rx": 9
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 450,
+     "y": 586,
+     "width": 225,
+     "height": 58,
+     "rx": 9
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-2",
+    "class": "c-security-group",
+    "rect": {
+     "x": 380,
+     "y": 462,
+     "width": 295,
+     "height": 58,
+     "rx": 9
+    }
+   }
+  ],
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / User Interface"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / Agent Runtime"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 322,
+     "font_size": 10,
+     "text": "03 / Policy Boundary"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 54,
+     "y": 446,
+     "font_size": 10,
+     "text": "EX / Exception Handling"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 570,
+     "font_size": 10,
+     "text": "05 / Tool Execution"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 694,
+     "font_size": 10,
+     "text": "06 / Observability"
+    }
+   ],
+   "Phase headers": [
+    {
+     "tag": "line",
+     "class": "a-default",
+     "x1": 42,
+     "y1": 35,
+     "x2": 266,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 42,
+     "y": 27,
+     "width": 224,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-muted",
+     "x": 154,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Intake"
+    },
+    {
+     "tag": "line",
+     "class": "a-emphasis",
+     "x1": 254,
+     "y1": 35,
+     "x2": 476,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 254,
+     "y": 27,
+     "width": 222,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 365,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Plan + route"
+    },
+    {
+     "tag": "line",
+     "class": "a-dashed",
+     "x1": 454,
+     "y1": 35,
+     "x2": 671,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 454,
+     "y": 27,
+     "width": 217,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 562.5,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Execute + report"
+    }
+   ],
+   "Workflow groups": [
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 260,
+     "y": 228,
+     "font_size": 7,
+     "text": "Planning loop"
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 460,
+     "y": 600,
+     "font_size": 7,
+     "text": "Tool work"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 390,
+     "y": 476,
+     "font_size": 7,
+     "text": "Human or policy stop"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,220 @@
+{
+ "name": "neg.graph-duplicate-group-v1",
+ "group": "negative",
+ "source": "mutation of wf-v1",
+ "type": "workflow",
+ "rule": "graph/duplicate-container-id",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "5123139cd4a6375464de6b2e48046e89189813d3b63ed4a31d49b9c9425b2a57",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Pinned coordinate migration",
+   "output": "pinned-coordinate-migration.html",
+   "viewBox": [720,700],
+   "legend": {
+    "mode": "hidden"
+   }
+  },
+  "lanes": [
+   {
+    "id": "route",
+    "label": "Explicit route"
+   },
+   {
+    "id": "label",
+    "label": "Explicit label"
+   },
+   {
+    "id": "channel-source",
+    "label": "Channel source"
+   },
+   {
+    "id": "channel-target",
+    "label": "Channel target"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "route-a",
+    "lane": "route",
+    "col": 0,
+    "type": "backend",
+    "label": "A"
+   },
+   {
+    "id": "route-b",
+    "lane": "route",
+    "col": 2,
+    "type": "backend",
+    "label": "B"
+   },
+   {
+    "id": "label-a",
+    "lane": "label",
+    "col": 2,
+    "type": "backend",
+    "label": "C"
+   },
+   {
+    "id": "label-b",
+    "lane": "label",
+    "col": 3,
+    "type": "backend",
+    "label": "D"
+   },
+   {
+    "id": "channel-a",
+    "lane": "channel-source",
+    "col": 1,
+    "type": "backend",
+    "label": "E"
+   },
+   {
+    "id": "channel-b",
+    "lane": "channel-target",
+    "col": 1,
+    "type": "backend",
+    "label": "F"
+   }
+  ],
+  "edges": [
+   {
+    "id": "pinned-via",
+    "from": "route-a",
+    "to": "route-b",
+    "via": [[220,119]]
+   },
+   {
+    "id": "pinned-label",
+    "from": "label-a",
+    "to": "label-b",
+    "label": "ok",
+    "labelAt": [365,203]
+   },
+   {
+    "id": "pinned-channel",
+    "from": "channel-a",
+    "to": "channel-b",
+    "fromSide": "right",
+    "toSide": "right",
+    "route": "outside-right",
+    "channelX": 500
+   }
+  ],
+  "groups": [
+   {
+    "id": "g",
+    "label": "A",
+    "lane": "route",
+    "fromCol": 0,
+    "toCol": 0
+   },
+   {
+    "id": "g",
+    "label": "B",
+    "lane": "route",
+    "fromCol": 2,
+    "toCol": 2
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- Group ids must be unique.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Group ids must be unique.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- Group ids must be unique.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Group ids must be unique.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- Group ids must be unique.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Group ids must be unique.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "fixed-v1",
+   "diagnostics": [
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Group ids must be unique.",
+     "subject": {
+      "diagramType": "workflow"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

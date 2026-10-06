@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-10-05
-verified: 2026-10-05
+updated: 2026-10-06
+verified: 2026-10-06
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -25,12 +25,11 @@ seen through, and it is built against [`../design/ubiq-layout.png`](../design/ub
 
 **The rail selects what the middle of the window is for.** Ten destinations in two groups, less
 whichever ones the project has hidden in project settings:
-`Control` and `Sink` under `APP`, and `IDE`, `DB`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB` and
+`Control`, `All Teams` and `Sink` under `APP`, and `IDE`, `DB`, `Git`, `Agents`, `Teams`, `KB` and
 `Tasks` under `PROJECT`. `DB` is the one destination a project has to ask for: it is absent until
-General > Modes lights it, and then sits directly after `IDE`
-([DB mode](./workbench-db.md)). `Teams` and `[Teams]` sit side by side, sharing an icon: `Teams` is the mode
-being built, `[Teams]` the established graph screen kept beside it, unrenamed and undisturbed,
-until the newer one replaces it. Exactly one
+Project settings > General > Modes lights it, and then sits directly after `IDE`
+([DB mode](./workbench-db.md)). `Teams` and `All Teams` are one graph screen over two spans, sharing
+an icon. Exactly one
 is active, and the active one is shown by the accent colour on both its icon and its label. The
 group is not decoration: a `PROJECT` mode with no folder open draws the page saying so, and an `APP`
 mode answers whether or not one is open.
@@ -47,7 +46,7 @@ never moves**: badges stay in the order the window holds them, whichever of them
 leave out. The switch is Appearance settings, on by default. **`cmd-1`..`cmd-9` jump straight to the
 Nth badge**, in that same order, including the least-recently-opened trim — a badge the rail had no
 room for is a digit that does nothing. **`ctrl-1`..`ctrl-9` jump to the Nth mode in the `PROJECT`
-group** — `IDE`, `DB`, `Git`, `Agents`, `Teams`, `[Teams]`, `KB`, `Tasks`, counting only the ones
+group** — `IDE`, `DB`, `Git`, `Agents`, `Teams`, `KB`, `Tasks`, counting only the ones
 the project has not hidden and has opted into — never the `APP` group above it. Either chord is a no-op past the last
 badge or the last enabled mode.
 
@@ -55,8 +54,8 @@ badge or the last enabled mode.
 note, its `UiId`, the screen it draws, the arrangement it opens on and the panels it calls
 furniture are all fields on one `RailModeSpec`, and the two groups below are the container's
 declared order rather than a split written into the enum. A mode is offered `Always` — on the rail
-unless the project hid it, which ten of the base's own eleven are — or by `OptIn`, where the project
-has to ask for it first (`DB`, the base's one, ticked in General > Modes and kept in
+unless the project hid it, which nine of the base's own ten are — or by `OptIn`, where the project
+has to ask for it first (`DB`, the base's one, ticked in project settings > General > Modes and kept in
 `ViewPrefs::opted_in_modes`), or by a `When` predicate the contribution owns. The predicate is
 answered from interface state, so a contributed mode costs no message. The kitchen sink's own demo
 mode (`ubiq.rail.ext-demo`, M4, `X11`) is the twelfth registration and the first `When` —
@@ -67,7 +66,7 @@ registered mode as potentially on screen, which only the base's `Always` modes m
 accident; it counts how many are actually enabled instead (`D186`).
 
 **Every mode is built.** What the rail selects between is the centre. Git fills it with the
-repository, Agents with the parallel columns, Teams and `[Teams]` each with a graph, Tasks with the
+repository, Agents with the parallel columns, Teams with the graph, Tasks with the
 board, Sink with the kitchen sink, Control with the stats screen, and the centre panel's tab is
 named for the mode. IDE fills it with the open files, one panel each, and the centre panel steps
 aside for as long as any is open. KB fills it with the one document its explorer selected. DB fills
@@ -142,20 +141,19 @@ the database trio `DbExplorer`, `DbTable(key)` and `DbSql(key)` (the last two re
 payload, as `Kb` is) and the board's own `Task` panel all live there, so any of them can be dragged
 wherever the window is arranged that day; the board's popup flag only swaps that panel's *shape*,
 docked or modal, never whether the dock owns it. A screen that wants a panel with no meaning outside
-its own mode brings its own instead of asking for a `PanelKind`: `[Teams]`'s inspector and tasks
-drawer are a bespoke state toggle (`GraphView::show_inspector`) and the drawer's own flag, drawn
-inline by `orchestration::render`, never in the dock, which is why they toggle instead of dragging
-and vanish with the rail rather than persisting across a mode switch. `Teams` keeps the tasks
-drawer the same way, but has no inspector of its own: selecting a card opens that agent's
+its own mode brings its own instead of asking for a `PanelKind`: `Teams`'s tasks drawer is the
+drawer's own flag (`TeamsView::tasks_open`), drawn inline by `ui::teams::render`, never in the dock,
+which is why it toggles instead of dragging and vanishes with the rail rather than persisting across
+a mode switch. `Teams` has no inspector: selecting a card opens that agent's
 conversation in a `Chat` panel in the right dock instead
 (`AppState::select_in_teams`/`open_teams_agent_panel`) — the first chat tab the project already
 holds is reused and re-aimed, or a fresh one is minted, and the dock is revealed if it was put
 away.
 
 **Two kinds of screen stand over the same records, and the split is the point** — `D47`. Agents is
-where the user *talks to* the agents; `[Teams]` and `Teams` are where the user *arranges* them. A
+where the user *talks to* the agents; `Teams` is where the user *arranges* them. A
 graph is a map of who spawned whom, a column is a transcript and a composer, and neither kind of
-screen draws the other's view. All three read one projection of what the host reports about a
+screen draws the other's view. Both read one projection of what the host reports about a
 project.
 
 **Each built mode's screen is its own document, and this one is the frame round them.** What the
@@ -168,8 +166,7 @@ rail selects between, in rail order:
 | `IDE` | The project's files: the explorer, one editor tab per open file, and a viewer per kind | [IDE mode](./workbench-ide.md) |
 | `Git` | What version control knows, whole — refs, history, change lists and a diff | [Git mode](./workbench-git.md) |
 | `Agents` | A row of columns, each a transcript and a composer over one live conversation | [Agents mode](./workbench-agents.md) |
-| `Teams` | The graph being built, scoped by a window span, drawing its cards' conversations in the dock | [The Teams graph modes](./workbench-teams.md) |
-| `[Teams]` | The established graph screen, with its own inspector and composer | [The Teams graph modes](./workbench-teams.md) |
+| `Teams` | The graph, scoped by a window span, drawing its cards' conversations in the dock | [The Teams graph modes](./workbench-teams.md) |
 | `KB` | A knowledge-base document, over the sources explorer described above | [`../wip/kb.md`](../wip/kb.md) |
 | `Tasks` | A column per status, a card per task, and the panel that reports one whole | [Tasks mode](./workbench-tasks.md) |
 
@@ -185,10 +182,9 @@ under a strip naming the repository and what HEAD is doing.
 every agent the host reports that no column is showing is on the bench. The sidebar lists every
 conversation the window holds rather than what is on screen.
 
-**`Teams` and `[Teams]`** draw a project's agents as cards on a dotted ground, fenced into the task
-each serves, arranged by one of twelve algorithms the canvas computes for itself, with a tasks
-drawer underneath. `Teams` is scoped by a window span and opens a card's conversation in the dock;
-`[Teams]` keeps an inspector and a composer of its own.
+**`Teams`** draws a project's agents as cards on a dotted ground, fenced into the task each serves,
+arranged by one of twelve algorithms the canvas computes for itself, with a tasks drawer
+underneath. It is scoped by a window span and opens a card's conversation in the dock.
 
 **Tasks** is a column per status and a card per task, filtered by labels and one find field, with
 the task panel reporting the selected task whole and editing it one field at a time; a mission
@@ -272,7 +268,7 @@ project in the catalogue, filtered the same way, with the same open-here, open-i
 Forget actions on each row, in a list that scrolls rather than a menu that keeps growing.
 
 **The same three ways in are also reached without opening the picker.** A `+` sits in the titlebar
-beside the project picker and runs Add directly — the same folder chooser the picker's own Add row
+after the project's own controls (settings, web link, run tools), past a rule, and runs Add directly — the same folder chooser the picker's own Add row
 raises. A chevron beside it opens a small menu offering the identical three rows, Add, Clone and
 Open remote project, worded exactly as the picker's foot words them; picking one runs the same
 `AppState` method the picker's row would — `ui::menus::new_project` is the one list the menu draws
@@ -456,11 +452,12 @@ anything for it to serve. A project pinned this way keeps its row in the catalog
 its drone is reachable; with the drone away the row reads as unreadable and names it, so a laptop
 that sleeps loses the drone and never the project.
 
-**General carries the project's rail modes, as the rail's own icons.** One tile per mode, lit when
+**The rail modes are tiles, as the rail's own icons, split by availability.** The `Always` modes (every base mode but `DB`) are offered in Application settings > Appearance, app-wide and drawn with no project open; project settings' General keeps only the `OptIn`/`When` ones (`DB`). One tile per mode, lit when
 the mode is on screen and flat when it is not, flipped by a click — it takes effect at once and is
-written into the project's view blob (`ViewPrefs::hidden_modes`), not through `UpdateProject`, so
-it survives a restart with the rest of what the project remembers. **The last lit mode cannot be
-turned off**, and hiding the mode the window is in moves it to the first one still visible. A rail
+stored once for every project and window in the interface settings (`UiSettings::hidden_modes`) for an `Always` mode, and in the project's view blob (`ViewPrefs::hidden_modes` / `opted_in_modes`) for the others, never through `UpdateProject`, so
+it survives a restart. A project's old `hidden_modes` entry for an `Always` mode is ignored. **The last lit mode cannot be
+turned off** — for an `Always` mode, the last visible `Always` mode, since the app-wide list must
+leave a rail in every project whatever it opts into — and hiding the mode the window is in moves it to the first one still visible. A rail
 group whose every mode is hidden takes its heading with it.
 
 **A folder dropped on the editor centre or a file tab opens at once, as a temporary project.** The
@@ -539,8 +536,8 @@ which is a view onto a project's folder — is moved to the IDE first. The rows 
 pick sends and what a tool is are the panes-and-terminals document's.
 
 **Back and forward are one stack per window, spanning every project it has shown.** `⌃-` and
-`⌃⇧-`, and two controls at the left of the titlebar, past a rule from the project menu, its own
-`+`/chevron pair, project settings and the run controls: they walk that project's places, so they sit beside it
+`⌃⇧-`, and two controls at the left of the titlebar, past a rule from the project menu's controls — project settings, the web link, the run controls, then, past a rule, the
+`+`/chevron pair: they walk that project's places, so they sit beside it
 rather than beside the field — each drawn
 faint and taking neither pointer nor click when its end of the stack is empty, and each carrying
 the name of where it would
@@ -972,7 +969,7 @@ with the project settings dialog's own nav; the container owns the panel, the na
 scroll, and a section owns only what is inside it. The order is by declared group — interface,
 agents, connectivity, system — and never by an integer a section carries.
 
-Sixteen sections ship: **Appearance** (the palette
+Sixteen sections ship: **Appearance** (the rail's common-mode tiles, app-wide, below; the palette
 family as one pill per family — labelled by the member whose ground is in use, so picking one keeps
 the ground; the ground itself, the same flip the titlebar offers, within the family; the accent as a
 row of swatches, the palette's own first and then the six the build ships, each named on its
@@ -1393,16 +1390,14 @@ at the file now, not a fact about the file, so a tab closed and reopened starts 
 `ViewerKind::of` again. A project that is not a repository
 prints nothing git-related, and a branch with no upstream draws no `0/0`. The caret and the language
 go with the file, so a window with no file open reports neither rather than a position in nothing.
-With no project open it says so and stops. On the screens over the agents there is no file and
-no caret to report, so it counts instead — on `[Teams]` alone today: how many sessions and agents
-there are, and how the agents are spread across the four states, each count in its state's colour. A
-count of zero is drawn as zero rather than dropped — "no agent is failing" is a fact, and it is the
-one the user is checking for. `Teams` draws none of it. On the agents screen it reports on the field rather than on the
+With no project open it says so and stops. On the agents screen there is no file and no caret to
+report, so it counts instead, each count in its state's colour, and a count of zero is drawn as zero
+rather than dropped — "no agent is failing" is a fact, and it is the one the user is checking for.
+`Teams` draws no counts. The agents screen reports on the field rather than on the
 project: how many columns there are, how many agents they hold, how many of them are grouped, how
 many are on the bench, and the same four states over the agents in those columns. The strip reports
 on what is on screen, and the bench is exactly the difference between the field and what the host
-reports. At the right it names each harness behind the columns once, which is the one fact about
-them the columns' own footers say only one at a time. On the board it counts the work instead: how
+reports. On the board it counts the work instead: how
 many cards are in each column, how many sub-tasks are done across the cards on screen, and how many
 of them nobody can finish without the user — over the cards the filters leave, because a count that
 disagrees with what is drawn is worse than none. Where Ubiq is writing is not among the facts it
@@ -1591,10 +1586,6 @@ saying no file is open, because the files are panels of their own:
 | A column | `ui/agents/column.rs` | The agents screen, one per column in the row | Shares the row and is floored at `COLUMN_MIN_WIDTH` in `state/agents.rs`; the row scrolls sideways | The `Column` it draws, and the window's composer for that column's slot |
 | New-column strip | `ui/agents/mod.rs`, `new_column_strip()` | The agents screen, past the last column | `NEW_COLUMN_STRIP`, fixed | `AgentsView::dragging` |
 | A conversation | `ui/conversation/mod.rs` | Inside whichever surface hosts one — a column today | Fills what its host gives it | The `Conversation` in `AppState::conversations`, and the `ConversationView` its host passes |
-| `[Teams]` screen | `ui/orchestration/mod.rs` | The centre panel in `[Teams]` mode (`RailMode::TeamsOld`) | Fills it; its toolbar takes `TITLEBAR_HEIGHT` | `GraphView`, over the project's `WorkProjection` |
-| `[Teams]` graph | `ui/orchestration/graph.rs` | The `[Teams]` screen, beside the inspector | Grows; scrolls to the extent of its cards | `GraphView` and its `Layout` over the same projection, and `CARD_WIDTH`/`CARD_HEIGHT` in `state/layout.rs` |
-| `[Teams]` inspector | `ui/orchestration/inspector.rs` | The `[Teams]` screen, right | `INSPECTOR_WIDTH`, fixed | `GraphView::selection`, and `agent_input` on `AppState` |
-| `[Teams]` tasks drawer | `ui/orchestration/tasks.rs` | The `[Teams]` screen, under the graph | `TASKS_HEIGHT` open, its header shut | `GraphView::tasks_open` |
 | `Teams` screen | `ui/teams/mod.rs` | The centre panel in `Teams` mode (`RailMode::Teams`) | Fills it; its toolbar takes `TITLEBAR_HEIGHT` | `TeamsView`, over `AppState::teams_work`'s narrowed `WorkProjection`, as wide as `AppState::teams_span` says — the active project, or every project the window holds |
 | `Teams` graph | `ui/teams/graph.rs` | The whole of the `Teams` screen below its toolbar — there is no inspector beside it | Fills it; scrolls to the extent of its cards | `TeamsView` and its `Layout` over the narrowed projection, whose width `AppState::teams_span` decides |
 | `Teams` tasks drawer | `ui/teams/tasks.rs` | The `Teams` screen, under the graph | `TASKS_HEIGHT` open, its header shut | `TeamsView::tasks_open` |
@@ -1620,8 +1611,8 @@ saying no file is open, because the files are panels of their own:
 Two rules hold across the three tables. **The chrome does not move and the panels do** — the
 titlebar, the rail and the status bar each take one fixed constant and are the frame the dock is
 drawn inside, while a region opens at `EXPLORER_WIDTH`, `CHAT_WIDTH` or `DOCK_HEIGHT` and keeps
-whatever the user drags it to from then on. And **a screen's furniture is the screen's**: `[Teams]`'s
-inspector, and both its and `Teams`'s tasks drawer, the agents screen's sidebar and the board's
+whatever the user drags it to from then on. And **a screen's furniture is the screen's**: `Teams`'s
+tasks drawer, the agents screen's sidebar and the board's
 task panel take one fixed constant each, are shown and
 hidden from the screen they belong to rather than from the titlebar's switches, and leave with the
 mode.
@@ -1704,9 +1695,9 @@ is reset before the incoming arrangement installs, and `collapse_empty_regions()
 region they just vacated when the entering project has no saved layout to fill it back in.
 
 Accessors read through the active project and tolerate its absence: `open_project()`, `explorer()`,
-`editor()`, `work()`, `agents()`, `graph()`, `board()`, `panes()` and `focused_pane()` each answer
+`editor()`, `work()`, `agents()`, `teams()`, `board()`, `panes()` and `focused_pane()` each answer
 for a window with no project without a caller having to check, and `work_mut()`, `agents_mut()`,
-`graph_mut()` and `board_mut()` are the writing twins of the four over the work. `drop_project()` writes the project's blob, parks a copy against a
+`teams_mut()` and `board_mut()` are the writing twins of the four over the work. `drop_project()` writes the project's blob, parks a copy against a
 reopen in the same session, kills its panes and unloads every conversation whose harness is up. The content family's live text
 size is `theme::content_base()`, a trim over `theme::TEXT_BASE` held in `InterfacePrefs`, not the
 project; `set_trim()` is how it changes, reconfiguring every already-open emulator in
@@ -1926,8 +1917,8 @@ a runner no kind was registered for is drawn with a generic icon, not dropped. T
 `ubiq_app::Contributions::runner_kinds`, installed beside the other three before the first window.
 
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
-`size.rs`, `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `orchestration/`, `teams/`
-and `board/`, with `work.rs` beside them for the one thing all four of the last draw. The project picker is
+`size.rs`, `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `teams/`
+and `board/`, with `work.rs` beside them for the one thing all three of the last draw. The project picker is
 its own module rather than a `Picker`, because a project row carries actions and a confirmation and
 is not just a value. The clone modal is `ui/clone.rs` on `kit::modal_sized`, over `state/clone.rs`
 (`CloneState`, `CloneMode`, and the notes `stage_note()` and `clone_error_note()` turn a stage or an
@@ -2095,8 +2086,8 @@ schema, the overlay's nav, and how a blob is read;
 `explorer.rs` for the tree, the list, the keyboard and the right-click menu, drawing through the
 shared chrome in `ui/kit/files.rs`; `editor.rs`
 for the open files; `logs.rs` for the console's filter; `work.rs` for one project's work as the host
-describes it; `agents.rs` for the columns' view of that work, `orchestration.rs` for `[Teams]`'s
-graph and `teams.rs` for `Teams`'s own, independent copy of it; `board.rs` for the board's.
+describes it; `agents.rs` for the columns' view of that work, `teams.rs` for the graph's;
+`board.rs` for the board's.
 
 `state/work.rs` is the projection and nothing else: the sessions, agents and tasks of one project as
 the window last heard the host describe them, and a flag saying whether it has heard at all. The
@@ -2247,7 +2238,7 @@ field's, instead of landing in the middle of the centred row and covering the te
 - [`workbench-db.md`](./workbench-db.md) — DB mode: connections, the explorer, table and SQL tabs
 - [`workbench-git.md`](./workbench-git.md) — Git mode: refs, history, changes and the diff
 - [`workbench-agents.md`](./workbench-agents.md) — Agents mode: the columns, the bench and the New agent form
-- [`workbench-teams.md`](./workbench-teams.md) — `Teams` and `[Teams]`: the graph, its arrangements and the tasks drawer
+- [`workbench-teams.md`](./workbench-teams.md) — `Teams`: the graph, its arrangements and the tasks drawer
 - [`workbench-tasks.md`](./workbench-tasks.md) — Tasks mode: the board, its cards, the task panel and the plan
 - [`workbench-sink.md`](./workbench-sink.md) — Sink mode: the kitchen sink and its fixtures
 - [`panes-and-terminals.md`](./panes-and-terminals.md) — what a terminal panel actually is

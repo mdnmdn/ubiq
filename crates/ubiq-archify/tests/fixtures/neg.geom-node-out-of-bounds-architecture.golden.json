@@ -1,0 +1,550 @@
+{
+ "name": "neg.geom-node-out-of-bounds-architecture",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "geom/node-out-of-bounds",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "91812559f3943837b07cf757f4311ae4a55e2005d9ba7512dd599934ee401fed",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "viewBox": [400,240]
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/boundary-out-of-bounds",
+      "severity": "error",
+      "message": "Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.",
+      "subject": {
+       "diagramType": "architecture",
+       "boundary": {
+        "kind": "region",
+        "label": "Prod",
+        "wraps": [
+         "api",
+         "db"
+        ]
+       }
+      },
+      "evidence": {
+       "bounds": {
+        "x": 270,
+        "y": 50,
+        "width": 440,
+        "height": 110
+       },
+       "viewBox": [400,240],
+       "overflow": {
+        "left": 0,
+        "top": 0,
+        "right": 310,
+        "bottom": 0
+       },
+       "members": [
+        {
+         "id": "api",
+         "type": "backend",
+         "label": "API",
+         "x": 300,
+         "y": 80,
+         "width": 120,
+         "height": 60,
+         "pos": [300,80]
+        },
+        {
+         "id": "db",
+         "type": "database",
+         "label": "DB",
+         "x": 560,
+         "y": 80,
+         "width": 120,
+         "height": 60,
+         "pos": [560,80]
+        }
+       ]
+      },
+      "supportedFixes": [
+       "increase meta.viewBox to at least [710,240] for right/bottom overflow, or move the wrapped components inward; revalidate desktop readability"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/boundary-out-of-bounds",
+      "severity": "error",
+      "message": "Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.",
+      "subject": {
+       "diagramType": "architecture",
+       "boundary": {
+        "kind": "region",
+        "label": "Prod",
+        "wraps": [
+         "api",
+         "db"
+        ]
+       }
+      },
+      "evidence": {
+       "bounds": {
+        "x": 270,
+        "y": 50,
+        "width": 440,
+        "height": 110
+       },
+       "viewBox": [400,240],
+       "overflow": {
+        "left": 0,
+        "top": 0,
+        "right": 310,
+        "bottom": 0
+       },
+       "members": [
+        {
+         "id": "api",
+         "type": "backend",
+         "label": "API",
+         "x": 300,
+         "y": 80,
+         "width": 120,
+         "height": 60,
+         "pos": [300,80]
+        },
+        {
+         "id": "db",
+         "type": "database",
+         "label": "DB",
+         "x": 560,
+         "y": 80,
+         "width": 120,
+         "height": 60,
+         "pos": [560,80]
+        }
+       ]
+      },
+      "supportedFixes": [
+       "increase meta.viewBox to at least [710,240] for right/bottom overflow, or move the wrapped components inward; revalidate desktop readability"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.\n- [composition/label-canvas-containment] showcase architecture label \"SQL\" on connections[1] id \"api-db\" \"api\" -> \"db\" extends past the right edge by 105px (label rect [475,90,30,14]; viewBox 400x240) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+    "diagnostics": [
+     {
+      "code": "composition/label-canvas-containment",
+      "severity": "error",
+      "message": "[composition/label-canvas-containment] showcase architecture label \"SQL\" on connections[1] id \"api-db\" \"api\" -> \"db\" extends past the right edge by 105px (label rect [475,90,30,14]; viewBox 400x240) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 1,
+       "id": "api-db",
+       "from": "api",
+       "to": "db"
+      },
+      "evidence": {
+       "label": "SQL",
+       "labelRect": {
+        "x": 475,
+        "y": 90,
+        "width": 30,
+        "height": 14
+       },
+       "viewBox": [400,240],
+       "overflowPx": {
+        "right": 105
+       },
+       "tolerancePx": 0.5
+      },
+      "supportedFixes": [
+       "adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/boundary-out-of-bounds",
+      "severity": "error",
+      "message": "Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.",
+      "subject": {
+       "diagramType": "architecture",
+       "boundary": {
+        "kind": "region",
+        "label": "Prod",
+        "wraps": [
+         "api",
+         "db"
+        ]
+       }
+      },
+      "evidence": {
+       "bounds": {
+        "x": 270,
+        "y": 50,
+        "width": 440,
+        "height": 110
+       },
+       "viewBox": [400,240],
+       "overflow": {
+        "left": 0,
+        "top": 0,
+        "right": 310,
+        "bottom": 0
+       },
+       "members": [
+        {
+         "id": "api",
+         "type": "backend",
+         "label": "API",
+         "x": 300,
+         "y": 80,
+         "width": 120,
+         "height": 60,
+         "pos": [300,80]
+        },
+        {
+         "id": "db",
+         "type": "database",
+         "label": "DB",
+         "x": 560,
+         "y": 80,
+         "width": 120,
+         "height": 60,
+         "pos": [560,80]
+        }
+       ]
+      },
+      "supportedFixes": [
+       "increase meta.viewBox to at least [710,240] for right/bottom overflow, or move the wrapped components inward; revalidate desktop readability"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [400,240],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [40,80]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 300,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [300,80]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "Prod",
+     "x": 270,
+     "y": 50,
+     "width": 440,
+     "height": 110,
+     "wraps": [
+      "api",
+      "db"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,110],[300,110]],
+     "labelAt": [230,100]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[420,110],[560,110]],
+     "labelAt": [490,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 213,
+     "y": 90,
+     "width": 34,
+     "height": 14,
+     "labelAt": [230,100]
+    },
+    {
+     "text": "SQL",
+     "x": 475,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [490,100]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.\n- Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.",
+   "diagnostics": [
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Component \"api\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    },
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Component \"db\" falls outside the viewBox 400x240 — adjust pos/size or set a larger meta.viewBox.",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    },
+    {
+     "code": "layout/boundary-out-of-bounds",
+     "severity": "error",
+     "message": "Boundary \"Prod\" extends outside the viewBox (right by 310px) — preserve wraps membership and repair the measured canvas side.",
+     "subject": {
+      "diagramType": "architecture",
+      "boundary": {
+       "kind": "region",
+       "label": "Prod",
+       "wraps": [
+        "api",
+        "db"
+       ]
+      }
+     },
+     "evidence": {
+      "bounds": {
+       "x": 270,
+       "y": 50,
+       "width": 440,
+       "height": 110
+      },
+      "viewBox": [400,240],
+      "overflow": {
+       "left": 0,
+       "top": 0,
+       "right": 310,
+       "bottom": 0
+      },
+      "members": [
+       {
+        "id": "api",
+        "type": "backend",
+        "label": "API",
+        "x": 300,
+        "y": 80,
+        "width": 120,
+        "height": 60,
+        "pos": [300,80]
+       },
+       {
+        "id": "db",
+        "type": "database",
+        "label": "DB",
+        "x": 560,
+        "y": 80,
+        "width": 120,
+        "height": 60,
+        "pos": [560,80]
+       }
+      ]
+     },
+     "supportedFixes": [
+      "increase meta.viewBox to at least [710,240] for right/bottom overflow, or move the wrapped components inward; revalidate desktop readability"
+     ]
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

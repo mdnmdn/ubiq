@@ -25,6 +25,10 @@ ubiq-db = { path = "../ubiq-db" }
 # `ui/mdview/`. A leaf with no GPUI and no Ubiq crate in it.
 ubiq-md = { path = "../ubiq-md" }
 
+# The diagram engine behind the Archify viewer (`ui/archify/`, `state/archify/`); `png` is the export
+# rasteriser, switched on here only. A leaf: no GPUI, no process, no file.
+ubiq-archify = { path = "../ubiq-archify", features = ["png"] }
+
 # QuickJS, the interpreter behind the sink's script page (`state/script.rs`). A small C engine
 # compiled into the process — no runtime, no window, no subprocess, and no network — which is what
 # lets a script be run synchronously on a background thread of the interface's own. Optional

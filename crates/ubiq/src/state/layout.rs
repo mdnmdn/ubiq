@@ -35,13 +35,11 @@ use super::shapes;
 pub const CARD_WIDTH: f32 = 264.0;
 pub const CARD_HEIGHT: f32 = 140.0;
 
-/// The Teams graph's own card height — shorter than [`CARD_HEIGHT`], which the orchestration graph
-/// still draws at and packs against unchanged. A card's third row (what it is doing) is often
+/// The Teams graph's own card height — shorter than [`CARD_HEIGHT`], which the engine's own tests
+/// and the sink's teamsim bench still pack against. A card's third row (what it is doing) is often
 /// empty, and at [`CARD_HEIGHT`] the footer's own flex fills the rest, leaving a card that has
-/// nothing to say there noticeably taller than what it draws. [`CARD_HEIGHT`] cannot simply shrink
-/// for both graphs: [`super::orchestration`] re-exports it and draws its own cards at its literal
-/// value, so a change here would resize a screen nobody asked to touch. Every teams-only reader of
-/// card geometry — the packers by way of the `card` argument threaded through them, and the
+/// nothing to say there noticeably taller than what it draws. Every teams reader of card
+/// geometry — the packers by way of the `card` argument threaded through them, and the
 /// delegate-under-a-card maths in [`sub_slot`], [`ring_grid`], [`radial_slot`] and [`fence`], which
 /// nothing outside Teams ever calls with a non-empty ring — reads this constant instead.
 pub const TEAMS_CARD_HEIGHT: f32 = CARD_HEIGHT - 16.0;
@@ -380,10 +378,9 @@ pub fn union(rects: &[(f32, f32, f32, f32)]) -> (f32, f32, f32, f32) {
 /// The union of the card and the delegate boxes, padded by [`ring_pad`] — the same reading the
 /// canvas draws, so what a packer reserves is exactly what appears, whatever shape the ring is in.
 ///
-/// `card` is the caller's own card size — [`CARD_WIDTH`]/[`CARD_HEIGHT`] for the orchestration
-/// graph, [`CARD_WIDTH`]/[`TEAMS_CARD_HEIGHT`] for Teams — rather than a literal, because this one
-/// function decides the row height every packer reserves for a plain card in **both** graphs, and
-/// only one of them may shrink.
+/// `card` is the caller's own card size — [`CARD_WIDTH`]/[`TEAMS_CARD_HEIGHT`] for Teams — rather
+/// than a literal, because this one function decides the row height every packer reserves for a
+/// plain card, whoever is packing.
 pub fn ring_box(slots: &[(f32, f32)], card: (f32, f32)) -> (f32, f32, f32, f32) {
     let card = (0.0, 0.0, card.0, card.1);
     if slots.is_empty() {
@@ -594,9 +591,8 @@ impl Layout {
     /// own work.
     ///
     /// `card` is the plain card size to lay out at and reserve room for — [`CARD_WIDTH`] and
-    /// [`CARD_HEIGHT`] for the orchestration graph, [`CARD_WIDTH`] and [`TEAMS_CARD_HEIGHT`] for
-    /// Teams. Both graphs share this one engine, so the size is an argument rather than a constant
-    /// read here: a value baked in could only ever be right for one of them.
+    /// [`TEAMS_CARD_HEIGHT`] for Teams. The size is an argument rather than a constant read here,
+    /// so one engine lays out any card size its callers draw.
     pub fn auto(
         agents: &[WorkAgent],
         tasks: &[TaskRecord],
@@ -1873,7 +1869,7 @@ mod tests {
         let members = vec![lead.clone(), worker.clone()];
 
         // Rings are drawn only by Teams (`ring_drop`, `sub_slot` and friends read
-        // `TEAMS_CARD_HEIGHT`, never the orchestration graph's `CARD_HEIGHT`), so this is the one
+        // `TEAMS_CARD_HEIGHT`, never the plain `CARD_HEIGHT`), so this is the one
         // internal test that has to pass Teams' own card size — [`ring_drop`]'s expectation is
         // measured off it.
         let card = (CARD_WIDTH, TEAMS_CARD_HEIGHT);

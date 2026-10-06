@@ -1,0 +1,268 @@
+{
+ "name": "neg.schema-oneOf-brand",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/oneOf",
+ "expect_codes": [
+  "schema/oneOf"
+ ],
+ "source_sha256": "2d3a1002bea9bafac378a30afd729eb4c7816bed0fb4031d36c1760400dbf8eb",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "brand": {
+     "url": "https://example.com/logo.svg"
+    }
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"}\n  /components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "string"
+      },
+      "supportedFixes": [
+       "use \"string\" at /components/0/brand"
+      ]
+     },
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "sha256"
+      },
+      "supportedFixes": [
+       "add required property \"sha256\""
+      ]
+     },
+     {
+      "code": "schema/oneOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "oneOf",
+       "passingSchemas": null
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"}\n  /components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "string"
+      },
+      "supportedFixes": [
+       "use \"string\" at /components/0/brand"
+      ]
+     },
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "sha256"
+      },
+      "supportedFixes": [
+       "add required property \"sha256\""
+      ]
+     },
+     {
+      "code": "schema/oneOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "oneOf",
+       "passingSchemas": null
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"}\n  /components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "string"
+      },
+      "supportedFixes": [
+       "use \"string\" at /components/0/brand"
+      ]
+     },
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "sha256"
+      },
+      "supportedFixes": [
+       "add required property \"sha256\""
+      ]
+     },
+     {
+      "code": "schema/oneOf",
+      "severity": "error",
+      "message": "/components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/brand",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "oneOf",
+       "passingSchemas": null
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"}\n  /components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"}\n  /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}\n[schema/type] /components/0/brand (id/label: \"web\") must be string {\"type\":\"string\"} Fix: use \"string\" at /components/0/brand.\n[schema/required] /components/0/brand (id/label: \"web\") must have required property 'sha256' {\"missingProperty\":\"sha256\"} Fix: add required property \"sha256\".\n[schema/oneOf] /components/0/brand (id/label: \"web\") must match exactly one schema in oneOf {\"passingSchemas\":null}\n"
+ },
+ "layout_json_by_quality": {}
+}

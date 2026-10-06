@@ -208,7 +208,6 @@ fn a_chat_homes_right_in_every_mode() {
         RailMode::KB,
         RailMode::TEAMS,
         RailMode::TEAMS_ALL,
-        RailMode::TEAMS_OLD,
     ] {
         assert_eq!(chat.home_in(mode), Region::Right, "{mode:?}");
         assert_eq!(PanelKind::chat_home(mode), Region::Right, "{mode:?}");

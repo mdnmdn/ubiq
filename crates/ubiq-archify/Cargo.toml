@@ -1,0 +1,19 @@
+[package]
+name = "ubiq-archify"
+version = "0.1.0"
+edition = "2024"
+description = "The Archify engine: diagram format, validation, layout, scene and SVG export. A pure leaf: no GPUI, no Ubiq crate."
+publish = false
+
+[features]
+# PNG rasterisation of the SVG export (`svg::svg_to_png`); the interface turns it on.
+png = ["dep:resvg", "dep:anyhow"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+regex = "1.12"          # schema `pattern` keyword
+sha2 = "0.10"           # the receipt's input hash (compile.rs)
+kurbo = "0.11"          # sigil path parsing (sigils.rs)
+resvg = { version = "0.46", optional = true }
+anyhow = { version = "1", optional = true }

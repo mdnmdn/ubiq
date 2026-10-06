@@ -73,7 +73,7 @@ Your change updates the documents it touched, in the same commit. `just docs-tou
 | Gesture | UI → host | host → UI | Lands in |
 |---|---|---|---|
 | Expand a folder | `ProjectTree { rel_path, depth: 1 }` | `ProjectTreeListing { listings[] }` | `ExplorerState::merge` |
-| Open a project | `ProjectTree { "", depth: 1 }`, then the cache at `depth: 3` | same | `merge` + `fill_explorer_cache` |
+| Open a project | `ProjectTree { "", depth: 1 }`, then the cache at `depth: 3, prefetch: true`, four in flight | same (empty for a git-ignored folder) | `merge` + `fill_explorer_cache` |
 | Click a file | `ReadProjectFile { max_bytes: 2 MiB }` | `ProjectFileContents` | `pending_files` → `OpenFile::attach` |
 | `⌘S` | `WriteProjectFile { bytes, expected }` | `ProjectFileWritten { version }` | `OpenFile::saved`, then `RefreshProjectGit` |
 | New / rename / copy / trash / delete / drag | `EditProjectPath { rel_path, to?, op }` | `ProjectPathEdited` (echoes the op) | `path_edited` — retargets or closes tabs |
@@ -88,13 +88,14 @@ for and which reaches the one window whose own watch produced it.
 
 ## The mechanics you cannot infer
 
-**The four numbers, all in `crates/ubiq/src/app/mod.rs`:**
+**The five numbers, all in `crates/ubiq/src/app/mod.rs`:**
 
 | Constant | Value | Why |
 |---|---|---|
 | `MAX_FILE_BYTES` | `2 * 1024 * 1024` | What a read asks for. The host has the same ceiling and this never widens it; it keeps a buffer the user cannot read to the end of off the bus |
 | `EXPAND_DEPTH` | `1` | One level is what an expand asks for — which is why `node_modules` costs one row |
 | `CACHE_DEPTH` | `3` | How far the background cache walks into folders nobody opened. The host clamps to `MAX_DEPTH` = 3; the next unlisted folders are asked for as each reply lands |
+| `CACHE_IN_FLIGHT` | `4` | Cache walks on the wire at once. The files worker is one FIFO thread: more would queue a click's listing or read behind the crawl |
 | `FILTER_DEBOUNCE` | `100ms` | Coalesces a burst of keystrokes into one background walk |
 
 Plus `MIN_QUERY` = 3 in `app/explorer.rs` (re-exported from `app`): the explorer's filter field

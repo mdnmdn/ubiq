@@ -1,0 +1,451 @@
+{
+ "name": "neg.comp-ambiguous-corridor",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "composition/ambiguous-corridor",
+ "expect_codes": [
+  "composition/ambiguous-corridor"
+ ],
+ "source_sha256": "10f09dc60b8f1fa2d5cfa142ca8f2d7976472fc98f10cd7f6a352d8b1487e47e",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "quality_profile": "showcase"
+  },
+  "components": [
+   {
+    "id": "a",
+    "type": "frontend",
+    "label": "A",
+    "pos": [40,100]
+   },
+   {
+    "id": "b",
+    "type": "backend",
+    "label": "B",
+    "pos": [460,100]
+   },
+   {
+    "id": "c",
+    "type": "frontend",
+    "label": "C",
+    "pos": [40,300]
+   },
+   {
+    "id": "e",
+    "type": "backend",
+    "label": "E",
+    "pos": [460,300]
+   }
+  ],
+  "connections": [
+   {
+    "from": "a",
+    "to": "b",
+    "fromSide": "bottom",
+    "toSide": "bottom",
+    "via": [[100,200],[520,200]]
+   },
+   {
+    "from": "c",
+    "to": "e",
+    "fromSide": "top",
+    "toSide": "top",
+    "via": [[100,200],[520,200]]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/ambiguous-corridor] showcase architecture connections[0] \"a\" -> \"b\" shares a 420px corridor with connections[1] \"c\" -> \"e\" at [100,200] -> [520,200] (segments 1 and 1; minimum 8px) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge.",
+    "diagnostics": [
+     {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase architecture connections[0] \"a\" -> \"b\" shares a 420px corridor with connections[1] \"c\" -> \"e\" at [100,200] -> [520,200] (segments 1 and 1; minimum 8px) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "from": "a",
+       "to": "b"
+      },
+      "evidence": {
+       "otherRelationship": {
+        "diagramType": "architecture",
+        "collection": "connections",
+        "index": 1,
+        "from": "c",
+        "to": "e"
+       },
+       "overlapLengthPx": 420,
+       "minimumPx": 8,
+       "from": [100,200],
+       "to": [520,200],
+       "segmentIndex": 1,
+       "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+       "if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "10f09dc60b8f1fa2d5cfa142ca8f2d7976472fc98f10cd7f6a352d8b1487e47e",
+     "bytes": 1140
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "10f09dc60b8f1fa2d5cfa142ca8f2d7976472fc98f10cd7f6a352d8b1487e47e",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": [
+       "[composition/ambiguous-corridor] standard relationship \"a\" -> \"b\" shares a 420px corridor with relationship \"c\" -> \"e\" at [100,200] -> [520,200]"
+      ]
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 1,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 11,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.476,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 40,
+      "minInteriorSegmentPx": 420,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "c",
+         "to": "e",
+         "label": "",
+         "collectionIndex": 1,
+         "artifactIndex": 2
+        },
+        "bends": 2,
+        "stretch": 1.476
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 100,
+      "emptyTopRatio": 0.234,
+      "occupiedTop": 100,
+      "viewBoxTop": 0,
+      "canvasHeight": 428,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "a"
+      },
+      "minimumSourceTextPx": 11,
+      "minimumProjectedTextPx": 11,
+      "semanticTextCount": 4
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/ambiguous-corridor",
+       "relationship": {
+        "from": "a",
+        "to": "b",
+        "label": "",
+        "collectionIndex": 0,
+        "artifactIndex": 1
+       },
+       "otherRelationship": {
+        "from": "c",
+        "to": "e",
+        "label": "",
+        "collectionIndex": 1,
+        "artifactIndex": 2
+       },
+       "segmentIndex": 1,
+       "otherSegmentIndex": 1,
+       "overlapLength": 420,
+       "from": [100,200],
+       "to": [520,200]
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/ambiguous-corridor] showcase architecture connections[0] \"a\" -> \"b\" shares a 420px corridor with connections[1] \"c\" -> \"e\" at [100,200] -> [520,200] (segments 1 and 1; minimum 8px) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge.",
+    "diagnostics": [
+     {
+      "code": "composition/ambiguous-corridor",
+      "severity": "error",
+      "message": "[composition/ambiguous-corridor] showcase architecture connections[0] \"a\" -> \"b\" shares a 420px corridor with connections[1] \"c\" -> \"e\" at [100,200] -> [520,200] (segments 1 and 1; minimum 8px) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "from": "a",
+       "to": "b"
+      },
+      "evidence": {
+       "otherRelationship": {
+        "diagramType": "architecture",
+        "collection": "connections",
+        "index": 1,
+        "from": "c",
+        "to": "e"
+       },
+       "overlapLengthPx": 420,
+       "minimumPx": 8,
+       "from": [100,200],
+       "to": [520,200],
+       "segmentIndex": 1,
+       "otherSegmentIndex": 1
+      },
+      "supportedFixes": [
+       "if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [620,428],
+   "components": [
+    {
+     "id": "a",
+     "type": "frontend",
+     "label": "A",
+     "x": 40,
+     "y": 100,
+     "width": 120,
+     "height": 60,
+     "pos": [40,100]
+    },
+    {
+     "id": "b",
+     "type": "backend",
+     "label": "B",
+     "x": 460,
+     "y": 100,
+     "width": 120,
+     "height": 60,
+     "pos": [460,100]
+    },
+    {
+     "id": "c",
+     "type": "frontend",
+     "label": "C",
+     "x": 40,
+     "y": 300,
+     "width": 120,
+     "height": 60,
+     "pos": [40,300]
+    },
+    {
+     "id": "e",
+     "type": "backend",
+     "label": "E",
+     "x": 460,
+     "y": 300,
+     "width": 120,
+     "height": 60,
+     "pos": [460,300]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "a",
+     "to": "b",
+     "label": null,
+     "variant": "default",
+     "route": "auto",
+     "points": [[100,160],[100,200],[520,200],[520,160]]
+    },
+    {
+     "from": "c",
+     "to": "e",
+     "label": null,
+     "variant": "default",
+     "route": "auto",
+     "points": [[100,300],[100,200],[520,200],[520,300]]
+    }
+   ],
+   "labels": [],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- [composition/ambiguous-corridor] showcase architecture connections[0] \"a\" -> \"b\" shares a 420px corridor with connections[1] \"c\" -> \"e\" at [100,200] -> [520,200] (segments 1 and 1; minimum 8px) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge.",
+   "diagnostics": [
+    {
+     "code": "composition/ambiguous-corridor",
+     "severity": "error",
+     "message": "[composition/ambiguous-corridor] showcase architecture connections[0] \"a\" -> \"b\" shares a 420px corridor with connections[1] \"c\" -> \"e\" at [100,200] -> [520,200] (segments 1 and 1; minimum 8px) — if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge.",
+     "subject": {
+      "diagramType": "architecture",
+      "collection": "connections",
+      "index": 0,
+      "from": "a",
+      "to": "b"
+     },
+     "evidence": {
+      "otherRelationship": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 1,
+       "from": "c",
+       "to": "e"
+      },
+      "overlapLengthPx": 420,
+      "minimumPx": 8,
+      "from": [100,200],
+      "to": [520,200],
+      "segmentIndex": 1,
+      "otherSegmentIndex": 1
+     },
+     "supportedFixes": [
+      "if the authored via/fromSide/toSide are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so distinct connections do not visually merge"
+     ]
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

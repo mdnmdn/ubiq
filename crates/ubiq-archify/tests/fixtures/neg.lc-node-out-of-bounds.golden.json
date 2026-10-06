@@ -1,0 +1,336 @@
+{
+ "name": "neg.lc-node-out-of-bounds",
+ "group": "negative",
+ "source": "mutation of lifecycle",
+ "type": "lifecycle",
+ "rule": "geom/node-out-of-bounds",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "fd8b6ebaa1b71d75420e96ed3ec3679427e5706bdc4614f880e2e98a693a9453",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "LC",
+   "output": "lc.html",
+   "viewBox": [420,300]
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Phases"
+   },
+   {
+    "id": "terminal",
+    "label": "Exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "lane": "main",
+    "col": 0
+   },
+   {
+    "id": "running",
+    "type": "active",
+    "label": "Running",
+    "lane": "main",
+    "col": 1
+   },
+   {
+    "id": "done",
+    "type": "success",
+    "label": "Done",
+    "lane": "terminal",
+    "col": 1
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "lane": "terminal",
+    "col": 2
+   }
+  ],
+  "transitions": [
+   {
+    "id": "t1",
+    "from": "queued",
+    "to": "running",
+    "label": "start"
+   },
+   {
+    "id": "t2",
+    "from": "running",
+    "to": "done",
+    "label": "finish"
+   },
+   {
+    "id": "t3",
+    "from": "running",
+    "to": "failed",
+    "label": "error"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"running\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"done\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"done\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).\n- State \"failed\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"failed\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).\n- Label \"finish\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [298,99,41,16]\n  state \"running\" rect: [264,56,140,64]\n  Suggested fix: set labelAt [319,135] or set labelDy 25 (below); or set labelAt [319,47] or set labelDy -63 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"running\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"done\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"done\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"finish\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [298,99,41,16]\n  state \"running\" rect: [264,56,140,64]\n  Suggested fix: set labelAt [319,135] or set labelDy 25 (below); or set labelAt [319,47] or set labelDy -63 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"running\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"done\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"done\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).\n- State \"failed\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"failed\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).\n- Label \"finish\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [298,99,41,16]\n  state \"running\" rect: [264,56,140,64]\n  Suggested fix: set labelAt [319,135] or set labelDy 25 (below); or set labelAt [319,47] or set labelDy -63 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"running\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"done\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"done\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"finish\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [298,99,41,16]\n  state \"running\" rect: [264,56,140,64]\n  Suggested fix: set labelAt [319,135] or set labelDy 25 (below); or set labelAt [319,47] or set labelDy -63 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- State \"running\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"done\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"done\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).\n- State \"failed\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].\n- State \"failed\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).\n- Label \"finish\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [298,99,41,16]\n  state \"running\" rect: [264,56,140,64]\n  Suggested fix: set labelAt [319,135] or set labelDy 25 (below); or set labelAt [319,47] or set labelDy -63 (above)\n- [composition/label-canvas-containment] showcase lifecycle label \"error\" on transitions[2] id \"t3\" \"running\" -> \"failed\" extends past the right edge by 41.8px (label rect [425,159,37,16]; viewBox 420x300) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+    "diagnostics": [
+     {
+      "code": "composition/label-canvas-containment",
+      "severity": "error",
+      "message": "[composition/label-canvas-containment] showcase lifecycle label \"error\" on transitions[2] id \"t3\" \"running\" -> \"failed\" extends past the right edge by 41.8px (label rect [425,159,37,16]; viewBox 420x300) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 2,
+       "id": "t3",
+       "from": "running",
+       "to": "failed"
+      },
+      "evidence": {
+       "label": "error",
+       "labelRect": {
+        "x": 425.25,
+        "y": 159,
+        "width": 36.5,
+        "height": 16
+       },
+       "viewBox": [420,300],
+       "overflowPx": {
+        "right": 41.8
+       },
+       "tolerancePx": 0.5
+      },
+      "supportedFixes": [
+       "adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"running\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"done\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"done\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the horizontal bounds of the diagram — reduce state.width, lower its col, or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "State \"failed\" exceeds the vertical lifecycle area — keep y between 44 and 182 (adjust yOffset or increase meta.viewBox[1]).",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"finish\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [298,99,41,16]\n  state \"running\" rect: [264,56,140,64]\n  Suggested fix: set labelAt [319,135] or set labelDy 25 (below); or set labelAt [319,47] or set labelDy -63 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

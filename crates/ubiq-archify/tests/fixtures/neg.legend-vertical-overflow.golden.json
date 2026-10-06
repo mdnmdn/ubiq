@@ -1,0 +1,230 @@
+{
+ "name": "neg.legend-vertical-overflow",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "legend/vertical-overflow",
+ "expect_codes": [
+  "legend/vertical-overflow"
+ ],
+ "source_sha256": "48ed1df991c2297cfe9b70fe97cc8f9c38ec652921aa559459385358775b9ea5",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "viewBox": [320,240],
+   "legend": {
+    "mode": "all"
+   }
+  },
+  "components": [
+   {
+    "id": "a",
+    "type": "frontend",
+    "label": "A",
+    "pos": [30,50]
+   },
+   {
+    "id": "b",
+    "type": "backend",
+    "label": "B",
+    "pos": [180,50]
+   },
+   {
+    "id": "c",
+    "type": "database",
+    "label": "C",
+    "pos": [30,130]
+   },
+   {
+    "id": "e",
+    "type": "cloud",
+    "label": "E",
+    "pos": [180,130]
+   }
+  ],
+  "connections": [
+   {
+    "id": "ab",
+    "from": "a",
+    "to": "b",
+    "label": "x"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/vertical-overflow] architecture legend needs 4 rows, which would start at y=128 above the available legend band at y=198.",
+    "diagnostics": [
+     {
+      "code": "legend/vertical-overflow",
+      "severity": "error",
+      "message": "[legend/vertical-overflow] architecture legend needs 4 rows, which would start at y=128 above the available legend band at y=198.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend"
+      },
+      "evidence": {
+       "rowCount": 4,
+       "requiredTopY": 128,
+       "availableTopY": 198
+      },
+      "supportedFixes": [
+       "shorten legend labels, hide nonessential entries, or use a wider viewBox"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/vertical-overflow] architecture legend needs 4 rows, which would start at y=128 above the available legend band at y=198.",
+    "diagnostics": [
+     {
+      "code": "legend/vertical-overflow",
+      "severity": "error",
+      "message": "[legend/vertical-overflow] architecture legend needs 4 rows, which would start at y=128 above the available legend band at y=198.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend"
+      },
+      "evidence": {
+       "rowCount": 4,
+       "requiredTopY": 128,
+       "availableTopY": 198
+      },
+      "supportedFixes": [
+       "shorten legend labels, hide nonessential entries, or use a wider viewBox"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "[legend/vertical-overflow] architecture legend needs 4 rows, which would start at y=128 above the available legend band at y=198.",
+    "diagnostics": [
+     {
+      "code": "legend/vertical-overflow",
+      "severity": "error",
+      "message": "[legend/vertical-overflow] architecture legend needs 4 rows, which would start at y=128 above the available legend band at y=198.",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/legend"
+      },
+      "evidence": {
+       "rowCount": 4,
+       "requiredTopY": 128,
+       "availableTopY": 198
+      },
+      "supportedFixes": [
+       "shorten legend labels, hide nonessential entries, or use a wider viewBox"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [320,240],
+   "components": [
+    {
+     "id": "a",
+     "type": "frontend",
+     "label": "A",
+     "x": 30,
+     "y": 50,
+     "width": 120,
+     "height": 60,
+     "pos": [30,50]
+    },
+    {
+     "id": "b",
+     "type": "backend",
+     "label": "B",
+     "x": 180,
+     "y": 50,
+     "width": 120,
+     "height": 60,
+     "pos": [180,50]
+    },
+    {
+     "id": "c",
+     "type": "database",
+     "label": "C",
+     "x": 30,
+     "y": 130,
+     "width": 120,
+     "height": 60,
+     "pos": [30,130]
+    },
+    {
+     "id": "e",
+     "type": "cloud",
+     "label": "E",
+     "x": 180,
+     "y": 130,
+     "width": 120,
+     "height": 60,
+     "pos": [180,130]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "a",
+     "to": "b",
+     "label": "x",
+     "variant": "default",
+     "route": "auto",
+     "points": [[150,80],[180,80]],
+     "labelAt": [165,70]
+    }
+   ],
+   "labels": [
+    {
+     "text": "x",
+     "x": 150,
+     "y": 60,
+     "width": 30,
+     "height": 14,
+     "labelAt": [165,70]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

@@ -114,7 +114,7 @@ reads the accessor** — `theme::titlebar_height()`, `theme::explorer_width()`,
 | `ICON_SM` / `ICON_MD` / `ICON_LG` | 11 / 14 / 18 | The icon sizes, read through `theme::icon_sm/md/lg()` and fed to `Size::Size(px)` |
 | `TITLEBAR_HEIGHT` / `STATUS_BAR_HEIGHT` / `RAIL_WIDTH` | 34 / 30 / 56 | The chrome the user cannot drag |
 | `EXPLORER_WIDTH` / `CHAT_WIDTH` / `DOCK_HEIGHT` | 300 / 420 / 300 | What each dock edge region *opens at*. The **default** scales; the **stored** size, in the arrangement blob, does not (`D151`) |
-| `INSPECTOR_WIDTH` / `TASKS_HEIGHT` / `GRAPH_DOT_PITCH` | 420 / 220 / 28 | The orchestration screen |
+| `TASKS_HEIGHT` / `GRAPH_DOT_PITCH` | 220 / 28 | The Teams screen |
 | `AGENT_SIDEBAR_WIDTH` / `NEW_COLUMN_STRIP` | 300 / 28 | The agents screen |
 | `COLUMN_WIDTH` / `COLUMN_SHUT` / `TASK_PANEL_WIDTH` | 320 / 44 / 420 | Columns and the task panel |
 | `MODAL_WIDTH` / `MODAL_MAX_HEIGHT` | 460 / 0.8 | One question; the fraction of window height its body scrolls inside |

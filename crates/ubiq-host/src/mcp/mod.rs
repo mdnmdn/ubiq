@@ -50,6 +50,7 @@
 //! is posted to every window as the same work-family message a click would have produced, so the
 //! board redraws without the coordinator answering a question.
 
+mod archify;
 mod ask;
 pub mod catalogue;
 mod help;
@@ -161,6 +162,14 @@ pub struct KbReach {
 /// one clone, the listener thread another, and both must see the one cached outcome.
 pub struct HelpReach {
     pub help: Arc<crate::help::Help>,
+}
+
+/// How the diagram tools reach the windows: the one mailbox their two broadcasts go through
+/// ([`ubiq_proto::messages::Message::ArchifyShow`], [`ubiq_proto::messages::Message::ArchifyToolCall`]).
+/// Everything else a diagram tool does is a read or a write under the agent's own project folder.
+#[derive(Clone)]
+pub struct ArchifyReach {
+    pub everyone: Mailbox,
 }
 
 /// How the ask tools reach the user: the table a parked call waits in, and the table a registered

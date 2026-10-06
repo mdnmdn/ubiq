@@ -1,7 +1,6 @@
 //! The bottom strip: which file is open and where the caret is — or,
-//! on the agents screen, how the columns are filled and what is on the bench, or, on the
-//! orchestration screen, how many agents there are and what they are doing, or, on the board, how
-//! much work there is and where it has got to.
+//! on the agents screen, how the columns are filled and what is on the bench, or, on the board,
+//! how much work there is and where it has got to.
 //!
 //! It reports facts, never intentions, and an absent fact is drawn as absent. It reports on
 //! whatever is on screen, which is why the rail mode picks which set of facts it has: a caret in a
@@ -122,29 +121,13 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
 
     // The agents screen is a screen about columns, so the strip counts columns: how many there are,
     // how many agents are in them, how many of those columns are grouped, how many the user has put
-    // back on the bench, how the agents on the field are spread across the four states, and which
-    // harnesses are behind them. It counts the field rather than the project on purpose — the strip
-    // reports on what is on screen, and the bench is exactly the difference.
+    // back on the bench, and how the agents on the field are spread across the four states. It
+    // counts the field rather than the project on purpose — the strip reports on what is on screen,
+    // and the bench is exactly the difference.
     if app.workbench.rail_mode == RailMode::AGENTS
         && let (Some(work), Some(agents)) = (app.work(cx), app.agents(cx))
     {
         let bench = agents.benched(work).len();
-        // Which harnesses are behind the columns, each named once. A row of columns is often a row
-        // of different tools, and it is the one fact about them the columns' own footers say only
-        // one at a time.
-        let mut harnesses: Vec<String> = Vec::new();
-        for name in agents
-            .columns
-            .iter()
-            .flat_map(|column| column.tabs.iter())
-            .filter_map(|id| work.agent(*id))
-            .map(|agent| agent.harness.clone())
-        {
-            if !harnesses.contains(&name) {
-                harnesses.push(name);
-            }
-        }
-
         return strip
             .child(mono(
                 format!(
@@ -169,47 +152,13 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
             .child(div().flex_1().min_w(px(0.)))
             .child(size_control(app, cx))
             .child(version_label())
-            .child(made_with_love())
-            .child(mono(harnesses.join(" \u{b7} "), theme::text_muted()));
-    }
-
-    // On the orchestration screen there is no file and no caret to report, so the strip reports
-    // what is on screen instead: how many sessions and agents there are, and how the agents are
-    // spread across the four states. A count of zero is drawn as zero rather than dropped — "no
-    // agent is failing" is a fact, and it is the one the user is checking for.
-    if app.workbench.rail_mode == RailMode::TEAMS_OLD
-        && let Some(work) = app.work(cx)
-    {
-        return strip
-            .child(mono(
-                format!(
-                    "{} sessions \u{b7} {} agents",
-                    work.sessions.len(),
-                    work.agents.len()
-                ),
-                theme::text_muted(),
-            ))
-            .children(Bucket::all().into_iter().map(|bucket| {
-                let n = work.count(bucket);
-                mono(
-                    format!("{n} {}", bucket.label()),
-                    if n == 0 {
-                        theme::text_faint()
-                    } else {
-                        bucket_colour(bucket)
-                    },
-                )
-            }))
-            .child(div().flex_1().min_w(px(0.)))
-            .child(size_control(app, cx))
-            .child(version_label())
             .child(made_with_love());
     }
 
     // The board is a screen about work rather than about a file, so the strip counts the work: how
     // many cards are in each column, how many sub-tasks are done across them, and how many of them
     // nobody can finish without the user. A count of zero is drawn as zero, for the reason the
-    // two screens over the agents do.
+    // agents screen's is.
     if app.workbench.rail_mode == RailMode::TASKS
         && let (Some(work), Some(board)) = (app.work(cx), app.board(cx))
     {

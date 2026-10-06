@@ -55,6 +55,10 @@ pub const UBIQ_HELP: &str = "ubiq-help";
 /// `register_question` arms a dialog for the end of the turn (`D175`) — see [`super::ask`].
 pub const UBIQ_ASK: &str = "ubiq-ask";
 
+/// The slug of the diagram server: validate, lay out, render and create Archify diagrams under the
+/// agent's own project folder. Not in a default set — a definition names it.
+pub const UBIQ_ARCHIFY: &str = "ubiq-archify";
+
 /// The slug of the SQL server that only reads: every connection the user let agents use, run under
 /// the engine's read-only guard (`D202`). Not in a default set — a definition names it.
 pub const UBIQ_SQL_READ: &str = "ubiq-sql-read";
@@ -1110,6 +1114,233 @@ pub const SERVERS: &[ServerSpec] = &[
         ],
     },
     ServerSpec {
+        name: UBIQ_ARCHIFY,
+        title: "Archify diagrams",
+        description: "Validate, lay out, render and create Archify diagrams (.archify files) in the project: architecture, workflow, sequence, dataflow and lifecycle. Call archify_guide first for the authoring rules; write the file with your own tools, then archify_validate it and archify_render it so the user sees it.",
+        tools: &[
+            ToolSpec {
+                name: "archify_schema",
+                description: "The JSON Schema of a diagram type, verbatim. Call it before using a field or enum you have not used. `common` holds the shared definitions the others $ref.",
+                schema: r#"{
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "architecture",
+                        "workflow",
+                        "sequence",
+                        "dataflow",
+                        "lifecycle",
+                        "common"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "archify_validate",
+                description: "Validate a diagram document: JSON syntax, meta.output path, JSON Schema, then the graph checks (relationship ids, engineering profile, evidence shape, references, grid cells, ranges, workflow contract) and, for architecture, dataflow, sequence and lifecycle v2, the geometry and composition gates. Give a project `path` or an inline `document`. Returns a receipt {ok, stage?, error?, diagnostics[], stagesRun, notChecked}. ok:false is never success: repair from diagnostics[] and validate again.",
+                schema: r#"{
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "A .archify (or <name>.<type>.json) file inside the project: relative to the project root, or absolute."
+                    },
+                    "document": {
+                      "description": "The diagram inline: a JSON object, or a string holding JSON. `json` is accepted as an alias."
+                    },
+                    "json": {
+                      "description": "Alias of `document`."
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "architecture",
+                        "workflow",
+                        "sequence",
+                        "dataflow",
+                        "lifecycle"
+                      ],
+                      "description": "Defaults to the document's diagram_type (a .archify file has no other source), then the file name's <type>.json suffix."
+                    },
+                    "quality": {
+                      "type": "string",
+                      "enum": [
+                        "advisory",
+                        "standard",
+                        "showcase"
+                      ],
+                      "description": "Overrides meta.quality_profile for gate severity. Never changes the layout."
+                    },
+                    "repo_root": {
+                      "type": "string",
+                      "description": "The Git checkout the document's source evidence (meta.repository and nodes' sources) is verified against, committed blobs at the pinned SHA: a directory inside the project, relative to it or absolute. Default: the root of your project. It must be the repository's top-level directory."
+                    }
+                  },
+                  "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "archify_layout",
+                description: "The resolved layout of a document, as repair evidence: viewBox, node rects, edge route points and label rects. Architecture is Archify's --layout-json report (components, boundaries, connections with exact points and labelAt, labels); a layout the gates reject is returned too, with ok:false, error and diagnostics[] (contract archify-architecture-layout-v1). Dataflow, sequence and lifecycle return a receipt of the same shape (contract ubiq-archify-layout-v1: nodes|participants|states, flows|messages|transitions with points and label, frames|segments|bands); there a document the gates reject is the ordinary validate receipt. Workflow is the compiler's receipt (contract fixed-v1 or readable-v2: viewBox, requiredViewBox, columns, nodes, edges with points, labels, diagnostics); a layout the gates reject returns {contract, diagnostics[]}. Use it once after two focused repairs, not before the first validate. Give a project `path` or an inline `document`.",
+                schema: r#"{
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "A .archify (or <name>.<type>.json) file inside the project: relative to the project root, or absolute."
+                    },
+                    "document": {
+                      "description": "The diagram inline: a JSON object, or a string holding JSON. `json` is accepted as an alias."
+                    },
+                    "json": {
+                      "description": "Alias of `document`."
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "architecture",
+                        "workflow",
+                        "sequence",
+                        "dataflow",
+                        "lifecycle"
+                      ],
+                      "description": "Defaults to the document's diagram_type (a .archify file has no other source), then the file name's <type>.json suffix."
+                    },
+                    "quality": {
+                      "type": "string",
+                      "enum": [
+                        "advisory",
+                        "standard",
+                        "showcase"
+                      ],
+                      "description": "Overrides meta.quality_profile for gate severity of a rejected layout. Never changes the layout."
+                    },
+                    "repo_root": {
+                      "type": "string",
+                      "description": "The Git checkout the document's source evidence (meta.repository and nodes' sources) is verified against, committed blobs at the pinned SHA: a directory inside the project, relative to it or absolute. Default: the root of your project. It must be the repository's top-level directory."
+                    }
+                  },
+                  "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "archify_render",
+                description: "Compile a diagram and show it in Ubiq: the diagram viewer opens or focuses the file's tab. Returns {ok, type, profile, counts{nodes,edges,frames}, viewBox, diagnostics[], shown}; no HTML. A document that fails to compile is the ordinary validate receipt (ok:false) and nothing is shown. Call it once the document validates. Give a project `path` (shown) or an inline `document` (summarised only).",
+                schema: r#"{
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "A .archify (or <name>.<type>.json) file inside the project: relative to the project root, or absolute."
+                    },
+                    "document": {
+                      "description": "The diagram inline: a JSON object, or a string holding JSON. `json` is accepted as an alias."
+                    },
+                    "json": {
+                      "description": "Alias of `document`."
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "architecture",
+                        "workflow",
+                        "sequence",
+                        "dataflow",
+                        "lifecycle"
+                      ],
+                      "description": "Defaults to the document's diagram_type (a .archify file has no other source), then the file name's <type>.json suffix."
+                    },
+                    "quality": {
+                      "type": "string",
+                      "enum": [
+                        "advisory",
+                        "standard",
+                        "showcase"
+                      ],
+                      "description": "Overrides meta.quality_profile for gate severity. Never changes the layout."
+                    },
+                    "repo_root": {
+                      "type": "string",
+                      "description": "The Git checkout the document's source evidence (meta.repository and nodes' sources) is verified against, committed blobs at the pinned SHA: a directory inside the project, relative to it or absolute. Default: the root of your project. It must be the repository's top-level directory."
+                    }
+                  },
+                  "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "archify_new",
+                description: "Create a new diagram file: a minimal valid starter of `type`, titled `name`, written to <dir>/<slug>.archify (the slug comes from `name`; `dir` is relative to the project root, default the root itself, created if missing). Refuses to overwrite an existing file. Opens its tab in Ubiq. Returns {ok, path, type}; then edit the file and validate it. An absolute `dir` must be inside the project.",
+                schema: r#"{
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "architecture",
+                        "workflow",
+                        "sequence",
+                        "dataflow",
+                        "lifecycle"
+                      ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "The diagram's title; the file is named after it."
+                    },
+                    "dir": {
+                      "type": "string",
+                      "description": "Folder inside the project, e.g. \"diagrams\". Default: the project root."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "archify_guide",
+                description: "The authoring guide. Without arguments it returns the main skill; with a `topic`, that reference (an unknown topic lists the valid ones). With a `scenario` (plain words: what the diagram should explain) it scores 12 recipes by keyword and returns the best one and up to two alternatives, each with the diagram type to use, what it must include and starter prompts. Not both.",
+                schema: r#"{
+                  "type": "object",
+                  "properties": {
+                    "topic": {
+                      "type": "string",
+                      "enum": [
+                        "architecture-layout-repair",
+                        "architecture",
+                        "authoring-defaults",
+                        "dataflow",
+                        "evidence",
+                        "geometry-rules",
+                        "labels",
+                        "lifecycle",
+                        "mermaid-everyday",
+                        "reference",
+                        "repair",
+                        "sequence",
+                        "workflow"
+                      ]
+                    },
+                    "scenario": {
+                      "type": "string",
+                      "description": "What the diagram is for, e.g. \"order lifecycle from cart to refund\"."
+                    }
+                  },
+                  "additionalProperties": false
+                }"#,
+            },
+        ],
+    },
+    ServerSpec {
         name: UBIQ_HELP,
         title: "Ubiq's own documentation",
         description: "The manual behind the '?' in Ubiq's own titlebar: read it to answer a question about how Ubiq itself works, rather than guessing. Every page has a stable id; hand one back to the user as ubiq://./help/<id> and it opens there.",
@@ -1435,6 +1666,29 @@ mod tests {
         for set in [COORDINATOR_MCPS, WORKER_MCPS] {
             assert!(!set.contains(&UBIQ_SQL_READ) && !set.contains(&UBIQ_SQL_WRITE));
         }
+    }
+
+    #[test]
+    fn the_archify_server_agrees_with_its_engine_and_is_in_no_default_set() {
+        for set in [COORDINATOR_MCPS, WORKER_MCPS] {
+            assert!(!set.contains(&UBIQ_ARCHIFY));
+        }
+        let spec = server(UBIQ_ARCHIFY).unwrap();
+        let schema = |tool: &str, field: &str| -> Vec<String> {
+            let tool = spec.tools.iter().find(|t| t.name == tool).unwrap();
+            let schema: Value = serde_json::from_str(tool.schema).unwrap();
+            schema["properties"][field]["enum"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect()
+        };
+        let types: Vec<String> = ubiq_archify::schema::DOC_TYPES.iter().map(|s| s.to_string()).collect();
+        assert_eq!(schema("archify_new", "type"), types);
+        assert_eq!(schema("archify_validate", "type"), types);
+        let topics: Vec<String> = ubiq_archify::guide::topic_names().iter().map(|s| s.to_string()).collect();
+        assert_eq!(schema("archify_guide", "topic"), topics);
     }
 
     #[test]

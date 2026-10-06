@@ -300,37 +300,6 @@ pub fn modes(reg: &mut Registry<RailModeSpec>) {
     register(
         reg,
         RailModeSpec {
-            id: ids::RAIL_TEAMS_OLD,
-            group: ids::RAIL_PROJECT,
-            label: "[Teams]",
-            note: "How the agents are arranged, and which task each serves.",
-            slug: "teamsold",
-            icon: || Icon::new(UbiqIcon::ModeTeams),
-            ui_id: uid::RAIL_MODE_TEAMS_OLD,
-            availability: Availability::Always,
-            has_pane_region: true,
-            needs_project: true,
-            opens_left: false,
-            opens_right: false,
-            centre: Some(|app, window, cx| {
-                crate::ui::orchestration::render(app, window, cx).into_any_element()
-            }),
-            default_layout: None,
-            destination: Some(|app, _project, cx| {
-                let graph = app.graph(cx)?;
-                Some(View::Graph {
-                    selection: graph.selection?,
-                    tab: graph.tab,
-                })
-            }),
-            furniture: None,
-            side_furniture: None,
-            on_enter: None,
-        },
-    );
-    register(
-        reg,
-        RailModeSpec {
             id: ids::RAIL_KB,
             group: ids::RAIL_PROJECT,
             label: "KB",

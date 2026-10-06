@@ -809,7 +809,10 @@ impl Conversation {
     /// Fold one delta in.
     pub fn apply(&mut self, seq: u64, update: ConvUpdate) {
         self.seq = self.seq.max(seq);
-        self.error = None;
+        // Model discovery can land after a fast launch failure; it says nothing about the failure.
+        if !matches!(update, ConvUpdate::ConfigOptions(_)) {
+            self.error = None;
+        }
 
         match update {
             ConvUpdate::Started { model, mode, .. } => {

@@ -22,8 +22,8 @@ use ubiq_host::work::{Work, mock};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Level, Priority, Shape,
-    Speaker, Status, Step, StepState, TaskRecord, WorkAgent, WorkSession,
+    Activity, AgentId, Attachment, Comment, CommentAuthor, Complexity, Kind, Label, Level,
+    Priority, Shape, Speaker, Status, Step, StepState, TaskRecord, WorkAgent, WorkSession,
 };
 
 // ── the store, against a real file ──────────────────────────────────
@@ -464,6 +464,47 @@ fn work(store: &Arc<MemoryTaskStore>) -> Work {
 }
 
 /// A fresh service on an unwritten project, which is what a first boot is.
+/// A running agent put in the project's list, the way a harness start does — the only agents the
+/// work holds since the mocks went (T-330). `parent` is who spawned it.
+fn a_live_agent(work: &mut Work, project: ProjectId, parent: Option<AgentId>) -> WorkAgent {
+    let id = AgentId::generate();
+    let session = SessionId::generate();
+    let agent = WorkAgent {
+        id,
+        session,
+        task: None,
+        parent,
+        name: format!("agent-{id}"),
+        summary: None,
+        title: None,
+        definition: None,
+        activity: Activity::Thinking,
+        branch: "main".to_string(),
+        tokens: 0.0,
+        harness: "Claude Code".to_string(),
+        account: String::new(),
+        model: String::new(),
+        context_pct: 0,
+        persistent: false,
+        accept_all: false,
+        debug_dump: None,
+        run_dir: None,
+        config_dir: None,
+        thread: Vec::new(),
+    };
+    work.add_live_agent(
+        project,
+        agent.clone(),
+        WorkSession {
+            id: session,
+            name: "main".to_string(),
+            branch: "main".to_string(),
+            worktree: false,
+        },
+    );
+    agent
+}
+
 fn unseeded() -> (Arc<MemoryTaskStore>, Work, ProjectId) {
     let store = Arc::new(MemoryTaskStore::new());
     let work = work(&store);
@@ -548,7 +589,10 @@ fn the_first_ask_answers_an_empty_board_and_writes_it_once() {
 
     let (sessions, agents, tasks) = listing(&replies);
     assert_eq!(sessions.len(), 5);
-    assert_eq!(agents.len(), 11);
+    assert!(
+        agents.is_empty(),
+        "no agent is invented: the agents are the live ones"
+    );
     assert!(tasks.is_empty(), "a new project's board starts empty");
     // Written at the first look rather than at the first edit, so what the user sees is already
     // theirs: renamable, movable, deletable, and still there after a restart — and so an absent
@@ -579,7 +623,7 @@ fn a_project_that_wrote_an_empty_board_gets_its_empty_board_back() {
     );
     // The invented half is still answered: it has no file behind it to be empty.
     assert_eq!(sessions.len(), 5);
-    assert_eq!(agents.len(), 11);
+    assert!(agents.is_empty());
 }
 
 #[test]
@@ -1083,31 +1127,13 @@ fn a_foreign_key_does_not_feed_the_progressive() {
 
 #[test]
 fn deleting_a_task_takes_every_agent_off_it() {
-    // The mock links its agents to whichever task their session has in flight the first time it is
-    // minted, so a task the store already held before the first `list` is what puts one of them on
-    // it — a task created afterwards never retroactively links.
-    let mut in_flight = record("in flight");
-    in_flight.status = Status::InProgress;
-    in_flight.session = Some(mock::sessions()[0].id);
-    let project = ProjectId::generate();
-    let store = Arc::new(MemoryTaskStore::with(project, vec![in_flight]));
-    let mut work = work(&store);
-
-    let (_, agents, tasks) = listing(&work.list(project));
-    let target = tasks
-        .iter()
-        .find(|t| t.status == Status::InProgress)
-        .expect("the store held work in flight")
-        .clone();
-    let on_it: HashSet<AgentId> = agents
-        .iter()
-        .filter(|a| a.task == Some(target.id))
-        .map(|a| a.id)
-        .collect();
-    assert!(
-        !on_it.is_empty(),
-        "the mock puts an agent from that session on the task in flight"
-    );
+    let (_store, mut work, project) = unseeded();
+    let target = created(&work.create(project, "in flight".to_string(), None));
+    let on = a_live_agent(&mut work, project, None);
+    // A second agent on no task, so "and no other" has someone to leave alone.
+    a_live_agent(&mut work, project, None);
+    moved_agent(&work.assign_agent(project, on.id, Some(target.id)));
+    let on_it: HashSet<AgentId> = [on.id].into_iter().collect();
 
     let replies = work.delete(project, target.id);
 
@@ -1306,8 +1332,7 @@ fn nothing_in_the_work_family_is_broadcast() {
     let other = created(&work.create(project, "another".to_string(), None));
     let task = changed(&work.add_step(project, task.id, "a step".to_string()));
     let step = task.steps[0].id;
-    let (_, agents, _) = listing(&work.list(project));
-    let agent = agents[0].id;
+    let agent = a_live_agent(&mut work, project, None).id;
 
     let mut replies = Vec::new();
     replies.extend(work.list(project));
@@ -1357,12 +1382,8 @@ fn nothing_in_the_work_family_is_broadcast() {
 fn moving_an_agent_to_another_task_clears_its_parent() {
     let (_store, mut work, project) = unseeded();
     let elsewhere = created(&work.create(project, "somewhere to put it".to_string(), None));
-    let (_, agents, _) = listing(&work.list(project));
-    let child = agents
-        .iter()
-        .find(|a| a.parent.is_some())
-        .expect("the mock spawns workers under a lead")
-        .clone();
+    let lead = a_live_agent(&mut work, project, None);
+    let child = a_live_agent(&mut work, project, Some(lead.id));
 
     let after = moved_agent(&work.assign_agent(project, child.id, Some(elsewhere.id)));
 
@@ -1390,8 +1411,7 @@ fn moving_an_agent_to_another_task_clears_its_parent() {
 #[test]
 fn a_line_to_an_agent_is_appended_and_nothing_answers_it() {
     let (_store, mut work, project) = unseeded();
-    let (_, agents, _) = listing(&work.list(project));
-    let agent = agents[0].clone();
+    let agent = a_live_agent(&mut work, project, None);
     let before = agent.thread.len();
 
     assert!(
@@ -1417,79 +1437,6 @@ fn a_line_to_an_agent_is_appended_and_nothing_answers_it() {
     assert_eq!(
         refusals(&work.send_to_agent(project, AgentId::generate(), "hello?".to_string())).len(),
         1
-    );
-}
-
-/// The mock's agents come back attached to a task that is actually on the board, or to none.
-///
-/// The fixture cannot name a task id — the ids belong to whatever `tasks.toml` holds — so the link
-/// is made where both lists are in hand. Without it the graph draws eleven cards and not one
-/// outline.
-///
-/// **No task is a real answer.** An agent whose session has nothing in flight is left unlinked,
-/// because the graph draws an unowned card above the containers and that is where the project
-/// manager coordinating everything belongs. Reaching for the session's first task instead put it
-/// inside a container for work nobody is doing.
-#[test]
-fn the_mock_agents_come_back_linked_to_a_task_that_exists() {
-    // The link is made once, when the mock is minted, against whatever tasks the store already
-    // held — so the project needs work in flight before the first `list`, the same as
-    // `deleting_a_task_takes_every_agent_off_it` above.
-    let mut in_flight = record("in flight");
-    in_flight.status = Status::InProgress;
-    in_flight.session = Some(mock::sessions()[0].id);
-    let mut finished = record("finished");
-    finished.status = Status::Done;
-    finished.session = Some(mock::sessions()[4].id);
-    let project = ProjectId::generate();
-    let store = Arc::new(MemoryTaskStore::with(project, vec![in_flight, finished]));
-    let mut work = work(&store);
-
-    let (sessions, agents, tasks) = listing(&work.list(project));
-    let ids: HashSet<TaskId> = tasks.iter().map(|t| t.id).collect();
-
-    // A link, where there is one, names a task the board actually holds.
-    for agent in &agents {
-        if let Some(task) = agent.task {
-            assert!(
-                ids.contains(&task),
-                "{} names no task on the board",
-                agent.name
-            );
-        }
-    }
-
-    // An agent serves the task its session has in flight, and none when its session has not.
-    for session in &sessions {
-        let flight = tasks.iter().find(|t| {
-            t.session == Some(session.id)
-                && matches!(t.status, Status::InProgress | Status::InReview)
-        });
-        for agent in agents.iter().filter(|a| a.session == session.id) {
-            assert_eq!(
-                agent.task,
-                flight.map(|t| t.id),
-                "{} is in {}, which has {:?} in flight",
-                agent.name,
-                session.name,
-                flight.map(|t| &t.title)
-            );
-        }
-    }
-
-    // And this really does exercise both arms, so the test cannot pass by drawing no conclusion:
-    // the project manager is on `main`, whose only task is finished.
-    let boss = agents
-        .iter()
-        .find(|a| a.definition.as_deref() == Some("Project manager"))
-        .expect("the mock has a project manager");
-    assert_eq!(
-        boss.task, None,
-        "the one agent coordinating everything sits above the containers"
-    );
-    assert!(
-        agents.iter().any(|a| a.task.is_some()),
-        "and the rest are in a container"
     );
 }
 

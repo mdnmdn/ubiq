@@ -1,0 +1,255 @@
+{
+ "name": "neg.geom-node-overlap-architecture",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "geom/node-overlap",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "f233e892c9508a249669b8b1c2c4510666ab998c1589667eb616de0485e89ffb",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [140,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [750,232],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [40,80]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 140,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [140,80]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "Prod",
+     "x": 110,
+     "y": 50,
+     "width": 600,
+     "height": 110,
+     "wraps": [
+      "api",
+      "db"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[100,140],[100,164],[200,164],[200,140]],
+     "labelAt": [150,154]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[260,110],[560,110]],
+     "labelAt": [410,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 133,
+     "y": 144,
+     "width": 34,
+     "height": 14,
+     "labelAt": [150,154]
+    },
+    {
+     "text": "SQL",
+     "x": 395,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [410,100]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+   "diagnostics": [
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Components \"web\" and \"api\" are less than 8px apart — move one or shrink its size.\n  \"web\" [40,80,120,60]; \"api\" [140,80,120,60]\n  Suggested fix: move \"api\" pos to [168,80] (right of \"web\") or [140,148] (below)",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

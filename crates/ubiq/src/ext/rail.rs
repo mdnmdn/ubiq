@@ -261,20 +261,35 @@ const LEGACY_NAMES: &[(&str, SlotId)] = &[
     ("Agents", ids::RAIL_AGENTS),
     ("Teams", ids::RAIL_TEAMS),
     ("TeamsAll", ids::RAIL_TEAMS_ALL),
-    ("TeamsOld", ids::RAIL_TEAMS_OLD),
+    // `[Teams]` is gone (T-330); a blob that was standing in it lands on the mode that replaced
+    // it rather than on an empty page.
+    ("TeamsOld", ids::RAIL_TEAMS),
     ("Kb", ids::RAIL_KB),
     ("Tasks", ids::RAIL_TASKS),
     ("Sink", ids::RAIL_SINK),
 ];
 
+/// Ids this build retired, read back as the mode that replaced them. Same rule as
+/// [`LEGACY_NAMES`]: the one transformation, so a saved arrangement never strands the window on a
+/// mode nothing draws.
+const RETIRED_IDS: &[(&str, SlotId)] = &[("ubiq.rail.teams-old", ids::RAIL_TEAMS)];
+
+/// Whether a saved key names a mode this build retired. [`decode_id`] still reads such a key as its
+/// successor so `rail_mode` lands somewhere, but a per-mode arrangement keyed by it described a
+/// different screen and must never stand in for the successor's own.
+pub fn is_retired(text: &str) -> bool {
+    text == "TeamsOld" || RETIRED_IDS.iter().any(|(name, _)| *name == text)
+}
+
 /// Read one key back.
 ///
 /// **Nothing is ever dropped.** An id no registration answers for is interned and kept as it was
 /// found, so a build without a second edition's registrations still writes that edition's saved
-/// arrangements back out untouched (`D184`). The one transformation is the legacy table above.
+/// arrangements back out untouched (`D184`). The one transformation is the two tables above.
 pub fn decode_id(text: &str) -> SlotId {
     LEGACY_NAMES
         .iter()
+        .chain(RETIRED_IDS)
         .find(|(name, _)| *name == text)
         .map(|(_, id)| *id)
         .unwrap_or_else(|| SlotId::intern(text))
@@ -310,7 +325,8 @@ mod tests {
 
     #[test]
     fn an_old_variant_name_decodes_to_the_id_that_replaced_it() {
-        assert_eq!(decode_id("TeamsOld"), ids::RAIL_TEAMS_OLD);
+        assert_eq!(decode_id("TeamsOld"), ids::RAIL_TEAMS);
+        assert_eq!(decode_id("ubiq.rail.teams-old"), ids::RAIL_TEAMS);
         assert_eq!(decode_id("Ide"), ids::RAIL_IDE);
     }
 }

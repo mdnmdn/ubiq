@@ -1,0 +1,425 @@
+{
+ "name": "neg.comp-excessive-route-detour",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "composition/excessive-route-detour",
+ "expect_codes": [
+  "composition/excessive-route-detour"
+ ],
+ "source_sha256": "d0be7e3e13f9d9c06fdbb8202b7e65b8bea4f93b8e77e8ff6bc40cbf21b634bd",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "quality_profile": "showcase",
+   "viewBox": [800,640]
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,120]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,120]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis",
+    "fromSide": "top",
+    "toSide": "top",
+    "via": [[100,40],[100,560],[360,560],[360,40]]
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+    "diagnostics": [
+     {
+      "code": "composition/excessive-route-detour",
+      "severity": "error",
+      "message": "[composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "points": [[100,120],[100,40],[100,560],[360,560],[360,40],[360,120]],
+       "actualLengthPx": 1460,
+       "shortestLegalPoints": [[100,120],[100,116],[360,116],[360,120]],
+       "shortestLegalLengthPx": 268,
+       "detourRatio": 5.45,
+       "excessLengthPx": 1192,
+       "routeBounds": {
+        "left": 100,
+        "top": 40,
+        "right": 360,
+        "bottom": 560,
+        "width": 260,
+        "height": 520
+       },
+       "contentBounds": {
+        "left": 40,
+        "top": 80,
+        "right": 680,
+        "bottom": 180,
+        "width": 640,
+        "height": 100
+       },
+       "emptyExcursionPx": {
+        "left": 0,
+        "top": 40,
+        "right": 0,
+        "bottom": 380,
+        "maximum": 380
+       },
+       "emptyControlPointClearancePx": {
+        "maximum": 380,
+        "point": [100,560]
+       },
+       "obstacleCount": 3,
+       "thresholds": {
+        "minimumDetourRatio": 2.5,
+        "minimumExcessLengthPx": 200,
+        "minimumEmptyExcursionPx": 96
+       }
+      },
+      "supportedFixes": [
+       "remove the distant via points and retry automatic routing, or keep the endpoint sides and move the via corridor near the connected nodes while preserving labels and direction"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+    "diagnostics": [
+     {
+      "code": "composition/excessive-route-detour",
+      "severity": "error",
+      "message": "[composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "points": [[100,120],[100,40],[100,560],[360,560],[360,40],[360,120]],
+       "actualLengthPx": 1460,
+       "shortestLegalPoints": [[100,120],[100,116],[360,116],[360,120]],
+       "shortestLegalLengthPx": 268,
+       "detourRatio": 5.45,
+       "excessLengthPx": 1192,
+       "routeBounds": {
+        "left": 100,
+        "top": 40,
+        "right": 360,
+        "bottom": 560,
+        "width": 260,
+        "height": 520
+       },
+       "contentBounds": {
+        "left": 40,
+        "top": 80,
+        "right": 680,
+        "bottom": 180,
+        "width": 640,
+        "height": 100
+       },
+       "emptyExcursionPx": {
+        "left": 0,
+        "top": 40,
+        "right": 0,
+        "bottom": 380,
+        "maximum": 380
+       },
+       "emptyControlPointClearancePx": {
+        "maximum": 380,
+        "point": [100,560]
+       },
+       "obstacleCount": 3,
+       "thresholds": {
+        "minimumDetourRatio": 2.5,
+        "minimumExcessLengthPx": 200,
+        "minimumEmptyExcursionPx": 96
+       }
+      },
+      "supportedFixes": [
+       "remove the distant via points and retry automatic routing, or keep the endpoint sides and move the via corridor near the connected nodes while preserving labels and direction"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+    "diagnostics": [
+     {
+      "code": "composition/excessive-route-detour",
+      "severity": "error",
+      "message": "[composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "id": "web-api",
+       "from": "web",
+       "to": "api"
+      },
+      "evidence": {
+       "points": [[100,120],[100,40],[100,560],[360,560],[360,40],[360,120]],
+       "actualLengthPx": 1460,
+       "shortestLegalPoints": [[100,120],[100,116],[360,116],[360,120]],
+       "shortestLegalLengthPx": 268,
+       "detourRatio": 5.45,
+       "excessLengthPx": 1192,
+       "routeBounds": {
+        "left": 100,
+        "top": 40,
+        "right": 360,
+        "bottom": 560,
+        "width": 260,
+        "height": 520
+       },
+       "contentBounds": {
+        "left": 40,
+        "top": 80,
+        "right": 680,
+        "bottom": 180,
+        "width": 640,
+        "height": 100
+       },
+       "emptyExcursionPx": {
+        "left": 0,
+        "top": 40,
+        "right": 0,
+        "bottom": 380,
+        "maximum": 380
+       },
+       "emptyControlPointClearancePx": {
+        "maximum": 380,
+        "point": [100,560]
+       },
+       "obstacleCount": 3,
+       "thresholds": {
+        "minimumDetourRatio": 2.5,
+        "minimumExcessLengthPx": 200,
+        "minimumEmptyExcursionPx": 96
+       }
+      },
+      "supportedFixes": [
+       "remove the distant via points and retry automatic routing, or keep the endpoint sides and move the via corridor near the connected nodes while preserving labels and direction"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [800,640],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 120,
+     "width": 120,
+     "height": 60,
+     "pos": [40,120]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 300,
+     "y": 120,
+     "width": 120,
+     "height": 60,
+     "pos": [300,120]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[100,120],[100,40],[100,560],[360,560],[360,40],[360,120]],
+     "labelAt": [100,290]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[420,150],[490,150],[490,110],[560,110]],
+     "labelAt": [490,120]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 83,
+     "y": 280,
+     "width": 34,
+     "height": 14,
+     "labelAt": [100,290]
+    },
+    {
+     "text": "SQL",
+     "x": 475,
+     "y": 110,
+     "width": 30,
+     "height": 14,
+     "labelAt": [490,120]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- [composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+   "diagnostics": [
+    {
+     "code": "composition/excessive-route-detour",
+     "severity": "error",
+     "message": "[composition/excessive-route-detour] architecture connections[0] id \"web-api\" \"web\" -> \"api\" travels 1460px, 5.45x the 268px shortest obstacle-clearing orthogonal route, and reaches 380px beyond the content bounds — remove the distant via corridor or move it close to the connected content.",
+     "subject": {
+      "diagramType": "architecture",
+      "collection": "connections",
+      "index": 0,
+      "id": "web-api",
+      "from": "web",
+      "to": "api"
+     },
+     "evidence": {
+      "points": [[100,120],[100,40],[100,560],[360,560],[360,40],[360,120]],
+      "actualLengthPx": 1460,
+      "shortestLegalPoints": [[100,120],[100,116],[360,116],[360,120]],
+      "shortestLegalLengthPx": 268,
+      "detourRatio": 5.45,
+      "excessLengthPx": 1192,
+      "routeBounds": {
+       "left": 100,
+       "top": 40,
+       "right": 360,
+       "bottom": 560,
+       "width": 260,
+       "height": 520
+      },
+      "contentBounds": {
+       "left": 40,
+       "top": 80,
+       "right": 680,
+       "bottom": 180,
+       "width": 640,
+       "height": 100
+      },
+      "emptyExcursionPx": {
+       "left": 0,
+       "top": 40,
+       "right": 0,
+       "bottom": 380,
+       "maximum": 380
+      },
+      "emptyControlPointClearancePx": {
+       "maximum": 380,
+       "point": [100,560]
+      },
+      "obstacleCount": 3,
+      "thresholds": {
+       "minimumDetourRatio": 2.5,
+       "minimumExcessLengthPx": 200,
+       "minimumEmptyExcursionPx": 96
+      }
+     },
+     "supportedFixes": [
+      "remove the distant via points and retry automatic routing, or keep the endpoint sides and move the via corridor near the connected nodes while preserving labels and direction"
+     ]
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

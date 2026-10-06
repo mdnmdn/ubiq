@@ -1,0 +1,111 @@
+{
+ "name": "neg.schema-type-root",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/type",
+ "expect_codes": [
+  "schema/type"
+ ],
+ "source_sha256": "a36b1f2c3f84522dd1005145646617d7054c0851e97c72a039c0bdfac9fa07f3",
+ "source_doc": [1,2,3],
+ "quality": null,
+ "schema_version": null,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  / must be object {\"type\":\"object\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/ must be object {\"type\":\"object\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "object"
+      },
+      "supportedFixes": [
+       "use \"object\" at /"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  / must be object {\"type\":\"object\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/ must be object {\"type\":\"object\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "object"
+      },
+      "supportedFixes": [
+       "use \"object\" at /"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  / must be object {\"type\":\"object\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/ must be object {\"type\":\"object\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "object"
+      },
+      "supportedFixes": [
+       "use \"object\" at /"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  / must be object {\"type\":\"object\"}\n[schema/type] / must be object {\"type\":\"object\"} Fix: use \"object\" at /.\n"
+ },
+ "layout_json_by_quality": {}
+}

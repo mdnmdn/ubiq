@@ -1,0 +1,169 @@
+{
+ "name": "neg.repo-root-required",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "repository-evidence/root-required",
+ "expect_codes": [
+  "repository-evidence/root-required"
+ ],
+ "note": "valid shape but no --repo-root: verification cannot run",
+ "source_sha256": "6118a5d39176fb0c4b812a3aabd5c15f61b5488f9deb7715a78830c257b128a9",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "repository": {
+    "url": "https://github.com/example/repo",
+    "provider": "github",
+    "revision": "0123456789abcdef0123456789abcdef01234567"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "sources": [
+     {
+      "path": "src/web.ts",
+      "line": 1
+     }
+    ]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/root-required",
+      "severity": "error",
+      "message": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "pass --repo-root with the matching local Git checkout"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/root-required",
+      "severity": "error",
+      "message": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "pass --repo-root with the matching local Git checkout"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/root-required",
+      "severity": "error",
+      "message": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "pass --repo-root with the matching local Git checkout"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering.\n[repository-evidence/root-required] This diagram declares source evidence. Pass --repo-root <repository> so Archify can verify it before rendering. Fix: pass --repo-root with the matching local Git checkout.\n"
+ },
+ "layout_json_by_quality": {}
+}

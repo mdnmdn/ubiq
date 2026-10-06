@@ -1,0 +1,172 @@
+{
+ "name": "neg.repo-revision-invalid",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "repository-evidence/revision-invalid",
+ "expect_codes": [
+  "schema/pattern"
+ ],
+ "note": "the schema pattern catches a short revision before the evidence check",
+ "source_sha256": "c9eda712dbb31d017d84964992fe7e2be09972f8d00cdbe29f07ceaa6579a37c",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "repository": {
+    "url": "https://github.com/example/repo",
+    "provider": "github",
+    "revision": "main"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/repository/revision"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-fA-F0-9]{40}$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-fA-F0-9]{40}$\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/repository/revision"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-fA-F0-9]{40}$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-fA-F0-9]{40}$\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}",
+    "diagnostics": [
+     {
+      "code": "schema/pattern",
+      "severity": "error",
+      "message": "/meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta/repository/revision"
+      },
+      "evidence": {
+       "keyword": "pattern",
+       "pattern": "^[a-fA-F0-9]{40}$"
+      },
+      "supportedFixes": [
+       "match the required pattern \"^[a-fA-F0-9]{40}$\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"}\n[schema/pattern] /meta/repository/revision must match pattern \"^[a-fA-F0-9]{40}$\" {\"pattern\":\"^[a-fA-F0-9]{40}$\"} Fix: match the required pattern \"^[a-fA-F0-9]{40}$\".\n"
+ },
+ "layout_json_by_quality": {}
+}

@@ -405,6 +405,36 @@ fn a_folder_the_filter_matched_is_asked_about_once() {
     assert!(tree.unlisted_hits(&skipped).is_empty());
 }
 
+/// A prefetch the host answers with nothing (an ignored folder) leaves the folder unlisted: an
+/// expand or a wanted path under it must be told to ask in full, and a filter hit may ask again,
+/// while the background cache still never does.
+#[test]
+fn an_ignored_folders_empty_prefetch_does_not_strand_an_open_or_matched_folder() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "bin"), dir("", "obj"), dir("", "lib")]));
+
+    // Expanded while its prefetch is in flight: toggle says Done (it is loading).
+    tree.begin_cache(&["bin".to_string()]);
+    tree.cache_sent(&["bin".to_string()]);
+    assert_eq!(tree.toggle("bin"), Toggle::Done);
+    assert!(tree.cache_answered("bin"));
+    assert!(tree.cache_skipped("bin", &[]), "an open folder is asked in full");
+
+    // A wanted path below an unopened folder, the same.
+    tree.begin_cache(&["obj".to_string()]);
+    assert!(tree.cache_skipped("obj", &["obj/a/b".to_string()]));
+
+    // Neither open nor wanted: nothing to ask, but a filter hit asks, and the cache does not.
+    tree.begin_cache(&["lib".to_string()]);
+    assert!(!tree.cache_skipped("lib", &[]));
+    assert!(!tree.unlisted_for_cache().contains(&"lib".to_string()));
+    let rows = tree.rows("lib");
+    assert_eq!(tree.unlisted_hits(&rows), ["lib"]);
+    // Asked once: the hit's own request is a cache ask again.
+    tree.begin_cache(&["lib".to_string()]);
+    assert!(tree.unlisted_hits(&rows).is_empty());
+}
+
 /// Collapsing is not forgetting. A folder shut and reopened draws immediately rather than asking
 /// the host a second time for what it has already said.
 #[test]
@@ -1299,6 +1329,63 @@ fn a_nested_repository_stops_an_outer_untracked_status() {
         Some(None),
         "a file inside the nested repository inherited the outer status"
     );
+}
+
+/// A listing paints only what is below it (T-333), so the inheritance it lands in has to be rebuilt
+/// down its ancestors: two levels into an untracked folder still inherits, and inside a nested
+/// repository below it nothing does.
+#[test]
+fn a_deep_listing_after_the_map_inherits_down_its_ancestors() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "fresh"), file("", "README.md")]));
+    tree.merge(listing(
+        "fresh",
+        vec![dir("fresh", "deeper"), dir("fresh", "inner")],
+    ));
+    tree.apply_git(
+        1,
+        &[git_entry("fresh/", Some(GitPathChange::Untracked), None)],
+        &[],
+        &[nested("fresh/inner", "trunk", false, true)],
+    );
+    tree.merge(listing("fresh/deeper", vec![dir("fresh/deeper", "x")]));
+    tree.merge(listing(
+        "fresh/deeper/x",
+        vec![file("fresh/deeper/x", "a.rs")],
+    ));
+    tree.merge(listing("fresh/inner", vec![file("fresh/inner", "b.rs")]));
+    for open in ["fresh", "fresh/deeper", "fresh/deeper/x", "fresh/inner"] {
+        tree.toggle(open);
+    }
+
+    let git_of = |path: &str| {
+        tree.rows("")
+            .into_iter()
+            .find(|row| row.path == path)
+            .map(|row| row.git)
+    };
+    assert_eq!(
+        git_of("fresh/deeper/x/a.rs"),
+        Some(Some(GitStatus::Untracked))
+    );
+    assert_eq!(git_of("fresh/inner/b.rs"), Some(None));
+    assert_eq!(git_of("README.md"), Some(None));
+}
+
+/// The cache keeps only a few walks in flight; an answer — or a failure — frees a slot.
+#[test]
+fn the_cache_counts_its_walks_in_flight() {
+    let mut tree = ExplorerState::empty();
+    tree.merge(listing("", vec![dir("", "a"), dir("", "b"), dir("", "c")]));
+    let asking = tree.unlisted_for_cache_upto(2);
+    assert_eq!(asking, ["a", "b"]);
+    tree.begin_cache(&asking);
+    tree.cache_sent(&asking);
+    assert_eq!(tree.cache_in_flight(), 2);
+    assert_eq!(tree.unlisted_for_cache_upto(2), ["c"]);
+    assert!(tree.cache_answered("a"));
+    assert!(!tree.cache_answered("c"), "never sent by the cache");
+    assert_eq!(tree.cache_in_flight(), 1);
 }
 
 #[test]

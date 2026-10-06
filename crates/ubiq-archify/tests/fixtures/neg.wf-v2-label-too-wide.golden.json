@@ -1,0 +1,203 @@
+{
+ "name": "neg.wf-v2-label-too-wide",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "geom/label-too-wide",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "f66195787d3e9f099a9fd940d78a6e099a3b9f4ab50e4268441658b3462190db",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "A very long workflow node label"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- Label \"A very long workflow node label\" (~211px) is wider than node \"user\" (92px) — shorten the label or increase node.width.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"A very long workflow node label\" (~211px) is wider than node \"user\" (92px) — shorten the label or increase node.width.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- Label \"A very long workflow node label\" (~211px) is wider than node \"user\" (92px) — shorten the label or increase node.width.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"A very long workflow node label\" (~211px) is wider than node \"user\" (92px) — shorten the label or increase node.width.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow layout validation failed:\n- Label \"A very long workflow node label\" (~211px) is wider than node \"user\" (92px) — shorten the label or increase node.width.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"A very long workflow node label\" (~211px) is wider than node \"user\" (92px) — shorten the label or increase node.width.",
+      "subject": {
+       "diagramType": "workflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Label \"A very long workflow node label\" (~211px) is wider than node \"user\" (92px) — shorten the label or increase node.width.",
+     "subject": {
+      "diagramType": "workflow"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

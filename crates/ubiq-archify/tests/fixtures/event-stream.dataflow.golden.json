@@ -1,0 +1,2186 @@
+{
+ "name": "event-stream.dataflow",
+ "group": "example",
+ "source": "archify/examples/event-stream.dataflow.json",
+ "type": "dataflow",
+ "source_sha256": "3bdd77674282009c7c68d588cf8a3c495bc98a3be1b9c45327fd1801a6f83a23",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "Order Event-stream Topology",
+   "output": "examples/event-stream.html",
+   "viewBox": [1080,780],
+   "animation": "trace",
+   "visual_preset": "signal-flow",
+   "quality_profile": "showcase"
+  },
+  "stages": [
+   {
+    "label": "Producers"
+   },
+   {
+    "label": "Transit"
+   },
+   {
+    "label": "Processors"
+   },
+   {
+    "label": "State + recovery"
+   },
+   {
+    "label": "Consumers"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "checkout",
+    "type": "frontend",
+    "label": "Checkout API",
+    "sublabel": "order producer",
+    "stage": 0,
+    "row": 0,
+    "tag": "team commerce"
+   },
+   {
+    "id": "billing",
+    "type": "backend",
+    "label": "Billing API",
+    "sublabel": "payment producer",
+    "stage": 0,
+    "row": 2,
+    "tag": "team money"
+   },
+   {
+    "id": "orders",
+    "type": "messagebus",
+    "label": "orders.v1",
+    "sublabel": "12 partitions",
+    "stage": 1,
+    "row": 0,
+    "tag": "key: order_id"
+   },
+   {
+    "id": "payments",
+    "type": "messagebus",
+    "label": "payments.v2",
+    "sublabel": "8 partitions",
+    "stage": 1,
+    "row": 2,
+    "tag": "key: order_id"
+   },
+   {
+    "id": "validate",
+    "type": "backend",
+    "label": "Order Validate",
+    "sublabel": "group fulfillment",
+    "stage": 2,
+    "row": 0,
+    "tag": "ordered"
+   },
+   {
+    "id": "enrich",
+    "type": "backend",
+    "label": "Payment Enrich",
+    "sublabel": "group analytics",
+    "stage": 2,
+    "row": 2,
+    "tag": "at-least-once"
+   },
+   {
+    "id": "state",
+    "type": "database",
+    "label": "Order State",
+    "sublabel": "materialized view",
+    "stage": 3,
+    "row": 1,
+    "tag": "idempotent"
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "events.dlq",
+    "sublabel": "poison events",
+    "stage": 3,
+    "row": 4,
+    "tag": "7-day retention"
+   },
+   {
+    "id": "fulfillment",
+    "type": "backend",
+    "label": "Fulfillment",
+    "sublabel": "shipping workflow",
+    "stage": 4,
+    "row": 0,
+    "tag": "consumer"
+   },
+   {
+    "id": "analytics",
+    "type": "database",
+    "label": "Analytics",
+    "sublabel": "streaming facts",
+    "stage": 4,
+    "row": 2,
+    "tag": "consumer"
+   },
+   {
+    "id": "replay",
+    "type": "security",
+    "label": "Replay Tool",
+    "sublabel": "approved batch",
+    "stage": 4,
+    "row": 4,
+    "tag": "operator gate"
+   },
+   {
+    "id": "ops",
+    "type": "external",
+    "label": "On-call",
+    "sublabel": "DLQ owner",
+    "stage": 4,
+    "row": 3,
+    "yOffset": -18,
+    "tag": "SRE"
+   }
+  ],
+  "flows": [
+   {
+    "from": "checkout",
+    "to": "orders",
+    "label": "OrderPlaced",
+    "classification": "schema v1",
+    "variant": "emphasis",
+    "route": "straight"
+   },
+   {
+    "from": "billing",
+    "to": "payments",
+    "label": "PaymentCaptured",
+    "classification": "schema v2",
+    "variant": "emphasis",
+    "route": "straight"
+   },
+   {
+    "from": "orders",
+    "to": "validate",
+    "label": "ordered orders",
+    "classification": "consumer group",
+    "variant": "emphasis",
+    "route": "straight"
+   },
+   {
+    "from": "payments",
+    "to": "enrich",
+    "label": "payment facts",
+    "classification": "at-least-once",
+    "variant": "emphasis",
+    "route": "straight"
+   },
+   {
+    "from": "validate",
+    "to": "state",
+    "label": "valid order",
+    "classification": "idempotent",
+    "variant": "emphasis",
+    "route": "vertical-channel"
+   },
+   {
+    "from": "enrich",
+    "to": "state",
+    "label": "enriched payment",
+    "classification": "idempotent",
+    "variant": "default",
+    "route": "vertical-channel"
+   },
+   {
+    "from": "state",
+    "to": "fulfillment",
+    "label": "ready orders",
+    "classification": "read model",
+    "variant": "emphasis",
+    "route": "vertical-channel"
+   },
+   {
+    "from": "state",
+    "to": "analytics",
+    "label": "order facts",
+    "classification": "non-PII",
+    "variant": "default",
+    "route": "vertical-channel"
+   },
+   {
+    "from": "validate",
+    "to": "dlq",
+    "label": "invalid event",
+    "classification": "dead letter",
+    "variant": "security",
+    "fromSide": "top",
+    "toSide": "top",
+    "via": [[530,80],[20,80],[20,550],[745,550]],
+    "labelAt": [300,550]
+   },
+   {
+    "from": "enrich",
+    "to": "dlq",
+    "label": "poison event",
+    "classification": "dead letter",
+    "variant": "security",
+    "route": "bottom-channel",
+    "labelDy": 30
+   },
+   {
+    "from": "dlq",
+    "to": "ops",
+    "label": "failure sample",
+    "classification": "restricted",
+    "variant": "security",
+    "route": "vertical-channel"
+   },
+   {
+    "from": "dlq",
+    "to": "replay",
+    "label": "approved replay",
+    "classification": "audited batch",
+    "variant": "dashed",
+    "route": "straight",
+    "labelDy": 30
+   }
+  ],
+  "cards": [
+   {
+    "dot": "amber",
+    "title": "Transit Contract",
+    "items": [
+     "Every event and topic is named",
+     "Partition keys preserve per-order ordering",
+     "Consumer groups expose processing ownership"
+    ]
+   },
+   {
+    "dot": "emerald",
+    "title": "State + Delivery",
+    "items": [
+     "Processors write an idempotent materialized view",
+     "Fulfillment and analytics consume distinct assets",
+     "At-least-once delivery never implies duplicate business effects"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Failure Ownership",
+    "items": [
+     "Poison events land in a retained dead-letter topic",
+     "On-call inspects samples before replay",
+     "Replay is gated, batched, and auditable"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "dataflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "3bdd77674282009c7c68d588cf8a3c495bc98a3be1b9c45327fd1801a6f83a23",
+     "bytes": 4769
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "dataflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "3bdd77674282009c7c68d588cf8a3c495bc98a3be1b9c45327fd1801a6f83a23",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 9,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 4,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 2.663,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 34,
+      "minInteriorSegmentPx": 103,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "validate",
+         "to": "dlq",
+         "label": "invalid event",
+         "collectionIndex": 8,
+         "artifactIndex": 9
+        },
+        "bends": 4,
+        "stretch": 2.663
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "checkout"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 36
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 1080,
+       "viewBoxHeight": 780,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.38,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 972,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1098,
+       "overflowPx": 198,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 1080x780 canvas (ratio 1.38) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 972px tall at the full 1346px width and the page reaches 1098px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 696 at this width, or spread content sideways so the width is at least 1209 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "dataflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "3bdd77674282009c7c68d588cf8a3c495bc98a3be1b9c45327fd1801a6f83a23",
+     "bytes": 4769
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "dataflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "3bdd77674282009c7c68d588cf8a3c495bc98a3be1b9c45327fd1801a6f83a23",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 9,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 4,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 2.663,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 34,
+      "minInteriorSegmentPx": 103,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "validate",
+         "to": "dlq",
+         "label": "invalid event",
+         "collectionIndex": 8,
+         "artifactIndex": 9
+        },
+        "bends": 4,
+        "stretch": 2.663
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "checkout"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 36
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 1080,
+       "viewBoxHeight": 780,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.38,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 972,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1098,
+       "overflowPx": 198,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 1080x780 canvas (ratio 1.38) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 972px tall at the full 1346px width and the page reaches 1098px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 696 at this width, or spread content sideways so the width is at least 1209 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "dataflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "3bdd77674282009c7c68d588cf8a3c495bc98a3be1b9c45327fd1801a6f83a23",
+     "bytes": 4769
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "dataflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "3bdd77674282009c7c68d588cf8a3c495bc98a3be1b9c45327fd1801a6f83a23",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 9,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.027777777777779,
+      "maxBends": 4,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 2.663,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 34,
+      "minInteriorSegmentPx": 103,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "validate",
+         "to": "dlq",
+         "label": "invalid event",
+         "collectionIndex": 8,
+         "artifactIndex": 9
+        },
+        "bends": 4,
+        "stretch": 2.663
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "checkout"
+      },
+      "minimumSourceTextPx": 7,
+      "minimumProjectedTextPx": 6.027777777777779,
+      "semanticTextCount": 36
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 1080,
+       "viewBoxHeight": 780,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.38,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 972,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1098,
+       "overflowPx": 198,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 1080x780 canvas (ratio 1.38) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 972px tall at the full 1346px width and the page reaches 1098px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 696 at this width, or spread content sideways so the width is at least 1209 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1080,780],
+  "svg_attrs": {
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "signal-flow",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Order Event-stream Topology",
+  "nodes": [
+   {
+    "id": "checkout",
+    "kind": "frontend",
+    "label": "Checkout API",
+    "sublabel": "order producer",
+    "tag": "team commerce",
+    "context": "01 / Producers",
+    "rect": {
+     "x": 44,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 100,
+      "y": 149,
+      "font_size": 10,
+      "text": "Checkout API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 100,
+      "y": 165,
+      "font_size": 7,
+      "text": "order producer",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 100,
+      "y": 175,
+      "font_size": 7,
+      "text": "team commerce",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-frontend"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(50 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "billing",
+    "kind": "backend",
+    "label": "Billing API",
+    "sublabel": "payment producer",
+    "tag": "team money",
+    "context": "01 / Producers",
+    "rect": {
+     "x": 44,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 100,
+      "y": 377,
+      "font_size": 10,
+      "text": "Billing API",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 100,
+      "y": 393,
+      "font_size": 7,
+      "text": "payment producer",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 100,
+      "y": 403,
+      "font_size": 7,
+      "text": "team money",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(50 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "orders",
+    "kind": "messagebus",
+    "label": "orders.v1",
+    "sublabel": "12 partitions",
+    "tag": "key: order_id",
+    "context": "02 / Transit",
+    "rect": {
+     "x": 259,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 315,
+      "y": 149,
+      "font_size": 10,
+      "text": "orders.v1",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 315,
+      "y": 165,
+      "font_size": 7,
+      "text": "12 partitions",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 315,
+      "y": 175,
+      "font_size": 7,
+      "text": "key: order_id",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(265 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "payments",
+    "kind": "messagebus",
+    "label": "payments.v2",
+    "sublabel": "8 partitions",
+    "tag": "key: order_id",
+    "context": "02 / Transit",
+    "rect": {
+     "x": 259,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 315,
+      "y": 377,
+      "font_size": 10,
+      "text": "payments.v2",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 315,
+      "y": 393,
+      "font_size": 7,
+      "text": "8 partitions",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 315,
+      "y": 403,
+      "font_size": 7,
+      "text": "key: order_id",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(265 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "validate",
+    "kind": "backend",
+    "label": "Order Validate",
+    "sublabel": "group fulfillment",
+    "tag": "ordered",
+    "context": "03 / Processors",
+    "rect": {
+     "x": 474,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 535,
+      "y": 149,
+      "font_size": 10,
+      "text": "Order Validate",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 530,
+      "y": 165,
+      "font_size": 7,
+      "text": "group fulfillment",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 530,
+      "y": 175,
+      "font_size": 7,
+      "text": "ordered",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(480 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "enrich",
+    "kind": "backend",
+    "label": "Payment Enrich",
+    "sublabel": "group analytics",
+    "tag": "at-least-once",
+    "context": "03 / Processors",
+    "rect": {
+     "x": 474,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 535,
+      "y": 377,
+      "font_size": 10,
+      "text": "Payment Enrich",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 530,
+      "y": 393,
+      "font_size": 7,
+      "text": "group analytics",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 530,
+      "y": 403,
+      "font_size": 7,
+      "text": "at-least-once",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(480 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "state",
+    "kind": "database",
+    "label": "Order State",
+    "sublabel": "materialized view",
+    "tag": "idempotent",
+    "context": "04 / State + recovery",
+    "rect": {
+     "x": 689,
+     "y": 242,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 745,
+      "y": 263,
+      "font_size": 10,
+      "text": "Order State",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 745,
+      "y": 279,
+      "font_size": 7,
+      "text": "materialized view",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 745,
+      "y": 289,
+      "font_size": 7,
+      "text": "idempotent",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(695 248) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "dlq",
+    "kind": "messagebus",
+    "label": "events.dlq",
+    "sublabel": "poison events",
+    "tag": "7-day retention",
+    "context": "04 / State + recovery",
+    "rect": {
+     "x": 689,
+     "y": 584,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 745,
+      "y": 605,
+      "font_size": 10,
+      "text": "events.dlq",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 745,
+      "y": 621,
+      "font_size": 7,
+      "text": "poison events",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 745,
+      "y": 631,
+      "font_size": 7,
+      "text": "7-day retention",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(695 590) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "fulfillment",
+    "kind": "backend",
+    "label": "Fulfillment",
+    "sublabel": "shipping workflow",
+    "tag": "consumer",
+    "context": "05 / Consumers",
+    "rect": {
+     "x": 904,
+     "y": 128,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 960,
+      "y": 149,
+      "font_size": 10,
+      "text": "Fulfillment",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 960,
+      "y": 165,
+      "font_size": 7,
+      "text": "shipping workflow",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 960,
+      "y": 175,
+      "font_size": 7,
+      "text": "consumer",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(910 134) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "analytics",
+    "kind": "database",
+    "label": "Analytics",
+    "sublabel": "streaming facts",
+    "tag": "consumer",
+    "context": "05 / Consumers",
+    "rect": {
+     "x": 904,
+     "y": 356,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 960,
+      "y": 377,
+      "font_size": 10,
+      "text": "Analytics",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 960,
+      "y": 393,
+      "font_size": 7,
+      "text": "streaming facts",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 960,
+      "y": 403,
+      "font_size": 7,
+      "text": "consumer",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(910 362) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "replay",
+    "kind": "security",
+    "label": "Replay Tool",
+    "sublabel": "approved batch",
+    "tag": "operator gate",
+    "context": "05 / Consumers",
+    "rect": {
+     "x": 904,
+     "y": 584,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 960,
+      "y": 605,
+      "font_size": 10,
+      "text": "Replay Tool",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 960,
+      "y": 621,
+      "font_size": 7,
+      "text": "approved batch",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 960,
+      "y": 631,
+      "font_size": 7,
+      "text": "operator gate",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(910 590) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "ops",
+    "kind": "external",
+    "label": "On-call",
+    "sublabel": "DLQ owner",
+    "tag": "SRE",
+    "context": "05 / Consumers",
+    "rect": {
+     "x": 904,
+     "y": 452,
+     "width": 112,
+     "height": 58,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 960,
+      "y": 473,
+      "font_size": 10,
+      "text": "On-call",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 960,
+      "y": 489,
+      "font_size": 7,
+      "text": "DLQ owner",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 960,
+      "y": 499,
+      "font_size": 7,
+      "text": "SRE",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-external"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(910 458) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "checkout",
+    "to": "orders",
+    "label": "OrderPlaced",
+    "points": [[156,157],[259,157]],
+    "d": "M 156 157 L 259 157",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "from": "billing",
+    "to": "payments",
+    "label": "PaymentCaptured",
+    "points": [[156,385],[259,385]],
+    "d": "M 156 385 L 259 385",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 2,
+    "from": "orders",
+    "to": "validate",
+    "label": "ordered orders",
+    "points": [[371,157],[474,157]],
+    "d": "M 371 157 L 474 157",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 3,
+    "from": "payments",
+    "to": "enrich",
+    "label": "payment facts",
+    "points": [[371,385],[474,385]],
+    "d": "M 371 385 L 474 385",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "from": "validate",
+    "to": "state",
+    "label": "valid order",
+    "points": [[586,157],[630,157],[630,271],[689,271]],
+    "d": "M 586 157 L 630 157 L 630 271 L 689 271",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 5,
+    "from": "enrich",
+    "to": "state",
+    "label": "enriched payment",
+    "points": [[586,385],[630,385],[630,271],[689,271]],
+    "d": "M 586 385 L 630 385 L 630 271 L 689 271",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "from": "state",
+    "to": "fulfillment",
+    "label": "ready orders",
+    "points": [[801,271],[845,271],[845,157],[904,157]],
+    "d": "M 801 271 L 845 271 L 845 157 L 904 157",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 7,
+    "from": "state",
+    "to": "analytics",
+    "label": "order facts",
+    "points": [[801,271],[845,271],[845,385],[904,385]],
+    "d": "M 801 271 L 845 271 L 845 385 L 904 385",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 8,
+    "from": "validate",
+    "to": "dlq",
+    "label": "invalid event",
+    "points": [[530,128],[530,80],[20,80],[20,550],[745,550],[745,584]],
+    "d": "M 530 128 L 530 80 L 20 80 L 20 550 L 745 550 L 745 584",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 9,
+    "from": "enrich",
+    "to": "dlq",
+    "label": "poison event",
+    "points": [[586,385],[586,668],[689,668],[689,613]],
+    "d": "M 586 385 L 586 668 L 689 668 L 689 613",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 10,
+    "from": "dlq",
+    "to": "ops",
+    "label": "failure sample",
+    "points": [[801,613],[845,613],[845,481],[904,481]],
+    "d": "M 801 613 L 845 613 L 845 481 L 904 481",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 11,
+    "from": "dlq",
+    "to": "replay",
+    "label": "approved replay",
+    "points": [[801,613],[904,613]],
+    "d": "M 801 613 L 904 613",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "checkout",
+    "to": "orders",
+    "text": "OrderPlaced",
+    "rect": {
+     "x": 174.55,
+     "y": 136,
+     "width": 65.9,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 207.5,
+      "y": 147,
+      "font_size": 8,
+      "text": "OrderPlaced",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 207.5,
+      "y": 158,
+      "font_size": 7,
+      "text": "schema v1",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "from": "billing",
+    "to": "payments",
+    "text": "PaymentCaptured",
+    "rect": {
+     "x": 164.75,
+     "y": 364,
+     "width": 85.5,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 207.5,
+      "y": 375,
+      "font_size": 8,
+      "text": "PaymentCaptured",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 207.5,
+      "y": 386,
+      "font_size": 7,
+      "text": "schema v2",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "from": "orders",
+    "to": "validate",
+    "text": "ordered orders",
+    "rect": {
+     "x": 382.2,
+     "y": 136,
+     "width": 80.6,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 422.5,
+      "y": 147,
+      "font_size": 8,
+      "text": "ordered orders",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 422.5,
+      "y": 158,
+      "font_size": 7,
+      "text": "consumer group",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "payments",
+    "to": "enrich",
+    "text": "payment facts",
+    "rect": {
+     "x": 384.65,
+     "y": 364,
+     "width": 75.7,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 422.5,
+      "y": 375,
+      "font_size": 8,
+      "text": "payment facts",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 422.5,
+      "y": 386,
+      "font_size": 7,
+      "text": "at-least-once",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "from": "validate",
+    "to": "state",
+    "text": "valid order",
+    "rect": {
+     "x": 597.05,
+     "y": 193,
+     "width": 65.9,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 630,
+      "y": 204,
+      "font_size": 8,
+      "text": "valid order",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 630,
+      "y": 215,
+      "font_size": 7,
+      "text": "idempotent",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "enrich",
+    "to": "state",
+    "text": "enriched payment",
+    "rect": {
+     "x": 584.8,
+     "y": 307,
+     "width": 90.4,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 630,
+      "y": 318,
+      "font_size": 8,
+      "text": "enriched payment",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     },
+     {
+      "x": 630,
+      "y": 329,
+      "font_size": 7,
+      "text": "idempotent",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "state",
+    "to": "fulfillment",
+    "text": "ready orders",
+    "rect": {
+     "x": 809.6,
+     "y": 193,
+     "width": 70.8,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 845,
+      "y": 204,
+      "font_size": 8,
+      "text": "ready orders",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     },
+     {
+      "x": 845,
+      "y": 215,
+      "font_size": 7,
+      "text": "read model",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "from": "state",
+    "to": "analytics",
+    "text": "order facts",
+    "rect": {
+     "x": 812.05,
+     "y": 307,
+     "width": 65.9,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 845,
+      "y": 318,
+      "font_size": 8,
+      "text": "order facts",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     },
+     {
+      "x": 845,
+      "y": 329,
+      "font_size": 7,
+      "text": "non-PII",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "from": "validate",
+    "to": "dlq",
+    "text": "invalid event",
+    "rect": {
+     "x": 262.15,
+     "y": 539,
+     "width": 75.7,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 300,
+      "y": 550,
+      "font_size": 8,
+      "text": "invalid event",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     },
+     {
+      "x": 300,
+      "y": 561,
+      "font_size": 7,
+      "text": "dead letter",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "enrich",
+    "to": "dlq",
+    "text": "poison event",
+    "rect": {
+     "x": 602.1,
+     "y": 677,
+     "width": 70.8,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 637.5,
+      "y": 688,
+      "font_size": 8,
+      "text": "poison event",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     },
+     {
+      "x": 637.5,
+      "y": 699,
+      "font_size": 7,
+      "text": "dead letter",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "from": "dlq",
+    "to": "ops",
+    "text": "failure sample",
+    "rect": {
+     "x": 804.7,
+     "y": 526,
+     "width": 80.6,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 845,
+      "y": 537,
+      "font_size": 8,
+      "text": "failure sample",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     },
+     {
+      "x": 845,
+      "y": 548,
+      "font_size": 7,
+      "text": "restricted",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "from": "dlq",
+    "to": "replay",
+    "text": "approved replay",
+    "rect": {
+     "x": 809.75,
+     "y": 622,
+     "width": 85.5,
+     "height": 27,
+     "rx": 4
+    },
+    "texts": [
+     {
+      "x": 852.5,
+      "y": 633,
+      "font_size": 8,
+      "text": "approved replay",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     },
+     {
+      "x": 852.5,
+      "y": 644,
+      "font_size": 7,
+      "text": "audited batch",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-dim"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "stage",
+    "id": "0",
+    "class": "c-lane",
+    "rect": {
+     "x": 16,
+     "y": 46,
+     "width": 168,
+     "height": 660,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "1",
+    "class": "c-lane",
+    "rect": {
+     "x": 231,
+     "y": 46,
+     "width": 168,
+     "height": 660,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "2",
+    "class": "c-lane",
+    "rect": {
+     "x": 446,
+     "y": 46,
+     "width": 168,
+     "height": 660,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "3",
+    "class": "c-lane",
+    "rect": {
+     "x": 661,
+     "y": 46,
+     "width": 168,
+     "height": 660,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "stage",
+    "id": "4",
+    "class": "c-lane",
+    "rect": {
+     "x": 876,
+     "y": 46,
+     "width": 168,
+     "height": 660,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "emphasis",
+     "x": 40,
+     "baseline": 744,
+     "width": 103,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-emphasis",
+       "d": "M 40 741 L 74 741"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 83,
+       "y": 744,
+       "font_size": 10,
+       "text": "primary data"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "x": 165,
+     "baseline": 744,
+     "width": 103,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-security",
+       "d": "M 165 741 L 199 741"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 208,
+       "y": 744,
+       "font_size": 10,
+       "text": "policy / PII"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "dashed",
+     "x": 290,
+     "baseline": 744,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-dashed",
+       "d": "M 290 741 L 324 741"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 333,
+       "y": 744,
+       "font_size": 10,
+       "text": "async batch"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "data store",
+     "x": 410,
+     "baseline": 744,
+     "width": 93,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 410,
+       "y": 736,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 432,
+       "y": 744,
+       "font_size": 10,
+       "text": "data store"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "default",
+     "x": 525,
+     "baseline": 744,
+     "width": 88,
+     "shapes": [
+      {
+       "tag": "path",
+       "class": "a-default",
+       "d": "M 525 741 L 559 741"
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 568,
+       "y": 744,
+       "font_size": 10,
+       "text": "data flow"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Data Stages": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 100,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "01 / Producers"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 315,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "02 / Transit"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 530,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "03 / Processors"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 745,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "04 / State + recovery"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 960,
+     "y": 68,
+     "font_size": 9,
+     "anchor": "middle",
+     "text": "05 / Consumers"
+    }
+   ]
+  }
+ }
+}

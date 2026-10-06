@@ -28,8 +28,8 @@ Re-exports live in `state/mod.rs`; the work's own records are **not** re-exporte
 | `logs.rs` | The console's subsystem, level floor, and whether it follows the tail |
 | `nav.rs`, `nav/text.rs` | Where the user is, as a value (`Destination`, `Locus`, `View`); and that value as text |
 | `navigator.rs` | The ⌘K navigator: one field over everywhere the window can go |
-| `orchestration.rs` | The graph's selection, session and state filters, zoom, and what the pointer has hold of |
 | `prefs.rs` | What the interface remembers between runs, and the schema it owns |
+| `teams.rs` | The Teams graph's view: selection, session and state filters, zoom, what the pointer has hold of, and `live_work` |
 | `remote.rs` | The "Connect to a remote host" modal's state and its pure parsing |
 | `run_picker.rs` | The run picker's rows (`rows`, `Section`), favourites and recents helpers; `RECENT_SHOWN`, `RECENTS_MAX` |
 | `scene.rs` | An Excalidraw file parsed into something a painter walks without asking a question |
@@ -107,7 +107,7 @@ process, a path on disk or a file descriptor.
 |---|---|
 | `agents/` | `mod.rs` the screen, `column.rs` one parallel column of conversation, `sidebar.rs` every session and agent down the side |
 | `board/` | `mod.rs` the cards in columns, `detail.rs` the panel beside them, `form.rs` its editable half |
-| `orchestration/` | `graph.rs` cards on a dotted ground joined to whoever spawned them, `inspector.rs` the panel beside it, `tasks.rs` the drawer under it (and the inspector's second tab) |
+| `teams/` | `mod.rs` the screen and toolbar, `graph.rs` cards on a dotted ground joined to whoever spawned them, `status.rs` the hexagonal mark, `tasks.rs` the drawer under it |
 | `git/` | `mod.rs`, `refs.rs` the ref sidebar, `history.rs` the log and its lanes, `changes.rs` what the selected row is about, `diff.rs` what the selected path changed |
 | `db/` | DB mode — `mod.rs` (the empty centre page), `explorer.rs` (the tree panel and password prompt), `table.rs` with `grid.rs`, `cell_input.rs`, `json.rs`; `sql.rs` with `results.rs`, `plan.rs`; `conn_form.rs`, `settings.rs` (the Databases section body), `keys.rs` (actions and bindings in the `DbTable`/`DbSql` contexts) |
 | `stats.rs` | The Control screen |
@@ -152,7 +152,7 @@ See [`kit-and-theme.md`](kit-and-theme.md).
 
 `crates/ubiq/tests/` — state-level tests that drive `AppState` and assert on state, not pixels.
 One file per area (`agents`, `board`, `chat`, `conversation`, `dock`, `explorer`, `git`,
-`navigator`, `orchestration`, `search`, `settings`, `sink`, `stats`, `vim`, `windows`, …), plus
+`navigator`, `search`, `teams`, `teams_view`, `settings`, `sink`, `stats`, `vim`, `windows`, …), plus
 the ones that assert a convention: `dismiss.rs` (every modal has a rung in the Escape ladder),
 `panel_reentrancy.rs`, `mode_restore.rs`, `when.rs`.
 `db_agent.rs` drives an agent-controlled SQL tab: the tab a host-side shared editor opens, its text

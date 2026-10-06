@@ -436,8 +436,10 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let palette = app.workbench.theme_id;
     let view = cx.entity();
     let algo = app.workbench.settings.ui.teams_algo;
+    // The rail's common modes: app-wide, so drawn whether or not a project is open.
+    let modes = crate::ui::sink::project::modes_block(app, true, cx);
 
-    column(vec![
+    let mut rows = vec![
         heading(
             "Appearance",
             "The palette and the accent it is dressed in, and what the window's own chrome \
@@ -535,7 +537,10 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 }))
                 .into_any_element(),
         ),
-    ])
+    ];
+    // Beside the rail's other switch, "Open projects in the rail".
+    rows.extend(modes);
+    column(rows)
 }
 
 /// A row of pills, which is how every choice on this page is drawn.

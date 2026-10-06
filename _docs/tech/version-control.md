@@ -7,7 +7,7 @@ summary: How the host reads a project's repositories and how the Git screen writ
 read_when: you are extending version control, adding a write, touching how a clone runs, working on a project that holds more than one repository, or wondering why the commit graph's lane engine is hand-rolled rather than a dependency
 updated: 2026-09-29
 verified: 2026-09-29
-code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/write.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
+code_anchors: [crates/ubiq-proto/src/git.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/git/write.rs, crates/ubiq-host/src/git/nested.rs, crates/ubiq-host/src/files/ignored.rs, crates/ubiq-host/src/git/history.rs, crates/ubiq-host/src/git/graph.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq-host/src/repos/list.rs]
 depends_on: [tech-architecture, tech-transport, tech-decisions, feat-workbench]
 review_cycle: monthly
 ---
@@ -116,7 +116,14 @@ starts at the project's root and names every folder holding a `.git` — a direc
 *file* a submodule and a linked worktree both appear as. It skips `WALK_SKIP`'s names, never
 descends into a repository once it has found one — a repository inside a repository inside the
 project is that repository's business — and is bounded twice: `MAX_NESTED_REPOS` (32) roots and
-`MAX_NESTED_DEPTH` (8) levels. Past either it stops looking, and the map arrives `truncated`.
+`MAX_NESTED_DEPTH` (8) levels. Past either it stops looking, and the map arrives `truncated`. In a
+project with a repository of its own it also does not descend into a folder the outer status walk
+reported ignored (`discover_pruned`): a clone kept *in* an ignored folder is still found, because
+the `.git` test comes first, but one buried below an ignored folder is not, the same as one under
+`node_modules`. A project with no repository of its own has no ignore set, and walks as before.
+The explorer's background cache walk asks the same question per folder through
+`files/ignored.rs` (`is_path_ignored` on the repository that owns the folder — the nearest `.git`
+above it, else the project's own), on the files worker rather than this one.
 
 Each one the project **manages** is **walked and merged into the project's one map** (`D99`): the
 nested repository's status walk runs with an empty scope, its paths are prefixed with its own

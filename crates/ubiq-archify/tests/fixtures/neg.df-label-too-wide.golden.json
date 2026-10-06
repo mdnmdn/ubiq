@@ -1,0 +1,188 @@
+{
+ "name": "neg.df-label-too-wide",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "geom/label-too-wide",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "67f880177141cbc90cdcfa317bc3c38d235ccb3f618340dd44dadeb41c645bf4",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html"
+  },
+  "stages": [
+   {
+    "label": "Ingest"
+   },
+   {
+    "label": "Process"
+   },
+   {
+    "label": "Store"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "A rather long node label",
+    "stage": 0,
+    "row": 0
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 2
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f2",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Label \"A rather long node label\" (~149px) is wider than node \"src\" (112px) — shorten the label or increase node.width.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"A rather long node label\" (~149px) is wider than node \"src\" (112px) — shorten the label or increase node.width.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Label \"A rather long node label\" (~149px) is wider than node \"src\" (112px) — shorten the label or increase node.width.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"A rather long node label\" (~149px) is wider than node \"src\" (112px) — shorten the label or increase node.width.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Label \"A rather long node label\" (~149px) is wider than node \"src\" (112px) — shorten the label or increase node.width.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"A rather long node label\" (~149px) is wider than node \"src\" (112px) — shorten the label or increase node.width.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

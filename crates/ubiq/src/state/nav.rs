@@ -20,7 +20,6 @@ use ubiq_proto::work::AgentId;
 pub use text::{NotALink, parse_link, resolve_relative};
 
 use crate::state::dock::ChatId;
-use crate::state::orchestration::{InspectorTab, Selection};
 use crate::state::teams::{TeamsInspectorTab, TeamsSelection};
 
 /// One place: a project, a screen of it, and where in that screen.
@@ -77,7 +76,6 @@ impl Destination {
             View::Ide { key } => crate::state::editor::from_tab_key(key).0,
             View::Explorer { path } => path.clone(),
             View::Terminal { .. } => "Terminal".into(),
-            View::Graph { .. } => "Graph".into(),
             View::Teams { .. } => "Teams".into(),
             View::Agents { .. } => "Agents".into(),
             View::Tasks { .. } => "Task".into(),
@@ -108,14 +106,7 @@ pub enum View {
     Terminal {
         pane: PaneId,
     },
-    /// The orchestration graph.
-    Graph {
-        selection: Selection,
-        tab: InspectorTab,
-    },
-    /// The Teams canvas. Its own arm rather than a reading of [`View::Graph`]: the two are
-    /// separate modes over separate state, and a link written in one must not land in the other.
-    /// It is also the only arm that can name a *delegate* — an agent, plus the id of the `Task`
+    /// The Teams canvas. The only arm that can name a *delegate* — an agent, plus the id of the `Task`
     /// call inside its conversation that spawned one.
     Teams {
         selection: TeamsSelection,

@@ -17,6 +17,7 @@
 pub mod browse;
 #[cfg(feature = "git")]
 pub mod diff;
+mod ignored;
 pub mod path;
 pub mod related;
 
@@ -65,13 +66,40 @@ const MAX_COPY_ENTRIES: usize = 20_000;
 /// Breadth first, so a shallow row is never waiting behind a deep one, and stopping at the reply
 /// ceiling. The first listing is always the directory that was asked for.
 pub fn listing(root: &Path, rel_path: &str, depth: u8) -> Result<Vec<DirListing>, FileError> {
+    walk(root, rel_path, depth, None)
+}
+
+/// [`listing`] for the window's background cache: a folder version control ignores is neither
+/// descended into nor, when it is the one asked for, listed at all — the answer is then no
+/// listings, and the folder stays unlisted until the user opens it (T-333).
+pub fn prefetch_listing(
+    root: &Path,
+    rel_path: &str,
+    depth: u8,
+) -> Result<Vec<DirListing>, FileError> {
+    let mut ignored = ignored::Ignored::new(root);
+    if ignored.is_ignored(rel_path) {
+        tracing::debug!("prefetch: {rel_path:?} is ignored, not listed");
+        return Ok(Vec::new());
+    }
+    walk(root, rel_path, depth, Some(&mut ignored))
+}
+
+fn walk(
+    root: &Path,
+    rel_path: &str,
+    depth: u8,
+    mut ignored: Option<&mut ignored::Ignored>,
+) -> Result<Vec<DirListing>, FileError> {
+    let started = std::time::Instant::now();
+    let prefetch = ignored.is_some();
     let depth = depth.clamp(1, MAX_DEPTH);
     let mut listings = Vec::new();
     let mut carried = 0usize;
     // The directory asked for is always listed; anything below it is only reached by descending.
     let mut level = vec![rel_path.to_string()];
 
-    for reached in 0..depth {
+    'walk: for reached in 0..depth {
         let mut next = Vec::new();
         for parent in level {
             let listed = match one_level(root, &parent) {
@@ -92,6 +120,9 @@ pub fn listing(root: &Path, rel_path: &str, depth: u8) -> Result<Vec<DirListing>
                 if reached + 1 < depth
                     && entry.kind == EntryKind::Dir
                     && !WALK_SKIP.contains(&entry.name.as_str())
+                    && !ignored
+                        .as_deref_mut()
+                        .is_some_and(|ignored| ignored.is_ignored(&entry.rel_path))
                 {
                     next.push(entry.rel_path.clone());
                 }
@@ -100,7 +131,7 @@ pub fn listing(root: &Path, rel_path: &str, depth: u8) -> Result<Vec<DirListing>
             carried += listed.entries.len();
             listings.push(listed);
             if carried >= MAX_REPLY_ENTRIES {
-                return Ok(listings);
+                break 'walk;
             }
         }
         level = next;
@@ -109,6 +140,12 @@ pub fn listing(root: &Path, rel_path: &str, depth: u8) -> Result<Vec<DirListing>
         }
     }
 
+    tracing::debug!(
+        "listed {rel_path:?} depth {depth}{}: {} folders, {carried} entries in {:?}",
+        if prefetch { " (prefetch)" } else { "" },
+        listings.len(),
+        started.elapsed()
+    );
     Ok(listings)
 }
 
@@ -382,6 +419,36 @@ fn host_write_answer(path: &str, bytes: &[u8], expected: FileVersion) -> Message
                 error,
             }
         }
+    }
+}
+
+/// Create or replace the file at `path` atomically, with no version check: the target is whatever
+/// the user picked in a save dialog. A directory or a symlink is refused, as in [`write_host_file`].
+pub fn save_host_file_as(path: &str, bytes: &[u8]) -> Result<(), FileError> {
+    let target = crate::host_path::request_path(path);
+    let mode = match fs::symlink_metadata(&target) {
+        Ok(link) if link.file_type().is_symlink() => {
+            return Err(FileError::Refused(
+                "that name is a symlink, and a write is never followed through one".to_string(),
+            ));
+        }
+        Ok(stat) if !stat.is_file() => return Err(FileError::WrongKind),
+        Ok(stat) => Some(stat.permissions()),
+        Err(_) => None,
+    };
+    crate::atomic::write_atomic_with(&target, bytes, mode).map_err(from_io)
+}
+
+/// Do one host-file export and say what the window is told.
+fn host_save_as_answer(path: &str, bytes: &[u8]) -> Message {
+    match save_host_file_as(path, bytes) {
+        Ok(()) => Message::HostFileExported {
+            path: path.to_string(),
+        },
+        Err(error) => Message::HostFileError {
+            path: path.to_string(),
+            error,
+        },
     }
 }
 
@@ -750,6 +817,9 @@ pub enum Request {
     Tree {
         rel_path: String,
         depth: u8,
+        /// The window's background cache asking: ignored folders are not walked
+        /// ([`prefetch_listing`]). A knowledge-base listing never sets it.
+        prefetch: bool,
     },
     Read {
         rel_path: String,
@@ -820,6 +890,8 @@ pub enum JobKind {
         bytes: Vec<u8>,
         expected: FileVersion,
     },
+    /// One host-file export: create or replace the file at an absolute path, no version check.
+    HostSaveAs { path: String, bytes: Vec<u8> },
     /// One knowledge-base request, already resolved to a source.
     ///
     /// Only [`Request::Tree`] and [`Request::Read`] are legal here — a knowledge-base source is
@@ -885,6 +957,7 @@ fn answer(job: &Job) -> Message {
             bytes,
             expected,
         } => host_write_answer(path, bytes, *expected),
+        JobKind::HostSaveAs { path, bytes } => host_save_as_answer(path, bytes),
         JobKind::Kb {
             project_id,
             source,
@@ -897,14 +970,25 @@ fn answer(job: &Job) -> Message {
 /// Do one file-family job and say what the window is told.
 fn file_answer(project_id: ProjectId, root: &Path, request: &Request) -> Message {
     match request {
-        Request::Tree { rel_path, depth } => match listing(root, rel_path, *depth) {
-            Ok(listings) => Message::ProjectTreeListing {
-                project_id,
-                rel_path: rel_path.clone(),
-                listings,
-            },
-            Err(error) => file_error(project_id, rel_path, error),
-        },
+        Request::Tree {
+            rel_path,
+            depth,
+            prefetch,
+        } => {
+            let walked = if *prefetch {
+                prefetch_listing(root, rel_path, *depth)
+            } else {
+                listing(root, rel_path, *depth)
+            };
+            match walked {
+                Ok(listings) => Message::ProjectTreeListing {
+                    project_id,
+                    rel_path: rel_path.clone(),
+                    listings,
+                },
+                Err(error) => file_error(project_id, rel_path, error),
+            }
+        }
         Request::Read {
             rel_path,
             max_bytes,
@@ -1025,7 +1109,9 @@ fn diff_answer(
 /// destination in the wrong place.
 fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Request) -> Message {
     match request {
-        Request::Tree { rel_path, depth } => match listing(base, rel_path, *depth) {
+        Request::Tree {
+            rel_path, depth, ..
+        } => match listing(base, rel_path, *depth) {
             Ok(mut listings) => {
                 // The filter is a name test on files only — [`KbSource::admits`] is the one place
                 // it is interpreted, so the host's walk and the interface's tree agree by

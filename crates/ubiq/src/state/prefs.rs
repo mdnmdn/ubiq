@@ -29,7 +29,7 @@ use crate::theme::{AccentId, ThemeId};
 /// different screen — the one case a default cannot rescue, because nothing is missing: the value
 /// changed meaning. An older blob would open the wrong mode with the wrong arrangement under it.
 ///
-/// It moved to `4` when `RailMode::Orchestration` was renamed to `RailMode::TEAMS_OLD` to make room
+/// It moved to `4` when `RailMode::Orchestration` was renamed to `RailMode::TeamsOld` to make room
 /// for the new `Teams` mode beside it. Same screen, same arrangement, but the serialised tag
 /// changed — `rail_mode: "Orchestration"` names nothing this build reads, so a blob written
 /// before this change is discarded rather than opening on defaults with the wrong mode recorded.
@@ -343,7 +343,7 @@ pub struct ViewPrefs {
     /// here, so the schema stays the interface's own. It carries a version of its own inside, and
     /// one written for another is discarded for the default arrangement rather than half-applied.
     /// Terminal panels are in it and are dropped on load: layout persists, harnesses do not.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "modes_without_retired")]
     pub modes: std::collections::HashMap<RailMode, ModeLayout>,
     /// The tabs open in the centre, in tab order, as `state/editor.rs`'s tab keys.
     ///
@@ -532,6 +532,20 @@ impl Default for ViewPrefs {
             rest: Default::default(),
         }
     }
+}
+
+/// Read `ViewPrefs::modes`, dropping every entry keyed by a retired mode id: it described a
+/// different screen, and `decode_id` would otherwise collapse it onto its successor's key where the
+/// winner is arbitrary.
+fn modes_without_retired<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<std::collections::HashMap<RailMode, ModeLayout>, D::Error> {
+    let raw = <std::collections::HashMap<String, ModeLayout> as serde::Deserialize>::deserialize(d)?;
+    Ok(raw
+        .into_iter()
+        .filter(|(key, _)| !crate::ext::rail::is_retired(key))
+        .map(|(key, layout)| (RailMode(crate::ext::rail::decode_id(&key)), layout))
+        .collect())
 }
 
 /// Read a blob back, or nothing at all.

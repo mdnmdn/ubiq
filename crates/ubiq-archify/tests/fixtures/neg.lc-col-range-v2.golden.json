@@ -1,0 +1,179 @@
+{
+ "name": "neg.lc-col-range-v2",
+ "group": "negative",
+ "source": "mutation of lifecycle",
+ "type": "lifecycle",
+ "rule": "lifecycle/col-range",
+ "expect_codes": [
+  "schema/maximum"
+ ],
+ "source_sha256": "5dd9557eab46c23029f5a2427d584e0383630d6a605f861b4c20d3e7d427540b",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "LC",
+   "output": "lc.html"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Phases"
+   },
+   {
+    "id": "terminal",
+    "label": "Exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "lane": "main",
+    "col": 5
+   },
+   {
+    "id": "running",
+    "type": "active",
+    "label": "Running",
+    "lane": "main",
+    "col": 1
+   },
+   {
+    "id": "done",
+    "type": "success",
+    "label": "Done",
+    "lane": "terminal",
+    "col": 1
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "lane": "terminal",
+    "col": 2
+   }
+  ],
+  "transitions": [
+   {
+    "id": "t1",
+    "from": "queued",
+    "to": "running",
+    "label": "start"
+   },
+   {
+    "id": "t2",
+    "from": "running",
+    "to": "done",
+    "label": "finish"
+   },
+   {
+    "id": "t3",
+    "from": "running",
+    "to": "failed",
+    "label": "error"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "lifecycle schema validation failed:\n  /states/0/col (id/label: \"queued\") must be <= 4 {\"comparison\":\"<=\",\"limit\":4}",
+    "diagnostics": [
+     {
+      "code": "schema/maximum",
+      "severity": "error",
+      "message": "/states/0/col (id/label: \"queued\") must be <= 4 {\"comparison\":\"<=\",\"limit\":4}",
+      "subject": {
+       "diagramType": "lifecycle",
+       "path": "/states/0/col",
+       "identity": "queued"
+      },
+      "evidence": {
+       "keyword": "maximum",
+       "comparison": "<=",
+       "limit": 4
+      },
+      "supportedFixes": [
+       "use a value <= 4"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "lifecycle schema validation failed:\n  /states/0/col (id/label: \"queued\") must be <= 4 {\"comparison\":\"<=\",\"limit\":4}",
+    "diagnostics": [
+     {
+      "code": "schema/maximum",
+      "severity": "error",
+      "message": "/states/0/col (id/label: \"queued\") must be <= 4 {\"comparison\":\"<=\",\"limit\":4}",
+      "subject": {
+       "diagramType": "lifecycle",
+       "path": "/states/0/col",
+       "identity": "queued"
+      },
+      "evidence": {
+       "keyword": "maximum",
+       "comparison": "<=",
+       "limit": 4
+      },
+      "supportedFixes": [
+       "use a value <= 4"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "lifecycle schema validation failed:\n  /states/0/col (id/label: \"queued\") must be <= 4 {\"comparison\":\"<=\",\"limit\":4}",
+    "diagnostics": [
+     {
+      "code": "schema/maximum",
+      "severity": "error",
+      "message": "/states/0/col (id/label: \"queued\") must be <= 4 {\"comparison\":\"<=\",\"limit\":4}",
+      "subject": {
+       "diagramType": "lifecycle",
+       "path": "/states/0/col",
+       "identity": "queued"
+      },
+      "evidence": {
+       "keyword": "maximum",
+       "comparison": "<=",
+       "limit": 4
+      },
+      "supportedFixes": [
+       "use a value <= 4"
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

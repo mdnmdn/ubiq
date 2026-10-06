@@ -1,0 +1,271 @@
+{
+ "name": "neg.arch-grid-col-exceeds",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "architecture/grid-cell",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "0faacbb1c50fe9f942e474ff52ff26b7b0dbd24b4d534783236b77fd77575cf6",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "row": 0,
+    "col": 0
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "row": 0,
+    "col": 1
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "row": 0,
+    "col": 2
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ],
+  "layout": {
+   "mode": "grid",
+   "cols": 2
+  }
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "grid",
+    "origin": [40,80],
+    "cols": 2,
+    "gapX": 30,
+    "gapY": 40,
+    "cellW": 130,
+    "cellH": 64
+   },
+   "viewBox": [550,228],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "row": 0,
+     "col": 0
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 200,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "row": 0,
+     "col": 1
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 360,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "row": 0,
+     "col": 2
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "Prod",
+     "x": 170,
+     "y": 50,
+     "width": 340,
+     "height": 110,
+     "wraps": [
+      "api",
+      "db"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,110],[200,110]],
+     "labelAt": [180,100]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[320,110],[360,110]],
+     "labelAt": [340,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 163,
+     "y": 90,
+     "width": 34,
+     "height": 14,
+     "labelAt": [180,100]
+    },
+    {
+     "text": "SQL",
+     "x": 325,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [340,100]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+   "diagnostics": [
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Component \"db\" col 2 exceeds layout.cols 2 (valid: 0..1).",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

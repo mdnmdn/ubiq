@@ -1,0 +1,184 @@
+{
+ "name": "neg.schema-enum-variant",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/enum",
+ "expect_codes": [
+  "schema/enum"
+ ],
+ "source_sha256": "0bddadd3446496b44c23be085a407f6db76e2691dde3f885e710c6b41177ad58",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "bold"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}",
+    "diagnostics": [
+     {
+      "code": "schema/enum",
+      "severity": "error",
+      "message": "/connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/connections/0/variant",
+       "identity": "web-api"
+      },
+      "evidence": {
+       "keyword": "enum",
+       "allowedValues": [
+        "default",
+        "emphasis",
+        "security",
+        "dashed"
+       ]
+      },
+      "supportedFixes": [
+       "choose one of [\"default\",\"emphasis\",\"security\",\"dashed\"]"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}",
+    "diagnostics": [
+     {
+      "code": "schema/enum",
+      "severity": "error",
+      "message": "/connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/connections/0/variant",
+       "identity": "web-api"
+      },
+      "evidence": {
+       "keyword": "enum",
+       "allowedValues": [
+        "default",
+        "emphasis",
+        "security",
+        "dashed"
+       ]
+      },
+      "supportedFixes": [
+       "choose one of [\"default\",\"emphasis\",\"security\",\"dashed\"]"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}",
+    "diagnostics": [
+     {
+      "code": "schema/enum",
+      "severity": "error",
+      "message": "/connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/connections/0/variant",
+       "identity": "web-api"
+      },
+      "evidence": {
+       "keyword": "enum",
+       "allowedValues": [
+        "default",
+        "emphasis",
+        "security",
+        "dashed"
+       ]
+      },
+      "supportedFixes": [
+       "choose one of [\"default\",\"emphasis\",\"security\",\"dashed\"]"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]}\n[schema/enum] /connections/0/variant (id/label: \"web-api\") must be equal to one of the allowed values {\"allowedValues\":[\"default\",\"emphasis\",\"security\",\"dashed\"]} Fix: choose one of [\"default\",\"emphasis\",\"security\",\"dashed\"].\n"
+ },
+ "layout_json_by_quality": {}
+}

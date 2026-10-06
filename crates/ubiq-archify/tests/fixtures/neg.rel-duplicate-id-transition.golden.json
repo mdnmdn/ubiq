@@ -1,0 +1,158 @@
+{
+ "name": "neg.rel-duplicate-id-transition",
+ "group": "negative",
+ "source": "mutation of lifecycle",
+ "type": "lifecycle",
+ "rule": "relationship/duplicate-id",
+ "expect_codes": [
+  "relationship/duplicate-id"
+ ],
+ "source_sha256": "b4c3eb9059a069ccd98f3af4c67b654e43ece40f1917a7cc6f7f591c61472eda",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "LC",
+   "output": "lc.html"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Phases"
+   },
+   {
+    "id": "terminal",
+    "label": "Exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "lane": "main",
+    "col": 0
+   },
+   {
+    "id": "running",
+    "type": "active",
+    "label": "Running",
+    "lane": "main",
+    "col": 1
+   },
+   {
+    "id": "done",
+    "type": "success",
+    "label": "Done",
+    "lane": "terminal",
+    "col": 1
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "lane": "terminal",
+    "col": 2
+   }
+  ],
+  "transitions": [
+   {
+    "id": "t1",
+    "from": "queued",
+    "to": "running",
+    "label": "start"
+   },
+   {
+    "id": "t1",
+    "from": "running",
+    "to": "done",
+    "label": "finish"
+   },
+   {
+    "id": "t3",
+    "from": "running",
+    "to": "failed",
+    "label": "error"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /transitions/1/id duplicates relationship id \"t1\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/transitions/1/id duplicates relationship id \"t1\"",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /transitions/1/id duplicates relationship id \"t1\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/transitions/1/id duplicates relationship id \"t1\"",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Relationship identity validation failed:\n- /transitions/1/id duplicates relationship id \"t1\"",
+    "diagnostics": [
+     {
+      "code": "relationship/duplicate-id",
+      "severity": "error",
+      "message": "/transitions/1/id duplicates relationship id \"t1\"",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

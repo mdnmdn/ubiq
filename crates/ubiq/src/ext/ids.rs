@@ -104,7 +104,6 @@ pub const RAIL_GIT: SlotId = SlotId::new("ubiq.rail.git");
 pub const RAIL_AGENTS: SlotId = SlotId::new("ubiq.rail.agents");
 pub const RAIL_TEAMS: SlotId = SlotId::new("ubiq.rail.teams");
 pub const RAIL_TEAMS_ALL: SlotId = SlotId::new("ubiq.rail.teams-all");
-pub const RAIL_TEAMS_OLD: SlotId = SlotId::new("ubiq.rail.teams-old");
 pub const RAIL_KB: SlotId = SlotId::new("ubiq.rail.kb");
 pub const RAIL_DB: SlotId = SlotId::new("ubiq.rail.db");
 pub const RAIL_TASKS: SlotId = SlotId::new("ubiq.rail.tasks");
@@ -145,8 +144,14 @@ pub const RUNNER_MISE: SlotId = SlotId::new("ubiq.runner.mise");
 // ── The viewer container (`D204`) ───────────────────────────────────
 
 /// The IDE editor's contributed viewers — one group, since a viewer is ordered by registration
-/// alone. The base registers none: its own viewers are `ViewerKind`'s built-in variants.
+/// alone. The base registers one, Archify's (`ARCHIFY_VIEWER`); its other viewers are
+/// `ViewerKind`'s built-in variants.
 pub const VIEWER: SlotId = SlotId::new("viewer");
+/// The Archify diagram viewer (`ui::archify::viewer`): what a tab's `ViewerKind::Contributed`
+/// names.
+pub const ARCHIFY_VIEWER: SlotId = SlotId::new("viewer.archify");
+/// The Archify "Diagrams" section of the app settings (`ui::archify::settings`).
+pub const ARCHIFY_SETTINGS: SlotId = SlotId::new("ubiq.app.archify");
 
 // ── The kitchen sink's own demo registrations (`X11`, invariant 9, M4) ──────
 //

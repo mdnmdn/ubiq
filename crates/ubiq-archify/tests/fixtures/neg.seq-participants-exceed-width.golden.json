@@ -1,0 +1,175 @@
+{
+ "name": "neg.seq-participants-exceed-width",
+ "group": "negative",
+ "source": "mutation of sequence",
+ "type": "sequence",
+ "rule": "geom/node-out-of-bounds",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "0fc8b433248bcca77ec993718ad803889d501661c6a1d3ec2a8d1bef53830525",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Seq",
+   "output": "seq.html",
+   "viewBox": [480,480]
+  },
+  "participants": [
+   {
+    "id": "ui",
+    "type": "frontend",
+    "label": "UI"
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB"
+   },
+   {
+    "id": "p4",
+    "type": "backend",
+    "label": "P4"
+   },
+   {
+    "id": "p5",
+    "type": "backend",
+    "label": "P5"
+   },
+   {
+    "id": "p6",
+    "type": "backend",
+    "label": "P6"
+   }
+  ],
+  "messages": [
+   {
+    "id": "m1",
+    "from": "ui",
+    "to": "api",
+    "y": 180,
+    "label": "GET /x"
+   },
+   {
+    "id": "m2",
+    "from": "api",
+    "to": "db",
+    "y": 230,
+    "label": "SELECT"
+   },
+   {
+    "id": "m3",
+    "from": "db",
+    "to": "api",
+    "y": 280,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "id": "m4",
+    "from": "api",
+    "to": "ui",
+    "y": 330,
+    "label": "200",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "api",
+    "from": 175,
+    "to": 335,
+    "type": "backend"
+   }
+  ],
+  "segments": [
+   {
+    "from": 160,
+    "to": 345,
+    "label": "Read"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Participants exceed viewBox width — set meta.viewBox[0] to at least 685 or remove a participant.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Participants exceed viewBox width — set meta.viewBox[0] to at least 685 or remove a participant.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Participants exceed viewBox width — set meta.viewBox[0] to at least 685 or remove a participant.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Participants exceed viewBox width — set meta.viewBox[0] to at least 685 or remove a participant.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Participants exceed viewBox width — set meta.viewBox[0] to at least 685 or remove a participant.",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Participants exceed viewBox width — set meta.viewBox[0] to at least 685 or remove a participant.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

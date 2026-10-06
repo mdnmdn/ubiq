@@ -1,0 +1,169 @@
+{
+ "name": "neg.repo-required",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "repository-evidence/repository-required",
+ "expect_codes": [
+  "repository-evidence/repository-required"
+ ],
+ "source_sha256": "4b2562d5eaedd6f3bffab2a65ebcb01069b080a6f9e1d438d2febb21bb2dae53",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "sources": [
+     {
+      "path": "src/web.ts",
+      "line": 1
+     }
+    ]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Repository evidence requires /meta/repository.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/repository-required",
+      "severity": "error",
+      "message": "Repository evidence requires /meta/repository.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository",
+       "diagramType": "architecture",
+       "collection": "components"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "add the pinned repository metadata or remove /components sources"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Repository evidence requires /meta/repository.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/repository-required",
+      "severity": "error",
+      "message": "Repository evidence requires /meta/repository.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository",
+       "diagramType": "architecture",
+       "collection": "components"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "add the pinned repository metadata or remove /components sources"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Repository evidence requires /meta/repository.",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/repository-required",
+      "severity": "error",
+      "message": "Repository evidence requires /meta/repository.",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository",
+       "diagramType": "architecture",
+       "collection": "components"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "add the pinned repository metadata or remove /components sources"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "Repository evidence requires /meta/repository.\n[repository-evidence/repository-required] Repository evidence requires /meta/repository. Fix: add the pinned repository metadata or remove /components sources.\n"
+ },
+ "layout_json_by_quality": {}
+}

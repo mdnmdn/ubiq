@@ -125,6 +125,7 @@ fn a_filter_hides_a_file_it_does_not_name_from_a_kb_listing() {
             request: files::Request::Tree {
                 rel_path: String::new(),
                 depth: 1,
+                prefetch: false,
             },
         },
         reply_to: mailbox,
@@ -162,6 +163,7 @@ fn an_empty_filter_admits_everything_in_a_kb_listing() {
             request: files::Request::Tree {
                 rel_path: String::new(),
                 depth: 1,
+                prefetch: false,
             },
         },
         reply_to: mailbox,

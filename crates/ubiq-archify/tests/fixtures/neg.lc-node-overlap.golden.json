@@ -1,0 +1,569 @@
+{
+ "name": "neg.lc-node-overlap",
+ "group": "negative",
+ "source": "mutation of lifecycle",
+ "type": "lifecycle",
+ "rule": "geom/node-overlap",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "a7149375dae5bb0f9487f4330e5bbf709dff1864fee03193c09543cb7201b4c3",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "lifecycle",
+  "meta": {
+   "title": "LC",
+   "output": "lc.html"
+  },
+  "lanes": [
+   {
+    "id": "main",
+    "label": "Phases"
+   },
+   {
+    "id": "terminal",
+    "label": "Exits"
+   }
+  ],
+  "states": [
+   {
+    "id": "queued",
+    "type": "start",
+    "label": "Queued",
+    "lane": "main",
+    "col": 0
+   },
+   {
+    "id": "running",
+    "type": "active",
+    "label": "Running",
+    "lane": "main",
+    "col": 0
+   },
+   {
+    "id": "done",
+    "type": "success",
+    "label": "Done",
+    "lane": "terminal",
+    "col": 1
+   },
+   {
+    "id": "failed",
+    "type": "failure",
+    "label": "Failed",
+    "lane": "terminal",
+    "col": 2
+   }
+  ],
+  "transitions": [
+   {
+    "id": "t1",
+    "from": "queued",
+    "to": "running",
+    "label": "start"
+   },
+   {
+    "id": "t2",
+    "from": "running",
+    "to": "done",
+    "label": "finish"
+   },
+   {
+    "id": "t3",
+    "from": "running",
+    "to": "failed",
+    "label": "error"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- States \"queued\" and \"running\" are less than 10px apart — move one to another col or separate them with yOffset.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" first segment 0 [60,88] -> [200,88] does not honor inferred fromSide \"left\" — it must run horizontal leftward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" final segment 0 [60,88] -> [200,88] does not honor inferred toSide \"right\" — it must run horizontal leftward from the right; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/edge-through-node] lifecycle transitions[1] id \"t2\" \"running\" -> \"done\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [115,120] -> [115,192] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.\n- [clean-flow/edge-through-node] lifecycle transitions[2] id \"t3\" \"running\" -> \"failed\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [145,120] -> [145,168] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.\n- Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)\n- Label \"start\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"running\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" first segment 0 [60,88] -> [200,88] does not honor inferred fromSide \"left\" — it must run horizontal leftward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "id": "t1",
+       "from": "queued",
+       "to": "running"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "inferred",
+       "side": "left",
+       "segmentIndex": 0,
+       "from": [60,88],
+       "to": [200,88],
+       "expectedAxis": "horizontal",
+       "expectedDirection": "leftward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" final segment 0 [60,88] -> [200,88] does not honor inferred toSide \"right\" — it must run horizontal leftward from the right; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "id": "t1",
+       "from": "queued",
+       "to": "running"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "inferred",
+       "side": "right",
+       "segmentIndex": 0,
+       "from": [60,88],
+       "to": [200,88],
+       "expectedAxis": "horizontal",
+       "expectedDirection": "leftward from the right"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[1] id \"t2\" \"running\" -> \"done\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [115,120] -> [115,192] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 1,
+       "id": "t2",
+       "from": "running",
+       "to": "done"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "queued",
+       "segmentIndex": 0,
+       "from": [115,120],
+       "to": [115,192],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[2] id \"t3\" \"running\" -> \"failed\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [145,120] -> [145,168] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 2,
+       "id": "t3",
+       "from": "running",
+       "to": "failed"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "queued",
+       "segmentIndex": 0,
+       "from": [145,120],
+       "to": [145,168],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "States \"queued\" and \"running\" are less than 10px apart — move one to another col or separate them with yOffset.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"running\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- States \"queued\" and \"running\" are less than 10px apart — move one to another col or separate them with yOffset.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" first segment 0 [60,88] -> [200,88] does not honor inferred fromSide \"left\" — it must run horizontal leftward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" final segment 0 [60,88] -> [200,88] does not honor inferred toSide \"right\" — it must run horizontal leftward from the right; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/edge-through-node] lifecycle transitions[1] id \"t2\" \"running\" -> \"done\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [115,120] -> [115,192] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.\n- [clean-flow/edge-through-node] lifecycle transitions[2] id \"t3\" \"running\" -> \"failed\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [145,120] -> [145,168] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.\n- Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)\n- Label \"start\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"running\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" first segment 0 [60,88] -> [200,88] does not honor inferred fromSide \"left\" — it must run horizontal leftward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "id": "t1",
+       "from": "queued",
+       "to": "running"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "inferred",
+       "side": "left",
+       "segmentIndex": 0,
+       "from": [60,88],
+       "to": [200,88],
+       "expectedAxis": "horizontal",
+       "expectedDirection": "leftward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" final segment 0 [60,88] -> [200,88] does not honor inferred toSide \"right\" — it must run horizontal leftward from the right; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "id": "t1",
+       "from": "queued",
+       "to": "running"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "inferred",
+       "side": "right",
+       "segmentIndex": 0,
+       "from": [60,88],
+       "to": [200,88],
+       "expectedAxis": "horizontal",
+       "expectedDirection": "leftward from the right"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[1] id \"t2\" \"running\" -> \"done\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [115,120] -> [115,192] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 1,
+       "id": "t2",
+       "from": "running",
+       "to": "done"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "queued",
+       "segmentIndex": 0,
+       "from": [115,120],
+       "to": [115,192],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[2] id \"t3\" \"running\" -> \"failed\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [145,120] -> [145,168] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 2,
+       "id": "t3",
+       "from": "running",
+       "to": "failed"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "queued",
+       "segmentIndex": 0,
+       "from": [145,120],
+       "to": [145,168],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "States \"queued\" and \"running\" are less than 10px apart — move one to another col or separate them with yOffset.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"running\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "lifecycle",
+    "input": "<input>",
+    "error": "Lifecycle layout validation failed:\n- States \"queued\" and \"running\" are less than 10px apart — move one to another col or separate them with yOffset.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" first segment 0 [60,88] -> [200,88] does not honor inferred fromSide \"left\" — it must run horizontal leftward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" final segment 0 [60,88] -> [200,88] does not honor inferred toSide \"right\" — it must run horizontal leftward from the right; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.\n- [clean-flow/edge-through-node] lifecycle transitions[1] id \"t2\" \"running\" -> \"done\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [115,120] -> [115,192] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.\n- [clean-flow/edge-through-node] lifecycle transitions[2] id \"t3\" \"running\" -> \"failed\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [145,120] -> [145,168] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.\n- Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)\n- Label \"start\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"running\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)\n- [composition/label-route-clearance] showcase lifecycle label \"finish\" on transitions[1] id \"t2\" \"running\" -> \"done\" label \"finish\" is 3px from transitions[2] id \"t3\" \"running\" -> \"failed\" label \"error\" segment 1 [145,168] -> [538,168] (label rect [204,171,41,16]; minimum 4px) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other relationship route/via/channel.",
+    "diagnostics": [
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" first segment 0 [60,88] -> [200,88] does not honor inferred fromSide \"left\" — it must run horizontal leftward; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "id": "t1",
+       "from": "queued",
+       "to": "running"
+      },
+      "evidence": {
+       "endpoint": "source",
+       "authoredField": "fromSide",
+       "sideOrigin": "inferred",
+       "side": "left",
+       "segmentIndex": 0,
+       "from": [60,88],
+       "to": [200,88],
+       "expectedAxis": "horizontal",
+       "expectedDirection": "leftward"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/endpoint-side-direction",
+      "severity": "error",
+      "message": "[clean-flow/endpoint-side-direction] lifecycle transitions[0] id \"t1\" \"queued\" -> \"running\" final segment 0 [60,88] -> [200,88] does not honor inferred toSide \"right\" — it must run horizontal leftward from the right; keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 0,
+       "id": "t1",
+       "from": "queued",
+       "to": "running"
+      },
+      "evidence": {
+       "endpoint": "target",
+       "authoredField": "toSide",
+       "sideOrigin": "inferred",
+       "side": "right",
+       "segmentIndex": 0,
+       "from": [60,88],
+       "to": [200,88],
+       "expectedAxis": "horizontal",
+       "expectedDirection": "leftward from the right"
+      },
+      "supportedFixes": [
+       "keep automatic routing, or choose fromSide/toSide and via points whose first and final segments cross state borders perpendicularly"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[1] id \"t2\" \"running\" -> \"done\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [115,120] -> [115,192] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 1,
+       "id": "t2",
+       "from": "running",
+       "to": "done"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "queued",
+       "segmentIndex": 0,
+       "from": [115,120],
+       "to": [115,192],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] lifecycle transitions[2] id \"t3\" \"running\" -> \"failed\" crosses state \"queued\" (unrelated to this relationship) on segment 0 [145,120] -> [145,168] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 2,
+       "id": "t3",
+       "from": "running",
+       "to": "failed"
+      },
+      "evidence": {
+       "obstacleKind": "state",
+       "obstacleId": "queued",
+       "segmentIndex": 0,
+       "from": [145,120],
+       "to": [145,168],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the state with col/yOffset"
+      ]
+     },
+     {
+      "code": "composition/label-route-clearance",
+      "severity": "error",
+      "message": "[composition/label-route-clearance] showcase lifecycle label \"finish\" on transitions[1] id \"t2\" \"running\" -> \"done\" label \"finish\" is 3px from transitions[2] id \"t3\" \"running\" -> \"failed\" label \"error\" segment 1 [145,168] -> [538,168] (label rect [204,171,41,16]; minimum 4px) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other relationship route/via/channel.",
+      "subject": {
+       "diagramType": "lifecycle",
+       "collection": "transitions",
+       "index": 1,
+       "id": "t2",
+       "from": "running",
+       "to": "done"
+      },
+      "evidence": {
+       "label": "finish",
+       "otherRelationship": {
+        "diagramType": "lifecycle",
+        "collection": "transitions",
+        "index": 2,
+        "id": "t3",
+        "from": "running",
+        "to": "failed"
+       },
+       "segmentIndex": 1,
+       "clearancePx": 3,
+       "minimumPx": 4,
+       "labelRect": {
+        "relation": {
+         "id": "t2",
+         "from": "running",
+         "to": "done",
+         "label": "finish"
+        },
+        "relationIndex": 1,
+        "label": "finish",
+        "x": 203.8,
+        "y": 171,
+        "width": 41.400000000000006,
+        "height": 16,
+        "lx": 224.5,
+        "ly": 182
+       },
+       "from": [145,168],
+       "to": [538,168]
+      },
+      "supportedFixes": [
+       "adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other relationship route/via/channel"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "States \"queued\" and \"running\" are less than 10px apart — move one to another col or separate them with yOffset.",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"queued\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"queued\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"start\" overlaps state \"running\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [112,67,37,16]\n  state \"running\" rect: [60,56,140,64]\n  Suggested fix: set labelAt [130,135] or set labelDy 57 (below); or set labelAt [130,47] or set labelDy -31 (above)",
+      "subject": {
+       "diagramType": "lifecycle"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

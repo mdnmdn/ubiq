@@ -1,0 +1,2092 @@
+{
+ "name": "fixture.workflow-shared-trunks.workflow",
+ "group": "fixture",
+ "source": "archify/test/fixtures/workflow-shared-trunks.workflow.json",
+ "type": "workflow",
+ "source_sha256": "cee067e4b2651389cf8ad79c5d1b76f961510bae958cc9548b1f62860272828c",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "分支与回流",
+   "locale": "zh-CN",
+   "output": "workflow.html"
+  },
+  "lanes": [
+   {
+    "id": "parent",
+    "label": "会话入口与用户反馈"
+   },
+   {
+    "id": "ordinary",
+    "label": "普通工具路径"
+   },
+   {
+    "id": "execution",
+    "label": "主会话调度与独立委派"
+   },
+   {
+    "id": "orchestration",
+    "label": "多阶段编排路径"
+   },
+   {
+    "id": "process",
+    "label": "后台进程路径"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "submit",
+    "lane": "parent",
+    "col": 0,
+    "type": "frontend",
+    "label": "提交任务",
+    "width": 156
+   },
+   {
+    "id": "capabilities",
+    "lane": "parent",
+    "col": 1,
+    "type": "security",
+    "label": "加载能力",
+    "width": 172
+   },
+   {
+    "id": "decide",
+    "lane": "execution",
+    "col": 2,
+    "type": "backend",
+    "label": "执行决策",
+    "width": 156
+   },
+   {
+    "id": "native",
+    "lane": "ordinary",
+    "col": 3,
+    "type": "backend",
+    "label": "普通工具",
+    "width": 172
+   },
+   {
+    "id": "child",
+    "lane": "execution",
+    "col": 3,
+    "type": "backend",
+    "label": "独立执行",
+    "width": 172
+   },
+   {
+    "id": "workflow",
+    "lane": "orchestration",
+    "col": 3,
+    "type": "messagebus",
+    "label": "任务编排",
+    "width": 172
+   },
+   {
+    "id": "background",
+    "lane": "process",
+    "col": 3,
+    "type": "external",
+    "label": "后台进程",
+    "width": 172
+   },
+   {
+    "id": "collect",
+    "lane": "execution",
+    "col": 4,
+    "type": "messagebus",
+    "label": "接收结果",
+    "width": 156
+   },
+   {
+    "id": "reply",
+    "lane": "parent",
+    "col": 5,
+    "type": "frontend",
+    "label": "回复结果",
+    "width": 172
+   }
+  ],
+  "edges": [
+   {
+    "id": "prepare",
+    "from": "submit",
+    "to": "capabilities",
+    "label": "回合启动前",
+    "role": "main",
+    "variant": "emphasis"
+   },
+   {
+    "id": "model-turn",
+    "from": "capabilities",
+    "to": "decide",
+    "label": "可用工具面",
+    "role": "main",
+    "variant": "emphasis"
+   },
+   {
+    "id": "ordinary-work",
+    "from": "decide",
+    "to": "native",
+    "label": "普通工作",
+    "role": "main",
+    "variant": "emphasis"
+   },
+   {
+    "id": "delegate-work",
+    "from": "decide",
+    "to": "child",
+    "label": "独立执行",
+    "role": "branch"
+   },
+   {
+    "id": "orchestrate-work",
+    "from": "decide",
+    "to": "workflow",
+    "label": "编排执行",
+    "role": "branch"
+   },
+   {
+    "id": "launch-process",
+    "from": "decide",
+    "to": "background",
+    "label": "后台执行",
+    "role": "branch"
+   },
+   {
+    "id": "native-result",
+    "from": "native",
+    "to": "collect",
+    "label": "工具结果",
+    "role": "main",
+    "variant": "emphasis"
+   },
+   {
+    "id": "child-result",
+    "from": "child",
+    "to": "collect",
+    "label": "完成后跟进",
+    "role": "async",
+    "variant": "dashed"
+   },
+   {
+    "id": "workflow-result",
+    "from": "workflow",
+    "to": "collect",
+    "label": "等待返回／稍后投递",
+    "role": "async",
+    "variant": "dashed"
+   },
+   {
+    "id": "process-result",
+    "from": "background",
+    "to": "collect",
+    "label": "状态／完成通知",
+    "role": "async",
+    "variant": "dashed"
+   },
+   {
+    "id": "continue-work",
+    "from": "collect",
+    "to": "decide",
+    "label": "仍需后续工作",
+    "role": "return",
+    "variant": "dashed",
+    "channelY": 180
+   },
+   {
+    "id": "finish",
+    "from": "collect",
+    "to": "reply",
+    "label": "综合结果",
+    "role": "main",
+    "variant": "emphasis"
+   },
+   {
+    "id": "direct-answer",
+    "from": "decide",
+    "to": "reply",
+    "label": "无需工具时直接回答",
+    "role": "branch"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "cee067e4b2651389cf8ad79c5d1b76f961510bae958cc9548b1f62860272828c",
+     "bytes": 3214
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "cee067e4b2651389cf8ad79c5d1b76f961510bae958cc9548b1f62860272828c",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 27,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.430423509075195,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.715,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 21,
+      "minInteriorSegmentPx": 96,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "continue-work",
+         "from": "collect",
+         "to": "decide",
+         "label": "仍需后续工作",
+         "collectionIndex": 1,
+         "artifactIndex": 2
+        },
+        "bends": 2,
+        "stretch": 1.715,
+        "directCorridorBlockers": [
+         {
+          "id": "child",
+          "label": "独立执行",
+          "box": [610.4,341,172,52]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "child-result",
+       "from": "child",
+       "to": "collect"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.430423509075195,
+      "semanticTextCount": 22
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 1157,
+       "viewBoxHeight": 776,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.49,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 903,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1029,
+       "overflowPx": 129,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 1157x776 canvas (ratio 1.49) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 903px tall at the full 1346px width and the page reaches 1029px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 746 at this width, or spread content sideways so the width is at least 1203 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "cee067e4b2651389cf8ad79c5d1b76f961510bae958cc9548b1f62860272828c",
+     "bytes": 3214
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "cee067e4b2651389cf8ad79c5d1b76f961510bae958cc9548b1f62860272828c",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 27,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.430423509075195,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.715,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 21,
+      "minInteriorSegmentPx": 96,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "continue-work",
+         "from": "collect",
+         "to": "decide",
+         "label": "仍需后续工作",
+         "collectionIndex": 1,
+         "artifactIndex": 2
+        },
+        "bends": 2,
+        "stretch": 1.715,
+        "directCorridorBlockers": [
+         {
+          "id": "child",
+          "label": "独立执行",
+          "box": [610.4,341,172,52]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "child-result",
+       "from": "child",
+       "to": "collect"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.430423509075195,
+      "semanticTextCount": 22
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 1157,
+       "viewBoxHeight": 776,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.49,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 903,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1029,
+       "overflowPx": 129,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 1157x776 canvas (ratio 1.49) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 903px tall at the full 1346px width and the page reaches 1029px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 746 at this width, or spread content sideways so the width is at least 1203 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "cee067e4b2651389cf8ad79c5d1b76f961510bae958cc9548b1f62860272828c",
+     "bytes": 3214
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "cee067e4b2651389cf8ad79c5d1b76f961510bae958cc9548b1f62860272828c",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 27,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 6.430423509075195,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.715,
+      "routesOverSuggestedStretch": 1,
+      "minSegmentPx": 21,
+      "minInteriorSegmentPx": 96,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "id": "continue-work",
+         "from": "collect",
+         "to": "decide",
+         "label": "仍需后续工作",
+         "collectionIndex": 1,
+         "artifactIndex": 2
+        },
+        "bends": 2,
+        "stretch": 1.715,
+        "directCorridorBlockers": [
+         {
+          "id": "child",
+          "label": "独立执行",
+          "box": [610.4,341,172,52]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": "child-result",
+       "from": "child",
+       "to": "collect"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 6.430423509075195,
+      "semanticTextCount": 22
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 1157,
+       "viewBoxHeight": 776,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 1.49,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 903,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1029,
+       "overflowPx": 129,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 1157x776 canvas (ratio 1.49) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 903px tall at the full 1346px width and the page reaches 1029px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 746 at this width, or spread content sideways so the width is at least 1203 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "readable-v2",
+   "viewBox": [1157,776],
+   "requiredViewBox": [1157,776],
+   "columns": [126,356,476,696.4,926.4,1046.4],
+   "nodes": [
+    {
+     "id": "submit",
+     "lane": "parent",
+     "col": 0,
+     "x": 48,
+     "y": 93,
+     "width": 156,
+     "height": 52
+    },
+    {
+     "id": "capabilities",
+     "lane": "parent",
+     "col": 1,
+     "x": 270,
+     "y": 93,
+     "width": 172,
+     "height": 52
+    },
+    {
+     "id": "reply",
+     "lane": "parent",
+     "col": 5,
+     "x": 960.4000000000001,
+     "y": 93,
+     "width": 172,
+     "height": 52
+    },
+    {
+     "id": "native",
+     "lane": "ordinary",
+     "col": 3,
+     "x": 610.4,
+     "y": 217,
+     "width": 172,
+     "height": 52
+    },
+    {
+     "id": "decide",
+     "lane": "execution",
+     "col": 2,
+     "x": 398,
+     "y": 341,
+     "width": 156,
+     "height": 52
+    },
+    {
+     "id": "child",
+     "lane": "execution",
+     "col": 3,
+     "x": 610.4,
+     "y": 341,
+     "width": 172,
+     "height": 52
+    },
+    {
+     "id": "collect",
+     "lane": "execution",
+     "col": 4,
+     "x": 848.4,
+     "y": 341,
+     "width": 156,
+     "height": 52
+    },
+    {
+     "id": "workflow",
+     "lane": "orchestration",
+     "col": 3,
+     "x": 610.4,
+     "y": 465,
+     "width": 172,
+     "height": 52
+    },
+    {
+     "id": "background",
+     "lane": "process",
+     "col": 3,
+     "x": 610.4,
+     "y": 589,
+     "width": 172,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": "child-result",
+     "from": "child",
+     "to": "collect",
+     "points": [[782.4,367],[848.4,367]]
+    },
+    {
+     "id": "continue-work",
+     "from": "collect",
+     "to": "decide",
+     "points": [[926.4,341],[926.4,180],[476,180],[476,341]]
+    },
+    {
+     "id": "delegate-work",
+     "from": "decide",
+     "to": "child",
+     "points": [[554,367],[610.4,367]]
+    },
+    {
+     "id": "direct-answer",
+     "from": "decide",
+     "to": "reply",
+     "points": [[464,341],[464,112],[960.4000000000001,112]]
+    },
+    {
+     "id": "finish",
+     "from": "collect",
+     "to": "reply",
+     "points": [[938.4,341],[938.4,228],[1046.4,228],[1046.4,145]]
+    },
+    {
+     "id": "launch-process",
+     "from": "decide",
+     "to": "background",
+     "points": [[469,393],[469,615],[610.4,615]]
+    },
+    {
+     "id": "model-turn",
+     "from": "capabilities",
+     "to": "decide",
+     "points": [[356,145],[356,228],[452,228],[452,341]]
+    },
+    {
+     "id": "native-result",
+     "from": "native",
+     "to": "collect",
+     "points": [[782.4,243],[902.4,243],[902.4,341]]
+    },
+    {
+     "id": "orchestrate-work",
+     "from": "decide",
+     "to": "workflow",
+     "points": [[483,393],[483,491],[610.4,491]]
+    },
+    {
+     "id": "ordinary-work",
+     "from": "decide",
+     "to": "native",
+     "points": [[500,341],[500,243],[610.4,243]]
+    },
+    {
+     "id": "prepare",
+     "from": "submit",
+     "to": "capabilities",
+     "points": [[204,119],[270,119]]
+    },
+    {
+     "id": "process-result",
+     "from": "background",
+     "to": "collect",
+     "points": [[782.4,615],[919.4,615],[919.4,393]]
+    },
+    {
+     "id": "workflow-result",
+     "from": "workflow",
+     "to": "collect",
+     "points": [[696.4,465],[696.4,414],[902.4,414],[902.4,393]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": "child-result",
+     "label": "完成后跟进",
+     "x": 815.4,
+     "y": 357,
+     "width": 58,
+     "height": 14
+    },
+    {
+     "edge": "continue-work",
+     "label": "仍需后续工作",
+     "x": 701.2,
+     "y": 170,
+     "width": 67.6,
+     "height": 14
+    },
+    {
+     "edge": "delegate-work",
+     "label": "独立执行",
+     "x": 582.2,
+     "y": 357,
+     "width": 48.4,
+     "height": 14
+    },
+    {
+     "edge": "direct-answer",
+     "label": "无需工具时直接回答",
+     "x": 712.2,
+     "y": 102,
+     "width": 96.39999999999999,
+     "height": 14
+    },
+    {
+     "edge": "finish",
+     "label": "综合结果",
+     "x": 992.4000000000001,
+     "y": 218,
+     "width": 48.4,
+     "height": 14
+    },
+    {
+     "edge": "launch-process",
+     "label": "后台执行",
+     "x": 539.7,
+     "y": 605,
+     "width": 48.4,
+     "height": 14
+    },
+    {
+     "edge": "model-turn",
+     "label": "可用工具面",
+     "x": 404,
+     "y": 218,
+     "width": 58,
+     "height": 14
+    },
+    {
+     "edge": "native-result",
+     "label": "工具结果",
+     "x": 842.4,
+     "y": 233,
+     "width": 48.4,
+     "height": 14
+    },
+    {
+     "edge": "orchestrate-work",
+     "label": "编排执行",
+     "x": 546.7,
+     "y": 481,
+     "width": 48.4,
+     "height": 14
+    },
+    {
+     "edge": "ordinary-work",
+     "label": "普通工作",
+     "x": 555.2,
+     "y": 233,
+     "width": 48.4,
+     "height": 14
+    },
+    {
+     "edge": "prepare",
+     "label": "回合启动前",
+     "x": 237,
+     "y": 109,
+     "width": 58,
+     "height": 14
+    },
+    {
+     "edge": "process-result",
+     "label": "状态／完成通知",
+     "x": 850.9,
+     "y": 605,
+     "width": 77.2,
+     "height": 14
+    },
+    {
+     "edge": "workflow-result",
+     "label": "等待返回／稍后投递",
+     "x": 799.4,
+     "y": 404,
+     "width": 96.39999999999999,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1157,776],
+  "svg_attrs": {
+   "data-layout-contract": "readable-v2",
+   "lang": "zh-CN",
+   "data-preset": "classic",
+   "data-quality-profile": "standard",
+   "data-quality-gates": "advisory"
+  },
+  "title": "分支与回流",
+  "nodes": [
+   {
+    "id": "submit",
+    "kind": "frontend",
+    "label": "提交任务",
+    "context": "会话入口与用户反馈",
+    "rect": {
+     "x": 48,
+     "y": 93,
+     "width": 156,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 126,
+      "y": 114,
+      "font_size": 11,
+      "text": "提交任务",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(54 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "capabilities",
+    "kind": "security",
+    "label": "加载能力",
+    "context": "会话入口与用户反馈",
+    "rect": {
+     "x": 270,
+     "y": 93,
+     "width": 172,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 356,
+      "y": 114,
+      "font_size": 11,
+      "text": "加载能力",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(276 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "reply",
+    "kind": "frontend",
+    "label": "回复结果",
+    "context": "会话入口与用户反馈",
+    "rect": {
+     "x": 960.4000000000001,
+     "y": 93,
+     "width": 172,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 1046.4,
+      "y": 114,
+      "font_size": 11,
+      "text": "回复结果",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(966.4000000000001 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "native",
+    "kind": "backend",
+    "label": "普通工具",
+    "context": "普通工具路径",
+    "rect": {
+     "x": 610.4,
+     "y": 217,
+     "width": 172,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 696.4,
+      "y": 238,
+      "font_size": 11,
+      "text": "普通工具",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(616.4 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "decide",
+    "kind": "backend",
+    "label": "执行决策",
+    "context": "主会话调度与独立委派",
+    "rect": {
+     "x": 398,
+     "y": 341,
+     "width": 156,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 476,
+      "y": 362,
+      "font_size": 11,
+      "text": "执行决策",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(404 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "child",
+    "kind": "backend",
+    "label": "独立执行",
+    "context": "主会话调度与独立委派",
+    "rect": {
+     "x": 610.4,
+     "y": 341,
+     "width": 172,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 696.4,
+      "y": 362,
+      "font_size": 11,
+      "text": "独立执行",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(616.4 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "collect",
+    "kind": "messagebus",
+    "label": "接收结果",
+    "context": "主会话调度与独立委派",
+    "rect": {
+     "x": 848.4,
+     "y": 341,
+     "width": 156,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 926.4,
+      "y": 362,
+      "font_size": 11,
+      "text": "接收结果",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(854.4 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "workflow",
+    "kind": "messagebus",
+    "label": "任务编排",
+    "context": "多阶段编排路径",
+    "rect": {
+     "x": 610.4,
+     "y": 465,
+     "width": 172,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 696.4,
+      "y": 486,
+      "font_size": 11,
+      "text": "任务编排",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(616.4 471) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "background",
+    "kind": "external",
+    "label": "后台进程",
+    "context": "后台进程路径",
+    "rect": {
+     "x": 610.4,
+     "y": 589,
+     "width": 172,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 696.4,
+      "y": 610,
+      "font_size": 11,
+      "text": "后台进程",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(616.4 595) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "id": "child-result",
+    "from": "child",
+    "to": "collect",
+    "label": "完成后跟进",
+    "points": [[782.4,367],[848.4,367]],
+    "d": "M 782.4 367 L 848.4 367",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "async",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 1,
+    "id": "continue-work",
+    "from": "collect",
+    "to": "decide",
+    "label": "仍需后续工作",
+    "points": [[926.4,341],[926.4,180],[476,180],[476,341]],
+    "d": "M 926.4 341 L 926.4 180 L 476 180 L 476 341",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "return",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 2,
+    "id": "delegate-work",
+    "from": "decide",
+    "to": "child",
+    "label": "独立执行",
+    "points": [[554,367],[610.4,367]],
+    "d": "M 554 367 L 610.4 367",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "role": "branch",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 3,
+    "id": "direct-answer",
+    "from": "decide",
+    "to": "reply",
+    "label": "无需工具时直接回答",
+    "points": [[464,341],[464,112],[960.4000000000001,112]],
+    "d": "M 464 341 L 464 112 L 960.4000000000001 112",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "role": "branch",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "id": "finish",
+    "from": "collect",
+    "to": "reply",
+    "label": "综合结果",
+    "points": [[938.4,341],[938.4,228],[1046.4,228],[1046.4,145]],
+    "d": "M 938.4 341 L 938.4 228 L 1046.4 228 L 1046.4 145",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 5,
+    "id": "launch-process",
+    "from": "decide",
+    "to": "background",
+    "label": "后台执行",
+    "points": [[469,393],[469,615],[610.4,615]],
+    "d": "M 469 393 L 469 615 L 610.4 615",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "role": "branch",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "id": "model-turn",
+    "from": "capabilities",
+    "to": "decide",
+    "label": "可用工具面",
+    "points": [[356,145],[356,228],[452,228],[452,341]],
+    "d": "M 356 145 L 356 228 L 452 228 L 452 341",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 7,
+    "id": "native-result",
+    "from": "native",
+    "to": "collect",
+    "label": "工具结果",
+    "points": [[782.4,243],[902.4,243],[902.4,341]],
+    "d": "M 782.4 243 L 902.4 243 L 902.4 341",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 8,
+    "id": "orchestrate-work",
+    "from": "decide",
+    "to": "workflow",
+    "label": "编排执行",
+    "points": [[483,393],[483,491],[610.4,491]],
+    "d": "M 483 393 L 483 491 L 610.4 491",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "role": "branch",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 9,
+    "id": "ordinary-work",
+    "from": "decide",
+    "to": "native",
+    "label": "普通工作",
+    "points": [[500,341],[500,243],[610.4,243]],
+    "d": "M 500 341 L 500 243 L 610.4 243",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 10,
+    "id": "prepare",
+    "from": "submit",
+    "to": "capabilities",
+    "label": "回合启动前",
+    "points": [[204,119],[270,119]],
+    "d": "M 204 119 L 270 119",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "role": "main",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 11,
+    "id": "process-result",
+    "from": "background",
+    "to": "collect",
+    "label": "状态／完成通知",
+    "points": [[782.4,615],[919.4,615],[919.4,393]],
+    "d": "M 782.4 615 L 919.4 615 L 919.4 393",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "async",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 12,
+    "id": "workflow-result",
+    "from": "workflow",
+    "to": "collect",
+    "label": "等待返回／稍后投递",
+    "points": [[696.4,465],[696.4,414],[902.4,414],[902.4,393]],
+    "d": "M 696.4 465 L 696.4 414 L 902.4 414 L 902.4 393",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "role": "async",
+    "routing": "workflow-v2-auto",
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "edge_id": "child-result",
+    "from": "child",
+    "to": "collect",
+    "text": "完成后跟进",
+    "rect": {
+     "x": 786.4,
+     "y": 347,
+     "width": 58,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 815.4,
+      "y": 357,
+      "font_size": 8,
+      "text": "完成后跟进",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "edge_id": "continue-work",
+    "from": "collect",
+    "to": "decide",
+    "text": "仍需后续工作",
+    "rect": {
+     "x": 667.4000000000001,
+     "y": 160,
+     "width": 67.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 701.2,
+      "y": 170,
+      "font_size": 8,
+      "text": "仍需后续工作",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "edge_id": "delegate-work",
+    "from": "decide",
+    "to": "child",
+    "text": "独立执行",
+    "rect": {
+     "x": 558,
+     "y": 347,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 582.2,
+      "y": 357,
+      "font_size": 8,
+      "text": "独立执行",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "edge_id": "direct-answer",
+    "from": "decide",
+    "to": "reply",
+    "text": "无需工具时直接回答",
+    "rect": {
+     "x": 664,
+     "y": 92,
+     "width": 96.39999999999999,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 712.2,
+      "y": 102,
+      "font_size": 8,
+      "text": "无需工具时直接回答",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "edge_id": "finish",
+    "from": "collect",
+    "to": "reply",
+    "text": "综合结果",
+    "rect": {
+     "x": 968.2,
+     "y": 208,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 992.4000000000001,
+      "y": 218,
+      "font_size": 8,
+      "text": "综合结果",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "edge_id": "launch-process",
+    "from": "decide",
+    "to": "background",
+    "text": "后台执行",
+    "rect": {
+     "x": 515.5,
+     "y": 595,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 539.7,
+      "y": 605,
+      "font_size": 8,
+      "text": "后台执行",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "edge_id": "model-turn",
+    "from": "capabilities",
+    "to": "decide",
+    "text": "可用工具面",
+    "rect": {
+     "x": 375,
+     "y": 208,
+     "width": 58,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 404,
+      "y": 218,
+      "font_size": 8,
+      "text": "可用工具面",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 7,
+    "edge_id": "native-result",
+    "from": "native",
+    "to": "collect",
+    "text": "工具结果",
+    "rect": {
+     "x": 818.1999999999999,
+     "y": 223,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 842.4,
+      "y": 233,
+      "font_size": 8,
+      "text": "工具结果",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 8,
+    "edge_id": "orchestrate-work",
+    "from": "decide",
+    "to": "workflow",
+    "text": "编排执行",
+    "rect": {
+     "x": 522.5,
+     "y": 471,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 546.7,
+      "y": 481,
+      "font_size": 8,
+      "text": "编排执行",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "edge_id": "ordinary-work",
+    "from": "decide",
+    "to": "native",
+    "text": "普通工作",
+    "rect": {
+     "x": 531,
+     "y": 223,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 555.2,
+      "y": 233,
+      "font_size": 8,
+      "text": "普通工作",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "edge_id": "prepare",
+    "from": "submit",
+    "to": "capabilities",
+    "text": "回合启动前",
+    "rect": {
+     "x": 208,
+     "y": 99,
+     "width": 58,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 237,
+      "y": 109,
+      "font_size": 8,
+      "text": "回合启动前",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "edge_id": "process-result",
+    "from": "background",
+    "to": "collect",
+    "text": "状态／完成通知",
+    "rect": {
+     "x": 812.3,
+     "y": 595,
+     "width": 77.2,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 850.9,
+      "y": 605,
+      "font_size": 8,
+      "text": "状态／完成通知",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 12,
+    "edge_id": "workflow-result",
+    "from": "workflow",
+    "to": "collect",
+    "text": "等待返回／稍后投递",
+    "rect": {
+     "x": 751.1999999999999,
+     "y": 394,
+     "width": 96.39999999999999,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 799.4,
+      "y": 404,
+      "font_size": 8,
+      "text": "等待返回／稍后投递",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 1101,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 1101,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 300,
+     "width": 1101,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-3",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 424,
+     "width": 1101,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-4",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 548,
+     "width": 1101,
+     "height": 104,
+     "rx": 10
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "图例",
+   "items": [
+    {
+     "semantic_kind": "frontend",
+     "kind": "frontend",
+     "label": "用户界面",
+     "x": 20,
+     "baseline": 696,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-frontend",
+       "x": 20,
+       "y": 688,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 42,
+       "y": 696,
+       "font_size": 7.5,
+       "text": "用户界面"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Agent 逻辑",
+     "x": 105,
+     "baseline": 696,
+     "width": 87,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 105,
+       "y": 688,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 127,
+       "y": 696,
+       "font_size": 7.5,
+       "text": "Agent 逻辑"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "策略",
+     "x": 199,
+     "baseline": 696,
+     "width": 61,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 199,
+       "y": 688,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 221,
+       "y": 696,
+       "font_size": 7.5,
+       "text": "策略"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "工具操作",
+     "x": 267,
+     "baseline": 696,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 267,
+       "y": 688,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 289,
+       "y": 696,
+       "font_size": 7.5,
+       "text": "工具操作"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "外部系统",
+     "x": 352,
+     "baseline": 696,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 352,
+       "y": 688,
+       "width": 14,
+       "height": 9,
+       "rx": 2
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 374,
+       "y": 696,
+       "font_size": 7.5,
+       "text": "外部系统"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / 会话入口与用户反馈"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / 普通工具路径"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 322,
+     "font_size": 10,
+     "text": "03 / 主会话调度与独立委派"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 446,
+     "font_size": 10,
+     "text": "04 / 多阶段编排路径"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 570,
+     "font_size": 10,
+     "text": "05 / 后台进程路径"
+    }
+   ]
+  }
+ }
+}

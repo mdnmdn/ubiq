@@ -43,6 +43,7 @@ use crate::state::git::{
     Side as GitSide, can_stage, can_unstage, checkout_conflict, commit_rows, ref_rows,
     submodule_rows,
 };
+use crate::state::layout::Algo;
 use crate::state::mission::MissionView;
 use crate::state::nav::{
     Anchored, Bookmark, Destination, Fate, History, Locus, View, range_for, resolve_anchor,
@@ -50,7 +51,6 @@ use crate::state::nav::{
 };
 use crate::state::navigator::NavigatorState;
 use crate::state::notifications::{BLINK, FLASH, MutePick, NotificationsState};
-use crate::state::orchestration::{Algo, GraphView, Held, InspectorTab, Selection};
 use crate::state::settings::{
     self as ui_settings, AccountDialog, AiProviderForm, AiTest, AppForm, AssistInfo, CertPrompt,
     CliShortcut, ConnectApp, ConnectState, ConnectStep, ConnectorDialog, LoginState, LoginStep,
@@ -132,6 +132,10 @@ const EXPAND_DEPTH: u8 = 1;
 /// How far the background cache walks into folders nobody has opened. The host clamps this; three
 /// is as far as one reply goes, and the next unlisted folders are asked for as that reply lands.
 const CACHE_DEPTH: u8 = 3;
+
+/// How many background cache walks may be in flight at once. The files worker answers in order,
+/// so this bounds how long an expand or a read can queue behind the cache.
+const CACHE_IN_FLIGHT: usize = 4;
 
 /// How long after the last keystroke a filter walk starts. Typing a letter must not walk the
 /// cache on the frame; waiting this long coalesces a burst into one background walk.
@@ -348,16 +352,12 @@ pub struct OpenProject {
     /// with the project.
     pub conversations: HashMap<AgentId, Conversation>,
     /// The IDE's own chat tabs: one entry per open instance, each attached to a conversation of
-    /// this project or to none. Per project, the way `agents` and `graph` are — a tab's
+    /// this project or to none. Per project, the way `agents` and `teams` are — a tab's
     /// arrangement is about one project and switching away must not lose it.
     pub chats: Vec<ChatTab>,
-    /// The graph's view of that work: what is selected in it, which states it is showing, and where
-    /// its cards sit. Per project, because a selection and an arrangement are about one project's
-    /// agents and switching away must not lose either. This is `TeamsOld`'s own — see `teams` for
-    /// the new mode's independent copy.
-    pub graph: GraphView,
-    /// The Teams screen's view of the same work, independent of `graph`: its own selection, its
-    /// own arrangement, its own filters. A clone of `graph`'s shape under the new rail mode.
+    /// The Teams screen's view of that work: what is selected in it, which states it is showing,
+    /// and where its cards sit. Per project, because a selection and an arrangement are about one
+    /// project's agents and switching away must not lose either.
     pub teams: TeamsView,
     /// The board's view of the same work: what is filtered, which task is open, which columns and
     /// cards are shut.
@@ -516,7 +516,6 @@ impl OpenProject {
             agents: AgentsView::default(),
             conversations: HashMap::new(),
             chats,
-            graph: GraphView::default(),
             teams: TeamsView::default(),
             board: BoardState::default(),
             missions: HashMap::new(),
@@ -909,10 +908,6 @@ pub struct AppState {
     /// The component library's own state entities. Each open file owns its buffer, so none of
     /// them is the editor's.
     ///
-    /// The inspector's composer on the orchestration screen. A field of its own rather than a
-    /// chat tab's, because the two are two conversations and a shared draft would leak between
-    /// them.
-    pub agent_input: Entity<TextareaState>,
     /// One composer per slot that hosts a conversation — every column on the agents screen, every
     /// chat tab's, and the sink bench's — [`COMPOSER_SLOTS`] of them.
     ///
@@ -1294,10 +1289,7 @@ pub struct AppState {
     pub picker_scroll: ScrollHandle,
     /// The explorer's rows, for the same reason.
     pub explorer_scroll: ScrollHandle,
-    /// The orchestration canvas, so a destination can name where on it the user was.
-    pub graph_scroll: ScrollHandle,
-    /// The Teams canvas, independent of `graph_scroll` for the reason `teams` is independent of
-    /// `graph`.
+    /// The Teams canvas, so a destination can name where on it the user was.
     pub teams_scroll: ScrollHandle,
     /// The kitchen sink's teamsim canvas. Its own, because it is a bench and not the Teams screen:
     /// scrolling one must not move the other.
@@ -1405,7 +1397,6 @@ pub use explorer::{MIN_QUERY, relative_to_root};
 pub use projects::Holds;
 pub use size::size_name_valid;
 mod git;
-mod graph;
 mod help;
 mod host_browse;
 pub mod host_secrets;
@@ -1670,6 +1661,7 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys(crate::ui::db::explorer::key_bindings());
     cx.bind_keys(crate::ui::mdview::outline::key_bindings());
     cx.bind_keys(crate::ui::mdview::blockedit::key_bindings());
+    cx.bind_keys(crate::ui::archify::paint::key_bindings());
     gpui_terminal::install_key_bindings(cx);
 }
 

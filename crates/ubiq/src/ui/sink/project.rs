@@ -1374,7 +1374,7 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 ),
         )
         .child(colour_block)
-        .children((form == Form::Live).then(|| modes_block(app, cx)))
+        .children((form == Form::Live).then(|| modes_block(app, false, cx)).flatten())
         .child(
             div()
                 .flex()
@@ -1456,10 +1456,27 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
         .into_any_element()
 }
 
-/// Which rail modes this project shows: every mode as its own icon, lit when it is on screen.
+/// Which rail modes the active project shows: every mode as its own icon, lit when it is on screen.
 /// The last one lit cannot be turned off, so the rail is never empty.
-fn modes_block(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+///
+/// Two callers split the modes by availability: `common` is the `Always` modes, which every
+/// project has and which the Appearance page offers; the rest (`OptIn`, `When`) are the ones only
+/// some projects have, which project settings keeps. `common` is stored app-wide
+/// (`UiSettings::hidden_modes`); the rest is the project's own.
+/// `None` when this half has no modes to show.
+pub(crate) fn modes_block(
+    app: &AppState,
+    common: bool,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
     let tiles: Vec<AnyElement> = RailMode::every()
+        .filter(|mode| {
+            let always = matches!(
+                mode.spec().map(|spec| spec.availability),
+                Some(crate::ext::rail::Availability::Always)
+            );
+            always == common
+        })
         .map(|mode| {
             let on = app.mode_enabled(mode, cx);
             let (fg, bg) = if on {
@@ -1499,21 +1516,31 @@ fn modes_block(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .into_any_element()
         })
         .collect();
+    if tiles.is_empty() {
+        return None;
+    }
 
-    div()
-        .flex()
-        .flex_col()
-        .gap_1p5()
-        .py_3()
-        .border_b_1()
-        .border_color(theme::border())
-        .child(label_line(
-            "Modes",
-            "Which destinations this project shows in the rail. The last one on cannot be \
-             turned off.",
-        ))
-        .child(div().flex().flex_wrap().gap_2().children(tiles))
-        .into_any_element()
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .py_3()
+            .border_b_1()
+            .border_color(theme::border())
+            .child(label_line(
+                "Modes",
+                if common {
+                    "Which destinations the rail shows for the open project. The last one on \
+                     cannot be turned off. Kept per project, so this edits the open one."
+                } else {
+                    "Which of the destinations only some projects have this project shows in the \
+                     rail."
+                },
+            ))
+            .child(div().flex().flex_wrap().gap_2().children(tiles))
+            .into_any_element(),
+    )
 }
 
 /// The kit's HSV surface, wired to whichever copy of the form is being drawn.

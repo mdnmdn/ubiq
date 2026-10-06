@@ -220,8 +220,8 @@ pub struct Contributions {
     /// registered a kind for is drawn with a generic icon. See `ubiq::ext::runner`.
     #[cfg(feature = "ui")]
     pub runner_kinds: ubiq::ext::Registry<ubiq::ext::runner::RunnerKindSpec>,
-    /// The IDE editor's contributed viewers (`D204`). Empty in the base: its own viewers are
-    /// `ViewerKind`'s built-in variants. A spec claims paths (`Default` opens them in it, `Offer`
+    /// The IDE editor's contributed viewers (`D204`). Seeded with the base's own, Archify's; its
+    /// other viewers are `ViewerKind`'s built-in variants. A spec claims paths (`Default` opens them in it, `Offer`
     /// lists it under "Open with"), declares its layouts, and draws from the tab's own buffer —
     /// the file stays the IDE's to read, watch and save. See `ubiq::ext::viewer`.
     #[cfg(feature = "ui")]

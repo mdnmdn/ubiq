@@ -1,0 +1,212 @@
+{
+ "name": "neg.wf-invalid-node-column-v1",
+ "group": "negative",
+ "source": "mutation of wf-v1",
+ "type": "workflow",
+ "rule": "workflow/invalid-node-column",
+ "expect_codes": [
+  "schema/type"
+ ],
+ "note": "non-integer col; the schema says integer so this may be a schema failure instead",
+ "source_sha256": "397f36e8dbf8b7607bafa2ceb94080e9f20a283d2a498b37fbf9b70784e01cee",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Pinned coordinate migration",
+   "output": "pinned-coordinate-migration.html",
+   "viewBox": [720,700],
+   "legend": {
+    "mode": "hidden"
+   }
+  },
+  "lanes": [
+   {
+    "id": "route",
+    "label": "Explicit route"
+   },
+   {
+    "id": "label",
+    "label": "Explicit label"
+   },
+   {
+    "id": "channel-source",
+    "label": "Channel source"
+   },
+   {
+    "id": "channel-target",
+    "label": "Channel target"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "route-a",
+    "lane": "route",
+    "col": 2.5,
+    "type": "backend",
+    "label": "A"
+   },
+   {
+    "id": "route-b",
+    "lane": "route",
+    "col": 2,
+    "type": "backend",
+    "label": "B"
+   },
+   {
+    "id": "label-a",
+    "lane": "label",
+    "col": 2,
+    "type": "backend",
+    "label": "C"
+   },
+   {
+    "id": "label-b",
+    "lane": "label",
+    "col": 3,
+    "type": "backend",
+    "label": "D"
+   },
+   {
+    "id": "channel-a",
+    "lane": "channel-source",
+    "col": 1,
+    "type": "backend",
+    "label": "E"
+   },
+   {
+    "id": "channel-b",
+    "lane": "channel-target",
+    "col": 1,
+    "type": "backend",
+    "label": "F"
+   }
+  ],
+  "edges": [
+   {
+    "id": "pinned-via",
+    "from": "route-a",
+    "to": "route-b",
+    "via": [[220,119]]
+   },
+   {
+    "id": "pinned-label",
+    "from": "label-a",
+    "to": "label-b",
+    "label": "ok",
+    "labelAt": [365,203]
+   },
+   {
+    "id": "pinned-channel",
+    "from": "channel-a",
+    "to": "channel-b",
+    "fromSide": "right",
+    "toSide": "right",
+    "route": "outside-right",
+    "channelX": 500
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "workflow schema validation failed:\n  /nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"}",
+      "subject": {
+       "diagramType": "workflow",
+       "path": "/nodes/0/col",
+       "identity": "route-a"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "integer"
+      },
+      "supportedFixes": [
+       "use \"integer\" at /nodes/0/col"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "workflow schema validation failed:\n  /nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"}",
+      "subject": {
+       "diagramType": "workflow",
+       "path": "/nodes/0/col",
+       "identity": "route-a"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "integer"
+      },
+      "supportedFixes": [
+       "use \"integer\" at /nodes/0/col"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "workflow schema validation failed:\n  /nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"}",
+      "subject": {
+       "diagramType": "workflow",
+       "path": "/nodes/0/col",
+       "identity": "route-a"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "integer"
+      },
+      "supportedFixes": [
+       "use \"integer\" at /nodes/0/col"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "workflow schema validation failed:\n  /nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"}\n[schema/type] /nodes/0/col (id/label: \"route-a\") must be integer {\"type\":\"integer\"} Fix: use \"integer\" at /nodes/0/col.\n"
+ },
+ "layout_json_by_quality": {}
+}

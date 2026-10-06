@@ -424,7 +424,14 @@ fn send_full(state: &mut State, job: &Job) {
         *held = held.saturating_add(1);
         *held
     };
-    match observation(state, job, "", generation, true) {
+    let started = std::time::Instant::now();
+    let observed = observation(state, job, "", generation, true);
+    tracing::debug!(
+        "full git observation of {}: {:?}",
+        job.root.display(),
+        started.elapsed()
+    );
+    match observed {
         Ok(found) => {
             job.reply_to.send(Message::GitOverview {
                 project_id,

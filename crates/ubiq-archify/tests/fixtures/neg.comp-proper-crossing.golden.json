@@ -1,0 +1,423 @@
+{
+ "name": "neg.comp-proper-crossing",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "composition/proper-crossing",
+ "expect_codes": [
+  "composition/proper-crossing"
+ ],
+ "note": "two straight diagonal routes cross; a warning under standard, an error under showcase",
+ "source_sha256": "350a5fa3c9173ee80048d54032b81581939f483329faf2d67c5a25530a1a1119",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "quality_profile": "showcase"
+  },
+  "components": [
+   {
+    "id": "a",
+    "type": "frontend",
+    "label": "A",
+    "pos": [60,60]
+   },
+   {
+    "id": "b",
+    "type": "backend",
+    "label": "B",
+    "pos": [400,260]
+   },
+   {
+    "id": "c",
+    "type": "frontend",
+    "label": "C",
+    "pos": [400,60]
+   },
+   {
+    "id": "e",
+    "type": "backend",
+    "label": "E",
+    "pos": [60,260]
+   }
+  ],
+  "connections": [
+   {
+    "from": "a",
+    "to": "b",
+    "route": "straight"
+   },
+   {
+    "from": "c",
+    "to": "e",
+    "route": "straight"
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/proper-crossing] showcase architecture connections[0] \"a\" -> \"b\" crosses connections[1] \"c\" -> \"e\" at [290,190] (segments 0 and 0) — if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors.",
+    "diagnostics": [
+     {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase architecture connections[0] \"a\" -> \"b\" crosses connections[1] \"c\" -> \"e\" at [290,190] (segments 0 and 0) — if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "from": "a",
+       "to": "b"
+      },
+      "evidence": {
+       "otherRelationship": {
+        "diagramType": "architecture",
+        "collection": "connections",
+        "index": 1,
+        "from": "c",
+        "to": "e"
+       },
+       "point": [290,190],
+       "segmentIndex": 0,
+       "otherSegmentIndex": 0
+      },
+      "supportedFixes": [
+       "if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "350a5fa3c9173ee80048d54032b81581939f483329faf2d67c5a25530a1a1119",
+     "bytes": 844
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "350a5fa3c9173ee80048d54032b81581939f483329faf2d67c5a25530a1a1119",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": [
+       "[composition/proper-crossing] standard relationship \"a\" -> \"b\" crosses relationship \"c\" -> \"e\" at [290,190]"
+      ]
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 1,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": null,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 11,
+      "maxBends": 0,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 420,
+      "minInteriorSegmentPx": null,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 60,
+      "emptyTopRatio": 0.155,
+      "occupiedTop": 60,
+      "viewBoxTop": 0,
+      "canvasHeight": 388,
+      "typicalNodeHeight": 60,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": true,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "a"
+      },
+      "minimumSourceTextPx": 11,
+      "minimumProjectedTextPx": 11,
+      "semanticTextCount": 4
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/proper-crossing",
+       "relationship": {
+        "from": "a",
+        "to": "b",
+        "label": "",
+        "collectionIndex": 0,
+        "artifactIndex": 1
+       },
+       "otherRelationship": {
+        "from": "c",
+        "to": "e",
+        "label": "",
+        "collectionIndex": 1,
+        "artifactIndex": 2
+       },
+       "point": [290,190]
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- [composition/proper-crossing] showcase architecture connections[0] \"a\" -> \"b\" crosses connections[1] \"c\" -> \"e\" at [290,190] (segments 0 and 0) — if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors.",
+    "diagnostics": [
+     {
+      "code": "composition/proper-crossing",
+      "severity": "error",
+      "message": "[composition/proper-crossing] showcase architecture connections[0] \"a\" -> \"b\" crosses connections[1] \"c\" -> \"e\" at [290,190] (segments 0 and 0) — if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors.",
+      "subject": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 0,
+       "from": "a",
+       "to": "b"
+      },
+      "evidence": {
+       "otherRelationship": {
+        "diagramType": "architecture",
+        "collection": "connections",
+        "index": 1,
+        "from": "c",
+        "to": "e"
+       },
+       "point": [290,190],
+       "segmentIndex": 0,
+       "otherSegmentIndex": 0
+      },
+      "supportedFixes": [
+       "if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [560,388],
+   "components": [
+    {
+     "id": "a",
+     "type": "frontend",
+     "label": "A",
+     "x": 60,
+     "y": 60,
+     "width": 120,
+     "height": 60,
+     "pos": [60,60]
+    },
+    {
+     "id": "b",
+     "type": "backend",
+     "label": "B",
+     "x": 400,
+     "y": 260,
+     "width": 120,
+     "height": 60,
+     "pos": [400,260]
+    },
+    {
+     "id": "c",
+     "type": "frontend",
+     "label": "C",
+     "x": 400,
+     "y": 60,
+     "width": 120,
+     "height": 60,
+     "pos": [400,60]
+    },
+    {
+     "id": "e",
+     "type": "backend",
+     "label": "E",
+     "x": 60,
+     "y": 260,
+     "width": 120,
+     "height": 60,
+     "pos": [60,260]
+    }
+   ],
+   "boundaries": [],
+   "connections": [
+    {
+     "from": "a",
+     "to": "b",
+     "label": null,
+     "variant": "default",
+     "route": "straight",
+     "points": [[180,90],[400,290]]
+    },
+    {
+     "from": "c",
+     "to": "e",
+     "label": null,
+     "variant": "default",
+     "route": "straight",
+     "points": [[400,90],[180,290]]
+    }
+   ],
+   "labels": [],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- [composition/proper-crossing] showcase architecture connections[0] \"a\" -> \"b\" crosses connections[1] \"c\" -> \"e\" at [290,190] (segments 0 and 0) — if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors.",
+   "diagnostics": [
+    {
+     "code": "composition/proper-crossing",
+     "severity": "error",
+     "message": "[composition/proper-crossing] showcase architecture connections[0] \"a\" -> \"b\" crosses connections[1] \"c\" -> \"e\" at [290,190] (segments 0 and 0) — if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors.",
+     "subject": {
+      "diagramType": "architecture",
+      "collection": "connections",
+      "index": 0,
+      "from": "a",
+      "to": "b"
+     },
+     "evidence": {
+      "otherRelationship": {
+       "diagramType": "architecture",
+       "collection": "connections",
+       "index": 1,
+       "from": "c",
+       "to": "e"
+      },
+      "point": [290,190],
+      "segmentIndex": 0,
+      "otherSegmentIndex": 0
+     },
+     "supportedFixes": [
+      "if the authored route are not required by the user, remove them so the renderer can re-plan; otherwise preserve that intent and adjust route/via or fromSide/toSide so the connections use separate corridors"
+     ]
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

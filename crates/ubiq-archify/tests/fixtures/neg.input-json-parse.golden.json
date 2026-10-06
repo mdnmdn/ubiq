@@ -1,0 +1,105 @@
+{
+ "name": "neg.input-json-parse",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "input/json-parse",
+ "expect_codes": [
+  "input/json-parse"
+ ],
+ "source_sha256": "ae9f4fca25a18c1aa94eb0dd1f11c1ac168ce794b548dcf3bbce5c942316df2d",
+ "source_text": "{\"schema_version\": 1,",
+ "quality": null,
+ "schema_version": null,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Expected double-quoted property name in JSON at position 21 (line 1 column 22)",
+    "diagnostics": [
+     {
+      "code": "input/json-parse",
+      "severity": "error",
+      "message": "Input JSON could not be parsed: Expected double-quoted property name in JSON at position 21 (line 1 column 22)",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "reason": "Expected double-quoted property name in JSON at position 21 (line 1 column 22)"
+      },
+      "supportedFixes": [
+       "repair the JSON syntax and run validation again"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Expected double-quoted property name in JSON at position 21 (line 1 column 22)",
+    "diagnostics": [
+     {
+      "code": "input/json-parse",
+      "severity": "error",
+      "message": "Input JSON could not be parsed: Expected double-quoted property name in JSON at position 21 (line 1 column 22)",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "reason": "Expected double-quoted property name in JSON at position 21 (line 1 column 22)"
+      },
+      "supportedFixes": [
+       "repair the JSON syntax and run validation again"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Expected double-quoted property name in JSON at position 21 (line 1 column 22)",
+    "diagnostics": [
+     {
+      "code": "input/json-parse",
+      "severity": "error",
+      "message": "Input JSON could not be parsed: Expected double-quoted property name in JSON at position 21 (line 1 column 22)",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "reason": "Expected double-quoted property name in JSON at position 21 (line 1 column 22)"
+      },
+      "supportedFixes": [
+       "repair the JSON syntax and run validation again"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "Expected double-quoted property name in JSON at position 21 (line 1 column 22)\n[input/json-parse] Input JSON could not be parsed: Expected double-quoted property name in JSON at position 21 (line 1 column 22) Fix: repair the JSON syntax and run validation again.\n"
+ },
+ "layout_json_by_quality": {}
+}

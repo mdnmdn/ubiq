@@ -1,0 +1,173 @@
+{
+ "name": "neg.schema-maximum-grid-cols",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/maximum",
+ "expect_codes": [
+  "schema/maximum"
+ ],
+ "source_sha256": "627856b7bbfc6a9d53840fc34de1f6883b1aaf3880b19be996d5e432be0a3858",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ],
+  "layout": {
+   "mode": "grid",
+   "cols": 13
+  }
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12}",
+    "diagnostics": [
+     {
+      "code": "schema/maximum",
+      "severity": "error",
+      "message": "/layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/layout/cols"
+      },
+      "evidence": {
+       "keyword": "maximum",
+       "comparison": "<=",
+       "limit": 12
+      },
+      "supportedFixes": [
+       "use a value <= 12"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12}",
+    "diagnostics": [
+     {
+      "code": "schema/maximum",
+      "severity": "error",
+      "message": "/layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/layout/cols"
+      },
+      "evidence": {
+       "keyword": "maximum",
+       "comparison": "<=",
+       "limit": 12
+      },
+      "supportedFixes": [
+       "use a value <= 12"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12}",
+    "diagnostics": [
+     {
+      "code": "schema/maximum",
+      "severity": "error",
+      "message": "/layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/layout/cols"
+      },
+      "evidence": {
+       "keyword": "maximum",
+       "comparison": "<=",
+       "limit": 12
+      },
+      "supportedFixes": [
+       "use a value <= 12"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12}\n[schema/maximum] /layout/cols must be <= 12 {\"comparison\":\"<=\",\"limit\":12} Fix: use a value <= 12.\n"
+ },
+ "layout_json_by_quality": {}
+}

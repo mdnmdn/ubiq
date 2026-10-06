@@ -1,0 +1,417 @@
+{
+ "name": "neg.df-stage-range",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "dataflow/stage-range",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "b3385f96ea0efbf79d02b8b0f9eb4b0476c8ddf91d1ce3d6c664e6116a764756",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html"
+  },
+  "stages": [
+   {
+    "label": "Ingest"
+   },
+   {
+    "label": "Process"
+   },
+   {
+    "label": "Store"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "Src",
+    "stage": 7,
+    "row": 0
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 2
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f2",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Node \"src\" uses invalid stage 7 — valid stages are 0..2.\n- Node \"src\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- [clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"db\" (unrelated to this relationship) on segment 2 [960,150] -> [371,150] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"db\" (unrelated to this relationship) on segment 2 [960,150] -> [371,150] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "db",
+       "segmentIndex": 2,
+       "from": [960,150],
+       "to": [371,150],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"src\" uses invalid stage 7 — valid stages are 0..2.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"src\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Node \"src\" uses invalid stage 7 — valid stages are 0..2.\n- Node \"src\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- [clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"db\" (unrelated to this relationship) on segment 2 [960,150] -> [371,150] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"db\" (unrelated to this relationship) on segment 2 [960,150] -> [371,150] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "db",
+       "segmentIndex": 2,
+       "from": [960,150],
+       "to": [371,150],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"src\" uses invalid stage 7 — valid stages are 0..2.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"src\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Node \"src\" uses invalid stage 7 — valid stages are 0..2.\n- Node \"src\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].\n- [clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"db\" (unrelated to this relationship) on segment 2 [960,150] -> [371,150] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.\n- [composition/micro-segment] showcase dataflow flows[0] id \"f1\" \"src\" -> \"etl\" has a 7px interior segment 1 [960,157] -> [960,150] that is below the 8px micro-segment floor — adjust route/via or channelX/channelY so each turn uses a clear inter-stage corridor.\n- [composition/micro-segment] showcase dataflow flows[1] id \"f2\" \"etl\" -> \"db\" has a 7px interior segment 1 [422.5,164] -> [422.5,157] that is below the 8px micro-segment floor — adjust route/via or channelX/channelY so each turn uses a clear inter-stage corridor.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)\n- [composition/label-route-clearance] showcase dataflow label \"rows\" on flows[1] id \"f2\" \"etl\" -> \"db\" label \"rows\" is 0px from flows[0] id \"f1\" \"src\" -> \"etl\" label \"events\" segment 2 [960,150] -> [371,150] (label rect [406,140,34,16]; minimum 4px) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other flow route/via/channelX/channelY.\n- [composition/label-canvas-containment] showcase dataflow label \"events\" on flows[0] id \"f1\" \"src\" -> \"etl\" extends past the right edge by 40.7px (label rect [939,133,41,16]; viewBox 940x720) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+    "diagnostics": [
+     {
+      "code": "clean-flow/edge-through-node",
+      "severity": "error",
+      "message": "[clean-flow/edge-through-node] dataflow flows[0] id \"f1\" \"src\" -> \"etl\" crosses node \"db\" (unrelated to this relationship) on segment 2 [960,150] -> [371,150] (2px clearance) — adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "obstacleKind": "node",
+       "obstacleId": "db",
+       "segmentIndex": 2,
+       "from": [960,150],
+       "to": [371,150],
+       "clearancePx": 2
+      },
+      "supportedFixes": [
+       "adjust fromSide/toSide, set route/via or channelX/channelY, or move the node to another stage/row"
+      ]
+     },
+     {
+      "code": "composition/micro-segment",
+      "severity": "error",
+      "message": "[composition/micro-segment] showcase dataflow flows[0] id \"f1\" \"src\" -> \"etl\" has a 7px interior segment 1 [960,157] -> [960,150] that is below the 8px micro-segment floor — adjust route/via or channelX/channelY so each turn uses a clear inter-stage corridor.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "segmentIndex": 1,
+       "position": "interior",
+       "lengthPx": 7,
+       "minimumPx": 8,
+       "from": [960,157],
+       "to": [960,150]
+      },
+      "supportedFixes": [
+       "adjust route/via or channelX/channelY so each turn uses a clear inter-stage corridor"
+      ]
+     },
+     {
+      "code": "composition/micro-segment",
+      "severity": "error",
+      "message": "[composition/micro-segment] showcase dataflow flows[1] id \"f2\" \"etl\" -> \"db\" has a 7px interior segment 1 [422.5,164] -> [422.5,157] that is below the 8px micro-segment floor — adjust route/via or channelX/channelY so each turn uses a clear inter-stage corridor.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 1,
+       "id": "f2",
+       "from": "etl",
+       "to": "db"
+      },
+      "evidence": {
+       "segmentIndex": 1,
+       "position": "interior",
+       "lengthPx": 7,
+       "minimumPx": 8,
+       "from": [422.5,164],
+       "to": [422.5,157]
+      },
+      "supportedFixes": [
+       "adjust route/via or channelX/channelY so each turn uses a clear inter-stage corridor"
+      ]
+     },
+     {
+      "code": "composition/label-route-clearance",
+      "severity": "error",
+      "message": "[composition/label-route-clearance] showcase dataflow label \"rows\" on flows[1] id \"f2\" \"etl\" -> \"db\" label \"rows\" is 0px from flows[0] id \"f1\" \"src\" -> \"etl\" label \"events\" segment 2 [960,150] -> [371,150] (label rect [406,140,34,16]; minimum 4px) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other flow route/via/channelX/channelY.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 1,
+       "id": "f2",
+       "from": "etl",
+       "to": "db"
+      },
+      "evidence": {
+       "label": "rows",
+       "otherRelationship": {
+        "diagramType": "dataflow",
+        "collection": "flows",
+        "index": 0,
+        "id": "f1",
+        "from": "src",
+        "to": "etl"
+       },
+       "segmentIndex": 2,
+       "clearancePx": 0,
+       "minimumPx": 4,
+       "labelRect": {
+        "relation": {
+         "id": "f2",
+         "from": "etl",
+         "to": "db",
+         "label": "rows",
+         "variant": "security"
+        },
+        "relationIndex": 1,
+        "label": "rows",
+        "x": 405.5,
+        "y": 139.5,
+        "width": 34,
+        "height": 16,
+        "lx": 422.5,
+        "ly": 150.5
+       },
+       "from": [960,150],
+       "to": [371,150]
+      },
+      "supportedFixes": [
+       "adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other flow route/via/channelX/channelY"
+      ]
+     },
+     {
+      "code": "composition/label-canvas-containment",
+      "severity": "error",
+      "message": "[composition/label-canvas-containment] showcase dataflow label \"events\" on flows[0] id \"f1\" \"src\" -> \"etl\" extends past the right edge by 40.7px (label rect [939,133,41,16]; viewBox 940x720) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox.",
+      "subject": {
+       "diagramType": "dataflow",
+       "collection": "flows",
+       "index": 0,
+       "id": "f1",
+       "from": "src",
+       "to": "etl"
+      },
+      "evidence": {
+       "label": "events",
+       "labelRect": {
+        "x": 939.3,
+        "y": 132.5,
+        "width": 41.4,
+        "height": 16
+       },
+       "viewBox": [940,720],
+       "overflowPx": {
+        "right": 40.7
+       },
+       "tolerancePx": 0.5
+      },
+      "supportedFixes": [
+       "adjust labelAt, labelDx, labelDy, or labelSegment; otherwise enlarge meta.viewBox"
+      ]
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"src\" uses invalid stage 7 — valid stages are 0..2.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Node \"src\" exceeds the horizontal bounds of the viewBox — reduce node.width or increase meta.viewBox[0].",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

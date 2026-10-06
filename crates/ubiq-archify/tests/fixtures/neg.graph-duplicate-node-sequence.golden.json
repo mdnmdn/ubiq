@@ -1,0 +1,309 @@
+{
+ "name": "neg.graph-duplicate-node-sequence",
+ "group": "negative",
+ "source": "mutation of sequence",
+ "type": "sequence",
+ "rule": "graph/duplicate-node-id",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "767794db0ab4244bed1fbe8f4134869c6928689481e5620e6d204a443a8c9fb3",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+   "title": "Seq",
+   "output": "seq.html"
+  },
+  "participants": [
+   {
+    "id": "ui",
+    "type": "frontend",
+    "label": "UI"
+   },
+   {
+    "id": "ui",
+    "type": "backend",
+    "label": "API"
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB"
+   }
+  ],
+  "messages": [
+   {
+    "id": "m1",
+    "from": "ui",
+    "to": "api",
+    "y": 180,
+    "label": "GET /x"
+   },
+   {
+    "id": "m2",
+    "from": "api",
+    "to": "db",
+    "y": 230,
+    "label": "SELECT"
+   },
+   {
+    "id": "m3",
+    "from": "db",
+    "to": "api",
+    "y": 280,
+    "label": "rows",
+    "variant": "return"
+   },
+   {
+    "id": "m4",
+    "from": "api",
+    "to": "ui",
+    "y": 330,
+    "label": "200",
+    "variant": "return"
+   }
+  ],
+  "activations": [
+   {
+    "participant": "api",
+    "from": 175,
+    "to": 335,
+    "type": "backend"
+   }
+  ],
+  "segments": [
+   {
+    "from": 160,
+    "to": 345,
+    "label": "Read"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Participant ids must be unique.\n- Message \"GET /x\" references unknown target \"api\".\n- Message \"SELECT\" references unknown source \"api\".\n- Message \"rows\" references unknown target \"api\".\n- Message \"200\" references unknown source \"api\".\n- Activation references unknown participant \"api\".",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Participant ids must be unique.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"GET /x\" references unknown target \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"SELECT\" references unknown source \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"rows\" references unknown target \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"200\" references unknown source \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Activation references unknown participant \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Participant ids must be unique.\n- Message \"GET /x\" references unknown target \"api\".\n- Message \"SELECT\" references unknown source \"api\".\n- Message \"rows\" references unknown target \"api\".\n- Message \"200\" references unknown source \"api\".\n- Activation references unknown participant \"api\".",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Participant ids must be unique.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"GET /x\" references unknown target \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"SELECT\" references unknown source \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"rows\" references unknown target \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"200\" references unknown source \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Activation references unknown participant \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "sequence",
+    "input": "<input>",
+    "error": "Sequence layout validation failed:\n- Participant ids must be unique.\n- Message \"GET /x\" references unknown target \"api\".\n- Message \"SELECT\" references unknown source \"api\".\n- Message \"rows\" references unknown target \"api\".\n- Message \"200\" references unknown source \"api\".\n- Activation references unknown participant \"api\".",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Participant ids must be unique.",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"GET /x\" references unknown target \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"SELECT\" references unknown source \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"rows\" references unknown target \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Message \"200\" references unknown source \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Activation references unknown participant \"api\".",
+      "subject": {
+       "diagramType": "sequence"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

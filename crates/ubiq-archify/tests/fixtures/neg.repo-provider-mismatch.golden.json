@@ -1,0 +1,168 @@
+{
+ "name": "neg.repo-provider-mismatch",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "repository-evidence/provider-invalid",
+ "expect_codes": [
+  "repository-evidence/provider-invalid"
+ ],
+ "source_sha256": "e92b8d341f1f04952a3bd324e4ff244e281faff60d75c898c92fa6435687d6ec",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html",
+   "repository": {
+    "url": "https://github.com/example/repo",
+    "provider": "gitee",
+    "revision": "0123456789abcdef0123456789abcdef01234567"
+   }
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "sources": [
+     {
+      "path": "src/web.ts",
+      "line": 1
+     }
+    ]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Repository provider must match its supported public host (github.com or gitee.com).",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/provider-invalid",
+      "severity": "error",
+      "message": "Repository provider must match its supported public host (github.com or gitee.com).",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/provider"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "use the matching provider or omit provider and select link_mode: local-only"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Repository provider must match its supported public host (github.com or gitee.com).",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/provider-invalid",
+      "severity": "error",
+      "message": "Repository provider must match its supported public host (github.com or gitee.com).",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/provider"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "use the matching provider or omit provider and select link_mode: local-only"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Repository provider must match its supported public host (github.com or gitee.com).",
+    "diagnostics": [
+     {
+      "code": "repository-evidence/provider-invalid",
+      "severity": "error",
+      "message": "Repository provider must match its supported public host (github.com or gitee.com).",
+      "subject": {
+       "surface": "repository-evidence",
+       "path": "/meta/repository/provider"
+      },
+      "evidence": {},
+      "supportedFixes": [
+       "use the matching provider or omit provider and select link_mode: local-only"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "Repository provider must match its supported public host (github.com or gitee.com).\n[repository-evidence/provider-invalid] Repository provider must match its supported public host (github.com or gitee.com). Fix: use the matching provider or omit provider and select link_mode: local-only.\n"
+ },
+ "layout_json_by_quality": {}
+}

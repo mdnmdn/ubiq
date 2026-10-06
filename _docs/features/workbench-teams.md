@@ -3,11 +3,11 @@ id: feat-workbench-teams
 title: The Teams graph modes
 kind: feature
 status: draft
-summary: The rail's two graph modes — `Teams`, scoped by a window span and drawing its cards' conversations in the dock, and `[Teams]`, the established screen kept beside it with its own inspector and composer — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer under both.
-read_when: you are changing the Teams or `[Teams]` screen — its graph, how it arranges itself, a card or a delegate row, the span, the filters, the inspector or the tasks drawer
-updated: 2026-10-02
-verified: 2026-10-02
-code_anchors: [crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/tests/teams.rs, crates/ubiq/src/state/orchestration.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/app/graph.rs, crates/ubiq/src/ui/orchestration/mod.rs, crates/ubiq/src/ui/orchestration/graph.rs, crates/ubiq/src/ui/orchestration/inspector.rs, crates/ubiq/src/ui/orchestration/tasks.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/tests/orchestration.rs]
+summary: The rail's graph mode — `Teams`, over a project or the whole window, drawing its cards' conversations in the dock — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer.
+read_when: you are changing the Teams screen — its graph, how it arranges itself, a card or a delegate row, the span, the filters or the tasks drawer
+updated: 2026-10-06
+verified: 2026-10-06
+code_anchors: [crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/tests/teams.rs, crates/ubiq/tests/teams_view.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -16,26 +16,21 @@ review_cycle: monthly
 
 ## Purpose
 
-The two graph modes are where the user *arranges* the agents rather than talks to them: a canvas
-of cards on a dotted ground, one per agent, fenced into the task each serves, with a tasks drawer
-underneath. `Teams` is the mode being built and `[Teams]` the established screen kept beside it
-until the newer one replaces it. The columns that hold the conversations are
-[Agents mode](./workbench-agents.md).
+The graph mode is where the user *arranges* the agents rather than talks to them: a canvas of
+cards on a dotted ground, one per agent, fenced into the task each serves, with a tasks drawer
+underneath. It has two rail entries, `Teams` and `All Teams`, which are the same screen over two
+spans. The columns that hold the conversations are [Agents mode](./workbench-agents.md).
 
 ## Behaviour
 
-**`Teams` sits beside `[Teams]`, not behind a switch.** `[Teams]` is the established graph screen —
-`RailMode::TeamsOld`, still built exactly as it always has been, ahead of the rename in every way
-but its label. `Teams` — `RailMode::Teams` — is the mode being built in its place: the same graph
-and tasks drawer, over the same kind of state (`TeamsView`, a clone of `[Teams]`'s `GraphView`
-rather than a shared one), but narrowed to agents this window holds a live
-`Conversation` with — `state::teams::live_work` drops a session with no surviving agent and a task
-no live agent serves or holds a step in, where `[Teams]` still draws the host's whole projection,
-mock fixtures included. `graph` and the per-project `teams` are independent per project, so
-arranging one never disturbs the other; the window span has a third arrangement of its own,
+**`Teams` draws only the agents this window holds a live `Conversation` with.**
+`state::teams::live_work` drops a session with no surviving agent and a task no live agent serves or
+holds a step in, so a project with nothing running draws as empty. Each project keeps its own
+arrangement in `OpenProject::teams`; the window span has a second arrangement of its own,
 `AppState::teams_window`, which belongs to the window rather than to any project, so the two spans
 are two arrangements over two different sets of cards and switching span hands back the other one
-intact rather than rewriting the one that was up.
+intact rather than rewriting the one that was up. The earlier graph screen, `[Teams]`
+(`RailMode::TeamsOld`), is gone (`D205`): a saved preference standing in it opens on `Teams`.
 
 **The `Teams` screen is scoped by a span, and the span is the window's own fact** — like the zoom,
 set from the Teams toolbar, persisted nowhere and sent nowhere. The arrangement is not: see below.
@@ -117,15 +112,13 @@ of two ways into the New agent form that names a project — the sidebar's Missi
 New agent too — every other way in starts the agent in the window's active project and has no
 project field at all.
 
-**Teams draws its own card a shade shorter than `[Teams]`'s, because a row that is often empty is
-not worth reserving space for on every card.** `state::layout::TEAMS_CARD_HEIGHT` is `CARD_HEIGHT -
-16.0` — Teams alone reads it, everywhere `[Teams]`'s own cards read the unchanged `CARD_HEIGHT` —
-and `Layout::auto`/`Layout::place_new`, `Algo::inside` and every packer beneath them (`ring_box`,
+**Teams draws its card a shade shorter than the layout engine's plain `CARD_HEIGHT`, because a row
+that is often empty is not worth reserving space for on every card.**
+`state::layout::TEAMS_CARD_HEIGHT` is `CARD_HEIGHT - 16.0`, and `Layout::auto`/`Layout::place_new`, `Algo::inside` and every packer beneath them (`ring_box`,
 `card_box`, `stack`, `column`, the `shapes.rs` `inside_*` family) take the plain card's own size as
 an explicit `card: (f32, f32)` argument rather than reading `CARD_HEIGHT` off the constant, so one
 engine lays both graphs out at their own size: `TeamsView::relayout`/`absorb_new` pass
-`(CARD_WIDTH, TEAMS_CARD_HEIGHT)`, the orchestration graph passes `(CARD_WIDTH, CARD_HEIGHT)`
-unchanged. **A card reads the agent label (T-283):** row 1 is the agent's title with the standard
+`(CARD_WIDTH, TEAMS_CARD_HEIGHT)`. **A card reads the agent label (T-283):** row 1 is the agent's title with the standard
 agent tooltip, row 2 the harness's mark and the identity (`definition · harness · model`), and the
 third row — the title of the task it is assigned, never its name — is drawn only where there is one;
 the activity is the corner chip's. A delegate's card reads the same shape at its own grain: its
@@ -147,8 +140,7 @@ offset against the card that spawned it in `subs`, keyed by the id of the `Task`
 it, so dragging the parent card — or the task container round it — carries its delegates the same
 way it already carries its own cards. The packers take a `Rings` map (`state::layout::Rings`, an
 agent's delegate count) and add `ring_drop` — one row per delegate — under the tallest fence in each
-row, so the row below a card with delegates clears the fence instead of drawing under it; `Teams` is
-the only screen that populates it — `[Teams]` passes an empty map and draws no delegates.
+row, so the row below a card with delegates clears the fence instead of drawing under it.
 
 **The ring's own fence is drawn only where nothing else already outlines the card — one
 project-tinted fence, not two (T-105).** A ringed card whose task already sits inside a container,
@@ -165,8 +157,7 @@ up as a drop target and draws its own `theme::border()` outline. **`TeamsView::s
 margin off `RING_PAD` rather than `GROUP_PAD`** (T-105): `card_bounds` already wraps a ringed member
 at `RING_PAD`, and each of these is the *only* outline drawn round what it encloses, so it sits
 `RING_PAD` off the tightest thing inside it rather than doubling the margin with `GROUP_PAD` stacked
-on top of a ring's own. `[Teams]`'s own task container, `state::orchestration`'s counterpart to
-`bounds_excluding`, draws no ring and keeps `GROUP_PAD` unchanged.
+on top of a ring's own.
 `TeamsSelection` gains a third case, `Subagent { agent, subagent }`, named by the id of the `Task`
 call that spawned the delegate rather than a card of its own — see `D140` for why a delegate is
 never a `WorkAgent`. Clicking a delegate's card sets that selection and points the shared chat at the
@@ -197,15 +188,11 @@ block's edge past every row's own padding, so it never has to fight the footer f
 first row says only whose card it is. The full model id is a hover away on the card, and readable
 in full in the conversation the dock now opens for it.
 
-**`[Teams]` is one field of state and everything else, and `Teams` follows the same mechanics.**
-`Teams` shares the toolbar, the arrangement, the drag-and-drop and the trail described through this
-section; where it still falls short of `[Teams]` is `backlog.md`'s to say. A selection is either a
-**session**
-— a named piece of work — or an **agent**, which is one workspace: one running harness, one
-terminal. Which session the graph draws and which tasks the drawer lists are both functions of
-that one field, so the two cannot disagree about what the user is looking at; on `[Teams]` its
-inspector is a third reading of the same selection, and on `Teams`, which has none, selecting an
-agent instead opens its conversation in a `Chat` panel in the right dock.
+**The screen is one field of state and everything else.** A selection is either a **session** — a
+named piece of work — or an **agent**, which is one workspace: one running harness, one terminal.
+Which session the graph draws and which tasks the drawer lists are both functions of that one
+field, so the two cannot disagree about what the user is looking at; selecting an agent also opens
+its conversation in a `Chat` panel in the right dock.
 
 **What a thing is and where it is drawn are separate, and the graph arranges itself.** No position
 is authored anywhere. Position is held apart from the definitions and held relative — a task owns an
@@ -297,15 +284,12 @@ card carries the agent's name, role, state, the one line it says, its branch and
 the colour of the state's bucket. Zoom scales positions, cards and type together, so the graph reads
 the same at every step.
 
-**`Teams`'s card and its delegates read one status pair; `[Teams]`'s reads four words off the same
-bucket.** `state::status` holds the two dictionaries both halves speak — a `Lifecycle` and a
+**A card and its delegates read one status pair.** `state::status` holds the two dictionaries both halves speak — a `Lifecycle` and a
 `Doing` — and `agent_status` and `delegate_status` are the two derivations onto them.
 `agent_status` reads the live `Conversation` first, because its `run` and `stop_reason` carry the
 distinction the record cannot: a harness whose last turn ended but is still running answers `Idle`,
 where `WorkAgent`'s `Ended` covers both that and a harness gone for good; it falls back to the
-record only for an agent it holds no conversation with. `[Teams]` reads
-`activity_colour(agent.activity)` and its own wordy `state_chip`, at the coarser grain `D140` set out
-for it.
+record only for an agent it holds no conversation with.
 
 **The mark is a hexagon, and it carries both halves at once — a static outline and a separately
 animated core (T-99).** `ui::teams::status::status_mark(status, side, id)` over
@@ -332,9 +316,8 @@ exactly these readings. **An agent card and a delegate card go through the same 
 since the dictionaries were unified there is nothing left at that layer to tell them apart. A
 delegate's
 tooltip still leads with the state's word ahead of its name, type, model and thinking level.
-Neither `[Teams]`'s inspector, the tasks drawer nor a connector reads the pair: each still colours
-by `activity_colour(agent.activity)`, so all three report `Ended` where the card reports `Idle`
-(`G279`).
+Neither the tasks drawer nor a connector reads the pair: each colours by
+`activity_colour(agent.activity)`, so both report `Ended` where the card reports `Idle` (`G279`).
 
 **Three filters narrow it, all of them clear, and the first two are now the same shape.** Sessions
 and states are each a set, several on at once, so both are a `kit::MultiPicker` —
@@ -390,8 +373,8 @@ asks now, and are not written down.
 **Which sessions are drawn and which is selected are two questions, and the sessions filter answers
 only the first.** Ticking a row in `MenuId::TeamsSessions` narrows the canvas and nothing else — a
 set has no one row to hand the selection to the way the single pill it replaced once did. The
-inspector and the tasks drawer keep reporting on whatever `TeamsSelection` last named, which a card
-click or a nav link still sets, and go on reporting it while every session is on screen (`T-142`).
+tasks drawer keeps reporting on whatever `TeamsSelection` last named, which a card
+click or a nav link still sets, and goes on reporting it while every session is on screen (`T-142`).
 **A route back to "just look at this one session" is a second, opt-in target on the same row**
 (`T-146`): `kit::MultiPicker` grew `on_select`, a trailing arrow beside the tick that calls
 `select_in_teams(TeamsSelection::Session(id))` without touching `graph.sessions` — the tick still
@@ -429,18 +412,6 @@ inside can fall out of step, and a container is never dropped into another one.
 passed and shrink, drift and fade over the next two-thirds of a second, so a thing that moved reads
 as held rather than as a redraw. Cards and containers both shed it; reduced motion skips it.
 
-**`[Teams]`'s inspector reports whatever is selected, at that selection's scale.** A session gives
-its branch and how its agents are spread across the four states; an agent gives its harness, its
-model, what is left of its context window, its thread and a composer. Its tabs are that thread and
-the drawer's own task list, and the toolbar dismisses the panel and brings it back.
-
-**`[Teams]`'s composer is real, and nothing answers it.** What is typed goes to the host, which puts
-it in the selected agent's thread and answers with the agent carrying it — the line appears because
-the host said it did, not because the interface wrote it there. Nothing replies, and the thread says
-in as many words that nothing is listening: a fabricated reply is the one thing a screen with a mock
-behind it must not draw. Enter sends, Shift-Enter inserts a newline, and the draft is `[Teams]`'s
-own rather than the chat's or a column's.
-
 **`Teams` has no inspector and no composer of its own.** It draws the actual conversation instead,
 because it selects only among agents this window holds a live `Conversation` with — but it draws it
 in the right dock rather than beside the graph. Selecting a card or a delegate is
@@ -456,26 +427,20 @@ is mocked, and nothing about the card's selection is a second, Teams-only conver
 
 ## Implementation
 
-`state/orchestration.rs` holds `GraphView`, `[Teams]`'s *view* of that work: the selection, the
-session being drawn, the showing buckets, the zoom, the composer's draft, what a drag is carrying,
-the grains behind it, and the arrangement. It holds no records, which is why every reader takes a
-`WorkProjection` as its first argument — the shape `BoardState`'s readers have. Nothing here draws
-and nothing names a colour. `visible()` is the two filters together and is the one reader that needs
-no projection, because both are answered by the agent in hand; `showing()` treats an empty bucket
-list as no filter; `session` absent is every session, and is its own field rather than a reading of
-`selection` so that clearing what is drawn does not throw away what is selected — `active_session()`
-answers that second question, and scopes nothing. `show_session()`, `toggle_bucket()` and
-`clear_filters()` are the three mutations, and `filtered()` is what tells the toolbar and the empty
-canvas whether there is anything to clear. `Held` — a card or a container — is what `start_carry()`
-takes and what `carry_to()` branches on. `bounds_of()` is the box round a task's cards; `task_at()` is what a drop lands in, and leaves
-the carried card out of every box it tests against; `end_carry()` writes the card's new offset
-against the container it came to rest in and answers the pair for an `AssignAgent`, touching no
-membership itself; `settle_sand()` answers whether the trail still owes a frame.
-
-`state/teams.rs` holds `TeamsView`, `Teams`'s own instance of the same shape — its own selection,
-session, buckets, zoom, carry and sand, independent per project of `[Teams]`'s `GraphView`.
-`live_work(work, live)` is the one thing `state/orchestration.rs` has no counterpart for: it narrows
-a `WorkProjection` to the agents in `live`, dropping a session with no live agent left and a task
+`state/teams.rs` holds `TeamsView`, the screen's *view* of that work: the selection, the sessions
+being drawn, the showing buckets, the zoom, what a drag is carrying, the grains behind it, and the
+arrangement. It holds no records, which is why every reader takes a `WorkProjection` as its first
+argument — the shape `BoardState`'s readers have. Nothing here draws and nothing names a colour.
+`visible()` is the filters together and needs no projection, because each is answered by the agent
+in hand; `showing()` treats an empty bucket list as no filter; an empty `sessions` is every session,
+and is its own field rather than a reading of `selection` so that clearing what is drawn does not
+throw away what is selected — `active_session()` answers that second question, and scopes nothing.
+`filtered()` is what tells the empty canvas whether there is anything to clear. `TeamsHeld` — a
+card, a delegate, a container or a mission — is what `start_carry()` takes and what `carry_to()`
+branches on. `bounds_of()` is the box round a task's cards; `end_carry()` writes the card's new
+offset against the container it came to rest in and answers the pair for an `AssignAgent`,
+touching no membership itself; `settle_sand()` answers whether the trail still owes a frame.
+`live_work(work, live)` narrows a `WorkProjection` to the agents in `live`, dropping a session with no live agent left and a task
 none of them serves or holds a step in. `TeamsSpan` — `Project` or `Window`, defaulting to
 `Project` — is the screen's scope, and `window_work` is what `Window` reads: one `live_work` per
 project, concatenated into a single `WorkProjection` and returned beside a
@@ -509,39 +474,29 @@ has never seen, so a new task takes the next container slot in the same flow-and
 agent the next offset inside its task, with nothing already placed moving and no second geometry to
 keep in step. `CARD_WIDTH`, `CARD_HEIGHT`, `GROUP_PAD` and `GROUP_LABEL` live there because the
 outlines, the connectors and the hit testing work from them. Both are tested without a frame in
-`crates/ubiq/tests/orchestration.rs`, which asserts no position against the fixture — it has none.
-
-`AppState` carries the graph's view as `graph` and the composer as `agent_input`, a `TextareaState`
-of its own so the two drafts cannot leak into each other. `start_graph_carry()` selects a card and
-does not select a container; `move_graph_carry()` honours reduced motion, moving what is held without
-laying a grain; `tidy_graph()` is the tidy control; `end_graph_carry()` sends the `AssignAgent` a
-drop asks for; `send_to_agent()` sends the composer's line and appends nothing itself;
-`settle_graph()`, called from `render` beside the other end-of-frame passes, ages the trail and puts
-down a carry whose drag ended where the canvas's drop handler never sees it. `ui/orchestration/mod.rs`
-is the frame; `graph.rs`, `inspector.rs` and `tasks.rs` are its three areas, painted from the layers
-in `ui/kit/canvas.rs`.
+`crates/ubiq/tests/teams_view.rs`, which asserts no position against the fixture — it has none.
 
 `AppState` carries the span as `teams_span`, the window span's own `TeamsView` as `teams_window` —
 beside the per-project ones in `OpenProject::teams` — and the merged owner map as `teams_owner`.
 The switch lives in four accessors in `app/shell.rs`, which every reader on the screen already goes
 through: `teams()` and `teams_mut()` hand back the project's view or the window's, `teams_work()`
 answers `live_work` over the active project's `work` and `agents.live` or `window_work` over every
-project the span names — rather than the whole projection `graph_over_work()` gives `[Teams]` — and
-`teams_over_work()` is that pairing for a drag. `teams_projects()` is the one answer to which
+project the span names — and `teams_over_work()` is that pairing for a drag. `teams_projects()` is the one answer to which
 projects the screen is about: the active project alone under `Project`, and under `Window` the
 registry's `WindowSlot::projects` narrowed to the ones this window has built an `OpenProject` for,
 because `sync_projects()` runs a frame behind the registry. Every write the screen makes resolves
 the agent's own project through `project_of_agent()`, and a read that needs a foreign project's
-record goes through `teams_conversation()` and `teams_agent()`. There is no `agent_input`
-counterpart here: selecting a card reveals the agent's conversation in an ordinary chat tab in the
+record goes through `teams_conversation()` and `teams_agent()`. There is no composer of the
+screen's own: selecting a card reveals the agent's conversation in an ordinary chat tab in the
 right dock (`AppState::open_teams_agent_panel`), because `ui::conversation::render` already owns a
 composer of its own.
 `end_teams_carry()` files its `AssignAgent` against the dropped card's own project, and
 `teams_carry_tasks()` is what keeps that pair honest: under the window span it answers the carried
 card's own project's task ids, and `carry_to()` lights up no container outside that set. `None` is
 every task, which is the project span's answer, because one project's canvas draws one project's
-tasks and the question does not arise. `settle_teams()` is `settle_graph()`'s counterpart, run from
-the same place, and also gathers the delegate rings and rebuilds `teams_owner` across every project
+tasks and the question does not arise. `settle_teams()`, called from `render` beside the other
+end-of-frame passes, ages the trail, puts down a carry whose drag ended where the canvas's drop
+handler never sees it, and gathers the delegate rings and rebuilds `teams_owner` across every project
 `teams_projects()` names. `settle_window_layout()` is the other half of the window span's view:
 every `wire.rs` arm that lays a project's `TeamsView` out over its own work calls it afterwards to
 lay `teams_window` out over the merged projection, `relayout` where the arm relaid and `absorb_new`
@@ -558,24 +513,21 @@ arithmetic rather than `teams_projects()`, which answers for the span that is up
 the control hide itself the moment it was used. `ui/project_face.rs` is the one place a project's initials and
 `theme::project_tint` become an element — `ProjectFace` and `project_face(id, cx)`, shared with
 `ui/rail.rs`'s project badges, drawn on a card and a session pill only under the window span.
-`ui/teams/mod.rs` is the frame; `graph.rs` and `tasks.rs` are its two areas — narrower than
-`ui/orchestration/`'s three, because `Teams` has no inspector of its own: selecting a card opens
-that agent's conversation in the right dock instead (`AppState::open_teams_agent_panel`).
+`ui/teams/mod.rs` is the frame; `graph.rs` and `tasks.rs` are its two areas, painted from the
+layers in `ui/kit/canvas.rs` — there is no inspector: selecting a card opens that agent's
+conversation in the right dock instead (`AppState::open_teams_agent_panel`).
 
 ## Failure
 
 | What happens | Result |
 |---|---|
-| Nothing is selected on `[Teams]` | The inspector says so and points at the toolbar and the graph |
-| Nothing is selected on `[Teams]` or `Teams` | The drawer falls back to the first session, so it does not go blank; the graph draws every session and needs no fallback. `Teams` opens no chat panel until something is |
+| Nothing is selected | The drawer falls back to the first session, so it does not go blank; the graph draws every session and needs no fallback. `Teams` opens no chat panel until something is |
 | Every agent is filtered out | The graph says so, with no way to clear filters from the message (`T-258`) — each is already undone at its own control. It says the opposite thing — that no agent is running in this project — when there was nothing to hide, so the two emptinesses are never confused |
 | Every bucket pill is turned off | The row is not filtering, and every card is drawn. This is the way back from having turned them all off, which is why no pill refuses a click |
 | A task's cards are all hidden | No outline is drawn for it. The task keeps its place in the drawer's list |
 | A card is dropped outside the graph | The next frame puts it down where the drag left it, so it cannot stay stuck to the pointer |
 | A card is dropped on open ground | It keeps its task and its parent, and stays where it was put |
 | A container is dragged onto another | Nothing is filed anywhere. The outlines overlap until one is moved or the graph is tidied |
-| The composer sends with a session selected, or with nothing | Nothing is sent, and Send reads as disabled while the draft is empty |
-| A message is sent to a mock agent | The host puts it in that agent's thread and answers with the agent carrying it. Nothing replies, and the thread says so rather than inventing one |
 
 ## Related docs
 

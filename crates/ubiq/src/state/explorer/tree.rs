@@ -125,9 +125,55 @@ impl ExplorerState {
             false
         };
         if ok {
-            self.paint_git();
+            self.paint_under(&listing.rel_path);
         }
         ok
+    }
+
+    /// Paint what is below `path` only: a listing changes nothing above the folder it names, and
+    /// repainting the whole tree for each of a cache reply's folders is what made a big project's
+    /// open quadratic (T-333). The inheritance at `path` is rebuilt down its ancestors on the same
+    /// rule [`paint_nodes`] applies.
+    fn paint_under(&mut self, path: &str) {
+        if path.is_empty() {
+            self.paint_git();
+            return;
+        }
+        let known = self.git_known;
+        let mut inherited = None;
+        let mut nodes = cow(&mut self.root);
+        loop {
+            let Some(at) = nodes
+                .iter()
+                .position(|node| node.path == path || is_ancestor(&node.path, path))
+            else {
+                return;
+            };
+            let node = &mut nodes[at];
+            let here = node.path == path;
+            inherited = if node.repo.is_some() {
+                None
+            } else if self.git_inherit.contains(&node.path) {
+                node.git
+            } else {
+                inherited
+            };
+            let NodeKind::Dir { children, .. } = &mut node.kind else {
+                return;
+            };
+            if here {
+                paint_nodes(
+                    cow(children),
+                    known,
+                    &self.git_marks,
+                    &self.git_inherit,
+                    &self.git_repos,
+                    inherited,
+                );
+                return;
+            }
+            nodes = cow(children);
+        }
     }
 
     /// Apply a working-tree map. A reply older than what is already held is discarded.
@@ -298,9 +344,64 @@ impl ExplorerState {
     /// A hidden folder is left alone too while the dotfile switch is off: listing a folder the
     /// tree will not draw is a walk nobody asked for.
     pub fn unlisted_for_cache(&self) -> Vec<String> {
+        self.unlisted_for_cache_upto(usize::MAX)
+    }
+
+    /// [`Self::unlisted_for_cache`], stopping at `limit` folders.
+    pub fn unlisted_for_cache_upto(&self, limit: usize) -> Vec<String> {
         let mut out = Vec::new();
-        collect_cache(&self.root, &self.cache_asked, self.show_hidden, &mut out);
+        collect_cache(
+            &self.root,
+            &self.cache_asked,
+            self.show_hidden,
+            limit,
+            &mut out,
+        );
         out
+    }
+
+    /// Cache walks sent and not yet answered.
+    pub fn cache_in_flight(&self) -> usize {
+        self.cache_pending.len()
+    }
+
+    /// Note that the cache's walks for these folders are on the wire.
+    pub fn cache_sent(&mut self, paths: &[String]) {
+        self.cache_pending.extend(paths.iter().cloned());
+    }
+
+    /// A listing or a failure for `path` landed. True when it was one of the cache's own walks,
+    /// whose slot is now free for the next.
+    pub fn cache_answered(&mut self, path: &str) -> bool {
+        self.cache_pending.remove(path)
+    }
+
+    /// A cache prefetch for `path` came back with no listing for it: the host skipped it as
+    /// ignored. It stays in `cache_asked`, so the cache does not ask again, but a filter hit may.
+    /// Answers whether the folder is wanted open anyway — drawn expanded, or holding a `wanted`
+    /// path — in which case it is marked loading and the caller must ask for it in full.
+    pub fn cache_skipped(&mut self, path: &str, wanted: &[String]) -> bool {
+        if path.is_empty() {
+            return false;
+        }
+        self.cache_ignored.insert(path.to_string());
+        let opened = matches!(
+            node_of(&self.root, path),
+            Some(FileNode {
+                kind: NodeKind::Dir {
+                    expanded: true,
+                    listed: false,
+                    ..
+                },
+                ..
+            })
+        );
+        let below = format!("{path}/");
+        if opened || wanted.iter().any(|w| w == path || w.starts_with(&below)) {
+            self.set_loading(path, true);
+            return true;
+        }
+        false
     }
 
     /// Folders a filter matched that the host has never listed — a hit the user sees as a folder
@@ -313,7 +414,10 @@ impl ExplorerState {
     pub fn unlisted_hits(&self, rows: &[Row]) -> Vec<String> {
         rows.iter()
             .filter(|row| row.is_dir && row.expanded && !row.path.is_empty() && row.readable)
-            .filter(|row| !self.cache_asked.contains(&row.path) && !walk_skipped(&row.path))
+            .filter(|row| {
+                (!self.cache_asked.contains(&row.path) || self.cache_ignored.contains(&row.path))
+                    && !walk_skipped(&row.path)
+            })
             .filter(|row| !self.is_folder_listed(&row.path))
             .map(|row| row.path.clone())
             .collect()
@@ -324,6 +428,7 @@ impl ExplorerState {
     pub fn begin_cache(&mut self, paths: &[String]) {
         for path in paths {
             self.cache_asked.insert(path.clone());
+            self.cache_ignored.remove(path);
             self.set_loading(path, true);
         }
     }
@@ -480,9 +585,13 @@ pub(super) fn collect_cache(
     nodes: &[FileNode],
     asked: &HashSet<String>,
     show_hidden: bool,
+    limit: usize,
     out: &mut Vec<String>,
 ) {
     for node in nodes {
+        if out.len() >= limit {
+            return;
+        }
         if !show_hidden && is_hidden(&node.name) {
             continue;
         }
@@ -496,7 +605,7 @@ pub(super) fn collect_cache(
             continue;
         };
         if *listed {
-            collect_cache(children, asked, show_hidden, out);
+            collect_cache(children, asked, show_hidden, limit, out);
             continue;
         }
         if !node.readable || *loading || asked.contains(&node.path) || walk_skipped(&node.path) {
@@ -525,15 +634,24 @@ pub(super) fn collect_listed<'a>(
     }
 }
 
+/// Whether `ancestor` is a folder strictly above `path`. Every node's path is its parent's plus
+/// one name, so a lookup only ever descends into the one child on the way (T-333).
+pub(super) fn is_ancestor(ancestor: &str, path: &str) -> bool {
+    path.len() > ancestor.len()
+        && path.starts_with(ancestor)
+        && path.as_bytes()[ancestor.len()] == b'/'
+}
+
 pub(super) fn node_of<'a>(nodes: &'a [FileNode], path: &str) -> Option<&'a FileNode> {
     for node in nodes {
         if node.path == path {
             return Some(node);
         }
-        if let NodeKind::Dir { children, .. } = &node.kind
-            && let Some(found) = node_of(children, path)
-        {
-            return Some(found);
+        if is_ancestor(&node.path, path) {
+            return match &node.kind {
+                NodeKind::Dir { children, .. } => node_of(children, path),
+                NodeKind::File => None,
+            };
         }
     }
     None
@@ -544,10 +662,11 @@ pub(super) fn node_mut<'a>(nodes: &'a mut [FileNode], path: &str) -> Option<&'a 
         if node.path == path {
             return Some(node);
         }
-        if let NodeKind::Dir { children, .. } = &mut node.kind
-            && let Some(found) = node_mut(cow(children), path)
-        {
-            return Some(found);
+        if is_ancestor(&node.path, path) {
+            return match &mut node.kind {
+                NodeKind::Dir { children, .. } => node_mut(cow(children), path),
+                NodeKind::File => None,
+            };
         }
     }
     None

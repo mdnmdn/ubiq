@@ -1,0 +1,227 @@
+{
+ "name": "neg.graph-duplicate-node-workflow-v2",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/duplicate-node-id",
+ "expect_codes": [
+  "workflow/duplicate-node-id"
+ ],
+ "source_sha256": "f76417faf5d3df5dc757bb5e921d23c52b5ddd8c1fabf682060c5cd4b2361298",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "user",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow node id \"user\" is duplicated.",
+    "diagnostics": [
+     {
+      "code": "workflow/duplicate-node-id",
+      "severity": "error",
+      "message": "Workflow node id \"user\" is duplicated.",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "user",
+       "path": "/nodes/1/id"
+      },
+      "evidence": {
+       "duplicateNodeId": "user",
+       "firstPath": "/nodes/0/id",
+       "duplicatePath": "/nodes/1/id"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow node id \"user\" is duplicated.",
+    "diagnostics": [
+     {
+      "code": "workflow/duplicate-node-id",
+      "severity": "error",
+      "message": "Workflow node id \"user\" is duplicated.",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "user",
+       "path": "/nodes/1/id"
+      },
+      "evidence": {
+       "duplicateNodeId": "user",
+       "firstPath": "/nodes/0/id",
+       "duplicatePath": "/nodes/1/id"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow node id \"user\" is duplicated.",
+    "diagnostics": [
+     {
+      "code": "workflow/duplicate-node-id",
+      "severity": "error",
+      "message": "Workflow node id \"user\" is duplicated.",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "user",
+       "path": "/nodes/1/id"
+      },
+      "evidence": {
+       "duplicateNodeId": "user",
+       "firstPath": "/nodes/0/id",
+       "duplicatePath": "/nodes/1/id"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/duplicate-node-id",
+     "severity": "error",
+     "message": "Workflow node id \"user\" is duplicated.",
+     "subject": {
+      "diagramType": "workflow",
+      "node": "user",
+      "path": "/nodes/1/id"
+     },
+     "evidence": {
+      "duplicateNodeId": "user",
+      "firstPath": "/nodes/0/id",
+      "duplicatePath": "/nodes/1/id"
+     },
+     "supportedFixes": []
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

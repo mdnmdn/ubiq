@@ -1794,9 +1794,4 @@ impl AppState {
             });
         }
     }
-
-    // ── The orchestration screen ────────────────────────────────────
-    //
-    // Every handler here is guarded on the window holding a project: the screen is a view of one
-    // project's work, and a window with none open has nothing for it to act on.
 }

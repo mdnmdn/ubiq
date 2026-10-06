@@ -1,0 +1,169 @@
+{
+ "name": "neg.schema-type-label",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/type",
+ "expect_codes": [
+  "schema/type"
+ ],
+ "source_sha256": "a94b6c6d140c17b39e69a8ded63df09ae00aff4b71794a793c689cef7ea5bf41",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": 5,
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must be string {\"type\":\"string\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/label (id/label: \"web\") must be string {\"type\":\"string\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/label",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "string"
+      },
+      "supportedFixes": [
+       "use \"string\" at /components/0/label"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must be string {\"type\":\"string\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/label (id/label: \"web\") must be string {\"type\":\"string\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/label",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "string"
+      },
+      "supportedFixes": [
+       "use \"string\" at /components/0/label"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must be string {\"type\":\"string\"}",
+    "diagnostics": [
+     {
+      "code": "schema/type",
+      "severity": "error",
+      "message": "/components/0/label (id/label: \"web\") must be string {\"type\":\"string\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/label",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "type",
+       "type": "string"
+      },
+      "supportedFixes": [
+       "use \"string\" at /components/0/label"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must be string {\"type\":\"string\"}\n[schema/type] /components/0/label (id/label: \"web\") must be string {\"type\":\"string\"} Fix: use \"string\" at /components/0/label.\n"
+ },
+ "layout_json_by_quality": {}
+}

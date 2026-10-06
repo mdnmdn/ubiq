@@ -20,6 +20,8 @@ impl ExplorerState {
             cut: false,
             drop_onto: None,
             cache_asked: HashSet::new(),
+            cache_ignored: HashSet::new(),
+            cache_pending: HashSet::new(),
             filter_hits: None,
             filter_job: 0,
             filter_collapsed: HashSet::new(),

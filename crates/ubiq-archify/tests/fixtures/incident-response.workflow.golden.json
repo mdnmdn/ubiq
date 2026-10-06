@@ -1,0 +1,1974 @@
+{
+ "name": "incident-response.workflow",
+ "group": "example",
+ "source": "archify/examples/incident-response.workflow.json",
+ "type": "workflow",
+ "source_sha256": "630be98449925d2716ecb8439f404b2bff5fe65ba905b0ad0baea6d96890c526",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Incident Response Runbook",
+   "output": "examples/incident-response.html",
+   "animation": "trace",
+   "visual_preset": "signal-flow",
+   "quality_profile": "showcase"
+  },
+  "lanes": [
+   {
+    "id": "signals",
+    "label": "Signals"
+   },
+   {
+    "id": "responders",
+    "label": "Incident Command"
+   },
+   {
+    "id": "mitigation",
+    "label": "Service Mitigation"
+   },
+   {
+    "id": "recovery",
+    "label": "Recovery Evidence"
+   },
+   {
+    "id": "communication",
+    "label": "Stakeholder Communication"
+   },
+   {
+    "id": "exceptions",
+    "label": "Escalation + Rollback",
+    "variant": "exception"
+   }
+  ],
+  "phases": [
+   {
+    "id": "detect",
+    "label": "Detect",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "respond",
+    "label": "Triage + mitigate",
+    "fromCol": 2,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "recover",
+    "label": "Verify + close",
+    "fromCol": 4,
+    "toCol": 5,
+    "variant": "dashed"
+   }
+  ],
+  "groups": [
+   {
+    "id": "command",
+    "label": "Incident command",
+    "lane": "responders",
+    "fromCol": 1,
+    "toCol": 3,
+    "variant": "emphasis"
+   },
+   {
+    "id": "exception_actions",
+    "label": "If impact persists",
+    "lane": "exceptions",
+    "fromCol": 3,
+    "toCol": 5,
+    "variant": "security"
+   }
+  ],
+  "mainPath": [
+   "alert",
+   "page",
+   "triage",
+   "contain",
+   "recover",
+   "verify",
+   "close"
+  ],
+  "nodes": [
+   {
+    "id": "alert",
+    "lane": "signals",
+    "col": 0,
+    "type": "messagebus",
+    "label": "SLO Alert",
+    "sublabel": "burn rate"
+   },
+   {
+    "id": "page",
+    "lane": "responders",
+    "col": 1,
+    "width": 76,
+    "type": "external",
+    "label": "Page On-call",
+    "sublabel": "acknowledge"
+   },
+   {
+    "id": "triage",
+    "lane": "responders",
+    "col": 2,
+    "width": 64,
+    "type": "backend",
+    "label": "Triage",
+    "sublabel": "scope impact"
+   },
+   {
+    "id": "declare",
+    "lane": "responders",
+    "col": 3,
+    "type": "security",
+    "label": "Declare",
+    "sublabel": "assign commander",
+    "tag": "SEV-1/2"
+   },
+   {
+    "id": "contain",
+    "lane": "mitigation",
+    "col": 3,
+    "width": 72,
+    "type": "backend",
+    "label": "Contain",
+    "sublabel": "stop growth"
+   },
+   {
+    "id": "recover",
+    "lane": "mitigation",
+    "col": 4,
+    "width": 52,
+    "type": "cloud",
+    "label": "Recover",
+    "sublabel": "restore"
+   },
+   {
+    "id": "verify",
+    "lane": "recovery",
+    "col": 5,
+    "type": "database",
+    "label": "Verify",
+    "sublabel": "SLO + traces",
+    "tag": "15 min stable"
+   },
+   {
+    "id": "close",
+    "lane": "communication",
+    "col": 5,
+    "type": "external",
+    "label": "Resolve",
+    "sublabel": "final update"
+   },
+   {
+    "id": "update",
+    "lane": "communication",
+    "col": 3,
+    "type": "frontend",
+    "label": "Status Update",
+    "sublabel": "impact + ETA"
+   },
+   {
+    "id": "escalate",
+    "lane": "exceptions",
+    "col": 3,
+    "width": 72,
+    "type": "security",
+    "label": "Escalate",
+    "sublabel": "specialist"
+   },
+   {
+    "id": "rollback",
+    "lane": "exceptions",
+    "col": 5,
+    "type": "messagebus",
+    "label": "Rollback",
+    "sublabel": "last good"
+   }
+  ],
+  "edges": [
+   {
+    "from": "alert",
+    "to": "page",
+    "label": "page",
+    "variant": "emphasis",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "page",
+    "to": "triage",
+    "route": "bottom-channel",
+    "fromSide": "bottom",
+    "toSide": "bottom"
+   },
+   {
+    "from": "triage",
+    "to": "contain",
+    "variant": "emphasis",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "contain",
+    "to": "recover",
+    "route": "bottom-channel",
+    "fromSide": "bottom",
+    "toSide": "bottom"
+   },
+   {
+    "from": "recover",
+    "to": "verify",
+    "variant": "emphasis",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "verify",
+    "to": "close",
+    "variant": "emphasis",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "triage",
+    "to": "declare",
+    "variant": "security"
+   },
+   {
+    "from": "declare",
+    "to": "update",
+    "variant": "dashed",
+    "fromSide": "top",
+    "toSide": "left",
+    "via": [[430,16],[20,16],[20,615]]
+   },
+   {
+    "from": "update",
+    "to": "escalate",
+    "variant": "security",
+    "route": "drop",
+    "fromSide": "bottom",
+    "toSide": "top"
+   },
+   {
+    "from": "verify",
+    "to": "rollback",
+    "variant": "security",
+    "role": "error",
+    "route": "outside-right",
+    "fromSide": "right",
+    "toSide": "right"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "rose",
+    "title": "Ownership First",
+    "items": [
+     "A page is not an incident until someone owns command",
+     "Severity and scope are explicit before mitigation spreads",
+     "Escalation names the missing expertise"
+    ]
+   },
+   {
+    "dot": "emerald",
+    "title": "Recovery Is Evidence",
+    "items": [
+     "Mitigation can reduce impact without proving recovery",
+     "SLOs and traces must stay healthy for a fixed window",
+     "The final update follows verification, not optimism"
+    ]
+   },
+   {
+    "dot": "cyan",
+    "title": "Communication Contract",
+    "items": [
+     "Stakeholders receive impact, action, and next update time",
+     "Rollback remains visible as a deliberate response",
+     "Every branch has an owner and observable exit"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "630be98449925d2716ecb8439f404b2bff5fe65ba905b0ad0baea6d96890c526",
+     "bytes": 4723
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "630be98449925d2716ecb8439f404b2bff5fe65ba905b0ad0baea6d96890c526",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 119,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7.7,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 3.465,
+      "routesOverSuggestedStretch": 3,
+      "minSegmentPx": 21,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "page",
+         "to": "triage",
+         "label": "",
+         "collectionIndex": 1,
+         "artifactIndex": 2
+        },
+        "bends": 2,
+        "stretch": 1.8
+       },
+       {
+        "relationship": {
+         "from": "contain",
+         "to": "recover",
+         "label": "",
+         "collectionIndex": 3,
+         "artifactIndex": 4
+        },
+        "bends": 2,
+        "stretch": 1.914
+       },
+       {
+        "relationship": {
+         "from": "declare",
+         "to": "update",
+         "label": "",
+         "collectionIndex": 7,
+         "artifactIndex": 8
+        },
+        "bends": 3,
+        "stretch": 3.465,
+        "directCorridorBlockers": [
+         {
+          "id": "contain",
+          "label": "Contain",
+          "box": [394,341,72,52]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "triage"
+      },
+      "minimumSourceTextPx": 7.7,
+      "minimumProjectedTextPx": 7.7,
+      "semanticTextCount": 23
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "630be98449925d2716ecb8439f404b2bff5fe65ba905b0ad0baea6d96890c526",
+     "bytes": 4723
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "630be98449925d2716ecb8439f404b2bff5fe65ba905b0ad0baea6d96890c526",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 119,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7.7,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 3.465,
+      "routesOverSuggestedStretch": 3,
+      "minSegmentPx": 21,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "page",
+         "to": "triage",
+         "label": "",
+         "collectionIndex": 1,
+         "artifactIndex": 2
+        },
+        "bends": 2,
+        "stretch": 1.8
+       },
+       {
+        "relationship": {
+         "from": "contain",
+         "to": "recover",
+         "label": "",
+         "collectionIndex": 3,
+         "artifactIndex": 4
+        },
+        "bends": 2,
+        "stretch": 1.914
+       },
+       {
+        "relationship": {
+         "from": "declare",
+         "to": "update",
+         "label": "",
+         "collectionIndex": 7,
+         "artifactIndex": 8
+        },
+        "bends": 3,
+        "stretch": 3.465,
+        "directCorridorBlockers": [
+         {
+          "id": "contain",
+          "label": "Contain",
+          "box": [394,341,72,52]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "triage"
+      },
+      "minimumSourceTextPx": 7.7,
+      "minimumProjectedTextPx": 7.7,
+      "semanticTextCount": 23
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "workflow",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "630be98449925d2716ecb8439f404b2bff5fe65ba905b0ad0baea6d96890c526",
+     "bytes": 4723
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "workflow",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "630be98449925d2716ecb8439f404b2bff5fe65ba905b0ad0baea6d96890c526",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 1
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 119,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 1,
+      "minProjectedNodeTextPx": 7.7,
+      "maxBends": 3,
+      "routesOverSuggestedBends": 1,
+      "maxStretch": 3.465,
+      "routesOverSuggestedStretch": 3,
+      "minSegmentPx": 21,
+      "minInteriorSegmentPx": 70,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": [
+       {
+        "relationship": {
+         "from": "page",
+         "to": "triage",
+         "label": "",
+         "collectionIndex": 1,
+         "artifactIndex": 2
+        },
+        "bends": 2,
+        "stretch": 1.8
+       },
+       {
+        "relationship": {
+         "from": "contain",
+         "to": "recover",
+         "label": "",
+         "collectionIndex": 3,
+         "artifactIndex": 4
+        },
+        "bends": 2,
+        "stretch": 1.914
+       },
+       {
+        "relationship": {
+         "from": "declare",
+         "to": "update",
+         "label": "",
+         "collectionIndex": 7,
+         "artifactIndex": 8
+        },
+        "bends": 3,
+        "stretch": 3.465,
+        "directCorridorBlockers": [
+         {
+          "id": "contain",
+          "label": "Contain",
+          "box": [394,341,72,52]
+         }
+        ]
+       }
+      ]
+     },
+     "leadingSpace": {
+      "measured": false,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "legacy-930",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 930,
+      "actualBudgetPx": 930,
+      "limit": "legacy",
+      "requestedTargetPx": null,
+      "requestedTargetMet": null,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "node",
+       "id": "triage"
+      },
+      "minimumSourceTextPx": 7.7,
+      "minimumProjectedTextPx": 7.7,
+      "semanticTextCount": 23
+     },
+     "issues": [
+      {
+       "severity": "warning",
+       "code": "composition/viewport-height",
+       "readerFit": null,
+       "viewBoxWidth": 720,
+       "viewBoxHeight": 900,
+       "viewportWidth": 1440,
+       "viewportHeight": 900,
+       "ratio": 0.8,
+       "wideRatio": 1.55,
+       "svgWidthPx": 1346,
+       "svgHeightPx": 1683,
+       "fixedChromePx": 126,
+       "pageHeightPx": 1809,
+       "overflowPx": 909,
+       "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 720x900 canvas (ratio 0.8) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1683px tall at the full 1346px width and the page reaches 1809px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 464 at this width, or spread content sideways so the width is at least 1395 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      }
+     ]
+    }
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "contract": "fixed-v1",
+   "viewBox": [720,900],
+   "requiredViewBox": [720,900],
+   "columns": [88,220,300,430,500,625],
+   "nodes": [
+    {
+     "id": "alert",
+     "lane": "signals",
+     "col": 0,
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "page",
+     "lane": "responders",
+     "col": 1,
+     "x": 182,
+     "y": 217,
+     "width": 76,
+     "height": 52
+    },
+    {
+     "id": "triage",
+     "lane": "responders",
+     "col": 2,
+     "x": 268,
+     "y": 217,
+     "width": 64,
+     "height": 52
+    },
+    {
+     "id": "declare",
+     "lane": "responders",
+     "col": 3,
+     "x": 384,
+     "y": 209,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "contain",
+     "lane": "mitigation",
+     "col": 3,
+     "x": 394,
+     "y": 341,
+     "width": 72,
+     "height": 52
+    },
+    {
+     "id": "recover",
+     "lane": "mitigation",
+     "col": 4,
+     "x": 474,
+     "y": 341,
+     "width": 52,
+     "height": 52
+    },
+    {
+     "id": "verify",
+     "lane": "recovery",
+     "col": 5,
+     "x": 579,
+     "y": 457,
+     "width": 92,
+     "height": 68
+    },
+    {
+     "id": "close",
+     "lane": "communication",
+     "col": 5,
+     "x": 579,
+     "y": 589,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "update",
+     "lane": "communication",
+     "col": 3,
+     "x": 384,
+     "y": 589,
+     "width": 92,
+     "height": 52
+    },
+    {
+     "id": "escalate",
+     "lane": "exceptions",
+     "col": 3,
+     "x": 394,
+     "y": 713,
+     "width": 72,
+     "height": 52
+    },
+    {
+     "id": "rollback",
+     "lane": "exceptions",
+     "col": 5,
+     "x": 579,
+     "y": 713,
+     "width": 92,
+     "height": 52
+    }
+   ],
+   "edges": [
+    {
+     "id": null,
+     "from": "alert",
+     "to": "page",
+     "points": [[88,145],[88,166],[220,166],[220,217]]
+    },
+    {
+     "id": null,
+     "from": "page",
+     "to": "triage",
+     "points": [[220,269],[220,301],[300,301],[300,269]]
+    },
+    {
+     "id": null,
+     "from": "triage",
+     "to": "contain",
+     "points": [[300,269],[300,290],[430,290],[430,341]]
+    },
+    {
+     "id": null,
+     "from": "contain",
+     "to": "recover",
+     "points": [[430,393],[430,425],[500,425],[500,393]]
+    },
+    {
+     "id": null,
+     "from": "recover",
+     "to": "verify",
+     "points": [[500,393],[500,414],[625,414],[625,457]]
+    },
+    {
+     "id": null,
+     "from": "verify",
+     "to": "close",
+     "points": [[625,525],[625,538],[625,538],[625,589]]
+    },
+    {
+     "id": null,
+     "from": "triage",
+     "to": "declare",
+     "points": [[332,243],[384,243]]
+    },
+    {
+     "id": null,
+     "from": "declare",
+     "to": "update",
+     "points": [[430,209],[430,16],[20,16],[20,615],[384,615]]
+    },
+    {
+     "id": null,
+     "from": "update",
+     "to": "escalate",
+     "points": [[430,641],[430,662],[430,662],[430,713]]
+    },
+    {
+     "id": null,
+     "from": "verify",
+     "to": "rollback",
+     "points": [[671,491],[692,491],[692,739],[671,739]]
+    }
+   ],
+   "labels": [
+    {
+     "edge": null,
+     "label": "page",
+     "x": 154,
+     "y": 156,
+     "width": 30,
+     "height": 14
+    }
+   ],
+   "diagnostics": []
+  }
+ },
+ "render": {
+  "viewBox": [0,0,720,900],
+  "svg_attrs": {
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "signal-flow",
+   "data-quality-profile": "showcase"
+  },
+  "title": "Incident Response Runbook",
+  "nodes": [
+   {
+    "id": "alert",
+    "kind": "messagebus",
+    "label": "SLO Alert",
+    "sublabel": "burn rate",
+    "context": "Signals › Detect",
+    "rect": {
+     "x": 42,
+     "y": 93,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 90.7,
+      "y": 114,
+      "font_size": 11,
+      "text": "SLO Alert",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 88,
+      "y": 131,
+      "font_size": 8,
+      "text": "burn rate",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(48 99) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "page",
+    "kind": "external",
+    "label": "Page On-call",
+    "sublabel": "acknowledge",
+    "context": "Incident Command › Incident command › Detect",
+    "rect": {
+     "x": 182,
+     "y": 217,
+     "width": 76,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 220,
+      "y": 247.3,
+      "font_size": 9.4,
+      "text": "Page On-call",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 220,
+      "y": 261.8,
+      "font_size": 8,
+      "text": "acknowledge",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(188 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "triage",
+    "kind": "backend",
+    "label": "Triage",
+    "sublabel": "scope impact",
+    "context": "Incident Command › Incident command › Triage + mitigate",
+    "rect": {
+     "x": 268,
+     "y": 217,
+     "width": 64,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 306.8,
+      "y": 238,
+      "font_size": 11,
+      "text": "Triage",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 300,
+      "y": 255,
+      "font_size": 7.7,
+      "text": "scope impact",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(274 223) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "declare",
+    "kind": "security",
+    "label": "Declare",
+    "sublabel": "assign commander",
+    "tag": "SEV-1/2",
+    "context": "Incident Command › Incident command › Triage + mitigate",
+    "rect": {
+     "x": 384,
+     "y": 209,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 430,
+      "y": 230,
+      "font_size": 11,
+      "text": "Declare",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 430,
+      "y": 247,
+      "font_size": 8,
+      "text": "assign commander",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 430,
+      "y": 265,
+      "font_size": 7,
+      "text": "SEV-1/2",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(390 215) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "contain",
+    "kind": "backend",
+    "label": "Contain",
+    "sublabel": "stop growth",
+    "context": "Service Mitigation › Triage + mitigate",
+    "rect": {
+     "x": 394,
+     "y": 341,
+     "width": 72,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 436.1,
+      "y": 362,
+      "font_size": 11,
+      "text": "Contain",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 430,
+      "y": 379,
+      "font_size": 8,
+      "text": "stop growth",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(400 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "recover",
+    "kind": "cloud",
+    "label": "Recover",
+    "sublabel": "restore",
+    "context": "Service Mitigation › Verify + close",
+    "rect": {
+     "x": 474,
+     "y": 341,
+     "width": 52,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 500,
+      "y": 372.5,
+      "font_size": 10.4,
+      "text": "Recover",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 500,
+      "y": 387.3,
+      "font_size": 8,
+      "text": "restore",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(480 347) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "verify",
+    "kind": "database",
+    "label": "Verify",
+    "sublabel": "SLO + traces",
+    "tag": "15 min stable",
+    "context": "Recovery Evidence › Verify + close",
+    "rect": {
+     "x": 579,
+     "y": 457,
+     "width": 92,
+     "height": 68,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 625,
+      "y": 478,
+      "font_size": 11,
+      "text": "Verify",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 495,
+      "font_size": 8,
+      "text": "SLO + traces",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 625,
+      "y": 513,
+      "font_size": 7,
+      "text": "15 min stable",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(585 463) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "close",
+    "kind": "external",
+    "label": "Resolve",
+    "sublabel": "final update",
+    "context": "Stakeholder Communication › Verify + close",
+    "rect": {
+     "x": 579,
+     "y": 589,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 625,
+      "y": 610,
+      "font_size": 11,
+      "text": "Resolve",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 627,
+      "font_size": 8,
+      "text": "final update",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(585 595) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "update",
+    "kind": "frontend",
+    "label": "Status Update",
+    "sublabel": "impact + ETA",
+    "context": "Stakeholder Communication › Triage + mitigate",
+    "rect": {
+     "x": 384,
+     "y": 589,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-frontend",
+    "texts": [
+     {
+      "x": 430,
+      "y": 620.9,
+      "font_size": 10.7,
+      "text": "Status Update",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 430,
+      "y": 635.8,
+      "font_size": 8,
+      "text": "impact + ETA",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "frontend",
+     "transform": "translate(390 595) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "escalate",
+    "kind": "security",
+    "label": "Escalate",
+    "sublabel": "specialist",
+    "context": "Escalation + Rollback › If impact persists › Triage + mitigate",
+    "rect": {
+     "x": 394,
+     "y": 713,
+     "width": 72,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 430,
+      "y": 745.2,
+      "font_size": 11,
+      "text": "Escalate",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 430,
+      "y": 760.1,
+      "font_size": 8,
+      "text": "specialist",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(400 719) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "rollback",
+    "kind": "messagebus",
+    "label": "Rollback",
+    "sublabel": "last good",
+    "context": "Escalation + Rollback › If impact persists › Verify + close",
+    "rect": {
+     "x": 579,
+     "y": 713,
+     "width": 92,
+     "height": 52,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 625,
+      "y": 734,
+      "font_size": 11,
+      "text": "Rollback",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 625,
+      "y": 751,
+      "font_size": 8,
+      "text": "last good",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(585 719) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "alert",
+    "to": "page",
+    "label": "page",
+    "points": [[88,145],[88,166],[220,166],[220,217]],
+    "d": "M 88 145 L 88 166 L 220 166 L 220 217",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "from": "page",
+    "to": "triage",
+    "points": [[220,269],[220,301],[300,301],[300,269]],
+    "d": "M 220 269 L 220 301 L 300 301 L 300 269",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 2,
+    "from": "triage",
+    "to": "contain",
+    "points": [[300,269],[300,290],[430,290],[430,341]],
+    "d": "M 300 269 L 300 290 L 430 290 L 430 341",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 3,
+    "from": "contain",
+    "to": "recover",
+    "points": [[430,393],[430,425],[500,425],[500,393]],
+    "d": "M 430 393 L 430 425 L 500 425 L 500 393",
+    "variant": "default",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 4,
+    "from": "recover",
+    "to": "verify",
+    "points": [[500,393],[500,414],[625,414],[625,457]],
+    "d": "M 500 393 L 500 414 L 625 414 L 625 457",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 5,
+    "from": "verify",
+    "to": "close",
+    "points": [[625,525],[625,538],[625,538],[625,589]],
+    "d": "M 625 525 L 625 538 L 625 538 L 625 589",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 6,
+    "from": "triage",
+    "to": "declare",
+    "points": [[332,243],[384,243]],
+    "d": "M 332 243 L 384 243",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 7,
+    "from": "declare",
+    "to": "update",
+    "points": [[430,209],[430,16],[20,16],[20,615],[384,615]],
+    "d": "M 430 209 L 430 16 L 20 16 L 20 615 L 384 615",
+    "variant": "dashed",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 8,
+    "from": "update",
+    "to": "escalate",
+    "points": [[430,641],[430,662],[430,662],[430,713]],
+    "d": "M 430 641 L 430 662 L 430 662 L 430 713",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 9,
+    "from": "verify",
+    "to": "rollback",
+    "points": [[671,491],[692,491],[692,739],[671,739]],
+    "d": "M 671 491 L 692 491 L 692 739 L 671 739",
+    "variant": "security",
+    "stroke_width": 1.4,
+    "marker_end": "arrowhead-security"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "alert",
+    "to": "page",
+    "text": "page",
+    "rect": {
+     "x": 139,
+     "y": 146,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 154,
+      "y": 156,
+      "font_size": 8,
+      "text": "page",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "lane",
+    "id": "lane-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 52,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-1",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 176,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-2",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 300,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-3",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 424,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-4",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 548,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "lane",
+    "id": "lane-5",
+    "class": "c-lane",
+    "rect": {
+     "x": 40,
+     "y": 672,
+     "width": 640,
+     "height": 104,
+     "rx": 10
+    }
+   },
+   {
+    "kind": "exception-lane",
+    "id": "lane-5-exception",
+    "class": "c-security-group",
+    "rect": {
+     "x": 46,
+     "y": 678,
+     "width": 628,
+     "height": 92,
+     "rx": 8
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-0",
+    "class": "c-lane",
+    "rect": {
+     "x": 170,
+     "y": 214,
+     "width": 310,
+     "height": 58,
+     "rx": 9
+    }
+   },
+   {
+    "kind": "group",
+    "id": "group-1",
+    "class": "c-security-group",
+    "rect": {
+     "x": 380,
+     "y": 710,
+     "width": 295,
+     "height": 58,
+     "rx": 9
+    }
+   }
+  ],
+  "decor": {
+   "Swimlanes": [
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 74,
+     "font_size": 10,
+     "text": "01 / Signals"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 198,
+     "font_size": 10,
+     "text": "02 / Incident Command"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 322,
+     "font_size": 10,
+     "text": "03 / Service Mitigation"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 446,
+     "font_size": 10,
+     "text": "04 / Recovery Evidence"
+    },
+    {
+     "tag": "text",
+     "class": "t-dim",
+     "x": 54,
+     "y": 570,
+     "font_size": 10,
+     "text": "05 / Stakeholder Communication"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 54,
+     "y": 694,
+     "font_size": 10,
+     "text": "EX / Escalation + Rollback"
+    }
+   ],
+   "Phase headers": [
+    {
+     "tag": "line",
+     "class": "a-default",
+     "x1": 42,
+     "y1": 35,
+     "x2": 266,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 42,
+     "y": 27,
+     "width": 224,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-muted",
+     "x": 154,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Detect"
+    },
+    {
+     "tag": "line",
+     "class": "a-emphasis",
+     "x1": 254,
+     "y1": 35,
+     "x2": 476,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 254,
+     "y": 27,
+     "width": 222,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 365,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Triage + mitigate"
+    },
+    {
+     "tag": "line",
+     "class": "a-dashed",
+     "x1": 454,
+     "y1": 35,
+     "x2": 671,
+     "y2": 35
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 454,
+     "y": 27,
+     "width": 217,
+     "height": 16,
+     "rx": 4
+    },
+    {
+     "tag": "text",
+     "class": "t-messagebus",
+     "x": 562.5,
+     "y": 39,
+     "font_size": 8,
+     "anchor": "middle",
+     "text": "Verify + close"
+    }
+   ],
+   "Workflow groups": [
+    {
+     "tag": "text",
+     "class": "t-backend",
+     "x": 180,
+     "y": 228,
+     "font_size": 7,
+     "text": "Incident command"
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 390,
+     "y": 724,
+     "font_size": 7,
+     "text": "If impact persists"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,189 @@
+{
+ "name": "neg.df-text-min-fit",
+ "group": "negative",
+ "source": "mutation of dataflow",
+ "type": "dataflow",
+ "rule": "geom/text-min-fit",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "ff7227ec8f231626dbc5fb46674bcbd8f339c235286efbb9687cebebe61a60fc",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+   "title": "DF",
+   "output": "df.html"
+  },
+  "stages": [
+   {
+    "label": "Ingest"
+   },
+   {
+    "label": "Process"
+   },
+   {
+    "label": "Store"
+   }
+  ],
+  "nodes": [
+   {
+    "id": "src",
+    "type": "frontend",
+    "label": "Src",
+    "stage": 0,
+    "row": 0,
+    "sublabel": "sublabel that never fits the node"
+   },
+   {
+    "id": "etl",
+    "type": "backend",
+    "label": "ETL",
+    "stage": 1,
+    "row": 0
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "stage": 2,
+    "row": 0
+   },
+   {
+    "id": "dlq",
+    "type": "messagebus",
+    "label": "DLQ",
+    "stage": 1,
+    "row": 2
+   }
+  ],
+  "flows": [
+   {
+    "id": "f1",
+    "from": "src",
+    "to": "etl",
+    "label": "events"
+   },
+   {
+    "id": "f2",
+    "from": "etl",
+    "to": "db",
+    "label": "rows",
+    "variant": "security"
+   },
+   {
+    "id": "f3",
+    "from": "etl",
+    "to": "dlq",
+    "label": "rejects",
+    "variant": "dashed"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Sublabel \"sublabel that never fits the node\" needs ~119px at the 6px legible minimum, but node \"src\" provides 104px — shorten the sublabel or increase node.width.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Sublabel \"sublabel that never fits the node\" needs ~119px at the 6px legible minimum, but node \"src\" provides 104px — shorten the sublabel or increase node.width.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Sublabel \"sublabel that never fits the node\" needs ~119px at the 6px legible minimum, but node \"src\" provides 104px — shorten the sublabel or increase node.width.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Sublabel \"sublabel that never fits the node\" needs ~119px at the 6px legible minimum, but node \"src\" provides 104px — shorten the sublabel or increase node.width.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "dataflow",
+    "input": "<input>",
+    "error": "Data-flow layout validation failed:\n- Sublabel \"sublabel that never fits the node\" needs ~119px at the 6px legible minimum, but node \"src\" provides 104px — shorten the sublabel or increase node.width.\n- Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Sublabel \"sublabel that never fits the node\" needs ~119px at the 6px legible minimum, but node \"src\" provides 104px — shorten the sublabel or increase node.width.",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"rejects\" overlaps node \"etl\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [292,165,46,16]\n  node \"etl\" rect: [259,128,112,58]\n  Suggested fix: set labelAt [315,201] or set labelDy 25 (below); or set labelAt [315,119] or set labelDy -57 (above)",
+      "subject": {
+       "diagramType": "dataflow"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ }
+}

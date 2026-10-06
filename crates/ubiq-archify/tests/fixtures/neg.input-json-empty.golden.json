@@ -1,0 +1,105 @@
+{
+ "name": "neg.input-json-empty",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "input/json-parse",
+ "expect_codes": [
+  "input/json-parse"
+ ],
+ "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+ "source_text": "",
+ "quality": null,
+ "schema_version": null,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Unexpected end of JSON input",
+    "diagnostics": [
+     {
+      "code": "input/json-parse",
+      "severity": "error",
+      "message": "Input JSON could not be parsed: Unexpected end of JSON input",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "reason": "Unexpected end of JSON input"
+      },
+      "supportedFixes": [
+       "repair the JSON syntax and run validation again"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Unexpected end of JSON input",
+    "diagnostics": [
+     {
+      "code": "input/json-parse",
+      "severity": "error",
+      "message": "Input JSON could not be parsed: Unexpected end of JSON input",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "reason": "Unexpected end of JSON input"
+      },
+      "supportedFixes": [
+       "repair the JSON syntax and run validation again"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "input",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Unexpected end of JSON input",
+    "diagnostics": [
+     {
+      "code": "input/json-parse",
+      "severity": "error",
+      "message": "Input JSON could not be parsed: Unexpected end of JSON input",
+      "subject": {
+       "input": "<input>"
+      },
+      "evidence": {
+       "reason": "Unexpected end of JSON input"
+      },
+      "supportedFixes": [
+       "repair the JSON syntax and run validation again"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "Unexpected end of JSON input\n[input/json-parse] Input JSON could not be parsed: Unexpected end of JSON input Fix: repair the JSON syntax and run validation again.\n"
+ },
+ "layout_json_by_quality": {}
+}

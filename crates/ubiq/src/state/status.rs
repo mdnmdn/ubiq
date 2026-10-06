@@ -230,6 +230,11 @@ pub fn conversation_status(conversation: &Conversation) -> Status {
     if conversation.launched {
         return Status::new(Lifecycle::Idle, Doing::Unknown);
     }
+    // A launch that failed (`T-326`): no harness, and a reason standing. Not `Starting` — that
+    // reads as a spinner waiting on something that already refused.
+    if conversation.error.is_some() {
+        return Status::new(Lifecycle::Unloaded, Doing::Failed);
+    }
     if !conversation.blocks.is_empty() {
         return Status::new(Lifecycle::Unloaded, Doing::Unknown);
     }

@@ -1,0 +1,169 @@
+{
+ "name": "neg.schema-minLength-label",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/minLength",
+ "expect_codes": [
+  "schema/minLength"
+ ],
+ "source_sha256": "e24e3a8ccf20159197b0be28e506705aa2cd84bf1ad55259423f0da769f407b7",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1}",
+    "diagnostics": [
+     {
+      "code": "schema/minLength",
+      "severity": "error",
+      "message": "/components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/label",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "minLength",
+       "limit": 1
+      },
+      "supportedFixes": [
+       "provide at least 1 character(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1}",
+    "diagnostics": [
+     {
+      "code": "schema/minLength",
+      "severity": "error",
+      "message": "/components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/label",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "minLength",
+       "limit": 1
+      },
+      "supportedFixes": [
+       "provide at least 1 character(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1}",
+    "diagnostics": [
+     {
+      "code": "schema/minLength",
+      "severity": "error",
+      "message": "/components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/label",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "minLength",
+       "limit": 1
+      },
+      "supportedFixes": [
+       "provide at least 1 character(s)"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1}\n[schema/minLength] /components/0/label (id/label: \"web\") must NOT have fewer than 1 characters {\"limit\":1} Fix: provide at least 1 character(s).\n"
+ },
+ "layout_json_by_quality": {}
+}

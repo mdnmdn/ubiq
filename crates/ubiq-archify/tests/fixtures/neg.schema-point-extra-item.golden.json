@@ -1,0 +1,169 @@
+{
+ "name": "neg.schema-point-extra-item",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/maxItems",
+ "expect_codes": [
+  "schema/maxItems"
+ ],
+ "source_sha256": "7b86bbd06f8eb3aa8e65fbb76a0afacaecae9bcab7f449f69a411e85dd067a96",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [1,2,3]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/pos",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at most 2 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/pos",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at most 2 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/pos",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 2
+      },
+      "supportedFixes": [
+       "provide at most 2 item(s)"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}\n  /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2}\n[schema/maxItems] /components/0/pos (id/label: \"web\") must NOT have more than 2 items {\"limit\":2} Fix: provide at most 2 item(s).\n"
+ },
+ "layout_json_by_quality": {}
+}

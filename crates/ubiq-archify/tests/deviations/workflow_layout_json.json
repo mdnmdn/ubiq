@@ -1,0 +1,3347 @@
+{
+  "fixture.v1-baseline.agent-tool-call.workflow [authored]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "user",
+          "id": null,
+          "points": [
+            [
+              "n:134",
+              "n:119"
+            ],
+            [
+              "n:174",
+              "n:119"
+            ]
+          ],
+          "to": "chat"
+        },
+        {
+          "from": "chat",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:145"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:234"
+            ]
+          ],
+          "to": "planner"
+        },
+        {
+          "from": "planner",
+          "id": null,
+          "points": [
+            [
+              "n:346",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "router"
+        },
+        {
+          "from": "router",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:294"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:375"
+            ]
+          ],
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:384",
+              "n:409"
+            ],
+            [
+              "n:356",
+              "n:409"
+            ],
+            [
+              "n:356",
+              "n:718"
+            ],
+            [
+              "n:454",
+              "n:718"
+            ]
+          ],
+          "to": "tool"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:443"
+            ],
+            [
+              "n:430",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:524"
+            ]
+          ],
+          "to": "blocked"
+        },
+        {
+          "from": "blocked",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:550"
+            ],
+            [
+              "n:579",
+              "n:550"
+            ]
+          ],
+          "to": "retry"
+        },
+        {
+          "from": "tool",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:718"
+            ],
+            [
+              "n:579",
+              "n:718"
+            ]
+          ],
+          "to": "external"
+        },
+        {
+          "from": "external",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:718"
+            ],
+            [
+              "n:692",
+              "n:718"
+            ],
+            [
+              "n:692",
+              "n:119"
+            ],
+            [
+              "n:671",
+              "n:119"
+            ]
+          ],
+          "to": "final"
+        },
+        {
+          "from": "external",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:744"
+            ],
+            [
+              "n:625",
+              "n:917"
+            ],
+            [
+              "n:500",
+              "n:917"
+            ],
+            [
+              "n:500",
+              "n:885"
+            ]
+          ],
+          "to": "trace"
+        },
+        {
+          "from": "store",
+          "id": null,
+          "points": [
+            [
+              "n:266",
+              "n:859"
+            ],
+            [
+              "n:454",
+              "n:859"
+            ]
+          ],
+          "to": "trace"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "plan",
+          "width": "n:30",
+          "x": "n:260",
+          "y": "n:156"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "needs approval?",
+          "width": "n:82",
+          "x": "n:464",
+          "y": "n:321"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "denied",
+          "width": "n:38.8",
+          "x": "n:465",
+          "y": "n:458"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "record result",
+          "width": "n:72.4",
+          "x": "n:562.5",
+          "y": "n:907"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "trace + memory",
+          "width": "n:77.2",
+          "x": "n:365",
+          "y": "n:855"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "user",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "chat",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:93"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "final",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:93"
+        },
+        {
+          "col": "n:2",
+          "height": "n:68",
+          "id": "planner",
+          "lane": "agent",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "router",
+          "lane": "agent",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:242"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "approval",
+          "lane": "policy",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:375"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "blocked",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:524"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "retry",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:524"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "tool",
+          "lane": "tools",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:684"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "external",
+          "lane": "tools",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:692"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "store",
+          "lane": "trace",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:833"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "trace",
+          "lane": "trace",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:833"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:1020"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:1020"
+      ]
+    }
+  },
+  "fixture.v1-baseline.agent-tool-call.workflow [showcase]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "user",
+          "id": null,
+          "points": [
+            [
+              "n:134",
+              "n:119"
+            ],
+            [
+              "n:174",
+              "n:119"
+            ]
+          ],
+          "to": "chat"
+        },
+        {
+          "from": "chat",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:145"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:234"
+            ]
+          ],
+          "to": "planner"
+        },
+        {
+          "from": "planner",
+          "id": null,
+          "points": [
+            [
+              "n:346",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "router"
+        },
+        {
+          "from": "router",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:294"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:375"
+            ]
+          ],
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:384",
+              "n:409"
+            ],
+            [
+              "n:356",
+              "n:409"
+            ],
+            [
+              "n:356",
+              "n:718"
+            ],
+            [
+              "n:454",
+              "n:718"
+            ]
+          ],
+          "to": "tool"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:443"
+            ],
+            [
+              "n:430",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:524"
+            ]
+          ],
+          "to": "blocked"
+        },
+        {
+          "from": "blocked",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:550"
+            ],
+            [
+              "n:579",
+              "n:550"
+            ]
+          ],
+          "to": "retry"
+        },
+        {
+          "from": "tool",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:718"
+            ],
+            [
+              "n:579",
+              "n:718"
+            ]
+          ],
+          "to": "external"
+        },
+        {
+          "from": "external",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:718"
+            ],
+            [
+              "n:692",
+              "n:718"
+            ],
+            [
+              "n:692",
+              "n:119"
+            ],
+            [
+              "n:671",
+              "n:119"
+            ]
+          ],
+          "to": "final"
+        },
+        {
+          "from": "external",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:744"
+            ],
+            [
+              "n:625",
+              "n:917"
+            ],
+            [
+              "n:500",
+              "n:917"
+            ],
+            [
+              "n:500",
+              "n:885"
+            ]
+          ],
+          "to": "trace"
+        },
+        {
+          "from": "store",
+          "id": null,
+          "points": [
+            [
+              "n:266",
+              "n:859"
+            ],
+            [
+              "n:454",
+              "n:859"
+            ]
+          ],
+          "to": "trace"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "plan",
+          "width": "n:30",
+          "x": "n:260",
+          "y": "n:156"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "needs approval?",
+          "width": "n:82",
+          "x": "n:464",
+          "y": "n:321"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "denied",
+          "width": "n:38.8",
+          "x": "n:465",
+          "y": "n:458"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "record result",
+          "width": "n:72.4",
+          "x": "n:562.5",
+          "y": "n:907"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "trace + memory",
+          "width": "n:77.2",
+          "x": "n:365",
+          "y": "n:855"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "user",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "chat",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:93"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "final",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:93"
+        },
+        {
+          "col": "n:2",
+          "height": "n:68",
+          "id": "planner",
+          "lane": "agent",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "router",
+          "lane": "agent",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:242"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "approval",
+          "lane": "policy",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:375"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "blocked",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:524"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "retry",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:524"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "tool",
+          "lane": "tools",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:684"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "external",
+          "lane": "tools",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:692"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "store",
+          "lane": "trace",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:833"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "trace",
+          "lane": "trace",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:833"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:1020"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:1020"
+      ]
+    }
+  },
+  "fixture.v1-baseline.agent-tool-call.workflow [standard]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "user",
+          "id": null,
+          "points": [
+            [
+              "n:134",
+              "n:119"
+            ],
+            [
+              "n:174",
+              "n:119"
+            ]
+          ],
+          "to": "chat"
+        },
+        {
+          "from": "chat",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:145"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:234"
+            ]
+          ],
+          "to": "planner"
+        },
+        {
+          "from": "planner",
+          "id": null,
+          "points": [
+            [
+              "n:346",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "router"
+        },
+        {
+          "from": "router",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:294"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:375"
+            ]
+          ],
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:384",
+              "n:409"
+            ],
+            [
+              "n:356",
+              "n:409"
+            ],
+            [
+              "n:356",
+              "n:718"
+            ],
+            [
+              "n:454",
+              "n:718"
+            ]
+          ],
+          "to": "tool"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:443"
+            ],
+            [
+              "n:430",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:524"
+            ]
+          ],
+          "to": "blocked"
+        },
+        {
+          "from": "blocked",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:550"
+            ],
+            [
+              "n:579",
+              "n:550"
+            ]
+          ],
+          "to": "retry"
+        },
+        {
+          "from": "tool",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:718"
+            ],
+            [
+              "n:579",
+              "n:718"
+            ]
+          ],
+          "to": "external"
+        },
+        {
+          "from": "external",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:718"
+            ],
+            [
+              "n:692",
+              "n:718"
+            ],
+            [
+              "n:692",
+              "n:119"
+            ],
+            [
+              "n:671",
+              "n:119"
+            ]
+          ],
+          "to": "final"
+        },
+        {
+          "from": "external",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:744"
+            ],
+            [
+              "n:625",
+              "n:917"
+            ],
+            [
+              "n:500",
+              "n:917"
+            ],
+            [
+              "n:500",
+              "n:885"
+            ]
+          ],
+          "to": "trace"
+        },
+        {
+          "from": "store",
+          "id": null,
+          "points": [
+            [
+              "n:266",
+              "n:859"
+            ],
+            [
+              "n:454",
+              "n:859"
+            ]
+          ],
+          "to": "trace"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "plan",
+          "width": "n:30",
+          "x": "n:260",
+          "y": "n:156"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "needs approval?",
+          "width": "n:82",
+          "x": "n:464",
+          "y": "n:321"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "denied",
+          "width": "n:38.8",
+          "x": "n:465",
+          "y": "n:458"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "record result",
+          "width": "n:72.4",
+          "x": "n:562.5",
+          "y": "n:907"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "trace + memory",
+          "width": "n:77.2",
+          "x": "n:365",
+          "y": "n:855"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "user",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "chat",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:93"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "final",
+          "lane": "ui",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:93"
+        },
+        {
+          "col": "n:2",
+          "height": "n:68",
+          "id": "planner",
+          "lane": "agent",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "router",
+          "lane": "agent",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:242"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "approval",
+          "lane": "policy",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:375"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "blocked",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:524"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "retry",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:524"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "tool",
+          "lane": "tools",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:684"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "external",
+          "lane": "tools",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:692"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "store",
+          "lane": "trace",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:833"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "trace",
+          "lane": "trace",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:833"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:1020"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:1020"
+      ]
+    }
+  },
+  "incident-response.workflow [authored]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "alert",
+          "id": null,
+          "points": [
+            [
+              "n:88",
+              "n:145"
+            ],
+            [
+              "n:88",
+              "n:166"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:220",
+              "n:242"
+            ]
+          ],
+          "to": "page"
+        },
+        {
+          "from": "page",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:294"
+            ],
+            [
+              "n:220",
+              "n:326"
+            ],
+            [
+              "n:300",
+              "n:326"
+            ],
+            [
+              "n:300",
+              "n:294"
+            ]
+          ],
+          "to": "triage"
+        },
+        {
+          "from": "triage",
+          "id": null,
+          "points": [
+            [
+              "n:300",
+              "n:294"
+            ],
+            [
+              "n:300",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:383"
+            ]
+          ],
+          "to": "contain"
+        },
+        {
+          "from": "contain",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:435"
+            ],
+            [
+              "n:430",
+              "n:467"
+            ],
+            [
+              "n:500",
+              "n:467"
+            ],
+            [
+              "n:500",
+              "n:435"
+            ]
+          ],
+          "to": "recover"
+        },
+        {
+          "from": "recover",
+          "id": null,
+          "points": [
+            [
+              "n:500",
+              "n:435"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:625",
+              "n:456"
+            ],
+            [
+              "n:625",
+              "n:499"
+            ]
+          ],
+          "to": "verify"
+        },
+        {
+          "from": "verify",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:567"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:631"
+            ]
+          ],
+          "to": "close"
+        },
+        {
+          "from": "triage",
+          "id": null,
+          "points": [
+            [
+              "n:332",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "declare"
+        },
+        {
+          "from": "declare",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:234"
+            ],
+            [
+              "n:430",
+              "n:16"
+            ],
+            [
+              "n:20",
+              "n:16"
+            ],
+            [
+              "n:20",
+              "n:657"
+            ],
+            [
+              "n:384",
+              "n:657"
+            ]
+          ],
+          "to": "update"
+        },
+        {
+          "from": "update",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:683"
+            ],
+            [
+              "n:430",
+              "n:704"
+            ],
+            [
+              "n:430",
+              "n:704"
+            ],
+            [
+              "n:430",
+              "n:772"
+            ]
+          ],
+          "to": "escalate"
+        },
+        {
+          "from": "verify",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:798"
+            ],
+            [
+              "n:671",
+              "n:798"
+            ]
+          ],
+          "to": "rollback"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "page",
+          "width": "n:30",
+          "x": "n:154",
+          "y": "n:156"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "alert",
+          "lane": "signals",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "page",
+          "lane": "responders",
+          "width": "n:76",
+          "x": "n:182",
+          "y": "n:242"
+        },
+        {
+          "col": "n:2",
+          "height": "n:52",
+          "id": "triage",
+          "lane": "responders",
+          "width": "n:64",
+          "x": "n:268",
+          "y": "n:242"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "declare",
+          "lane": "responders",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "contain",
+          "lane": "mitigation",
+          "width": "n:72",
+          "x": "n:394",
+          "y": "n:383"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "recover",
+          "lane": "mitigation",
+          "width": "n:52",
+          "x": "n:474",
+          "y": "n:383"
+        },
+        {
+          "col": "n:5",
+          "height": "n:68",
+          "id": "verify",
+          "lane": "recovery",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:499"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "close",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:631"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "update",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:631"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "escalate",
+          "lane": "exceptions",
+          "width": "n:72",
+          "x": "n:394",
+          "y": "n:772"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "rollback",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:772"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:978"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:978"
+      ]
+    }
+  },
+  "incident-response.workflow [showcase]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "alert",
+          "id": null,
+          "points": [
+            [
+              "n:88",
+              "n:145"
+            ],
+            [
+              "n:88",
+              "n:166"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:220",
+              "n:242"
+            ]
+          ],
+          "to": "page"
+        },
+        {
+          "from": "page",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:294"
+            ],
+            [
+              "n:220",
+              "n:326"
+            ],
+            [
+              "n:300",
+              "n:326"
+            ],
+            [
+              "n:300",
+              "n:294"
+            ]
+          ],
+          "to": "triage"
+        },
+        {
+          "from": "triage",
+          "id": null,
+          "points": [
+            [
+              "n:300",
+              "n:294"
+            ],
+            [
+              "n:300",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:383"
+            ]
+          ],
+          "to": "contain"
+        },
+        {
+          "from": "contain",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:435"
+            ],
+            [
+              "n:430",
+              "n:467"
+            ],
+            [
+              "n:500",
+              "n:467"
+            ],
+            [
+              "n:500",
+              "n:435"
+            ]
+          ],
+          "to": "recover"
+        },
+        {
+          "from": "recover",
+          "id": null,
+          "points": [
+            [
+              "n:500",
+              "n:435"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:625",
+              "n:456"
+            ],
+            [
+              "n:625",
+              "n:499"
+            ]
+          ],
+          "to": "verify"
+        },
+        {
+          "from": "verify",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:567"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:631"
+            ]
+          ],
+          "to": "close"
+        },
+        {
+          "from": "triage",
+          "id": null,
+          "points": [
+            [
+              "n:332",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "declare"
+        },
+        {
+          "from": "declare",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:234"
+            ],
+            [
+              "n:430",
+              "n:16"
+            ],
+            [
+              "n:20",
+              "n:16"
+            ],
+            [
+              "n:20",
+              "n:657"
+            ],
+            [
+              "n:384",
+              "n:657"
+            ]
+          ],
+          "to": "update"
+        },
+        {
+          "from": "update",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:683"
+            ],
+            [
+              "n:430",
+              "n:704"
+            ],
+            [
+              "n:430",
+              "n:704"
+            ],
+            [
+              "n:430",
+              "n:772"
+            ]
+          ],
+          "to": "escalate"
+        },
+        {
+          "from": "verify",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:798"
+            ],
+            [
+              "n:671",
+              "n:798"
+            ]
+          ],
+          "to": "rollback"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "page",
+          "width": "n:30",
+          "x": "n:154",
+          "y": "n:156"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "alert",
+          "lane": "signals",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "page",
+          "lane": "responders",
+          "width": "n:76",
+          "x": "n:182",
+          "y": "n:242"
+        },
+        {
+          "col": "n:2",
+          "height": "n:52",
+          "id": "triage",
+          "lane": "responders",
+          "width": "n:64",
+          "x": "n:268",
+          "y": "n:242"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "declare",
+          "lane": "responders",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "contain",
+          "lane": "mitigation",
+          "width": "n:72",
+          "x": "n:394",
+          "y": "n:383"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "recover",
+          "lane": "mitigation",
+          "width": "n:52",
+          "x": "n:474",
+          "y": "n:383"
+        },
+        {
+          "col": "n:5",
+          "height": "n:68",
+          "id": "verify",
+          "lane": "recovery",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:499"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "close",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:631"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "update",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:631"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "escalate",
+          "lane": "exceptions",
+          "width": "n:72",
+          "x": "n:394",
+          "y": "n:772"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "rollback",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:772"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:978"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:978"
+      ]
+    }
+  },
+  "incident-response.workflow [standard]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "alert",
+          "id": null,
+          "points": [
+            [
+              "n:88",
+              "n:145"
+            ],
+            [
+              "n:88",
+              "n:166"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:220",
+              "n:242"
+            ]
+          ],
+          "to": "page"
+        },
+        {
+          "from": "page",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:294"
+            ],
+            [
+              "n:220",
+              "n:326"
+            ],
+            [
+              "n:300",
+              "n:326"
+            ],
+            [
+              "n:300",
+              "n:294"
+            ]
+          ],
+          "to": "triage"
+        },
+        {
+          "from": "triage",
+          "id": null,
+          "points": [
+            [
+              "n:300",
+              "n:294"
+            ],
+            [
+              "n:300",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:430",
+              "n:383"
+            ]
+          ],
+          "to": "contain"
+        },
+        {
+          "from": "contain",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:435"
+            ],
+            [
+              "n:430",
+              "n:467"
+            ],
+            [
+              "n:500",
+              "n:467"
+            ],
+            [
+              "n:500",
+              "n:435"
+            ]
+          ],
+          "to": "recover"
+        },
+        {
+          "from": "recover",
+          "id": null,
+          "points": [
+            [
+              "n:500",
+              "n:435"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:625",
+              "n:456"
+            ],
+            [
+              "n:625",
+              "n:499"
+            ]
+          ],
+          "to": "verify"
+        },
+        {
+          "from": "verify",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:567"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:631"
+            ]
+          ],
+          "to": "close"
+        },
+        {
+          "from": "triage",
+          "id": null,
+          "points": [
+            [
+              "n:332",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "declare"
+        },
+        {
+          "from": "declare",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:234"
+            ],
+            [
+              "n:430",
+              "n:16"
+            ],
+            [
+              "n:20",
+              "n:16"
+            ],
+            [
+              "n:20",
+              "n:657"
+            ],
+            [
+              "n:384",
+              "n:657"
+            ]
+          ],
+          "to": "update"
+        },
+        {
+          "from": "update",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:683"
+            ],
+            [
+              "n:430",
+              "n:704"
+            ],
+            [
+              "n:430",
+              "n:704"
+            ],
+            [
+              "n:430",
+              "n:772"
+            ]
+          ],
+          "to": "escalate"
+        },
+        {
+          "from": "verify",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:798"
+            ],
+            [
+              "n:671",
+              "n:798"
+            ]
+          ],
+          "to": "rollback"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "page",
+          "width": "n:30",
+          "x": "n:154",
+          "y": "n:156"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "alert",
+          "lane": "signals",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "page",
+          "lane": "responders",
+          "width": "n:76",
+          "x": "n:182",
+          "y": "n:242"
+        },
+        {
+          "col": "n:2",
+          "height": "n:52",
+          "id": "triage",
+          "lane": "responders",
+          "width": "n:64",
+          "x": "n:268",
+          "y": "n:242"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "declare",
+          "lane": "responders",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "contain",
+          "lane": "mitigation",
+          "width": "n:72",
+          "x": "n:394",
+          "y": "n:383"
+        },
+        {
+          "col": "n:4",
+          "height": "n:52",
+          "id": "recover",
+          "lane": "mitigation",
+          "width": "n:52",
+          "x": "n:474",
+          "y": "n:383"
+        },
+        {
+          "col": "n:5",
+          "height": "n:68",
+          "id": "verify",
+          "lane": "recovery",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:499"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "close",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:631"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "update",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:631"
+        },
+        {
+          "col": "n:3",
+          "height": "n:52",
+          "id": "escalate",
+          "lane": "exceptions",
+          "width": "n:72",
+          "x": "n:394",
+          "y": "n:772"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "rollback",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:772"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:978"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:978"
+      ]
+    }
+  },
+  "neg.graph-duplicate-group-v1 [authored]": {
+    "exit_code": 1,
+    "out": {
+      "contract": "fixed-v1",
+      "diagnostics": [
+        {
+          "code": "layout/constraint",
+          "evidence": {},
+          "message": "Group ids must be unique.",
+          "severity": "error",
+          "subject": {
+            "diagramType": "workflow"
+          },
+          "supportedFixes": []
+        }
+      ]
+    }
+  },
+  "release-delivery.workflow [authored]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "commit",
+          "id": null,
+          "points": [
+            [
+              "n:134",
+              "n:119"
+            ],
+            [
+              "n:174",
+              "n:119"
+            ]
+          ],
+          "to": "pull_request"
+        },
+        {
+          "from": "pull_request",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:145"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:234"
+            ]
+          ],
+          "to": "build"
+        },
+        {
+          "from": "build",
+          "id": null,
+          "points": [
+            [
+              "n:346",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "checks"
+        },
+        {
+          "from": "checks",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:302"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:500",
+              "n:332"
+            ],
+            [
+              "n:500",
+              "n:375"
+            ]
+          ],
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:500",
+              "n:443"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:499"
+            ]
+          ],
+          "to": "deploy"
+        },
+        {
+          "from": "deploy",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:533"
+            ],
+            [
+              "n:579",
+              "n:533"
+            ]
+          ],
+          "to": "verify_prod"
+        },
+        {
+          "from": "verify_prod",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:559"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:631"
+            ]
+          ],
+          "to": "announce"
+        },
+        {
+          "from": "checks",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:302"
+            ],
+            [
+              "n:430",
+              "n:518"
+            ],
+            [
+              "n:300",
+              "n:518"
+            ],
+            [
+              "n:300",
+              "n:780"
+            ]
+          ],
+          "to": "failed"
+        },
+        {
+          "from": "verify_prod",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:806"
+            ],
+            [
+              "n:532",
+              "n:806"
+            ]
+          ],
+          "to": "rollback"
+        },
+        {
+          "from": "rollback",
+          "id": null,
+          "points": [
+            [
+              "n:468",
+              "n:806"
+            ],
+            [
+              "n:426",
+              "n:806"
+            ],
+            [
+              "n:426",
+              "n:533"
+            ],
+            [
+              "n:454",
+              "n:533"
+            ]
+          ],
+          "to": "deploy"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "merge",
+          "width": "n:34",
+          "x": "n:260",
+          "y": "n:156"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "healthy",
+          "width": "n:43.6",
+          "x": "n:625",
+          "y": "n:570"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "red",
+          "width": "n:30",
+          "x": "n:365",
+          "y": "n:508"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "restore",
+          "width": "n:43.6",
+          "x": "n:426",
+          "y": "n:659.5"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "commit",
+          "lane": "dev",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "pull_request",
+          "lane": "dev",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:93"
+        },
+        {
+          "col": "n:2",
+          "height": "n:68",
+          "id": "build",
+          "lane": "ci",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "checks",
+          "lane": "ci",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:234"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "approval",
+          "lane": "approval",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:375"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "deploy",
+          "lane": "environment",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:499"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "verify_prod",
+          "lane": "environment",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:507"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "announce",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:631"
+        },
+        {
+          "col": "n:2",
+          "height": "n:52",
+          "id": "failed",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:780"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "rollback",
+          "lane": "exceptions",
+          "width": "n:64",
+          "x": "n:468",
+          "y": "n:772"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:994"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:994"
+      ]
+    }
+  },
+  "release-delivery.workflow [showcase]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "commit",
+          "id": null,
+          "points": [
+            [
+              "n:134",
+              "n:119"
+            ],
+            [
+              "n:174",
+              "n:119"
+            ]
+          ],
+          "to": "pull_request"
+        },
+        {
+          "from": "pull_request",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:145"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:234"
+            ]
+          ],
+          "to": "build"
+        },
+        {
+          "from": "build",
+          "id": null,
+          "points": [
+            [
+              "n:346",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "checks"
+        },
+        {
+          "from": "checks",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:302"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:500",
+              "n:332"
+            ],
+            [
+              "n:500",
+              "n:375"
+            ]
+          ],
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:500",
+              "n:443"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:499"
+            ]
+          ],
+          "to": "deploy"
+        },
+        {
+          "from": "deploy",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:533"
+            ],
+            [
+              "n:579",
+              "n:533"
+            ]
+          ],
+          "to": "verify_prod"
+        },
+        {
+          "from": "verify_prod",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:559"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:631"
+            ]
+          ],
+          "to": "announce"
+        },
+        {
+          "from": "checks",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:302"
+            ],
+            [
+              "n:430",
+              "n:518"
+            ],
+            [
+              "n:300",
+              "n:518"
+            ],
+            [
+              "n:300",
+              "n:780"
+            ]
+          ],
+          "to": "failed"
+        },
+        {
+          "from": "verify_prod",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:806"
+            ],
+            [
+              "n:532",
+              "n:806"
+            ]
+          ],
+          "to": "rollback"
+        },
+        {
+          "from": "rollback",
+          "id": null,
+          "points": [
+            [
+              "n:468",
+              "n:806"
+            ],
+            [
+              "n:426",
+              "n:806"
+            ],
+            [
+              "n:426",
+              "n:533"
+            ],
+            [
+              "n:454",
+              "n:533"
+            ]
+          ],
+          "to": "deploy"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "merge",
+          "width": "n:34",
+          "x": "n:260",
+          "y": "n:156"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "healthy",
+          "width": "n:43.6",
+          "x": "n:625",
+          "y": "n:570"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "red",
+          "width": "n:30",
+          "x": "n:365",
+          "y": "n:508"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "restore",
+          "width": "n:43.6",
+          "x": "n:426",
+          "y": "n:659.5"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "commit",
+          "lane": "dev",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "pull_request",
+          "lane": "dev",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:93"
+        },
+        {
+          "col": "n:2",
+          "height": "n:68",
+          "id": "build",
+          "lane": "ci",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "checks",
+          "lane": "ci",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:234"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "approval",
+          "lane": "approval",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:375"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "deploy",
+          "lane": "environment",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:499"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "verify_prod",
+          "lane": "environment",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:507"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "announce",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:631"
+        },
+        {
+          "col": "n:2",
+          "height": "n:52",
+          "id": "failed",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:780"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "rollback",
+          "lane": "exceptions",
+          "width": "n:64",
+          "x": "n:468",
+          "y": "n:772"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:994"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:994"
+      ]
+    }
+  },
+  "release-delivery.workflow [standard]": {
+    "exit_code": 0,
+    "out": {
+      "columns": [
+        "n:88",
+        "n:220",
+        "n:300",
+        "n:430",
+        "n:500",
+        "n:625"
+      ],
+      "contract": "fixed-v1",
+      "diagnostics": [],
+      "edges": [
+        {
+          "from": "commit",
+          "id": null,
+          "points": [
+            [
+              "n:134",
+              "n:119"
+            ],
+            [
+              "n:174",
+              "n:119"
+            ]
+          ],
+          "to": "pull_request"
+        },
+        {
+          "from": "pull_request",
+          "id": null,
+          "points": [
+            [
+              "n:220",
+              "n:145"
+            ],
+            [
+              "n:220",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:166"
+            ],
+            [
+              "n:300",
+              "n:234"
+            ]
+          ],
+          "to": "build"
+        },
+        {
+          "from": "build",
+          "id": null,
+          "points": [
+            [
+              "n:346",
+              "n:268"
+            ],
+            [
+              "n:384",
+              "n:268"
+            ]
+          ],
+          "to": "checks"
+        },
+        {
+          "from": "checks",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:302"
+            ],
+            [
+              "n:430",
+              "n:332"
+            ],
+            [
+              "n:500",
+              "n:332"
+            ],
+            [
+              "n:500",
+              "n:375"
+            ]
+          ],
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "id": null,
+          "points": [
+            [
+              "n:500",
+              "n:443"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:456"
+            ],
+            [
+              "n:500",
+              "n:499"
+            ]
+          ],
+          "to": "deploy"
+        },
+        {
+          "from": "deploy",
+          "id": null,
+          "points": [
+            [
+              "n:546",
+              "n:533"
+            ],
+            [
+              "n:579",
+              "n:533"
+            ]
+          ],
+          "to": "verify_prod"
+        },
+        {
+          "from": "verify_prod",
+          "id": null,
+          "points": [
+            [
+              "n:625",
+              "n:559"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:580"
+            ],
+            [
+              "n:625",
+              "n:631"
+            ]
+          ],
+          "to": "announce"
+        },
+        {
+          "from": "checks",
+          "id": null,
+          "points": [
+            [
+              "n:430",
+              "n:302"
+            ],
+            [
+              "n:430",
+              "n:518"
+            ],
+            [
+              "n:300",
+              "n:518"
+            ],
+            [
+              "n:300",
+              "n:780"
+            ]
+          ],
+          "to": "failed"
+        },
+        {
+          "from": "verify_prod",
+          "id": null,
+          "points": [
+            [
+              "n:671",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:533"
+            ],
+            [
+              "n:692",
+              "n:806"
+            ],
+            [
+              "n:532",
+              "n:806"
+            ]
+          ],
+          "to": "rollback"
+        },
+        {
+          "from": "rollback",
+          "id": null,
+          "points": [
+            [
+              "n:468",
+              "n:806"
+            ],
+            [
+              "n:426",
+              "n:806"
+            ],
+            [
+              "n:426",
+              "n:533"
+            ],
+            [
+              "n:454",
+              "n:533"
+            ]
+          ],
+          "to": "deploy"
+        }
+      ],
+      "labels": [
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "merge",
+          "width": "n:34",
+          "x": "n:260",
+          "y": "n:156"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "healthy",
+          "width": "n:43.6",
+          "x": "n:625",
+          "y": "n:570"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "red",
+          "width": "n:30",
+          "x": "n:365",
+          "y": "n:508"
+        },
+        {
+          "edge": null,
+          "height": "n:14",
+          "label": "restore",
+          "width": "n:43.6",
+          "x": "n:426",
+          "y": "n:659.5"
+        }
+      ],
+      "nodes": [
+        {
+          "col": "n:0",
+          "height": "n:52",
+          "id": "commit",
+          "lane": "dev",
+          "width": "n:92",
+          "x": "n:42",
+          "y": "n:93"
+        },
+        {
+          "col": "n:1",
+          "height": "n:52",
+          "id": "pull_request",
+          "lane": "dev",
+          "width": "n:92",
+          "x": "n:174",
+          "y": "n:93"
+        },
+        {
+          "col": "n:2",
+          "height": "n:68",
+          "id": "build",
+          "lane": "ci",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:234"
+        },
+        {
+          "col": "n:3",
+          "height": "n:68",
+          "id": "checks",
+          "lane": "ci",
+          "width": "n:92",
+          "x": "n:384",
+          "y": "n:234"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "approval",
+          "lane": "approval",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:375"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "deploy",
+          "lane": "environment",
+          "width": "n:92",
+          "x": "n:454",
+          "y": "n:499"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "verify_prod",
+          "lane": "environment",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:507"
+        },
+        {
+          "col": "n:5",
+          "height": "n:52",
+          "id": "announce",
+          "lane": "communication",
+          "width": "n:92",
+          "x": "n:579",
+          "y": "n:631"
+        },
+        {
+          "col": "n:2",
+          "height": "n:52",
+          "id": "failed",
+          "lane": "exceptions",
+          "width": "n:92",
+          "x": "n:254",
+          "y": "n:780"
+        },
+        {
+          "col": "n:4",
+          "height": "n:68",
+          "id": "rollback",
+          "lane": "exceptions",
+          "width": "n:64",
+          "x": "n:468",
+          "y": "n:772"
+        }
+      ],
+      "requiredViewBox": [
+        "n:720",
+        "n:994"
+      ],
+      "viewBox": [
+        "n:720",
+        "n:994"
+      ]
+    }
+  }
+}

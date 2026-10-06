@@ -1,0 +1,166 @@
+{
+ "name": "neg.schema-required-output",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/required",
+ "expect_codes": [
+  "schema/required"
+ ],
+ "note": "no meta.output: validate runs the schema up front (stage input path), not via the renderer",
+ "source_sha256": "4eeaabd6039e4f6d9a03311a14494c25d86bb5005d83e25db9e5fb098538516a",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta must have required property 'output' {\"missingProperty\":\"output\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/meta must have required property 'output' {\"missingProperty\":\"output\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "output"
+      },
+      "supportedFixes": [
+       "add required property \"output\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta must have required property 'output' {\"missingProperty\":\"output\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/meta must have required property 'output' {\"missingProperty\":\"output\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "output"
+      },
+      "supportedFixes": [
+       "add required property \"output\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /meta must have required property 'output' {\"missingProperty\":\"output\"}",
+    "diagnostics": [
+     {
+      "code": "schema/required",
+      "severity": "error",
+      "message": "/meta must have required property 'output' {\"missingProperty\":\"output\"}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/meta"
+      },
+      "evidence": {
+       "keyword": "required",
+       "missingProperty": "output"
+      },
+      "supportedFixes": [
+       "add required property \"output\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /meta must have required property 'output' {\"missingProperty\":\"output\"}\n[schema/required] /meta must have required property 'output' {\"missingProperty\":\"output\"} Fix: add required property \"output\".\n"
+ },
+ "layout_json_by_quality": {}
+}

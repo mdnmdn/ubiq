@@ -1,0 +1,187 @@
+{
+ "name": "neg.repo-sources-too-many",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "schema/maxItems",
+ "expect_codes": [
+  "schema/maxItems"
+ ],
+ "source_sha256": "879f84e620eb69b914b9666c29702ad55d9e9c893742cef97d82434b6241f6ab",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80],
+    "sources": [
+     {
+      "path": "src/web.ts",
+      "line": 1
+     },
+     {
+      "path": "src/web.ts",
+      "line": 2
+     },
+     {
+      "path": "src/web.ts",
+      "line": 3
+     },
+     {
+      "path": "src/web.ts",
+      "line": 4
+     }
+    ]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [300,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/sources",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 3
+      },
+      "supportedFixes": [
+       "provide at most 3 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/sources",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 3
+      },
+      "supportedFixes": [
+       "provide at most 3 item(s)"
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "architecture schema validation failed:\n  /components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3}",
+    "diagnostics": [
+     {
+      "code": "schema/maxItems",
+      "severity": "error",
+      "message": "/components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3}",
+      "subject": {
+       "diagramType": "architecture",
+       "path": "/components/0/sources",
+       "identity": "web"
+      },
+      "evidence": {
+       "keyword": "maxItems",
+       "limit": 3
+      },
+      "supportedFixes": [
+       "provide at most 3 item(s)"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "stderr": "architecture schema validation failed:\n  /components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3}\n[schema/maxItems] /components/0/sources (id/label: \"web\") must NOT have more than 3 items {\"limit\":3} Fix: provide at most 3 item(s).\n"
+ },
+ "layout_json_by_quality": {}
+}

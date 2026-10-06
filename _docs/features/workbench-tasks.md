@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
-updated: 2026-10-05
+updated: 2026-10-06
 verified: 2026-10-05
 code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
@@ -32,8 +32,9 @@ the project rather than of one session. Nothing is copied between them, and the 
 host's, held per project: a task ticked on the board is ticked in the drawer under the graph, because
 the two screens are two questions about one set of facts.
 
-**A project's sessions and agents are the host's mocks; its tasks are written down.** The mock is
-minted per project and made again at every boot, so nothing an agent says outlives the process. A
+**A project's sessions are the host's mocks, its agents are the live ones, and its tasks are written
+down.** The mock sessions are minted per project and made again at every boot, and the host invents
+no agent (`D205`). A
 task belongs to the project instead: it survives the window that made it and the restart after it.
 
 **A new project's board is empty**, and its file is written anyway. An absent store and an empty one
@@ -1197,7 +1198,7 @@ a row, `remove_task_step()` goes straight through, `delete_task()` asks the firs
 second, `withdraw_task_delete()` takes the question back, and `toggle_description_preview()` swaps
 the markdown for the source. `new_task()` is where the filter field becomes a title and the task is
 asked for; `drop_task()` is the column's own drop handler, because the column is the drop target
-here; `settle_board()`, beside `settle_graph()` in `render`, puts down a carry whose drag ended
+here; `settle_board()`, beside `settle_teams()` in `render`, puts down a carry whose drag ended
 outside every column. `ui/board/mod.rs` is the toolbar, the columns and the cards, and its
 `status_colour()` is the one place a column becomes a colour. `ui/board/mod.rs::columns()` filters
 `Status::all()` down to what `AppState::lane_drawn()` says the project draws before building a
@@ -1347,9 +1348,8 @@ wave makes is `our_keys()`, read off a probe record with every optional field po
 merge carries over only keys the record's own serialisation would not emit; before it, an unknown
 key carried over unconditionally could resurrect a coordinator or a pending request a save had just
 cleared, since a cleared `Option` writes no key at all in TOML. Separately, `Work::with_agent`
-(`crates/ubiq-host/src/work/mod.rs`) now checks the live agent list before falling back to the
-mock one it used to search alone, so `SendToAgent` and `AssignAgent` — `message_agent`'s host side
-among them — reach a real running agent rather than finding nobody and silently doing nothing.
+(`crates/ubiq-host/src/work/mod.rs`) searches the live agent list, so `SendToAgent` and
+`AssignAgent` — `message_agent`'s host side among them — reach a real running agent.
 
 The `ubiq-mission` (13 tools) and `use-mission` (6, a strict subset) MCP servers
 (`crates/ubiq-host/src/mcp/mission.rs`, catalogued as `mcp::catalogue::UBIQ_MISSION`/`USE_MISSION`)

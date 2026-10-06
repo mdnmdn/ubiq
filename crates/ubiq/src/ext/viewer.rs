@@ -140,11 +140,13 @@ pub fn register(reg: &mut Registry<ViewerSpec>, spec: ViewerSpec) {
     reg.insert(ids::VIEWER, spec);
 }
 
-/// The base's own contributed viewers: none. Every viewer the base ships is a built-in variant of
-/// [`ViewerKind`]. A second edition receives this on `Contributions` all the same, so registering
-/// into it is the same call everywhere.
+/// The base's own contributed viewers: Archify's diagram viewer. Every other viewer the base ships
+/// is a built-in variant of [`ViewerKind`]. A second edition receives this on `Contributions`, so
+/// registering into it is the same call everywhere.
 pub fn base_registry() -> Registry<ViewerSpec> {
-    Registry::new()
+    let mut reg = Registry::new();
+    crate::ui::archify::viewer::register(&mut reg);
+    reg
 }
 
 struct Resolved {

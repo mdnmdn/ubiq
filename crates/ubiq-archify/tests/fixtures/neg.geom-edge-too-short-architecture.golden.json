@@ -1,0 +1,335 @@
+{
+ "name": "neg.geom-edge-too-short-architecture",
+ "group": "negative",
+ "source": "mutation of architecture",
+ "type": "architecture",
+ "rule": "geom/edge-too-short",
+ "expect_codes": [
+  "layout/constraint"
+ ],
+ "source_sha256": "c7a7c57b6f1f6f18b1037f8395862028894aab1318f469f199b08a3afc4dd49f",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Mini",
+   "output": "mini.html"
+  },
+  "components": [
+   {
+    "id": "web",
+    "type": "frontend",
+    "label": "Web",
+    "sublabel": "React",
+    "pos": [40,80]
+   },
+   {
+    "id": "api",
+    "type": "backend",
+    "label": "API",
+    "sublabel": "FastAPI",
+    "pos": [170,80]
+   },
+   {
+    "id": "db",
+    "type": "database",
+    "label": "DB",
+    "sublabel": "Postgres",
+    "pos": [560,80]
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "Prod",
+    "wraps": [
+     "api",
+     "db"
+    ]
+   }
+  ],
+  "connections": [
+   {
+    "id": "web-api",
+    "from": "web",
+    "to": "api",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "id": "api-db",
+    "from": "api",
+    "to": "db",
+    "label": "SQL"
+   }
+  ]
+ },
+ "quality": null,
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.\n- Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)\n- Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.\n- Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)\n- Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "architecture",
+    "input": "<input>",
+    "error": "Architecture layout validation failed:\n- Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.\n- Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)\n- Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+    "diagnostics": [
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     },
+     {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+      "subject": {
+       "diagramType": "architecture"
+      },
+      "evidence": {},
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "ok": false,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [750,228],
+   "components": [
+    {
+     "id": "web",
+     "type": "frontend",
+     "label": "Web",
+     "x": 40,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [40,80]
+    },
+    {
+     "id": "api",
+     "type": "backend",
+     "label": "API",
+     "x": 170,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [170,80]
+    },
+    {
+     "id": "db",
+     "type": "database",
+     "label": "DB",
+     "x": 560,
+     "y": 80,
+     "width": 120,
+     "height": 60,
+     "pos": [560,80]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "Prod",
+     "x": 140,
+     "y": 50,
+     "width": 570,
+     "height": 110,
+     "wraps": [
+      "api",
+      "db"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "web",
+     "to": "api",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,110],[170,110]],
+     "labelAt": [165,100]
+    },
+    {
+     "from": "api",
+     "to": "db",
+     "label": "SQL",
+     "variant": "default",
+     "route": "auto",
+     "points": [[290,110],[560,110]],
+     "labelAt": [425,100]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 148,
+     "y": 90,
+     "width": 34,
+     "height": 14,
+     "labelAt": [165,100]
+    },
+    {
+     "text": "SQL",
+     "x": 410,
+     "y": 90,
+     "width": 30,
+     "height": 14,
+     "labelAt": [425,100]
+    }
+   ],
+   "schemaVersion": 1,
+   "source": "renderer",
+   "error": "Architecture layout validation failed:\n- Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.\n- Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)\n- Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+   "diagnostics": [
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Connection \"HTTPS\" is too short (10px; minimum 24px) — place its components farther apart.",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    },
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Label \"HTTPS\" overlaps component \"web\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"web\" rect: [40,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    },
+    {
+     "code": "layout/constraint",
+     "severity": "error",
+     "message": "Label \"HTTPS\" overlaps component \"api\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [148,90,34,14]\n  component \"api\" rect: [170,80,120,60]\n  Suggested fix: set labelAt [165,154] or set labelDy 54 (below); or set labelAt [165,72] or set labelDy -28 (above)",
+     "subject": {
+      "diagramType": "architecture"
+     },
+     "evidence": {},
+     "supportedFixes": []
+    }
+   ],
+   "contract": "archify-architecture-layout-v1"
+  }
+ },
+ "layout_json_by_quality": {}
+}

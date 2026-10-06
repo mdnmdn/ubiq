@@ -1,0 +1,2488 @@
+{
+ "name": "fixture.v1-baseline.production-deployment.architecture",
+ "group": "fixture",
+ "source": "archify/test/fixtures/v1-baseline/production-deployment.architecture.json",
+ "type": "architecture",
+ "source_sha256": "fca5a1d0088a69f3490df32826be45409c58aac75ce51fe13cc3920b5bb78765",
+ "source_doc": {
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+   "title": "Production Deployment Ownership",
+   "output": "examples/production-deployment.html",
+   "visual_preset": "blueprint",
+   "animation": "trace",
+   "quality_profile": "showcase",
+   "engineering_profile": "deployment-ownership"
+  },
+  "components": [
+   {
+    "id": "clients",
+    "type": "external",
+    "label": "Customers",
+    "sublabel": "web + mobile",
+    "pos": [38,300],
+    "size": [122,60]
+   },
+   {
+    "id": "edge",
+    "type": "cloud",
+    "label": "Global Edge",
+    "sublabel": "CDN + WAF",
+    "pos": [230,300],
+    "size": [126,60],
+    "tag": "edge team"
+   },
+   {
+    "id": "gateway",
+    "type": "security",
+    "label": "API Gateway",
+    "sublabel": "public :443",
+    "pos": [430,300],
+    "size": [128,60],
+    "tag": "platform"
+   },
+   {
+    "id": "api_a",
+    "type": "backend",
+    "label": "API Pods / AZ-a",
+    "sublabel": "private subnet",
+    "pos": [630,195],
+    "size": [136,62],
+    "tag": "app team"
+   },
+   {
+    "id": "api_b",
+    "type": "backend",
+    "label": "API Pods / AZ-b",
+    "sublabel": "private subnet",
+    "pos": [630,405],
+    "size": [136,62],
+    "tag": "app team"
+   },
+   {
+    "id": "redis",
+    "type": "database",
+    "label": "Redis",
+    "sublabel": "multi-AZ cache",
+    "pos": [840,195],
+    "size": [126,62],
+    "tag": "platform"
+   },
+   {
+    "id": "postgres",
+    "type": "database",
+    "label": "PostgreSQL",
+    "sublabel": "primary / encrypted",
+    "pos": [840,405],
+    "size": [126,62],
+    "tag": "data team"
+   },
+   {
+    "id": "events",
+    "type": "messagebus",
+    "label": "Event Bus",
+    "sublabel": "orders.v1",
+    "pos": [1040,300],
+    "size": [126,60],
+    "tag": "platform"
+   },
+   {
+    "id": "worker",
+    "type": "backend",
+    "label": "Workers",
+    "sublabel": "private workload",
+    "pos": [1240,300],
+    "size": [126,60],
+    "tag": "app team"
+   },
+   {
+    "id": "replica",
+    "type": "database",
+    "label": "DR Replica",
+    "sublabel": "eu-west-1",
+    "pos": [1040,610],
+    "size": [126,62],
+    "tag": "data team"
+   },
+   {
+    "id": "audit",
+    "type": "cloud",
+    "label": "Audit Archive",
+    "sublabel": "immutable objects",
+    "pos": [1240,465],
+    "size": [126,62],
+    "tag": "security"
+   },
+   {
+    "id": "observability",
+    "type": "external",
+    "label": "Observability",
+    "sublabel": "metrics + traces",
+    "pos": [1240,85],
+    "size": [126,62],
+    "tag": "SRE"
+   }
+  ],
+  "boundaries": [
+   {
+    "kind": "region",
+    "label": "AWS us-east-1 / production",
+    "wraps": [
+     "edge",
+     "gateway",
+     "api_a",
+     "api_b",
+     "redis",
+     "postgres",
+     "events",
+     "worker",
+     "audit"
+    ]
+   },
+   {
+    "kind": "security-group",
+    "label": "private application network",
+    "wraps": [
+     "api_a",
+     "api_b",
+     "redis",
+     "postgres",
+     "events",
+     "worker"
+    ]
+   },
+   {
+    "kind": "region",
+    "label": "AWS eu-west-1 / disaster recovery",
+    "wraps": [
+     "replica"
+    ]
+   },
+   {
+    "kind": "security-group",
+    "label": "DR private subnet",
+    "wraps": [
+     "replica"
+    ],
+    "pad": 14
+   }
+  ],
+  "connections": [
+   {
+    "from": "clients",
+    "to": "edge",
+    "label": "HTTPS",
+    "variant": "emphasis"
+   },
+   {
+    "from": "edge",
+    "to": "gateway",
+    "label": "mTLS",
+    "variant": "security"
+   },
+   {
+    "from": "gateway",
+    "to": "api_a",
+    "label": "VPC route",
+    "variant": "emphasis",
+    "route": "orthogonal-h",
+    "labelAt": [594,275]
+   },
+   {
+    "from": "gateway",
+    "to": "api_b",
+    "label": "VPC route",
+    "variant": "emphasis",
+    "route": "orthogonal-h",
+    "labelAt": [594,385]
+   },
+   {
+    "from": "api_a",
+    "to": "redis",
+    "label": "cache",
+    "route": "straight"
+   },
+   {
+    "from": "api_b",
+    "to": "postgres",
+    "label": "SQL",
+    "route": "straight"
+   },
+   {
+    "from": "api_a",
+    "to": "events",
+    "label": "publish",
+    "variant": "dashed",
+    "fromSide": "top",
+    "toSide": "top",
+    "via": [[698,170],[1103,170]]
+   },
+   {
+    "from": "api_b",
+    "to": "events",
+    "variant": "dashed",
+    "fromSide": "top",
+    "toSide": "bottom",
+    "via": [[698,380],[1103,380]]
+   },
+   {
+    "from": "events",
+    "to": "worker",
+    "variant": "emphasis"
+   },
+   {
+    "from": "postgres",
+    "to": "replica",
+    "label": "cross-region WAL",
+    "variant": "security",
+    "route": "orthogonal-v",
+    "labelAt": [1003,529]
+   },
+   {
+    "from": "worker",
+    "to": "audit",
+    "label": "evidence",
+    "variant": "dashed",
+    "fromSide": "bottom",
+    "toSide": "top",
+    "labelDy": 58
+   },
+   {
+    "from": "worker",
+    "to": "observability",
+    "label": "OTLP",
+    "variant": "dashed",
+    "route": "orthogonal-v"
+   }
+  ],
+  "cards": [
+   {
+    "dot": "cyan",
+    "title": "Runtime Ownership",
+    "items": [
+     "Platform owns the edge, gateway, cache, and event bus",
+     "Application teams own API pods and workers",
+     "Data owns primary and disaster-recovery state"
+    ]
+   },
+   {
+    "dot": "rose",
+    "title": "Named Crossings",
+    "items": [
+     "Public HTTPS terminates at the managed edge",
+     "mTLS crosses into the application network",
+     "Cross-region WAL is explicit and encrypted"
+    ]
+   },
+   {
+    "dot": "emerald",
+    "title": "Operational Evidence",
+    "items": [
+     "Workers emit traces to SRE-owned observability",
+     "Audit evidence lands in immutable storage",
+     "Unknown placement should remain marked, never invented"
+    ]
+   }
+  ]
+ },
+ "quality": "showcase",
+ "schema_version": 1,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "fca5a1d0088a69f3490df32826be45409c58aac75ce51fe13cc3920b5bb78765",
+     "bytes": 4712
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "fca5a1d0088a69f3490df32826be45409c58aac75ce51fe13cc3920b5bb78765",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 36,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.4986072423398324,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.098,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 20,
+      "minInteriorSegmentPx": 104,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 85,
+      "emptyTopRatio": 0.112,
+      "occupiedTop": 85,
+      "viewBoxTop": 0,
+      "canvasHeight": 760,
+      "typicalNodeHeight": 62,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 1346,
+      "actualBudgetPx": 1346,
+      "actualReaderWidth": 1376,
+      "desiredReaderWidth": 1376.25,
+      "viewportCap": 1376,
+      "limit": "viewport-cap",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": false,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": null,
+       "from": "clients",
+       "to": "edge"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.4986072423398324,
+      "semanticTextCount": 38
+     },
+     "issues": []
+    },
+    "engineeringProfile": "deployment-ownership"
+   }
+  },
+  "standard": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "fca5a1d0088a69f3490df32826be45409c58aac75ce51fe13cc3920b5bb78765",
+     "bytes": 4712
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "standard",
+      "--candidate-sha256",
+      "fca5a1d0088a69f3490df32826be45409c58aac75ce51fe13cc3920b5bb78765",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "standard",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 36,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.4986072423398324,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.098,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 20,
+      "minInteriorSegmentPx": 104,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 85,
+      "emptyTopRatio": 0.112,
+      "occupiedTop": 85,
+      "viewBoxTop": 0,
+      "canvasHeight": 760,
+      "typicalNodeHeight": 62,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 1346,
+      "actualBudgetPx": 1346,
+      "actualReaderWidth": 1376,
+      "desiredReaderWidth": 1376.25,
+      "viewportCap": 1376,
+      "limit": "viewport-cap",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": false,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": null,
+       "from": "clients",
+       "to": "edge"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.4986072423398324,
+      "semanticTextCount": 38
+     },
+     "issues": []
+    },
+    "engineeringProfile": "deployment-ownership"
+   }
+  },
+  "showcase": {
+   "exit_code": 0,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "validate",
+    "type": "architecture",
+    "input": "<input>",
+    "candidate": {
+     "path": "<input>",
+     "sha256": "fca5a1d0088a69f3490df32826be45409c58aac75ce51fe13cc3920b5bb78765",
+     "bytes": 4712
+    },
+    "candidateFrozen": true,
+    "nextAction": {
+     "command": "finalize",
+     "arguments": [
+      "architecture",
+      "<input>",
+      "<output.html>",
+      "--quality",
+      "showcase",
+      "--candidate-sha256",
+      "fca5a1d0088a69f3490df32826be45409c58aac75ce51fe13cc3920b5bb78765",
+      "--json"
+     ]
+    },
+    "checks": [
+     {
+      "name": "single_svg",
+      "ok": true,
+      "details": [
+       "found 1 <svg> block(s)"
+      ]
+     },
+     {
+      "name": "finite_svg",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "orthogonal_arrows",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "label_route_clearance",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_crossings",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "relationship_corridors",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "container_border_runs",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "route_rhythm",
+      "ok": true,
+      "details": []
+     },
+     {
+      "name": "legend_clearance",
+      "ok": true,
+      "details": []
+     }
+    ],
+    "composition": {
+     "schemaVersion": 1,
+     "profile": "showcase",
+     "status": "pass",
+     "summary": {
+      "errors": 0,
+      "warnings": 0
+     },
+     "metrics": {
+      "properCrossings": 0,
+      "resolvedCrossovers": 0,
+      "ambiguousCorridors": 0,
+      "arrowheadCollisions": 0,
+      "containerBorderRuns": 0,
+      "labelRouteClearanceIssues": 0,
+      "labelCanvasOverflowIssues": 0,
+      "minLabelRouteClearance": 36,
+      "desktopReadabilityIssues": 0,
+      "viewportHeightIssues": 0,
+      "minProjectedNodeTextPx": 7.4986072423398324,
+      "maxBends": 2,
+      "routesOverSuggestedBends": 0,
+      "maxStretch": 1.098,
+      "routesOverSuggestedStretch": 0,
+      "minSegmentPx": 20,
+      "minInteriorSegmentPx": 104,
+      "shortSegmentCount": 0,
+      "shortEndpointSegmentCount": 0,
+      "shortInteriorSegmentCount": 0,
+      "microSegmentCount": 0
+     },
+     "suggestedLimits": {
+      "bendsPerRelationship": 2,
+      "stretch": 1.35,
+      "segmentPx": 16,
+      "microSegmentPx": 8
+     },
+     "routeReview": {
+      "crossings": [],
+      "detours": []
+     },
+     "leadingSpace": {
+      "measured": true,
+      "emptyTopPx": 85,
+      "emptyTopRatio": 0.112,
+      "occupiedTop": 85,
+      "viewBoxTop": 0,
+      "canvasHeight": 760,
+      "typicalNodeHeight": 62,
+      "reviewSuggested": false
+     },
+     "desktopReadability": {
+      "budgetBasis": "recognized-declared-wide",
+      "readerContract": "declared-wide-v1",
+      "availableDiagramWidth": 1346,
+      "actualBudgetPx": 1346,
+      "actualReaderWidth": 1376,
+      "desiredReaderWidth": 1376.25,
+      "viewportCap": 1376,
+      "limit": "viewport-cap",
+      "requestedTargetPx": 7.5,
+      "requestedTargetMet": false,
+      "hardFloorPx": 6,
+      "hardFloorMet": true,
+      "minimumOwner": {
+       "kind": "edge",
+       "id": null,
+       "from": "clients",
+       "to": "edge"
+      },
+      "minimumSourceTextPx": 8,
+      "minimumProjectedTextPx": 7.4986072423398324,
+      "semanticTextCount": 38
+     },
+     "issues": []
+    },
+    "engineeringProfile": "deployment-ownership"
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 0,
+  "receipt": {
+   "ok": true,
+   "diagram_type": "architecture",
+   "layout": {
+    "mode": "free"
+   },
+   "viewBox": [1436,760],
+   "components": [
+    {
+     "id": "clients",
+     "type": "external",
+     "label": "Customers",
+     "x": 38,
+     "y": 300,
+     "width": 122,
+     "height": 60,
+     "pos": [38,300]
+    },
+    {
+     "id": "edge",
+     "type": "cloud",
+     "label": "Global Edge",
+     "x": 230,
+     "y": 300,
+     "width": 126,
+     "height": 60,
+     "pos": [230,300]
+    },
+    {
+     "id": "gateway",
+     "type": "security",
+     "label": "API Gateway",
+     "x": 430,
+     "y": 300,
+     "width": 128,
+     "height": 60,
+     "pos": [430,300]
+    },
+    {
+     "id": "api_a",
+     "type": "backend",
+     "label": "API Pods / AZ-a",
+     "x": 630,
+     "y": 195,
+     "width": 136,
+     "height": 62,
+     "pos": [630,195]
+    },
+    {
+     "id": "api_b",
+     "type": "backend",
+     "label": "API Pods / AZ-b",
+     "x": 630,
+     "y": 405,
+     "width": 136,
+     "height": 62,
+     "pos": [630,405]
+    },
+    {
+     "id": "redis",
+     "type": "database",
+     "label": "Redis",
+     "x": 840,
+     "y": 195,
+     "width": 126,
+     "height": 62,
+     "pos": [840,195]
+    },
+    {
+     "id": "postgres",
+     "type": "database",
+     "label": "PostgreSQL",
+     "x": 840,
+     "y": 405,
+     "width": 126,
+     "height": 62,
+     "pos": [840,405]
+    },
+    {
+     "id": "events",
+     "type": "messagebus",
+     "label": "Event Bus",
+     "x": 1040,
+     "y": 300,
+     "width": 126,
+     "height": 60,
+     "pos": [1040,300]
+    },
+    {
+     "id": "worker",
+     "type": "backend",
+     "label": "Workers",
+     "x": 1240,
+     "y": 300,
+     "width": 126,
+     "height": 60,
+     "pos": [1240,300]
+    },
+    {
+     "id": "replica",
+     "type": "database",
+     "label": "DR Replica",
+     "x": 1040,
+     "y": 610,
+     "width": 126,
+     "height": 62,
+     "pos": [1040,610]
+    },
+    {
+     "id": "audit",
+     "type": "cloud",
+     "label": "Audit Archive",
+     "x": 1240,
+     "y": 465,
+     "width": 126,
+     "height": 62,
+     "pos": [1240,465]
+    },
+    {
+     "id": "observability",
+     "type": "external",
+     "label": "Observability",
+     "x": 1240,
+     "y": 85,
+     "width": 126,
+     "height": 62,
+     "pos": [1240,85]
+    }
+   ],
+   "boundaries": [
+    {
+     "kind": "region",
+     "label": "AWS us-east-1 / production",
+     "x": 200,
+     "y": 165,
+     "width": 1196,
+     "height": 382,
+     "wraps": [
+      "edge",
+      "gateway",
+      "api_a",
+      "api_b",
+      "redis",
+      "postgres",
+      "events",
+      "worker",
+      "audit"
+     ]
+    },
+    {
+     "kind": "security-group",
+     "label": "private application network",
+     "x": 600,
+     "y": 165,
+     "width": 796,
+     "height": 322,
+     "wraps": [
+      "api_a",
+      "api_b",
+      "redis",
+      "postgres",
+      "events",
+      "worker"
+     ]
+    },
+    {
+     "kind": "region",
+     "label": "AWS eu-west-1 / disaster recovery",
+     "x": 1002,
+     "y": 566,
+     "width": 201,
+     "height": 126,
+     "wraps": [
+      "replica"
+     ]
+    },
+    {
+     "kind": "security-group",
+     "label": "DR private subnet",
+     "x": 1026,
+     "y": 585,
+     "width": 154,
+     "height": 107,
+     "wraps": [
+      "replica"
+     ]
+    }
+   ],
+   "connections": [
+    {
+     "from": "clients",
+     "to": "edge",
+     "label": "HTTPS",
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[160,330],[230,330]],
+     "labelAt": [195,320]
+    },
+    {
+     "from": "edge",
+     "to": "gateway",
+     "label": "mTLS",
+     "variant": "security",
+     "route": "auto",
+     "points": [[356,330],[430,330]],
+     "labelAt": [393,320]
+    },
+    {
+     "from": "gateway",
+     "to": "api_a",
+     "label": "VPC route",
+     "variant": "emphasis",
+     "route": "orthogonal-h",
+     "points": [[558,330],[594,330],[594,226],[630,226]],
+     "labelAt": [594,275]
+    },
+    {
+     "from": "gateway",
+     "to": "api_b",
+     "label": "VPC route",
+     "variant": "emphasis",
+     "route": "orthogonal-h",
+     "points": [[558,330],[594,330],[594,436],[630,436]],
+     "labelAt": [594,385]
+    },
+    {
+     "from": "api_a",
+     "to": "redis",
+     "label": "cache",
+     "variant": "default",
+     "route": "straight",
+     "points": [[766,226],[840,226]],
+     "labelAt": [803,216]
+    },
+    {
+     "from": "api_b",
+     "to": "postgres",
+     "label": "SQL",
+     "variant": "default",
+     "route": "straight",
+     "points": [[766,436],[840,436]],
+     "labelAt": [803,426]
+    },
+    {
+     "from": "api_a",
+     "to": "events",
+     "label": "publish",
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[698,195],[698,170],[1103,170],[1103,300]],
+     "labelAt": [901,160]
+    },
+    {
+     "from": "api_b",
+     "to": "events",
+     "label": null,
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[698,405],[698,380],[1103,380],[1103,360]]
+    },
+    {
+     "from": "events",
+     "to": "worker",
+     "label": null,
+     "variant": "emphasis",
+     "route": "auto",
+     "points": [[1166,330],[1240,330]]
+    },
+    {
+     "from": "postgres",
+     "to": "replica",
+     "label": "cross-region WAL",
+     "variant": "security",
+     "route": "orthogonal-v",
+     "points": [[903,467],[903,538.5],[1103,538.5],[1103,610]],
+     "labelAt": [1003,529]
+    },
+    {
+     "from": "worker",
+     "to": "audit",
+     "label": "evidence",
+     "variant": "dashed",
+     "route": "auto",
+     "points": [[1303,360],[1303,465]],
+     "labelAt": [1303,408]
+    },
+    {
+     "from": "worker",
+     "to": "observability",
+     "label": "OTLP",
+     "variant": "dashed",
+     "route": "orthogonal-v",
+     "points": [[1303,300],[1303,223.5],[1303,223.5],[1303,147]],
+     "labelAt": [1303,214]
+    }
+   ],
+   "labels": [
+    {
+     "text": "HTTPS",
+     "x": 178,
+     "y": 310,
+     "width": 34,
+     "height": 14,
+     "labelAt": [195,320]
+    },
+    {
+     "text": "mTLS",
+     "x": 378,
+     "y": 310,
+     "width": 30,
+     "height": 14,
+     "labelAt": [393,320]
+    },
+    {
+     "text": "VPC route",
+     "x": 567,
+     "y": 265,
+     "width": 53,
+     "height": 14,
+     "labelAt": [594,275]
+    },
+    {
+     "text": "VPC route",
+     "x": 567,
+     "y": 375,
+     "width": 53,
+     "height": 14,
+     "labelAt": [594,385]
+    },
+    {
+     "text": "cache",
+     "x": 786,
+     "y": 206,
+     "width": 34,
+     "height": 14,
+     "labelAt": [803,216]
+    },
+    {
+     "text": "SQL",
+     "x": 788,
+     "y": 416,
+     "width": 30,
+     "height": 14,
+     "labelAt": [803,426]
+    },
+    {
+     "text": "publish",
+     "x": 879,
+     "y": 150,
+     "width": 44,
+     "height": 14,
+     "labelAt": [901,160]
+    },
+    {
+     "text": "cross-region WAL",
+     "x": 960,
+     "y": 519,
+     "width": 87,
+     "height": 14,
+     "labelAt": [1003,529]
+    },
+    {
+     "text": "evidence",
+     "x": 1279,
+     "y": 398,
+     "width": 48,
+     "height": 14,
+     "labelAt": [1303,408]
+    },
+    {
+     "text": "OTLP",
+     "x": 1288,
+     "y": 204,
+     "width": 30,
+     "height": 14,
+     "labelAt": [1303,214]
+    }
+   ]
+  }
+ },
+ "render": {
+  "viewBox": [0,0,1436,760],
+  "svg_attrs": {
+   "lang": "en",
+   "data-animation": "trace",
+   "data-preset": "blueprint",
+   "data-engineering-profile": "deployment-ownership",
+   "data-quality-profile": "showcase",
+   "data-reader-fit": "intrinsic-height",
+   "data-reader-min-text": "7.5",
+   "data-reader-primary-text": "14"
+  },
+  "title": "Production Deployment Ownership",
+  "nodes": [
+   {
+    "id": "clients",
+    "kind": "external",
+    "label": "Customers",
+    "sublabel": "web + mobile",
+    "context": "Architecture component",
+    "rect": {
+     "x": 38,
+     "y": 300,
+     "width": 122,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 99,
+      "y": 328,
+      "font_size": 11,
+      "text": "Customers",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 99,
+      "y": 344,
+      "font_size": 9,
+      "text": "web + mobile",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(44 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "edge",
+    "kind": "cloud",
+    "label": "Global Edge",
+    "sublabel": "CDN + WAF",
+    "tag": "edge team",
+    "context": "AWS us-east-1 / production",
+    "rect": {
+     "x": 230,
+     "y": 300,
+     "width": 126,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 293,
+      "y": 328,
+      "font_size": 11,
+      "text": "Global Edge",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 293,
+      "y": 344,
+      "font_size": 9,
+      "text": "CDN + WAF",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 293,
+      "y": 352,
+      "font_size": 7,
+      "text": "edge team",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(236 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "gateway",
+    "kind": "security",
+    "label": "API Gateway",
+    "sublabel": "public :443",
+    "tag": "platform",
+    "context": "AWS us-east-1 / production",
+    "rect": {
+     "x": 430,
+     "y": 300,
+     "width": 128,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-security",
+    "texts": [
+     {
+      "x": 494,
+      "y": 328,
+      "font_size": 11,
+      "text": "API Gateway",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 494,
+      "y": 344,
+      "font_size": 9,
+      "text": "public :443",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 494,
+      "y": 352,
+      "font_size": 7,
+      "text": "platform",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-security"
+     }
+    ],
+    "sigil": {
+     "name": "security",
+     "transform": "translate(436 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "api_a",
+    "kind": "backend",
+    "label": "API Pods / AZ-a",
+    "sublabel": "private subnet",
+    "tag": "app team",
+    "context": "AWS us-east-1 / production › private application network",
+    "rect": {
+     "x": 630,
+     "y": 195,
+     "width": 136,
+     "height": 62,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 698,
+      "y": 224,
+      "font_size": 11,
+      "text": "API Pods / AZ-a",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 698,
+      "y": 240,
+      "font_size": 9,
+      "text": "private subnet",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 698,
+      "y": 249,
+      "font_size": 7,
+      "text": "app team",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(636 201) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "api_b",
+    "kind": "backend",
+    "label": "API Pods / AZ-b",
+    "sublabel": "private subnet",
+    "tag": "app team",
+    "context": "AWS us-east-1 / production › private application network",
+    "rect": {
+     "x": 630,
+     "y": 405,
+     "width": 136,
+     "height": 62,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 698,
+      "y": 434,
+      "font_size": 11,
+      "text": "API Pods / AZ-b",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 698,
+      "y": 450,
+      "font_size": 9,
+      "text": "private subnet",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 698,
+      "y": 459,
+      "font_size": 7,
+      "text": "app team",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(636 411) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "redis",
+    "kind": "database",
+    "label": "Redis",
+    "sublabel": "multi-AZ cache",
+    "tag": "platform",
+    "context": "AWS us-east-1 / production › private application network",
+    "rect": {
+     "x": 840,
+     "y": 195,
+     "width": 126,
+     "height": 62,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 903,
+      "y": 224,
+      "font_size": 11,
+      "text": "Redis",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 903,
+      "y": 240,
+      "font_size": 9,
+      "text": "multi-AZ cache",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 903,
+      "y": 249,
+      "font_size": 7,
+      "text": "platform",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(846 201) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "postgres",
+    "kind": "database",
+    "label": "PostgreSQL",
+    "sublabel": "primary / encrypted",
+    "tag": "data team",
+    "context": "AWS us-east-1 / production › private application network",
+    "rect": {
+     "x": 840,
+     "y": 405,
+     "width": 126,
+     "height": 62,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 903,
+      "y": 434,
+      "font_size": 11,
+      "text": "PostgreSQL",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 903,
+      "y": 450,
+      "font_size": 9,
+      "text": "primary / encrypted",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 903,
+      "y": 459,
+      "font_size": 7,
+      "text": "data team",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(846 411) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "events",
+    "kind": "messagebus",
+    "label": "Event Bus",
+    "sublabel": "orders.v1",
+    "tag": "platform",
+    "context": "AWS us-east-1 / production › private application network",
+    "rect": {
+     "x": 1040,
+     "y": 300,
+     "width": 126,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-messagebus",
+    "texts": [
+     {
+      "x": 1103,
+      "y": 328,
+      "font_size": 11,
+      "text": "Event Bus",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 1103,
+      "y": 344,
+      "font_size": 9,
+      "text": "orders.v1",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 1103,
+      "y": 352,
+      "font_size": 7,
+      "text": "platform",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-messagebus"
+     }
+    ],
+    "sigil": {
+     "name": "messagebus",
+     "transform": "translate(1046 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "worker",
+    "kind": "backend",
+    "label": "Workers",
+    "sublabel": "private workload",
+    "tag": "app team",
+    "context": "AWS us-east-1 / production › private application network",
+    "rect": {
+     "x": 1240,
+     "y": 300,
+     "width": 126,
+     "height": 60,
+     "rx": 6
+    },
+    "class": "c-backend",
+    "texts": [
+     {
+      "x": 1303,
+      "y": 328,
+      "font_size": 11,
+      "text": "Workers",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 1303,
+      "y": 344,
+      "font_size": 9,
+      "text": "private workload",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 1303,
+      "y": 352,
+      "font_size": 7,
+      "text": "app team",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-backend"
+     }
+    ],
+    "sigil": {
+     "name": "backend",
+     "transform": "translate(1246 306) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "replica",
+    "kind": "database",
+    "label": "DR Replica",
+    "sublabel": "eu-west-1",
+    "tag": "data team",
+    "context": "AWS eu-west-1 / disaster recovery › DR private subnet",
+    "rect": {
+     "x": 1040,
+     "y": 610,
+     "width": 126,
+     "height": 62,
+     "rx": 6
+    },
+    "class": "c-database",
+    "texts": [
+     {
+      "x": 1103,
+      "y": 639,
+      "font_size": 11,
+      "text": "DR Replica",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 1103,
+      "y": 655,
+      "font_size": 9,
+      "text": "eu-west-1",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 1103,
+      "y": 664,
+      "font_size": 7,
+      "text": "data team",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-database"
+     }
+    ],
+    "sigil": {
+     "name": "database",
+     "transform": "translate(1046 616) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "audit",
+    "kind": "cloud",
+    "label": "Audit Archive",
+    "sublabel": "immutable objects",
+    "tag": "security",
+    "context": "AWS us-east-1 / production",
+    "rect": {
+     "x": 1240,
+     "y": 465,
+     "width": 126,
+     "height": 62,
+     "rx": 6
+    },
+    "class": "c-cloud",
+    "texts": [
+     {
+      "x": 1303,
+      "y": 494,
+      "font_size": 11,
+      "text": "Audit Archive",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 1303,
+      "y": 510,
+      "font_size": 9,
+      "text": "immutable objects",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 1303,
+      "y": 519,
+      "font_size": 7,
+      "text": "security",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-cloud"
+     }
+    ],
+    "sigil": {
+     "name": "cloud",
+     "transform": "translate(1246 471) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   },
+   {
+    "id": "observability",
+    "kind": "external",
+    "label": "Observability",
+    "sublabel": "metrics + traces",
+    "tag": "SRE",
+    "context": "Architecture component",
+    "rect": {
+     "x": 1240,
+     "y": 85,
+     "width": 126,
+     "height": 62,
+     "rx": 6
+    },
+    "class": "c-external",
+    "texts": [
+     {
+      "x": 1303,
+      "y": 114,
+      "font_size": 11,
+      "text": "Observability",
+      "font_weight": "600",
+      "anchor": "middle",
+      "class": "t-primary",
+      "role": "label"
+     },
+     {
+      "x": 1303,
+      "y": 130,
+      "font_size": 9,
+      "text": "metrics + traces",
+      "anchor": "middle",
+      "detail": "context",
+      "class": "t-muted"
+     },
+     {
+      "x": 1303,
+      "y": 139,
+      "font_size": 7,
+      "text": "SRE",
+      "anchor": "middle",
+      "detail": "fine",
+      "class": "t-external"
+     }
+    ],
+    "sigil": {
+     "name": "external",
+     "transform": "translate(1246 91) scale(0.6875)"
+    },
+    "data": {},
+    "stroke_width": 1.5
+   }
+  ],
+  "edges": [
+   {
+    "key": 0,
+    "from": "clients",
+    "to": "edge",
+    "label": "HTTPS",
+    "points": [[160,330],[230,330]],
+    "d": "M 160 330 L 230 330",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 1,
+    "from": "edge",
+    "to": "gateway",
+    "label": "mTLS",
+    "points": [[356,330],[430,330]],
+    "d": "M 356 330 L 430 330",
+    "variant": "security",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 2,
+    "from": "gateway",
+    "to": "api_a",
+    "label": "VPC route",
+    "points": [[558,330],[594,330],[594,226],[630,226]],
+    "d": "M 558 330 L 586 330 Q 594 330 594 322 L 594 234 Q 594 226 602 226 L 630 226",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 3,
+    "from": "gateway",
+    "to": "api_b",
+    "label": "VPC route",
+    "points": [[558,330],[594,330],[594,436],[630,436]],
+    "d": "M 558 330 L 586 330 Q 594 330 594 338 L 594 428 Q 594 436 602 436 L 630 436",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 4,
+    "from": "api_a",
+    "to": "redis",
+    "label": "cache",
+    "points": [[766,226],[840,226]],
+    "d": "M 766 226 L 840 226",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 5,
+    "from": "api_b",
+    "to": "postgres",
+    "label": "SQL",
+    "points": [[766,436],[840,436]],
+    "d": "M 766 436 L 840 436",
+    "variant": "default",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead"
+   },
+   {
+    "key": 6,
+    "from": "api_a",
+    "to": "events",
+    "label": "publish",
+    "points": [[698,195],[698,170],[1103,170],[1103,300]],
+    "d": "M 698 195 L 698 178 Q 698 170 706 170 L 1095 170 Q 1103 170 1103 178 L 1103 300",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 7,
+    "from": "api_b",
+    "to": "events",
+    "points": [[698,405],[698,380],[1103,380],[1103,360]],
+    "d": "M 698 405 L 698 388 Q 698 380 706 380 L 1095 380 Q 1103 380 1103 372 L 1103 360",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 8,
+    "from": "events",
+    "to": "worker",
+    "points": [[1166,330],[1240,330]],
+    "d": "M 1166 330 L 1240 330",
+    "variant": "emphasis",
+    "stroke_width": 1.8,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-emphasis"
+   },
+   {
+    "key": 9,
+    "from": "postgres",
+    "to": "replica",
+    "label": "cross-region WAL",
+    "points": [[903,467],[903,538.5],[1103,538.5],[1103,610]],
+    "d": "M 903 467 L 903 530.5 Q 903 538.5 911 538.5 L 1095 538.5 Q 1103 538.5 1103 546.5 L 1103 610",
+    "variant": "security",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead-security"
+   },
+   {
+    "key": 10,
+    "from": "worker",
+    "to": "audit",
+    "label": "evidence",
+    "points": [[1303,360],[1303,465]],
+    "d": "M 1303 360 L 1303 465",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "crossover": "halo",
+    "independent": true,
+    "marker_end": "arrowhead-dashed"
+   },
+   {
+    "key": 11,
+    "from": "worker",
+    "to": "observability",
+    "label": "OTLP",
+    "points": [[1303,300],[1303,223.5],[1303,223.5],[1303,147]],
+    "d": "M 1303 300 L 1303 223.5 L 1303 223.5 L 1303 147",
+    "variant": "dashed",
+    "stroke_width": 1.5,
+    "marker_end": "arrowhead-dashed"
+   }
+  ],
+  "labels": [
+   {
+    "edge_key": 0,
+    "from": "clients",
+    "to": "edge",
+    "text": "HTTPS",
+    "rect": {
+     "x": 178,
+     "y": 310,
+     "width": 34,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 195,
+      "y": 320,
+      "font_size": 8,
+      "text": "HTTPS",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 1,
+    "from": "edge",
+    "to": "gateway",
+    "text": "mTLS",
+    "rect": {
+     "x": 378,
+     "y": 310,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 393,
+      "y": 320,
+      "font_size": 8,
+      "text": "mTLS",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 2,
+    "from": "gateway",
+    "to": "api_a",
+    "text": "VPC route",
+    "rect": {
+     "x": 567.4,
+     "y": 265,
+     "width": 53.199999999999996,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 594,
+      "y": 275,
+      "font_size": 8,
+      "text": "VPC route",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 3,
+    "from": "gateway",
+    "to": "api_b",
+    "text": "VPC route",
+    "rect": {
+     "x": 567.4,
+     "y": 375,
+     "width": 53.199999999999996,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 594,
+      "y": 385,
+      "font_size": 8,
+      "text": "VPC route",
+      "anchor": "middle",
+      "class": "t-edge-emphasis"
+     }
+    ]
+   },
+   {
+    "edge_key": 4,
+    "from": "api_a",
+    "to": "redis",
+    "text": "cache",
+    "rect": {
+     "x": 786,
+     "y": 206,
+     "width": 34,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 803,
+      "y": 216,
+      "font_size": 8,
+      "text": "cache",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 5,
+    "from": "api_b",
+    "to": "postgres",
+    "text": "SQL",
+    "rect": {
+     "x": 788,
+     "y": 416,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 803,
+      "y": 426,
+      "font_size": 8,
+      "text": "SQL",
+      "anchor": "middle",
+      "class": "t-edge-default"
+     }
+    ]
+   },
+   {
+    "edge_key": 6,
+    "from": "api_a",
+    "to": "events",
+    "text": "publish",
+    "rect": {
+     "x": 878.7,
+     "y": 150,
+     "width": 43.6,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 900.5,
+      "y": 160,
+      "font_size": 8,
+      "text": "publish",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 9,
+    "from": "postgres",
+    "to": "replica",
+    "text": "cross-region WAL",
+    "rect": {
+     "x": 959.6,
+     "y": 519,
+     "width": 86.8,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 1003,
+      "y": 529,
+      "font_size": 8,
+      "text": "cross-region WAL",
+      "anchor": "middle",
+      "class": "t-edge-security"
+     }
+    ]
+   },
+   {
+    "edge_key": 10,
+    "from": "worker",
+    "to": "audit",
+    "text": "evidence",
+    "rect": {
+     "x": 1278.8,
+     "y": 398,
+     "width": 48.4,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 1303,
+      "y": 408,
+      "font_size": 8,
+      "text": "evidence",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   },
+   {
+    "edge_key": 11,
+    "from": "worker",
+    "to": "observability",
+    "text": "OTLP",
+    "rect": {
+     "x": 1288,
+     "y": 203.5,
+     "width": 30,
+     "height": 14,
+     "rx": 3
+    },
+    "texts": [
+     {
+      "x": 1303,
+      "y": 213.5,
+      "font_size": 8,
+      "text": "OTLP",
+      "anchor": "middle",
+      "class": "t-edge-dashed"
+     }
+    ]
+   }
+  ],
+  "frames": [
+   {
+    "kind": "region",
+    "id": "0",
+    "label": "AWS us-east-1 / production",
+    "class": "c-region",
+    "rect": {
+     "x": 200,
+     "y": 165,
+     "width": 1196,
+     "height": 382,
+     "rx": 12
+    }
+   },
+   {
+    "kind": "security-group",
+    "id": "1",
+    "label": "private application network",
+    "class": "c-security-group",
+    "rect": {
+     "x": 600,
+     "y": 165,
+     "width": 796,
+     "height": 322,
+     "rx": 8
+    }
+   },
+   {
+    "kind": "region",
+    "id": "2",
+    "label": "AWS eu-west-1 / disaster recovery",
+    "class": "c-region",
+    "rect": {
+     "x": 1002.2812804225806,
+     "y": 566,
+     "width": 201.4374391548387,
+     "height": 126,
+     "rx": 12
+    }
+   },
+   {
+    "kind": "security-group",
+    "id": "3",
+    "label": "DR private subnet",
+    "class": "c-security-group",
+    "rect": {
+     "x": 1026,
+     "y": 585,
+     "width": 154,
+     "height": 107,
+     "rx": 8
+    }
+   }
+  ],
+  "legend": {
+   "bridge": true,
+   "title": "Legend",
+   "items": [
+    {
+     "semantic_kind": "backend",
+     "kind": "backend",
+     "label": "Backend",
+     "x": 40,
+     "baseline": 744,
+     "width": 78,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-backend",
+       "x": 40,
+       "y": 735,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 62,
+       "y": 744,
+       "font_size": 10,
+       "text": "Backend"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "database",
+     "kind": "database",
+     "label": "Database",
+     "x": 140,
+     "baseline": 744,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-database",
+       "x": 140,
+       "y": 735,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 162,
+       "y": 744,
+       "font_size": 10,
+       "text": "Database"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "cloud",
+     "kind": "cloud",
+     "label": "Cloud",
+     "x": 245,
+     "baseline": 744,
+     "width": 68,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-cloud",
+       "x": 245,
+       "y": 735,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 267,
+       "y": 744,
+       "font_size": 10,
+       "text": "Cloud"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "security",
+     "kind": "security",
+     "label": "Security",
+     "x": 335,
+     "baseline": 744,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-security",
+       "x": 335,
+       "y": 735,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 357,
+       "y": 744,
+       "font_size": 10,
+       "text": "Security"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "messagebus",
+     "kind": "messagebus",
+     "label": "Message bus",
+     "x": 440,
+     "baseline": 744,
+     "width": 98,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-messagebus",
+       "x": 440,
+       "y": 735,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 462,
+       "y": 744,
+       "font_size": 10,
+       "text": "Message bus"
+      }
+     ]
+    },
+    {
+     "semantic_kind": "external",
+     "kind": "external",
+     "label": "External",
+     "x": 560,
+     "baseline": 744,
+     "width": 83,
+     "shapes": [
+      {
+       "tag": "rect",
+       "class": "c-external",
+       "x": 560,
+       "y": 735,
+       "width": 16,
+       "height": 10,
+       "rx": 2.5
+      },
+      {
+       "tag": "text",
+       "class": "t-muted",
+       "x": 582,
+       "y": 744,
+       "font_size": 10,
+       "text": "External"
+      }
+     ]
+    }
+   ]
+  },
+  "decor": {
+   "Boundary labels": [
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 204,
+     "y": 174,
+     "width": 154.52646721290324,
+     "height": 17,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "0",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "AWS us-east-1 / production"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-cloud",
+     "x": 208,
+     "y": 187.26451712903227,
+     "font_size": 9.264517129032258,
+     "text": "AWS us-east-1 / production",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "0",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "AWS us-east-1 / production",
+      "data-boundary-label": ""
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 604,
+     "y": 174,
+     "width": 160.08517749032256,
+     "height": 17,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "1",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "private application network"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 608,
+     "y": 187.26451712903227,
+     "font_size": 9.264517129032258,
+     "text": "private application network",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "1",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "private application network",
+      "data-boundary-label": ""
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 1006.2812804225806,
+     "y": 570,
+     "width": 193.4374391548387,
+     "height": 17,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "2",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "AWS eu-west-1 / disaster recovery"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-cloud",
+     "x": 1010.2812804225806,
+     "y": 583.2645171290322,
+     "font_size": 9.264517129032258,
+     "text": "AWS eu-west-1 / disaster recovery",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "2",
+      "data-composition-frame-kind": "region",
+      "data-composition-frame-label": "AWS eu-west-1 / disaster recovery",
+      "data-boundary-label": ""
+     }
+    },
+    {
+     "tag": "rect",
+     "class": "c-mask",
+     "x": 1030,
+     "y": 589,
+     "width": 104.49807471612904,
+     "height": 17,
+     "rx": 3,
+     "data": {
+      "data-graph-role": "structural-frame-label-mask",
+      "data-composition-frame-id": "3",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "DR private subnet"
+     }
+    },
+    {
+     "tag": "text",
+     "class": "t-security",
+     "x": 1034,
+     "y": 602.2645171290322,
+     "font_size": 9.264517129032258,
+     "text": "DR private subnet",
+     "data": {
+      "data-graph-role": "structural-frame-label",
+      "data-composition-frame-id": "3",
+      "data-composition-frame-kind": "security-group",
+      "data-composition-frame-label": "DR private subnet",
+      "data-boundary-label": ""
+     }
+    }
+   ]
+  }
+ }
+}

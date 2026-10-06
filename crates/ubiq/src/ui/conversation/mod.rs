@@ -143,27 +143,52 @@ pub fn render(
         ));
     }
     if let Some(error) = &conversation.error {
-        root = root.child(
-            div()
-                .px_3()
-                .py_1p5()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap_2()
-                .bg(theme::danger_soft())
-                .border_l(px(theme::accent_edge()))
-                .border_color(theme::danger())
-                .child(
+        // The sentence wraps rather than running off the edge (`T-326`): a launch failure is an
+        // `anyhow` chain naming a program, its arguments and a folder, far wider than a column.
+        // `min_w(0)` on the text is what lets a flex child shrink below its own longest line; the
+        // icon and the button keep their size and sit at the top beside however many lines it
+        // takes. The scroll cap keeps a very long chain from pushing the composer off the panel.
+        let mut strip = div()
+            .id(view.eid("error"))
+            .px_3()
+            .py_1p5()
+            .flex()
+            .flex_none()
+            .items_start()
+            .gap_2()
+            .max_h(px(160.))
+            .overflow_y_scroll()
+            .bg(theme::danger_soft())
+            .border_l(px(theme::accent_edge()))
+            .border_color(theme::danger())
+            .child(
+                div().flex_none().pt_0p5().child(
                     Icon::new(IconName::TriangleAlert)
                         .with_size(Size::XSmall)
                         .text_color(theme::danger()),
-                )
-                .child(
-                    mono(error.clone(), theme::text())
-                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
                 ),
-        );
+            )
+            .child(
+                mono(error.clone(), theme::text())
+                    .flex_1()
+                    .min_w(px(0.))
+                    .whitespace_normal()
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+            );
+        // Nothing running is what made the launch fail or the harness exit; Retry is the menu's
+        // Resume, offered where the reason is (`T-327`). A harness with a session id resumes into
+        // it — the host keeps that on the pending row.
+        if !conversation.launched {
+            strip = strip.child(
+                div().flex_none().child(ghost_button(
+                    view.eid("error-retry"),
+                    Some(IconName::RotateCw),
+                    "Retry",
+                    cx.listener(move |this, _, _, cx| this.resume_agent(id, cx)),
+                )),
+            );
+        }
+        root = root.child(strip);
     }
     // One rule, above both. The footer and the composer are one block at the bottom of the view
     // — not two boxes — so the separator belongs to the block rather than to either half.

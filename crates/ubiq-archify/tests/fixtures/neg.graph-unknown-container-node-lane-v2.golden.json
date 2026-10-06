@@ -1,0 +1,247 @@
+{
+ "name": "neg.graph-unknown-container-node-lane-v2",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/unknown-node-lane",
+ "expect_codes": [
+  "workflow/unknown-node-lane"
+ ],
+ "source_sha256": "8437c69b90d7ca95cb9830d82eb432a6011a317ae6c620bd1b380be559d4a511",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "rt",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ghost",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow node \"user\" uses unknown lane \"ghost\".",
+    "diagnostics": [
+     {
+      "code": "workflow/unknown-node-lane",
+      "severity": "error",
+      "message": "Workflow node \"user\" uses unknown lane \"ghost\".",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "user",
+       "path": "/nodes/0/lane"
+      },
+      "evidence": {
+       "unknownLaneId": "ghost",
+       "availableLaneIds": [
+        "rt",
+        "ui"
+       ]
+      },
+      "supportedFixes": [
+       "set /nodes/0/lane to verified lane id \"rt\"",
+       "set /nodes/0/lane to verified lane id \"ui\""
+      ]
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow node \"user\" uses unknown lane \"ghost\".",
+    "diagnostics": [
+     {
+      "code": "workflow/unknown-node-lane",
+      "severity": "error",
+      "message": "Workflow node \"user\" uses unknown lane \"ghost\".",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "user",
+       "path": "/nodes/0/lane"
+      },
+      "evidence": {
+       "unknownLaneId": "ghost",
+       "availableLaneIds": [
+        "rt",
+        "ui"
+       ]
+      },
+      "supportedFixes": [
+       "set /nodes/0/lane to verified lane id \"rt\"",
+       "set /nodes/0/lane to verified lane id \"ui\""
+      ]
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow node \"user\" uses unknown lane \"ghost\".",
+    "diagnostics": [
+     {
+      "code": "workflow/unknown-node-lane",
+      "severity": "error",
+      "message": "Workflow node \"user\" uses unknown lane \"ghost\".",
+      "subject": {
+       "diagramType": "workflow",
+       "node": "user",
+       "path": "/nodes/0/lane"
+      },
+      "evidence": {
+       "unknownLaneId": "ghost",
+       "availableLaneIds": [
+        "rt",
+        "ui"
+       ]
+      },
+      "supportedFixes": [
+       "set /nodes/0/lane to verified lane id \"rt\"",
+       "set /nodes/0/lane to verified lane id \"ui\""
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/unknown-node-lane",
+     "severity": "error",
+     "message": "Workflow node \"user\" uses unknown lane \"ghost\".",
+     "subject": {
+      "diagramType": "workflow",
+      "node": "user",
+      "path": "/nodes/0/lane"
+     },
+     "evidence": {
+      "unknownLaneId": "ghost",
+      "availableLaneIds": [
+       "rt",
+       "ui"
+      ]
+     },
+     "supportedFixes": [
+      "set /nodes/0/lane to verified lane id \"rt\"",
+      "set /nodes/0/lane to verified lane id \"ui\""
+     ]
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}

@@ -1,0 +1,227 @@
+{
+ "name": "neg.graph-duplicate-lane-workflow-v2",
+ "group": "negative",
+ "source": "mutation of workflow",
+ "type": "workflow",
+ "rule": "workflow/duplicate-lane-id",
+ "expect_codes": [
+  "workflow/duplicate-lane-id"
+ ],
+ "source_sha256": "d8ca0059bae6516051c5b878cd8105978ad513da8c987d48f11bd7b295bddb8e",
+ "source_doc": {
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+   "title": "Flow",
+   "output": "flow.html"
+  },
+  "lanes": [
+   {
+    "id": "ui",
+    "label": "UI"
+   },
+   {
+    "id": "ui",
+    "label": "Runtime"
+   }
+  ],
+  "phases": [
+   {
+    "id": "p1",
+    "label": "Ask",
+    "fromCol": 0,
+    "toCol": 1
+   },
+   {
+    "id": "p2",
+    "label": "Answer",
+    "fromCol": 2,
+    "toCol": 3
+   }
+  ],
+  "groups": [
+   {
+    "id": "g1",
+    "label": "Core",
+    "lane": "rt",
+    "fromCol": 1,
+    "toCol": 2
+   }
+  ],
+  "nodes": [
+   {
+    "id": "user",
+    "lane": "ui",
+    "col": 0,
+    "type": "external",
+    "label": "User"
+   },
+   {
+    "id": "plan",
+    "lane": "rt",
+    "col": 1,
+    "type": "backend",
+    "label": "Plan"
+   },
+   {
+    "id": "run",
+    "lane": "rt",
+    "col": 2,
+    "type": "backend",
+    "label": "Run"
+   },
+   {
+    "id": "show",
+    "lane": "ui",
+    "col": 3,
+    "type": "frontend",
+    "label": "Show"
+   }
+  ],
+  "edges": [
+   {
+    "id": "e1",
+    "from": "user",
+    "to": "plan",
+    "label": "ask",
+    "variant": "emphasis"
+   },
+   {
+    "id": "e2",
+    "from": "plan",
+    "to": "run"
+   },
+   {
+    "id": "e3",
+    "from": "run",
+    "to": "show",
+    "label": "reply"
+   }
+  ],
+  "mainPath": [
+   "user",
+   "plan",
+   "run",
+   "show"
+  ]
+ },
+ "quality": null,
+ "schema_version": 2,
+ "validate_receipt": {
+  "authored": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow lane id \"ui\" is duplicated.",
+    "diagnostics": [
+     {
+      "code": "workflow/duplicate-lane-id",
+      "severity": "error",
+      "message": "Workflow lane id \"ui\" is duplicated.",
+      "subject": {
+       "diagramType": "workflow",
+       "lane": "ui",
+       "path": "/lanes/1/id"
+      },
+      "evidence": {
+       "duplicateLaneId": "ui",
+       "firstPath": "/lanes/0/id",
+       "duplicatePath": "/lanes/1/id"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "standard": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow lane id \"ui\" is duplicated.",
+    "diagnostics": [
+     {
+      "code": "workflow/duplicate-lane-id",
+      "severity": "error",
+      "message": "Workflow lane id \"ui\" is duplicated.",
+      "subject": {
+       "diagramType": "workflow",
+       "lane": "ui",
+       "path": "/lanes/1/id"
+      },
+      "evidence": {
+       "duplicateLaneId": "ui",
+       "firstPath": "/lanes/0/id",
+       "duplicatePath": "/lanes/1/id"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  },
+  "showcase": {
+   "exit_code": 1,
+   "receipt": {
+    "schemaVersion": 1,
+    "ok": false,
+    "command": "validate",
+    "stage": "render",
+    "type": "workflow",
+    "input": "<input>",
+    "error": "Workflow lane id \"ui\" is duplicated.",
+    "diagnostics": [
+     {
+      "code": "workflow/duplicate-lane-id",
+      "severity": "error",
+      "message": "Workflow lane id \"ui\" is duplicated.",
+      "subject": {
+       "diagramType": "workflow",
+       "lane": "ui",
+       "path": "/lanes/1/id"
+      },
+      "evidence": {
+       "duplicateLaneId": "ui",
+       "firstPath": "/lanes/0/id",
+       "duplicatePath": "/lanes/1/id"
+      },
+      "supportedFixes": []
+     }
+    ]
+   }
+  }
+ },
+ "layout_json": {
+  "exit_code": 1,
+  "receipt": {
+   "contract": "readable-v2",
+   "diagnostics": [
+    {
+     "code": "workflow/duplicate-lane-id",
+     "severity": "error",
+     "message": "Workflow lane id \"ui\" is duplicated.",
+     "subject": {
+      "diagramType": "workflow",
+      "lane": "ui",
+      "path": "/lanes/1/id"
+     },
+     "evidence": {
+      "duplicateLaneId": "ui",
+      "firstPath": "/lanes/0/id",
+      "duplicatePath": "/lanes/1/id"
+     },
+     "supportedFixes": []
+    }
+   ]
+  }
+ },
+ "layout_json_by_quality": {}
+}
