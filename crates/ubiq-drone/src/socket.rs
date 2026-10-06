@@ -189,109 +189,53 @@ mod unix {
     use std::io::{Read, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::process::{Command, Stdio};
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use ubiq_host::carrier::{self, Closer};
-    use ubiq_proto::bus;
-    use ubiq_proto::carrier::{greet, hello};
+    use ubiq_host::carrier::Closer;
 
     use super::{Preamble, io, on_path, read_preamble, write_preamble};
+    use crate::held::{self, Link};
     use crate::linger::{Linger, Live};
-    use crate::relay::{Relay, Root};
-    use crate::state::DroneState;
+    use crate::relay::Root;
 
     /// How long [`hold`] waits for the held process to bind before it reports that it did not.
     const APPEARS_WITHIN: Duration = Duration::from_secs(5);
 
-    /// How often the state file beside the socket is rewritten, so `panes` and `linger` stay
-    /// roughly true for a `--list` or `--status` that reads it between attaches. Roughly, not
-    /// exactly: the socket is the authority on whether the drone is there at all, and this is
-    /// only what it says about itself while it is.
-    const STATE_REFRESH: Duration = Duration::from_secs(5);
-
-    /// Bind, serve every attach, and return when the drone's linger has expired.
+    /// Bind, hand every attach to [`held::serve`], and return when the drone's linger has expired.
     ///
     /// A path already claimed by a live drone is **adopted, not refused**: [`bind`] returning
     /// `Ok(None)` is success with nothing served, which is what makes
     /// `ubiq-drone --listen … && ubiq-drone --attach …` idempotent rather than a race the second
     /// caller can lose.
     ///
-    /// The relay runs on its own thread and the accept loop on another, so the main thread is
-    /// free to be the one thing that ends the process: when the relay's countdown runs out it
-    /// kills its panes, returns, and the socket and its state file are unlinked here. There is no
-    /// other exit, which is the same discipline `carrier` states for the attached case — a second
-    /// shutdown path is a second chance to leave a pane running on somebody else's machine.
+    /// This is one *source of links*: the accept loop turns each connection into a
+    /// [`held::Link`] and feeds them through a channel, which is the iterator `serve` consumes. When
+    /// the relay's countdown runs out `serve` returns, and the socket is unlinked here — the same
+    /// single exit `carrier` states for the attached case.
     pub fn listen(roots: Vec<Root>, path: &Path, linger: Linger) -> io::Result<()> {
         let Some(listener) = bind(path)? else {
             tracing::info!("adopting the drone already listening on {}", path.display());
             return Ok(());
         };
-        let live = Arc::new(Live::new(linger));
         tracing::info!("listening on {} with linger {linger}", path.display());
 
-        // The state file and its refresh only ever name the folders, never the ids bound to
-        // them: `DroneState` is what a caller lists and adopts by, not what a client attaches to
-        // learn a project's id from — that arrives on the wire, once, at `ListProjects`.
-        let paths: Vec<PathBuf> = roots.iter().map(|root| root.path.clone()).collect();
+        let mut options = held::Options::new(linger);
+        options.state = Some(path.to_path_buf());
+        let live = options.live.clone();
 
-        if let Err(error) = DroneState::new(path, &paths, 0, live.linger()).write(path) {
-            tracing::warn!(
-                "could not write the state file for {}: {error}",
-                path.display()
-            );
-        }
-
-        let (hub, host) = bus::hub();
-        let relay = Relay::holding(roots, live.clone());
-        let relay = thread::Builder::new()
-            .name("ubiq-drone-relay".to_string())
-            .spawn(move || relay.run(host))
-            .expect("the drone relay thread");
-
+        let (links, arriving) = flume::unbounded();
         thread::Builder::new()
             .name("ubiq-drone-accept".to_string())
-            .spawn({
-                let live = live.clone();
-                move || accept(listener, hub, live)
-            })
+            .spawn(move || accept(listener, links, live))
             .expect("the drone accept thread");
 
-        thread::Builder::new()
-            .name("ubiq-drone-state".to_string())
-            .spawn({
-                let path = path.to_path_buf();
-                move || refresh_state(&path, &paths, &live)
-            })
-            .expect("the drone state thread");
-
-        let _ = relay.join();
+        held::serve(roots, options, arriving.into_iter());
         let _ = std::fs::remove_file(path);
-        DroneState::remove(path);
         Ok(())
-    }
-
-    /// Rewrite the state file every [`STATE_REFRESH`], so `panes` and `linger` stay true for
-    /// whoever reads it between attaches. It ends on its own, by noticing the socket is gone,
-    /// rather than being joined: a state thread with nothing left to refresh has nothing left to
-    /// do, and joining it would only make the process's one exit path wait on a sleep.
-    fn refresh_state(path: &Path, roots: &[PathBuf], live: &Live) {
-        loop {
-            thread::sleep(STATE_REFRESH);
-            if !path.exists() {
-                return;
-            }
-            let state = DroneState::new(path, roots, live.panes(), live.linger());
-            if let Err(error) = state.write(path) {
-                tracing::warn!(
-                    "could not refresh the state file for {}: {error}",
-                    path.display()
-                );
-            }
-        }
     }
 
     /// The socket, at mode `0600` in a directory at `0700`.
@@ -321,10 +265,9 @@ mod unix {
         Ok(Some(listener))
     }
 
-    /// Every attach is a **new host attach**: its own handshake, its own client on the same hub.
-    /// Nothing is resumed — the relay re-announces what it is holding, which is what makes a
-    /// reattach need no state the two ends have to agree about.
-    fn accept(listener: UnixListener, hub: bus::Hub, live: Arc<Live>) {
+    /// One thread per connection reads its preamble, so a client that connects and says nothing
+    /// holds up nobody else; an attach becomes a link, a stop is answered here.
+    fn accept(listener: UnixListener, links: flume::Sender<Link>, live: Arc<Live>) {
         for stream in listener.incoming() {
             let stream = match stream {
                 Ok(stream) => stream,
@@ -333,16 +276,19 @@ mod unix {
                     continue;
                 }
             };
-            let hub = hub.clone();
-            let live = live.clone();
+            let (links, live) = (links.clone(), live.clone());
             thread::Builder::new()
-                .name("ubiq-drone-session".to_string())
-                .spawn(move || serve_one(stream, hub, live))
-                .expect("the drone session thread");
+                .name("ubiq-drone-preamble".to_string())
+                .spawn(move || {
+                    if let Some(link) = admit(stream, &live) {
+                        let _ = links.send(link);
+                    }
+                })
+                .expect("the drone preamble thread");
         }
     }
 
-    fn serve_one(mut stream: UnixStream, hub: bus::Hub, live: Arc<Live>) {
+    fn admit(mut stream: UnixStream, live: &Live) -> Option<Link> {
         let asked = match read_preamble(&mut stream) {
             Ok(Preamble::Attach(asked)) => asked,
             Ok(Preamble::Stop) => {
@@ -350,38 +296,24 @@ mod unix {
                 let _ = writeln!(stream, "stopped");
                 let _ = stream.flush();
                 live.stop();
-                return;
+                return None;
             }
             Err(error) => {
                 tracing::warn!("refusing a connection that is not an attach: {error}");
-                return;
+                return None;
             }
         };
-        // Re-asserted here, before anything else: changing the knob costs no restart, and a
-        // drone that is about to hold panes should already know for how long.
-        if let Some(asked) = asked {
-            tracing::info!("the attaching client asked for linger {asked}");
-            live.set_linger(asked);
-        }
-
-        let (Ok(mut reader), Ok(writer), Ok(closing)) =
-            (stream.try_clone(), stream.try_clone(), stream.try_clone())
-        else {
+        let (Ok(reader), Ok(closing)) = (stream.try_clone(), stream.try_clone()) else {
             tracing::warn!("could not split the attached stream");
-            return;
+            return None;
         };
-        let introduction = hello(env!("CARGO_PKG_VERSION"), &crate::capabilities());
-        if let Err(refusal) = greet(&mut reader, &mut stream, &introduction) {
-            tracing::warn!("the attaching client refused this drone: {refusal}");
-            return;
-        }
-        carrier::pump(
+        let mut link = Link::new(
             Box::new(reader),
-            Box::new(writer),
+            Box::new(stream),
             Box::new(Hangup(closing)),
-            hub,
         );
-        tracing::info!("an attached client has gone");
+        link.linger = asked;
+        Some(link)
     }
 
     /// What ends the read direction when the writer gives up — see `carrier::Closer`. A socket

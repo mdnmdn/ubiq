@@ -12,6 +12,7 @@
 //! - `carrier`: standard input and standard output wired into [`ubiq_host::carrier::pump`]
 //! - `search`: shelling out to `rg`, `ag` or `grep` for the search family — see its own doc for why
 //!   a drone never builds an index instead
+//! - `held`: panes that outlive their link, served to whatever stream of links a transport yields
 //! - `socket`: the unix socket a **detached** drone is found again through, and the byte relay
 //!   that attaches to one
 //! - `linger`: how long a drone with no client waits before it kills its panes and goes
@@ -26,6 +27,7 @@
 //! ID on it, exactly as it would from a local host.
 
 pub mod carrier;
+pub mod held;
 pub mod linger;
 pub mod relay;
 pub mod scrollback;

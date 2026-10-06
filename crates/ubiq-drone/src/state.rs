@@ -13,6 +13,7 @@
 //! the next caller does not trip over either.
 
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -117,8 +118,18 @@ pub fn alive(_pid: u32) -> bool {
 /// The socket is the authority and the pid is not asked at all: a pid can be recycled by an
 /// unrelated process between one check and the next, on every unix this runs on, while a socket
 /// that accepts a connection is a drone answering *right now*, on this same call.
+///
+/// Off unix there is no socket to ask, and a pid is the one thing the paragraph above refuses to
+/// trust, so the answer is `false`: nothing there writes a state file (`--listen` is unix-only),
+/// and a caller treats "not live" as "prune it", which is the right outcome for a stray one.
+#[cfg(unix)]
 pub fn is_live(state: &DroneState) -> bool {
     UnixStream::connect(&state.socket).is_ok()
+}
+
+#[cfg(not(unix))]
+pub fn is_live(_state: &DroneState) -> bool {
+    false
 }
 
 /// Remove a stale state file and the socket path it names, so the next caller finds neither.
