@@ -76,6 +76,9 @@ pub enum ConnectMode {
     Socket,
     /// Spawn an `ssh` to a drone: a saved SSH profile and a folder on the far machine.
     Ssh,
+    /// A drone listening on a Unix socket on this machine. Never picked in the modal: the entry
+    /// is created programmatically and the modal only shows its path, read-only, on a reconnect.
+    Unix,
 }
 
 /// The connect-to-a-remote-host modal, while it is up.
@@ -113,6 +116,8 @@ pub struct RemoteConnectState {
     /// linger, or detached for good. Kept regardless of mode, like the scheme and trust picks
     /// above — switching to `Ssh` and back loses nobody's choice.
     pub preset: DronePreset,
+    /// The socket path, in [`ConnectMode::Unix`]. Shown, never edited.
+    pub unix_path: String,
 }
 
 impl Default for RemoteConnectState {
@@ -126,6 +131,7 @@ impl Default for RemoteConnectState {
             mode: ConnectMode::Socket,
             profile: None,
             preset: DronePreset::Attached,
+            unix_path: String::new(),
         }
     }
 }

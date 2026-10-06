@@ -1434,6 +1434,7 @@ mod stats;
 mod tasksrc;
 mod themes;
 pub use themes::theme_name_valid;
+pub mod unix_connect;
 mod vim;
 mod web_panel;
 mod wire;

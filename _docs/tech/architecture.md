@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-10-06
+updated: 2026-10-07
 verified: 2026-09-28
 code_anchors: [crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/ext/mod.rs, crates/ubiq/src/ext/id.rs, crates/ubiq/src/ext/registry.rs, crates/ubiq/src/ext/ids.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq/src/ext/runner.rs, crates/ubiq/src/ext/viewer.rs]
 review_cycle: quarterly
@@ -111,6 +111,9 @@ sees the `Child`, a pipe or a path. `spawn_pump` in `remote_connect.rs` is gener
 `Read`/`Write` pair for exactly this reason: a pipe pair is not one read-and-write handle the way a
 `TcpStream` is, and its closer is a `Box<dyn FnOnce() + Send>` so an SSH session can kill the child
 where a socket session only drops the stream.
+
+A sixth is a Unix socket to a drone on this machine, `crates/ubiq/src/app/unix_connect.rs`, on the
+same terms: it holds the stream while it handshakes and hands the pump a `Client`.
 
 **3. The coordinator renders nothing.** It has no opinion about layout, colour, or what the bytes it
 forwards mean. Terminal *emulation* — parsing those bytes into a screen — belongs to the UI's

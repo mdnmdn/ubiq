@@ -147,3 +147,30 @@ fn an_ssh_carriers_drone_path_round_trips_and_defaults() {
         other => panic!("expected an ssh carrier, got {other:?}"),
     }
 }
+
+/// A unix carrier round-trips with its path, a record without `preset` defaults it, and a saved
+/// host written before the variant existed still loads beside it.
+#[test]
+fn a_unix_carrier_round_trips_and_defaults_its_preset() {
+    let carrier = RemoteCarrier::Unix {
+        path: "/tmp/ubiq-drone.sock".to_string(),
+        preset: DronePreset::Managed,
+    };
+    let json = serde_json::to_string(&carrier).unwrap();
+    assert!(json.contains(r#""kind":"unix""#));
+    let read_back: RemoteCarrier = serde_json::from_str(&json).unwrap();
+    assert_eq!(read_back, carrier);
+
+    let bare: RemoteCarrier =
+        serde_json::from_str(r#"{"kind":"unix","path":"/tmp/ubiq-drone.sock"}"#).unwrap();
+    assert_eq!(
+        bare,
+        RemoteCarrier::Unix {
+            path: "/tmp/ubiq-drone.sock".to_string(),
+            preset: DronePreset::Attached,
+        }
+    );
+
+    let old: RemoteCarrier = serde_json::from_str(r#"{"kind":"socket"}"#).unwrap();
+    assert_eq!(old, RemoteCarrier::Socket);
+}

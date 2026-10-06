@@ -2665,6 +2665,12 @@ an older build drops it on its next write and a drone off the remote `PATH` goes
 lookup that cannot find it — a location the deployer can re-learn and re-save on the next connect,
 not a fact stranded anywhere a user cannot get back.
 
+**A third carrier, `Unix { path, preset }`, is a drone already listening on a Unix socket on this
+machine.** The stream is the socket and the handshake is the same; nothing is launched, so `preset`
+only records how that drone was started. `HOST_SETTINGS_SCHEMA` is 20 for the variant: an older
+build cannot parse the new `kind`, so the whole record would fail to load and be moved aside as
+corrupt; the bump makes it refuse the file and leave it intact instead.
+
 **`bundled` on `Connections` says which providers this build ships an application for.** It is a
 compile-time fact of the host — every built-in client id is an `option_env!` — and the interface's
 only way to know it, so the connect flow offers a "Default" exactly where one can be honoured. An

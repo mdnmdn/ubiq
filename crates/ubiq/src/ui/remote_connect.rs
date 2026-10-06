@@ -134,6 +134,12 @@ fn editing_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
         .map(|state| state.mode)
         .unwrap_or_default();
 
+    // A local-socket entry is created programmatically, so there is nothing to pick between:
+    // the modal shows where it dials and offers Connect.
+    if mode == ConnectMode::Unix {
+        return unix_body(app);
+    }
+
     div()
         .flex()
         .flex_col()
@@ -162,7 +168,22 @@ fn editing_body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
         .child(match mode {
             ConnectMode::Socket => socket_body(app, window, cx),
             ConnectMode::Ssh => ssh_body(app, window, cx),
+            ConnectMode::Unix => unreachable!("a local-socket entry returns before the picker"),
         })
+        .into_any_element()
+}
+
+/// The local-socket half: the path of the drone's socket, read-only.
+fn unix_body(app: &AppState) -> AnyElement {
+    let path = app
+        .workbench
+        .remote_connect
+        .as_ref()
+        .map(|state| state.unix_path.as_str())
+        .unwrap_or_default();
+    div()
+        .pt_3()
+        .child(label_block("Local socket", path))
         .into_any_element()
 }
 
@@ -456,6 +477,7 @@ fn editing_footer(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         // A drone needs a profile and nothing else: the folder is optional, and the profile
         // carries everything a dial would otherwise have to be typed.
         ConnectMode::Ssh => state.is_some_and(|state| state.profile.is_some()),
+        ConnectMode::Unix => state.is_some_and(|state| !state.unix_path.is_empty()),
         ConnectMode::Socket => {
             !app.remote_address_input.read(cx).value().trim().is_empty()
                 && !app.remote_token_input.read(cx).value().trim().is_empty()

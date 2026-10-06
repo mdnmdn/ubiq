@@ -23,12 +23,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use serde::Deserialize;
-use ubiq_proto::bus::{self, Client};
+use ubiq_proto::bus::Client;
 use ubiq_proto::carrier::{self, DroneIdentity, HandshakeError};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::settings::{DronePreset, SshAuth, SshProfile};
 
-use super::remote_connect::{ConnectFailure, spawn_pump};
+use super::remote_connect::{ConnectFailure, start_drone_session};
 
 /// The drone binary as named on the far machine, when nothing more specific is known.
 ///
@@ -253,8 +253,7 @@ fn dial_once(
     // From here the child is the session. Its stderr keeps draining into the same buffer, which
     // nothing reads again — the thread ends when `ssh` closes the pipe, which is how a session
     // that dies later is noticed by the pump rather than by this function.
-    let (client, detached) = bus::detached();
-    spawn_pump(
+    let client = start_drone_session(
         stdout,
         stdin,
         // A dead `ssh` that failed the write has already closed the stdin the reader sits on, so
@@ -266,7 +265,6 @@ fn dial_once(
             let _ = child.kill();
             let _ = child.wait();
         }),
-        detached,
     );
     Ok((client, identity))
 }

@@ -5,9 +5,9 @@ kind: feature
 status: current
 summary: One small executable Ubiq places on a machine it is not running on, serving that machine's terminal, files, search and machine facts over a single duplex byte stream — attached as an ordinary host over an SSH exec channel, with three lifetimes, a per-project origin, and a hash-pinned binary the interface uploads when the remote `PATH` has none.
 read_when: you are changing how Ubiq reaches a machine it is not running on — the drone binary, its handshake, its lifetime, its deployment, or the SSH profiles and surfaces behind it
-updated: 2026-09-16
+updated: 2026-10-07
 verified: 2026-09-29
-code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
+code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
 depends_on: [tech-architecture, tech-transport, tech-structure, wip-drone]
 review_cycle: monthly
 ---
@@ -111,6 +111,14 @@ with it; on the new connection the drone re-announces each live pane and replays
 scrollback ring, 256 KiB and oldest first, kept only while the drone is detached. Pane ids are
 minted by the drone and stay stable, so it is the same pane rather than a live-but-blank one.
 Closing a *pane* kills its harness (`D22`); what a dropped link ends is the link.
+
+**Holding panes does not depend on the socket.** `held::serve` takes an iterator of `Link`s — a
+reader, a writer, a closer and an optional linger each — and does everything above: one relay, one
+hub, one handshake and pump per link, the state file's refresh. The links are consumed on their own
+thread, so a source blocked waiting for the next attach cannot hold up the countdown; the relay's
+timer is what ends `serve`, and the caller removes whatever its source created. The unix socket is
+one such source, and the crate builds off unix, where the socket, `--listen` and detaching report
+that they are unsupported and `state::is_live` is always `false`, while `--stdio` is unchanged.
 
 ### Managed drones
 
@@ -245,7 +253,9 @@ since a relay has no write half to it. Standard output is flushed on every write
 length-prefixed binary frame carries no newline and an unflushed answer would leave the drone
 looking hung; logging goes to standard error, which the frames do not own. The config root and
 workarea are a per-pid folder under the temporary directory. `socket.rs` holds the listen, attach
-and stop paths and the multiplexer that only holds the process, `linger.rs` the timer, `state.rs`
+and stop paths and the multiplexer that only holds the process, `held.rs` the transport-independent
+half of a detached drone — one relay, one hub, a session per `Link`, the linger and the state
+refresh — which `socket::listen` feeds as one source of links, `linger.rs` the timer, `state.rs`
 the state file with its list-and-prune, `search.rs` the one-shot execs, `scrollback.rs` the ring —
 which needs a sink that outlives a link, so a private hub with one client held for the life of the
 process sits between the pty and the ring. `lib.rs` holds `capabilities()` and `probe_line()`.
@@ -275,6 +285,16 @@ project with an origin, and `project_pinned_to()` is how the reconnect loop and 
 find the pinned id. Reconnect dispatches on carrier: a socket host dials with its token, an
 SSH carrier re-runs the dial with the saved profile, root and preset — cheap and non-destructive,
 because the launch line adopts. Only the **Attached** preset has nothing to reattach to.
+
+**A drone already listening on this machine is a third carrier.** `RemoteCarrier::Unix { path,
+preset }` names a Unix socket — `ubiq-drone --listen`'s, say — and
+`crates/ubiq/src/app/unix_connect.rs` connects it, runs the same `ubiq_proto::carrier::welcome`
+handshake under a ten-second read deadline, and hands the two halves to `start_drone_session()` in
+`remote_connect.rs`, the one function an `ssh` dial also ends in. Nothing is spawned or deployed, so
+a path that does not answer fails with the connect error or "not a drone". Reconnect redials the
+path on the socket host's backoff. The modal shows the path read-only: such an entry is created
+programmatically, never typed. On a platform without Unix sockets the variant still loads and
+dialling it fails with a sentence.
 
 The askpass helper mode lives in `crates/ubiq-app/src/lib.rs`, the one crate that names both halves.
 The drawing sits in `crates/ubiq/src/ui/remote_connect.rs` (the carrier pill and the per-step note),

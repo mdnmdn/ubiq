@@ -40,6 +40,7 @@ use crate::state::remote::{
 };
 
 use super::ssh_connect;
+use super::unix_connect;
 use super::*;
 
 // ── Transport ───────────────────────────────────────────────────────────────
@@ -549,6 +550,23 @@ impl rustls::client::danger::ServerCertVerifier for TrustAny {
     }
 }
 
+/// Start the session a finished drone handshake earned: a detached [`Client`] and the pump behind
+/// it. The half of a drone dial that is the same whatever carries the bytes — `ssh_connect` and
+/// `unix_connect` both end here, after [`ubiq_proto::carrier::welcome`] on the same two halves.
+pub(super) fn start_drone_session<R, W>(
+    reader: R,
+    writer: W,
+    closer: Box<dyn FnOnce() + Send>,
+) -> Client
+where
+    R: Read + Send + 'static,
+    W: Write + Send + 'static,
+{
+    let (client, detached) = bus::detached();
+    spawn_pump(reader, writer, closer, detached);
+    client
+}
+
 /// Shuttle frames between the socket and a [`bus::Detached`] until either side gives up.
 ///
 /// The shape is `ubiq_host::remote::pump`'s, mirrored: there, one `Client` came from a `Hub` and
@@ -693,8 +711,13 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         self.clear_remote_connect_inputs(window, cx);
+        let mut unix_path = String::new();
         let (mode, profile, preset) = match &saved.carrier {
             RemoteCarrier::Socket => (ConnectMode::Socket, None, DronePreset::default()),
+            RemoteCarrier::Unix { path, preset } => {
+                unix_path = path.clone();
+                (ConnectMode::Unix, None, *preset)
+            }
             RemoteCarrier::Ssh {
                 profile,
                 root,
@@ -738,6 +761,7 @@ impl AppState {
             mode,
             profile,
             preset,
+            unix_path,
         });
         cx.notify();
     }
@@ -860,6 +884,15 @@ impl AppState {
             .is_some_and(|state| state.mode == ConnectMode::Ssh)
         {
             self.try_connect_drone(cx);
+            return;
+        }
+        if self
+            .workbench
+            .remote_connect
+            .as_ref()
+            .is_some_and(|state| state.mode == ConnectMode::Unix)
+        {
+            self.try_connect_unix(cx);
             return;
         }
         let address = self
@@ -1415,6 +1448,145 @@ impl AppState {
         cx.notify();
     }
 
+    // ── Drones over a local socket ──────────────────────────────────────────
+
+    /// Dial the Unix socket a saved entry names, from the connect modal. The same terms as
+    /// [`Self::try_connect_drone`]: the [`AttemptId`] is minted here, the dial runs on the
+    /// background executor, and the answer is discarded on arrival if the modal moved on.
+    fn try_connect_unix(&mut self, cx: &mut Context<Self>) {
+        let modal = self.workbench.remote_connect.clone().unwrap_or_default();
+        let path = modal.unix_path.clone();
+        if path.is_empty() {
+            return;
+        }
+        let attempt = AttemptId::generate();
+        if let Some(state) = &mut self.workbench.remote_connect {
+            state.step = RemoteConnectStep::Connecting {
+                attempt,
+                deploy: None,
+            };
+        }
+        cx.notify();
+        let label = modal.saved_name.clone().unwrap_or_else(|| path.clone());
+        let dialled = path.clone();
+        let outcome = cx.background_spawn(async move { unix_connect::dial_unix(&dialled) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| {
+                this.land_unix_connect(
+                    attempt,
+                    outcome,
+                    modal.save_id,
+                    label,
+                    path,
+                    modal.preset,
+                    cx,
+                )
+            });
+        })
+        .detach();
+    }
+
+    /// A Unix-socket dial's answer, landing back on the GPUI thread. The stale-attempt discipline
+    /// is [`Self::land_remote_connect`]'s, unchanged.
+    #[allow(clippy::too_many_arguments)]
+    fn land_unix_connect(
+        &mut self,
+        attempt: AttemptId,
+        outcome: Result<unix_connect::UnixDial, ConnectFailure>,
+        save_id: String,
+        label: String,
+        path: String,
+        preset: DronePreset,
+        cx: &mut Context<Self>,
+    ) {
+        let showing = matches!(
+            &self.workbench.remote_connect,
+            Some(RemoteConnectState {
+                step: RemoteConnectStep::Connecting {
+                    attempt: current, ..
+                },
+                ..
+            }) if *current == attempt
+        );
+        if !showing {
+            return;
+        }
+        match outcome {
+            Ok(dial) => {
+                tracing::info!(
+                    "attached ubiq-drone {} ({}) on {path}",
+                    dial.identity.drone_version,
+                    dial.identity.triplet
+                );
+                let saved = self.save_remote_host(
+                    save_id,
+                    label.clone(),
+                    path.clone(),
+                    RemoteScheme::Http,
+                    false,
+                    RemoteCarrier::Unix {
+                        path: path.clone(),
+                        preset,
+                    },
+                    cx,
+                );
+                self.attach_remote(
+                    dial.client,
+                    label.clone(),
+                    saved,
+                    path.clone(),
+                    RemoteScheme::Http,
+                    cx,
+                );
+                self.workbench.settings.failed_hosts.remove(&path);
+                if let Some(state) = &mut self.workbench.remote_connect {
+                    state.step = RemoteConnectStep::Connected { label };
+                }
+            }
+            Err(failure) => {
+                if let Some(state) = &mut self.workbench.remote_connect {
+                    state.step = RemoteConnectStep::Failed {
+                        reason: failure.to_string(),
+                    };
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// The Unix half of [`Self::retry_reconnect`]: redial the saved path. A drone that was
+    /// listening is very likely still there, so the loop is the same backoff a socket host gets.
+    fn retry_reconnect_unix(
+        &mut self,
+        key: String,
+        generation: u64,
+        saved: SavedRemoteHost,
+        path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let label = saved.name.clone();
+        let save_id = saved.id.clone();
+        let address = saved.address.clone();
+        let outcome = cx.background_spawn(async move { unix_connect::dial_unix(&path) });
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let outcome = outcome.await;
+            let _ = this.update(cx, |this, cx| {
+                this.land_reconnect(
+                    key,
+                    generation,
+                    label,
+                    save_id,
+                    address,
+                    RemoteScheme::Http,
+                    outcome.map(|dial| dial.client),
+                    cx,
+                )
+            });
+        })
+        .detach();
+    }
+
     /// Register a dialled connection on the bus and start draining it.
     ///
     /// Reuses [`Self::route_host`] rather than duplicating `boot.rs`'s router loop — a message
@@ -1580,6 +1752,9 @@ impl AppState {
                 preset,
                 ..
             } => self.retry_reconnect_ssh(key, generation, saved, profile, root, preset, cx),
+            RemoteCarrier::Unix { path, .. } => {
+                self.retry_reconnect_unix(key, generation, saved, path, cx)
+            }
         }
     }
 
@@ -1786,6 +1961,29 @@ impl AppState {
             return;
         };
         self.workbench.remote_manager.test_started(key.clone());
+        if let RemoteCarrier::Unix { path, .. } = &saved.carrier {
+            let path = path.clone();
+            let outcome = cx.background_spawn(async move {
+                // The dial hands back a live client; dropping it closes the session.
+                match unix_connect::dial_unix(&path) {
+                    Ok(dial) => {
+                        drop(dial);
+                        "reachable".to_string()
+                    }
+                    Err(failure) => format!("unreachable: {failure}"),
+                }
+            });
+            cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                let report = outcome.await;
+                let ok = report.starts_with("reachable");
+                let _ = this.update(cx, |this, cx| {
+                    this.workbench.remote_manager.test_finished(key, ok, report);
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
         let address = saved.address.clone();
         let Some(token) = host_secrets::load_token(&key) else {
             self.workbench.remote_manager.test_finished(

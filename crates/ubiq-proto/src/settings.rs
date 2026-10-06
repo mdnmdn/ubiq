@@ -396,6 +396,18 @@ pub enum RemoteCarrier {
         #[serde(default)]
         drone_path: Option<String>,
     },
+    /// A drone already listening on a Unix socket on this machine — `ubiq-drone --listen`, say.
+    /// Ubiq connects the path and speaks the drone handshake on it; nothing is spawned. The
+    /// address and scheme are unused. Dialling on a platform without Unix sockets fails with a
+    /// sentence, the record still loads.
+    Unix {
+        /// The socket path, as the entry that created it wrote it.
+        path: String,
+        /// What the listening drone does when the link drops. Informational here: Ubiq neither
+        /// launches nor stops this drone, so the preset only records how it was started.
+        #[serde(default)]
+        preset: DronePreset,
+    },
 }
 
 /// The drone's lifetime, picked once on the connect path and carried on the saved host.
@@ -507,7 +519,11 @@ pub enum RemoteScheme {
 /// cannot find it — on the same lighter footing as eighteen: what reverts is a location phase 9's
 /// deployer can re-learn and re-save on the next connect, not a fact stranded anywhere a user
 /// cannot get back.
-pub const HOST_SETTINGS_SCHEMA: u32 = 19;
+///
+/// Twenty adds [`RemoteCarrier::Unix`]. An older build cannot parse the new `kind`, so the whole
+/// record would fail to load and be moved aside as corrupt; the bump makes it refuse the file and
+/// leave it intact instead.
+pub const HOST_SETTINGS_SCHEMA: u32 = 20;
 
 fn isolate_agents_default() -> bool {
     true
