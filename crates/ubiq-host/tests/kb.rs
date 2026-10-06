@@ -45,6 +45,7 @@ fn folder_source(filter: &str, path: &std::path::Path) -> KbSource {
         },
         filter: filter.to_string(),
         access: Default::default(),
+        protected: false,
     }
 }
 
@@ -122,6 +123,7 @@ fn a_filter_hides_a_file_it_does_not_name_from_a_kb_listing() {
             project_id: ProjectId::generate(),
             source,
             base: base.path().to_path_buf(),
+            key: None,
             request: files::Request::Tree {
                 rel_path: String::new(),
                 depth: 1,
@@ -160,6 +162,7 @@ fn an_empty_filter_admits_everything_in_a_kb_listing() {
             project_id: ProjectId::generate(),
             source,
             base: base.path().to_path_buf(),
+            key: None,
             request: files::Request::Tree {
                 rel_path: String::new(),
                 depth: 1,
@@ -189,6 +192,7 @@ fn a_kb_read_outside_the_source_is_refused() {
             project_id: ProjectId::generate(),
             source,
             base: base.path().to_path_buf(),
+            key: None,
             request: files::Request::Read {
                 rel_path: "../outside".to_string(),
                 max_bytes: None,
@@ -217,6 +221,7 @@ fn a_write_family_request_against_a_kb_source_is_refused() {
             project_id: ProjectId::generate(),
             source,
             base: base.path().to_path_buf(),
+            key: None,
             request: files::Request::Write {
                 rel_path: "new.md".to_string(),
                 bytes: b"nope".to_vec(),
@@ -272,6 +277,7 @@ fn a_git_source_s_base_path_is_under_the_project_s_own_kb_area() {
         },
         filter: String::new(),
         access: Default::default(),
+        protected: false,
     };
 
     let base = kb.base_path(project, &source, no_project_path());
@@ -291,6 +297,7 @@ fn an_internal_source_is_ready_immediately_and_lives_under_the_project_s_wiki_ar
         origin: KbOrigin::Internal,
         filter: String::new(),
         access: Default::default(),
+        protected: false,
     };
 
     let (_client, mailbox, _hub) = harness();
@@ -324,7 +331,7 @@ fn a_write_to_a_read_only_source_found_through_kb_is_refused() {
 
     let found = kb.find(project, source.id).unwrap();
     let base = kb.base_path(project, &found, no_project_path());
-    let error = ops::write_file(&base, &found, "notes.md", "hi").unwrap_err();
+    let error = ops::write_file(&base, &found, "notes.md", "hi", None).unwrap_err();
     assert!(matches!(error, FileError::Refused(_)));
     assert!(!folder.path().join("notes.md").exists());
 }
@@ -343,9 +350,247 @@ fn a_write_to_a_readwrite_folder_source_found_through_kb_lands_on_disk() {
 
     let found = kb.find(project, source.id).unwrap();
     let base = kb.base_path(project, &found, no_project_path());
-    ops::write_file(&base, &found, "notes.md", "hi").unwrap();
+    ops::write_file(&base, &found, "notes.md", "hi", None).unwrap();
     assert_eq!(
         fs::read_to_string(folder.path().join("notes.md")).unwrap(),
         "hi"
     );
+}
+
+// ── a password-protected wiki (`D206`) ──────────────────────────────
+
+use std::sync::Arc;
+use ubiq_host::kb::vault::{KdfParams, MemoryKeychain};
+
+fn protected_kb(config: &Path, keychain: Arc<MemoryKeychain>) -> Kb {
+    Kb::with_keychain(config.to_path_buf(), keychain, KdfParams::insecure_fast())
+}
+
+fn protected_wiki() -> KbSource {
+    KbSource {
+        id: KbSourceId::generate(),
+        name: "Vault".to_string(),
+        origin: KbOrigin::Internal,
+        filter: String::new(),
+        access: Default::default(),
+        protected: true,
+    }
+}
+
+/// One read through the worker, the way the coordinator's `kb_job` hands it over.
+fn read_through_worker(
+    source: &KbSource,
+    base: &Path,
+    key: Option<Arc<ubiq_host::kb::vault::Key>>,
+) -> Message {
+    let (client, mailbox, _hub) = harness();
+    let files = Files::start();
+    files.submit(files::Job {
+        kind: files::JobKind::Kb {
+            project_id: ProjectId::generate(),
+            source: source.clone(),
+            base: base.to_path_buf(),
+            request: files::Request::Read {
+                rel_path: "notes.md".to_string(),
+                max_bytes: None,
+            },
+            key,
+        },
+        reply_to: mailbox,
+    });
+    client.from_host().recv_timeout(PATIENCE).unwrap()
+}
+
+#[test]
+fn a_protected_wiki_is_locked_until_unlocked_and_never_plaintext_on_disk() {
+    let config = TempDir::new().unwrap();
+    let kb = protected_kb(config.path(), Arc::new(MemoryKeychain::default()));
+    let project = ProjectId::generate();
+    let wiki = protected_wiki();
+    let (_client, mailbox, _hub) = harness();
+
+    let statuses = kb.set_sources(project, vec![wiki.clone()], mailbox, no_project_path());
+    assert_eq!(statuses[0].state, KbSourceState::Locked { first_use: true });
+    assert!(matches!(
+        kb.vault_key(project, &wiki),
+        Err(FileError::Refused(_))
+    ));
+
+    // The first unlock sets the password.
+    kb.unlock(project, wiki.id, "correct horse", false).unwrap();
+    assert_eq!(
+        kb.sources(project, no_project_path())[0].state,
+        KbSourceState::Ready
+    );
+
+    let key = kb.vault_key(project, &wiki).unwrap().expect("a key");
+    let base = kb.base_path(project, &wiki, no_project_path());
+    assert!(base.starts_with(config.path()) && base.ends_with("pages"));
+    assert!(
+        !base.ends_with("wiki"),
+        "a protected wiki has a directory of its own"
+    );
+    ops::write_file(&base, &wiki, "notes.md", "the needle", Some(&key)).unwrap();
+    let on_disk = fs::read(base.join("notes.md")).unwrap();
+    assert!(!on_disk.windows(6).any(|w| w == b"needle"));
+
+    // Read back through the worker with the key: plaintext, in memory only.
+    let Message::KbFileContents { contents, .. } =
+        read_through_worker(&wiki, &base, Some(key.clone()))
+    else {
+        panic!("expected contents")
+    };
+    assert_eq!(contents.bytes, b"the needle");
+    assert_eq!(contents.len, 10);
+
+    // Without the key the worker refuses — and a write without it is refused before the disk.
+    let Message::KbFileError { error, .. } = read_through_worker(&wiki, &base, None) else {
+        panic!("expected a refusal")
+    };
+    assert!(matches!(error, FileError::Refused(_)));
+    assert!(matches!(
+        ops::write_file(&base, &wiki, "notes.md", "x", None),
+        Err(FileError::Refused(_))
+    ));
+
+    // A fresh host over the same root, no keychain entry: locked again, and a wrong password
+    // stays locked.
+    let again = protected_kb(config.path(), Arc::new(MemoryKeychain::default()));
+    again.auto_unlock(project);
+    assert_eq!(
+        again.sources(project, no_project_path())[0].state,
+        KbSourceState::Locked { first_use: false }
+    );
+    assert_eq!(
+        again.unlock(project, wiki.id, "wrong", false).unwrap_err(),
+        "the password is wrong"
+    );
+    assert!(again.vault_key(project, &wiki).is_err());
+    again
+        .unlock(project, wiki.id, "correct horse", false)
+        .unwrap();
+}
+
+#[test]
+fn a_lost_header_is_not_a_first_use_and_takes_no_new_password() {
+    let config = TempDir::new().unwrap();
+    let kb = protected_kb(config.path(), Arc::new(MemoryKeychain::default()));
+    let project = ProjectId::generate();
+    let wiki = protected_wiki();
+    let (_client, mailbox, _hub) = harness();
+    kb.set_sources(project, vec![wiki.clone()], mailbox, no_project_path());
+    kb.unlock(project, wiki.id, "pw", false).unwrap();
+    let key = kb.vault_key(project, &wiki).unwrap().expect("a key");
+    let base = kb.base_path(project, &wiki, no_project_path());
+    ops::write_file(&base, &wiki, "notes.md", "sealed", Some(&key)).unwrap();
+    fs::remove_file(base.parent().unwrap().join(ubiq_host::kb::vault::HEADER)).unwrap();
+
+    let again = protected_kb(config.path(), Arc::new(MemoryKeychain::default()));
+    assert_eq!(
+        again.sources(project, no_project_path())[0].state,
+        KbSourceState::Locked { first_use: false }
+    );
+    assert_eq!(
+        again.unlock(project, wiki.id, "new", false).unwrap_err(),
+        "this wiki's header is missing; its pages cannot be opened"
+    );
+    assert!(again.vault_key(project, &wiki).is_err());
+}
+
+#[test]
+fn a_remembered_password_opens_the_wiki_on_the_next_run() {
+    let config = TempDir::new().unwrap();
+    let keychain = Arc::new(MemoryKeychain::default());
+    let project = ProjectId::generate();
+    let wiki = protected_wiki();
+    let (_client, mailbox, _hub) = harness();
+
+    let kb = protected_kb(config.path(), keychain.clone());
+    kb.set_sources(project, vec![wiki.clone()], mailbox, no_project_path());
+    kb.unlock(project, wiki.id, "pw", true).unwrap();
+    assert!(keychain.holds(wiki.id));
+
+    let next_run = protected_kb(config.path(), keychain.clone());
+    next_run.auto_unlock(project);
+    assert_eq!(
+        next_run.sources(project, no_project_path())[0].state,
+        KbSourceState::Ready
+    );
+
+    // Unlocking without `remember` forgets what was filed.
+    next_run.unlock(project, wiki.id, "pw", false).unwrap();
+    assert!(!keychain.holds(wiki.id));
+}
+
+#[test]
+fn changing_the_password_re_encrypts_and_retires_the_old_one() {
+    let config = TempDir::new().unwrap();
+    let keychain = Arc::new(MemoryKeychain::default());
+    let project = ProjectId::generate();
+    let wiki = protected_wiki();
+    let (_client, mailbox, _hub) = harness();
+
+    let kb = protected_kb(config.path(), keychain.clone());
+    kb.set_sources(project, vec![wiki.clone()], mailbox, no_project_path());
+    kb.unlock(project, wiki.id, "old", false).unwrap();
+    let base = kb.base_path(project, &wiki, no_project_path());
+    let old_key = kb.vault_key(project, &wiki).unwrap().unwrap();
+    ops::write_file(&base, &wiki, "notes.md", "kept", Some(&old_key)).unwrap();
+    let before = fs::read(base.join("notes.md")).unwrap();
+
+    assert!(
+        kb.change_password(project, wiki.id, "nope", "new", true)
+            .is_err()
+    );
+    assert_eq!(fs::read(base.join("notes.md")).unwrap(), before);
+
+    kb.change_password(project, wiki.id, "old", "new", true)
+        .unwrap();
+    assert!(keychain.holds(wiki.id));
+    assert_ne!(fs::read(base.join("notes.md")).unwrap(), before);
+
+    let fresh = protected_kb(config.path(), Arc::new(MemoryKeychain::default()));
+    assert!(fresh.unlock(project, wiki.id, "old", false).is_err());
+    fresh.unlock(project, wiki.id, "new", false).unwrap();
+    let key = fresh.vault_key(project, &wiki).unwrap();
+    let Message::KbFileContents { contents, .. } = read_through_worker(&wiki, &base, key) else {
+        panic!("expected contents")
+    };
+    assert_eq!(contents.bytes, b"kept");
+}
+
+#[test]
+fn protection_is_fixed_at_creation_and_only_for_a_wiki() {
+    let config = TempDir::new().unwrap();
+    let folder = TempDir::new().unwrap();
+    let keychain = Arc::new(MemoryKeychain::default());
+    let kb = protected_kb(config.path(), keychain.clone());
+    let project = ProjectId::generate();
+    let wiki = protected_wiki();
+    let mut docs = folder_source("", folder.path());
+    docs.protected = true;
+    let (_client, mailbox, _hub) = harness();
+
+    let statuses = kb.set_sources(
+        project,
+        vec![wiki.clone(), docs.clone()],
+        mailbox.clone(),
+        no_project_path(),
+    );
+    assert!(
+        !statuses[1].source.protected,
+        "only a wiki may be protected"
+    );
+
+    // Saving the list again with the flag cleared does not unprotect it.
+    let mut unflagged = wiki.clone();
+    unflagged.protected = false;
+    let statuses = kb.set_sources(project, vec![unflagged], mailbox.clone(), no_project_path());
+    assert!(statuses[0].source.protected);
+
+    // Removing it forgets its filed password.
+    kb.unlock(project, wiki.id, "pw", true).unwrap();
+    assert!(keychain.holds(wiki.id));
+    kb.set_sources(project, vec![], mailbox, no_project_path());
+    assert!(!keychain.holds(wiki.id));
 }

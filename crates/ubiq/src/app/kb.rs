@@ -15,7 +15,10 @@
 use super::*;
 use crate::app::explorer::{child_path, leaf_of};
 use crate::state::file_picker::{Commit, PickKind, PickerCount, PickerRequest, PickerView};
-use crate::state::kb::{KbAction, KbKind, KbList, KbMenuRow, KbSourceForm, KbUrlCheck};
+use crate::state::kb::{
+    KbAction, KbKind, KbList, KbMenuRow, KbPasswordDialog, KbPasswordMode, KbSourceForm,
+    KbUrlCheck, kb_password_problem,
+};
 use ubiq_proto::files::EntryKind;
 use ubiq_proto::ids::RepoQueryId;
 use ubiq_proto::repos::RepoSource;
@@ -459,6 +462,8 @@ impl AppState {
                 let dir = menu.row == KbMenuRow::Dir;
                 self.open_file_dialog(FileDialog::KbRemove { source, path, dir }, "", window, cx);
             }
+            KbAction::Unlock => self.open_kb_unlock(source, window, cx),
+            KbAction::ChangePassword => self.open_kb_change_password(source, window, cx),
             KbAction::Separator => {}
         }
         cx.notify();
@@ -548,7 +553,169 @@ impl AppState {
         cx.notify();
     }
 
+    // ── The password question (`D206`) ──────────────────────────────
+
+    /// Raise the question a source's row asks: **unlock** for a locked wiki, **set** for one that
+    /// has never had a password. Anything else is not a question the row asks.
+    pub fn open_kb_unlock(
+        &mut self,
+        source: KbSourceId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(first_use) = self
+            .kb(cx)
+            .and_then(|kb| kb.source(source))
+            .and_then(|view| view.locked())
+        else {
+            return;
+        };
+        let mode = match first_use {
+            true => KbPasswordMode::Set,
+            false => KbPasswordMode::Unlock,
+        };
+        self.raise_kb_password(source, mode, window, cx);
+    }
+
+    /// Raise **change password** for a protected wiki.
+    pub fn open_kb_change_password(
+        &mut self,
+        source: KbSourceId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .kb(cx)
+            .and_then(|kb| kb.source(source))
+            .is_some_and(|view| view.is_protected())
+        {
+            return;
+        }
+        self.raise_kb_password(source, KbPasswordMode::Change, window, cx);
+    }
+
+    /// Build the three masked fields — empty, always — and put the caret in the first.
+    fn raise_kb_password(
+        &mut self,
+        source: KbSourceId,
+        mode: KbPasswordMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let masked = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
+            cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(placeholder)
+                    .masked(true)
+            })
+        };
+        let current = masked("Password", window, cx);
+        let new = masked("New password", window, cx);
+        let confirm = masked("Confirm new password", window, cx);
+        let first = match mode.asks_current() {
+            true => current.clone(),
+            false => new.clone(),
+        };
+        let handle = first.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        let Some(kb) = self.kb_mut(cx) else {
+            return;
+        };
+        kb.password = Some(KbPasswordDialog {
+            source,
+            mode,
+            remember: true,
+            busy: false,
+            error: None,
+            current,
+            new,
+            confirm,
+        });
+        self.workbench.open_menu = None;
+        cx.notify();
+    }
+
+    /// Send what was typed. A local problem (empty, or the two new ones disagree) stays on the
+    /// dialog; otherwise the fields are emptied as the message goes, so no password outlives it.
+    pub fn submit_kb_password(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(dialog) = self.kb(cx).and_then(|kb| kb.password.clone()) else {
+            return;
+        };
+        if dialog.busy {
+            return;
+        }
+        let read = |field: &Entity<InputState>, cx: &App| field.read(cx).value().to_string();
+        let current = read(&dialog.current, cx);
+        let new = read(&dialog.new, cx);
+        let confirm = read(&dialog.confirm, cx);
+        if let Some(problem) = kb_password_problem(dialog.mode, &current, &new, &confirm) {
+            if let Some(open) = self.kb_mut(cx).and_then(|kb| kb.password.as_mut()) {
+                open.error = Some(problem.to_string());
+            }
+            cx.notify();
+            return;
+        }
+        for field in [&dialog.current, &dialog.new, &dialog.confirm] {
+            field.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        self.bus.send(match dialog.mode {
+            // First use sets the password it is created with: the same message, one password.
+            KbPasswordMode::Set => Message::UnlockKbSource {
+                project_id: project,
+                source: dialog.source,
+                password: Secret::new(new),
+                remember: dialog.remember,
+            },
+            KbPasswordMode::Unlock => Message::UnlockKbSource {
+                project_id: project,
+                source: dialog.source,
+                password: Secret::new(current),
+                remember: dialog.remember,
+            },
+            KbPasswordMode::Change => Message::ChangeKbPassword {
+                project_id: project,
+                source: dialog.source,
+                old: Secret::new(current),
+                new: Secret::new(new),
+                remember: dialog.remember,
+            },
+        });
+        if let Some(open) = self.kb_mut(cx).and_then(|kb| kb.password.as_mut()) {
+            open.busy = true;
+            open.error = None;
+        }
+        cx.notify();
+    }
+
+    /// Take the question down. The fields go with it, and with them whatever was typed.
+    pub fn cancel_kb_password(&mut self, cx: &mut Context<Self>) {
+        if let Some(kb) = self.kb_mut(cx) {
+            kb.password = None;
+        }
+        cx.notify();
+    }
+
+    pub fn toggle_kb_password_remember(&mut self, cx: &mut Context<Self>) {
+        if let Some(dialog) = self.kb_mut(cx).and_then(|kb| kb.password.as_mut()) {
+            dialog.remember = !dialog.remember;
+        }
+        cx.notify();
+    }
+
     // ── The "Add source" form ───────────────────────────────────────
+
+    /// The "Password protected" box. A wiki's answer, taken once: the host ignores a later change.
+    pub fn toggle_kb_source_protected(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.workbench.kb_source.as_mut()
+            && form.kind == Some(KbKind::Wiki)
+        {
+            form.protected = !form.protected;
+        }
+        cx.notify();
+    }
 
     /// Raise the modal, empty. The two fields it types into are the window's, so what a previous
     /// answer left in them is cleared here rather than carried into this one.

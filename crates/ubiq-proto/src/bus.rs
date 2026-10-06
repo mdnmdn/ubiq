@@ -631,7 +631,7 @@ impl Tape {
             return;
         }
 
-        let Ok(value) = serde_json::to_value(message) else {
+        let Some(value) = tape_value(message) else {
             return;
         };
         let kind = value
@@ -783,6 +783,28 @@ pub fn tape_dir() -> std::path::PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
+/// A message as the tape holds it: every [`crate::messages::Secret`] written as `"***"`, and a
+/// knowledge-base document's body replaced by its length. The tape is dumped to a file, and a
+/// protected wiki's page is plaintext only in host memory (`D206`); the tape cannot tell a
+/// protected source from another, so every KB body goes. `None` for one that will not serialise.
+fn tape_value(message: &Message) -> Option<serde_json::Value> {
+    let mut value = crate::messages::redacting_secrets(|| serde_json::to_value(message)).ok()?;
+    let body = match message {
+        Message::WriteKbFile { contents, .. } => Some(("contents", contents.len())),
+        Message::KbFileContents { contents, .. } => Some(("contents", contents.bytes.len())),
+        _ => None,
+    };
+    if let Some((field, len)) = body
+        && let Some(payload) = value.get_mut("payload").and_then(|p| p.as_object_mut())
+    {
+        payload.insert(
+            field.to_string(),
+            serde_json::Value::String(format!("<{len} bytes, not taped>")),
+        );
+    }
+    Some(value)
+}
+
 /// One line of a dump: the entry's own fields, with the message embedded as an object where it
 /// still parses. A truncated body is written as a string instead, because half an object is not
 /// one and a reader deserves to see which it got.
@@ -852,5 +874,62 @@ mod tests {
         assert_eq!(held, TAPE_CAPACITY);
         assert_eq!(dropped, 101);
         assert_eq!(tape().snapshot()[0].direction, Direction::Inbound);
+    }
+
+    /// Material and a wiki's page never reach the tape — and the wire still carries both.
+    #[test]
+    fn the_tape_holds_no_secret_and_no_kb_body() {
+        use crate::files::FileContents;
+        use crate::ids::{KbSourceId, ProjectId};
+        use crate::messages::Secret;
+
+        let project_id = ProjectId::generate();
+        let source = KbSourceId::generate();
+        let messages = [
+            Message::UnlockKbSource {
+                project_id,
+                source,
+                password: Secret::new("hunter2-unlock"),
+                remember: true,
+            },
+            Message::ChangeKbPassword {
+                project_id,
+                source,
+                old: Secret::new("hunter2-old"),
+                new: Secret::new("hunter2-new"),
+                remember: false,
+            },
+            Message::WriteKbFile {
+                project_id,
+                source,
+                rel_path: "a.md".into(),
+                contents: "hunter2-page-written".into(),
+            },
+            Message::KbFileContents {
+                project_id,
+                source,
+                rel_path: "a.md".into(),
+                contents: FileContents {
+                    bytes: b"hunter2-page-read".to_vec(),
+                    len: 17,
+                    truncated: false,
+                    is_binary: false,
+                    version: None,
+                },
+            },
+        ];
+        for message in &messages {
+            let taped = tape_value(message).unwrap().to_string();
+            assert!(!taped.contains("hunter2"), "taped: {taped}");
+            // `hunter2-page-read` as JSON bytes starts with 104 ('h').
+            assert!(!taped.contains("[104,"), "taped: {taped}");
+            let wire = serde_json::to_string(message).unwrap();
+            assert!(wire.contains("hunter2") || wire.contains("[104,"));
+        }
+        let taped = tape_value(&messages[1]).unwrap();
+        assert_eq!(taped["payload"]["old"], "***");
+        assert_eq!(taped["payload"]["new"], "***");
+        let taped = tape_value(&messages[3]).unwrap();
+        assert_eq!(taped["payload"]["contents"], "<17 bytes, not taped>");
     }
 }

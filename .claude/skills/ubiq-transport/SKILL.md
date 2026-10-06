@@ -67,7 +67,9 @@ Your change updates the documents it touched in the same commit. `just docs-touc
 - **Payloads are owned.** No borrowed data, no handles, nothing that fails to serialise.
 - **Material crosses only in a `Secret`, and a `Secret` is never printed** (`D65`). It has no
   `Display`, no `Deref`, no `AsRef<str>`; `Debug` writes `Secret(***)`; `expose()` is the one way
-  out, so every leak site is one grep. The log sink and the tape both serialise whole messages.
+  out, so every leak site is one grep. The log sink and the tape both serialise whole messages;
+  the tape does it inside `messages::redacting_secrets`, which writes every `Secret` as `"***"`,
+  and drops KB page bodies (`bus::tape_value`).
 
 ## Checklist — adding or changing a message
 

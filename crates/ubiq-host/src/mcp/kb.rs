@@ -27,6 +27,11 @@
 //! — a write against a read-only source — is precisely the one `ops` already refuses. Its
 //! [`FileError`] becomes the sentence the model reads.
 //!
+//! **A password-protected wiki does not exist here** (`D206`). [`visible`] drops every protected
+//! source before a listing or an address sees it, so an agent can neither name one nor learn its
+//! name — the same answer as a source that was never configured. [`ops`] refuses a protected
+//! source without its key as well, and nothing here ever holds one.
+//!
 //! **Facts, never material.** A git source's URL and branch are facts about where a source came
 //! from and are answered; nothing that would authenticate to it exists in this family to answer
 //! with, on [`super::registry`]'s own rule.
@@ -81,7 +86,7 @@ pub fn call(
 /// refused before it tries one.
 fn list_sources(facts: &AgentFacts, reach: &KbReach) -> Result<Value, String> {
     let (project, project_path) = project_of(facts)?;
-    let statuses = reach.kb.sources(project, &project_path);
+    let statuses = visible(reach.kb.sources(project, &project_path));
     Ok(json!({
         "project_id": project.to_string(),
         "sources": statuses.iter().map(source_json).collect::<Vec<_>>(),
@@ -154,7 +159,8 @@ fn read_document(arguments: &Value, facts: &AgentFacts, reach: &KbReach) -> Resu
 fn write_document(arguments: &Value, facts: &AgentFacts, reach: &KbReach) -> Result<Value, String> {
     let at = resolve(required_str(arguments, "path")?, facts, reach)?;
     let contents = required_str(arguments, "contents")?;
-    ops::write_file(&at.base, &at.source, &at.rel_path, contents).map_err(|error| at.say(error))?;
+    ops::write_file(&at.base, &at.source, &at.rel_path, contents, None)
+        .map_err(|error| at.say(error))?;
     at.changed(reach, &at.rel_path);
     Ok(json!({"written": true, "path": at.address(), "bytes": contents.len()}))
 }
@@ -170,7 +176,7 @@ fn create_entry(arguments: &Value, facts: &AgentFacts, reach: &KbReach) -> Resul
         "folder" | "dir" | "directory" => EntryKind::Dir,
         other => return Err(format!("unknown kind '{other}': use file or folder")),
     };
-    ops::create(&at.base, &at.source, &at.rel_path, kind).map_err(|error| at.say(error))?;
+    ops::create(&at.base, &at.source, &at.rel_path, kind, None).map_err(|error| at.say(error))?;
     at.changed(reach, &at.rel_path);
     Ok(json!({
         "created": true,
@@ -185,8 +191,8 @@ fn create_entry(arguments: &Value, facts: &AgentFacts, reach: &KbReach) -> Resul
 fn rename_entry(arguments: &Value, facts: &AgentFacts, reach: &KbReach) -> Result<Value, String> {
     let at = resolve(required_str(arguments, "path")?, facts, reach)?;
     let new_name = required_str(arguments, "new_name")?;
-    let new_rel =
-        ops::rename(&at.base, &at.source, &at.rel_path, new_name).map_err(|error| at.say(error))?;
+    let new_rel = ops::rename(&at.base, &at.source, &at.rel_path, new_name, None)
+        .map_err(|error| at.say(error))?;
     at.changed(reach, &at.rel_path);
     Ok(json!({
         "renamed": true,
@@ -198,7 +204,7 @@ fn rename_entry(arguments: &Value, facts: &AgentFacts, reach: &KbReach) -> Resul
 /// Delete one entry. A folder goes with everything under it, on [`ops::delete`]'s own rule.
 fn delete_entry(arguments: &Value, facts: &AgentFacts, reach: &KbReach) -> Result<Value, String> {
     let at = resolve(required_str(arguments, "path")?, facts, reach)?;
-    ops::delete(&at.base, &at.source, &at.rel_path).map_err(|error| at.say(error))?;
+    ops::delete(&at.base, &at.source, &at.rel_path, None).map_err(|error| at.say(error))?;
     at.changed(reach, &at.rel_path);
     Ok(json!({"deleted": true, "path": at.address()}))
 }
@@ -300,7 +306,7 @@ fn resolve(address: &str, facts: &AgentFacts, reach: &KbReach) -> Result<Address
         );
     }
 
-    let statuses = reach.kb.sources(project, &project_path);
+    let statuses = visible(reach.kb.sources(project, &project_path));
     let source = pick(name, &statuses)?;
     let rel_path = rest.trim_matches('/').to_string();
     let base = reach.kb.base_path(project, &source, &project_path);
@@ -312,6 +318,14 @@ fn resolve(address: &str, facts: &AgentFacts, reach: &KbReach) -> Result<Address
         base,
         rel_path,
     })
+}
+
+/// The sources an agent may see: every one but a password-protected wiki.
+fn visible(statuses: Vec<KbSourceStatus>) -> Vec<KbSourceStatus> {
+    statuses
+        .into_iter()
+        .filter(|status| !status.source.is_protected())
+        .collect()
 }
 
 /// Which source a `<source>` segment names: by name, ignoring case, and failing that by id.
@@ -425,6 +439,8 @@ fn state_of(state: &KbSourceState) -> Value {
         KbSourceState::Syncing { detail } => json!({"state": "syncing", "detail": detail}),
         KbSourceState::Ready => json!({"state": "ready"}),
         KbSourceState::Failed { error } => json!({"state": "failed", "error": error}),
+        // Never reached: a locked source is a protected one, and `visible` has dropped it.
+        KbSourceState::Locked { .. } => json!({"state": "locked"}),
     }
 }
 

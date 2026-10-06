@@ -1845,6 +1845,27 @@ pub enum Message {
         source: KbSourceId,
         rel_path: String,
     },
+    /// Open a password-protected wiki (`D206`) — or, for one still [`KbSourceState::Locked`] with
+    /// `first_use`, set the password it is created with. `remember` files the password in the OS
+    /// keychain so the next run opens it without asking; `false` also forgets one filed before.
+    /// Answered with [`Message::KbPasswordAnswer`] to the asker and, on success,
+    /// [`Message::KbSourceChanged`] `Ready` to every window.
+    UnlockKbSource {
+        project_id: ProjectId,
+        source: KbSourceId,
+        password: Secret,
+        remember: bool,
+    },
+    /// Replace a protected wiki's password, re-encrypting every document under the new one. `old`
+    /// is required even when the wiki is open — the keychain having it is not the person knowing
+    /// it. Answered with [`Message::KbPasswordAnswer`].
+    ChangeKbPassword {
+        project_id: ProjectId,
+        source: KbSourceId,
+        old: Secret,
+        new: Secret,
+        remember: bool,
+    },
 
     // ── Knowledge-base family: host → UI ────────────────────────────
     /// The configuration, and what the host knows about each source now. Sent in answer to
@@ -1898,6 +1919,15 @@ pub enum Message {
         source: KbSourceId,
         rel_path: String,
         path: String,
+    },
+    /// Answer to [`Message::UnlockKbSource`] and [`Message::ChangeKbPassword`], to the asker only.
+    /// `error` absent is accepted; present is the sentence to show under the password field — a
+    /// wrong password among them, which is a prompt to try again and never a lockout.
+    KbPasswordAnswer {
+        project_id: ProjectId,
+        source: KbSourceId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
     },
 
     // ── The Archify family: host → UI ───────────────────────────────
@@ -3486,6 +3516,9 @@ impl Message {
             | Message::DeleteKbEntry { project_id, .. }
             | Message::RevealKbPath { project_id, .. }
             | Message::AskKbPath { project_id, .. }
+            | Message::UnlockKbSource { project_id, .. }
+            | Message::ChangeKbPassword { project_id, .. }
+            | Message::KbPasswordAnswer { project_id, .. }
             | Message::KbSourcesListed { project_id, .. }
             | Message::KbSourceChanged { project_id, .. }
             | Message::KbTreeListing { project_id, .. }
@@ -3980,10 +4013,39 @@ impl AgentDefinition {
 /// redacts itself. [`Self::expose`] is the only way out, which makes every place material leaves
 /// this type one grep.
 ///
-/// Serialisation is transparent: the host needs the value, and the log sink never reads the wire.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Serialisation is transparent on the wire — the host needs the value — and redacted to `"***"`
+/// inside [`redacting_secrets`], which is how the bus tape serialises a message: the tape is
+/// dumped to a file, so it must never hold material.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct Secret(String);
+
+thread_local! {
+    static REDACT_SECRETS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with every [`Secret`] it serialises written as `"***"` — on this thread only, so the
+/// wire, serialising on any other thread or outside the call, still carries the value.
+pub fn redacting_secrets<T>(f: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            REDACT_SECRETS.with(|flag| flag.set(self.0));
+        }
+    }
+    let _restore = Restore(REDACT_SECRETS.with(|flag| flag.replace(true)));
+    f()
+}
+
+impl Serialize for Secret {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if REDACT_SECRETS.with(std::cell::Cell::get) {
+            serializer.serialize_str("***")
+        } else {
+            serializer.serialize_str(&self.0)
+        }
+    }
+}
 
 impl Secret {
     pub fn new(value: impl Into<String>) -> Self {

@@ -128,6 +128,13 @@ pub struct KbSource {
     /// always read-write — there is no fetched or user-picked material to protect from it.
     #[serde(default)]
     pub access: KbAccess,
+    /// Whether this wiki's documents are sealed under a password (`D206`). Meaningful only for
+    /// [`KbOrigin::Internal`], and chosen when the source is created: the host keeps whatever the
+    /// first saved list said and ignores a later flip either way. The password itself never rides
+    /// here — this record is written to a TOML file — only in [`crate::messages::Message::UnlockKbSource`]
+    /// and [`crate::messages::Message::ChangeKbPassword`].
+    #[serde(default)]
+    pub protected: bool,
 }
 
 impl KbSource {
@@ -148,6 +155,12 @@ impl KbSource {
     /// for read-only to protect.
     pub fn is_writable(&self) -> bool {
         self.origin.is_internal() || self.access.is_writable()
+    }
+
+    /// Whether this is a password-protected wiki: [`Self::protected`] on an internal source, and
+    /// never on anything else.
+    pub fn is_protected(&self) -> bool {
+        self.protected && self.origin.is_internal()
     }
 }
 
@@ -170,6 +183,14 @@ pub enum KbSourceState {
     /// The last attempt to fetch or read it failed, with the sentence to print.
     Failed {
         error: String,
+    },
+    /// A password-protected wiki whose key the host does not hold: nothing in it can be listed,
+    /// read or written until [`crate::messages::Message::UnlockKbSource`] supplies the password.
+    /// `first_use` is a wiki that has never had one — the password that unlocks it is the one it
+    /// is created with, so the prompt asks for it twice rather than once.
+    Locked {
+        #[serde(default)]
+        first_use: bool,
     },
 }
 
@@ -242,6 +263,7 @@ mod tests {
             },
             filter: filter.into(),
             access: KbAccess::ReadOnly,
+            protected: false,
         }
     }
 
@@ -305,6 +327,20 @@ mod tests {
         wiki.origin = KbOrigin::Internal;
         wiki.access = KbAccess::ReadOnly;
         assert!(wiki.is_writable());
+    }
+
+    #[test]
+    fn a_source_saved_before_protection_existed_reads_unprotected() {
+        let source: KbSource = toml::from_str(
+            "id = \"01J0000000000000000000000A\"\nname = \"Wiki\"\norigin = \"internal\"\n",
+        )
+        .unwrap();
+        assert!(!source.protected && !source.is_protected());
+
+        // The flag means nothing off a wiki.
+        let mut folder = self::source("");
+        folder.protected = true;
+        assert!(!folder.is_protected());
     }
 
     #[test]

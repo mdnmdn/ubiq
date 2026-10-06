@@ -1520,6 +1520,19 @@ impl AppState {
                 cx.notify();
             }
 
+            // The host's word on an unlock or a change: a sentence keeps the dialog up for another
+            // try, nothing takes it down. The tree is refreshed by the `KbSourceChanged` it sends
+            // alongside.
+            Message::KbPasswordAnswer {
+                project_id,
+                source,
+                error,
+            } => {
+                let open = self.projects.get_mut(&project_id)?;
+                open.kb.password_answered(source, error);
+                cx.notify();
+            }
+
             Message::KbTreeListing {
                 project_id,
                 source,

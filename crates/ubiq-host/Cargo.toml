@@ -108,6 +108,12 @@ ring = { version = "0.17", optional = true }
 ubiq-archify = { path = "../ubiq-archify", optional = true }
 # The sealed password and the key that opens it are TOML strings, so they are base64. Behind `db`.
 base64 = { version = "0.22", optional = true }
+# A password-protected wiki (`kb/vault.rs`, `D206`): Argon2id turns the password into a key, every
+# document is sealed with XChaCha20-Poly1305 under a fresh random nonce, and every key and plaintext
+# buffer is wiped on drop. RustCrypto's own, pure Rust, nothing that draws. Not gated: `kb` is not.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+chacha20poly1305 = "0.10"
+zeroize = "1"
 
 # TOON, the token-lean table encoding the SQL MCP servers answer in. `default-features = false`
 # drops its CLI and its extras; only `encode` is used.

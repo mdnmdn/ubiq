@@ -1194,6 +1194,28 @@ fn kb(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -
                             .text_color(theme::text_faint())
                             .child(SharedString::from(access)),
                     )
+                    // Fixed when the wiki was made, so a marker and one action rather than a toggle.
+                    .children(view.is_protected().then(|| {
+                        div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(theme::font(Family::Chrome, Role::Meta))
+                                    .text_color(theme::text_faint())
+                                    .child("password protected"),
+                            )
+                            .child(ghost_button(
+                                crate::ui::eid("project-kb-password", id),
+                                None,
+                                "Change password",
+                                cx.listener(move |this, _, window, cx| {
+                                    this.open_kb_change_password(id, window, cx)
+                                }),
+                            ))
+                    }))
                     .children(filter.map(|input| {
                         framed_active(theme::border(), input_on(input, window, cx))
                             .h(px(26.))
@@ -1267,6 +1289,7 @@ fn state_line(state: &KbSourceState) -> (Option<String>, Rgba) {
         KbSourceState::Pending => (Some("pending".into()), theme::text_faint()),
         KbSourceState::Syncing { detail } => (Some(detail.clone()), theme::warning()),
         KbSourceState::Failed { error } => (Some(error.clone()), theme::danger()),
+        KbSourceState::Locked { .. } => (Some("locked".into()), theme::text_faint()),
     }
 }
 

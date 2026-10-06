@@ -36,6 +36,7 @@ use crate::ui::kit::{
 use crate::ui::mark;
 use crate::ui::{eid2, empty};
 
+pub mod password;
 pub mod source_form;
 
 /// The left panel: the sources, and the folders and files under the open ones.
@@ -147,7 +148,12 @@ fn line(row: &KbRow, font_size: f32, cx: &mut Context<AppState>) -> AnyElement {
         false,
         font_size,
     )
-    .on_click(cx.listener(move |this, _, _, cx| {
+    .on_click(cx.listener(move |this, _, window, cx| {
+        // A locked wiki's own row asks for its password; everything else is a tree press.
+        if path.is_empty() && this.kb(cx).and_then(|kb| kb.source(source)).is_some_and(|v| v.locked().is_some()) {
+            this.open_kb_unlock(source, window, cx);
+            return;
+        }
         this.click_kb_row(source, path.clone(), cx);
     }));
 
@@ -259,10 +265,21 @@ fn state_word(source: KbSourceId, state: &KbSourceState, font_size: f32) -> Opti
         KbSourceState::Ready => return None,
         KbSourceState::Pending => ("pending".to_string(), theme::text_faint(), None),
         KbSourceState::Syncing { detail } => (detail.clone(), theme::warning(), None),
-        KbSourceState::Failed { error } => ("failed".to_string(), theme::danger(), Some(error)),
+        KbSourceState::Failed { error } => {
+            ("failed".to_string(), theme::danger(), Some(error.clone()))
+        }
+        // A protected wiki without its key (`D206`): a press on the row asks for the password.
+        KbSourceState::Locked { first_use } => (
+            "locked".to_string(),
+            theme::warning(),
+            Some(match first_use {
+                true => "Locked \u{2014} click to set its password".to_string(),
+                false => "Locked \u{2014} click to unlock".to_string(),
+            }),
+        ),
     };
     let tooltip: SharedString = match tooltip {
-        Some(error) => error.clone().into(),
+        Some(text) => text.into(),
         None => word.clone().into(),
     };
     Some(
@@ -285,7 +302,11 @@ fn retry(
     state: &KbSourceState,
     cx: &mut Context<AppState>,
 ) -> Option<AnyElement> {
-    if matches!(state, KbSourceState::Ready | KbSourceState::Syncing { .. }) {
+    // A locked wiki is not retried: it wants a password, which its row and menu ask for.
+    if matches!(
+        state,
+        KbSourceState::Ready | KbSourceState::Syncing { .. } | KbSourceState::Locked { .. }
+    ) {
         return None;
     }
     Some(

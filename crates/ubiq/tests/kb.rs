@@ -122,6 +122,7 @@ impl Fixture {
                         },
                         filter: String::new(),
                         access: Default::default(),
+                        protected: false,
                     },
                     state: KbSourceState::Ready,
                 }],
@@ -815,6 +816,7 @@ fn a_wiki_sources_file_opens_like_any_other(cx: &mut TestAppContext) {
                     origin: KbOrigin::Internal,
                     filter: String::new(),
                     access: KbAccess::ReadWrite,
+                    protected: false,
                 },
                 state: KbSourceState::Ready,
             }],
@@ -890,6 +892,7 @@ fn a_writable_and_a_read_only_source() -> (KbSourceId, KbSourceId, Vec<KbSourceS
                 },
                 filter: String::new(),
                 access: KbAccess::ReadWrite,
+                protected: false,
             },
             state: KbSourceState::Ready,
         },
@@ -902,6 +905,7 @@ fn a_writable_and_a_read_only_source() -> (KbSourceId, KbSourceId, Vec<KbSourceS
                 },
                 filter: String::new(),
                 access: KbAccess::ReadOnly,
+                protected: false,
             },
             state: KbSourceState::Ready,
         },
@@ -1012,6 +1016,7 @@ fn a_dirty_writable_document_saves_and_a_refusal_keeps_the_buffer(cx: &mut TestA
                     },
                     filter: String::new(),
                     access: KbAccess::ReadWrite,
+                    protected: false,
                 },
                 state: KbSourceState::Ready,
             }],
@@ -1224,4 +1229,105 @@ fn a_task(id: TaskId) -> TaskRecord {
     let mut task = TaskRecord::new("attach things to me".to_string(), None, Utc::now());
     task.id = id;
     task
+}
+
+/// A locked first-use wiki asks for a password twice, refuses a mismatch locally, sends the one
+/// password with `remember`, empties the fields as it goes, keeps the dialog up on a host error and
+/// takes it down on an acceptance.
+#[gpui::test]
+fn a_locked_wiki_is_unlocked_through_its_dialog(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = KbSourceId::generate();
+    fixture.deliver(
+        Message::KbSourcesListed {
+            project_id: fixture.project,
+            sources: vec![KbSourceStatus {
+                source: KbSource {
+                    id,
+                    name: "vault".to_string(),
+                    origin: KbOrigin::Internal,
+                    filter: String::new(),
+                    access: KbAccess::ReadWrite,
+                    protected: true,
+                },
+                state: KbSourceState::Locked { first_use: true },
+            }],
+        },
+        cx,
+    );
+    let _ = fixture.said();
+
+    // A press on the row retries nothing: it raises the dialog.
+    fixture.with(cx, |state, window, cx| state.open_kb_unlock(id, window, cx));
+    let type_into = |first: &str, second: &str, cx: &mut TestAppContext| {
+        fixture.with(cx, |state, window, cx| {
+            let dialog = state.kb(cx).unwrap().password.clone().unwrap();
+            dialog
+                .new
+                .update(cx, |field, cx| field.set_value(first, window, cx));
+            dialog
+                .confirm
+                .update(cx, |field, cx| field.set_value(second, window, cx));
+            state.submit_kb_password(window, cx);
+        })
+    };
+
+    type_into("one", "two", cx);
+    assert!(fixture.said().is_empty(), "a mismatch is not sent");
+    fixture.with(cx, |state, _, cx| {
+        assert!(state.kb(cx).unwrap().password.as_ref().unwrap().error.is_some());
+    });
+
+    type_into("one", "one", cx);
+    let said = fixture.said();
+    assert!(
+        said.iter().any(|m| matches!(
+            m,
+            Message::UnlockKbSource { source, password, remember: true, .. }
+                if *source == id && password.expose() == "one"
+        )),
+        "first use sends the one password: {said:?}"
+    );
+    fixture.with(cx, |state, _, cx| {
+        let dialog = state.kb(cx).unwrap().password.clone().unwrap();
+        assert!(dialog.busy);
+        assert_eq!(dialog.new.read(cx).value().as_ref(), "", "the buffer is emptied");
+    });
+
+    fixture.deliver(
+        Message::KbPasswordAnswer {
+            project_id: fixture.project,
+            source: id,
+            error: Some("wrong password".to_string()),
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        let dialog = state.kb(cx).unwrap().password.clone().unwrap();
+        assert!(!dialog.busy);
+        assert_eq!(dialog.error.as_deref(), Some("wrong password"));
+    });
+
+    fixture.deliver(
+        Message::KbPasswordAnswer {
+            project_id: fixture.project,
+            source: id,
+            error: None,
+        },
+        cx,
+    );
+    fixture.with(cx, |state, _, cx| {
+        assert!(state.kb(cx).unwrap().password.is_none());
+    });
+
+    // Opening ready is what refreshes the tree.
+    fixture.deliver(
+        Message::KbSourceChanged {
+            project_id: fixture.project,
+            source: id,
+            state: KbSourceState::Ready,
+        },
+        cx,
+    );
+    assert_eq!(trees_asked(&fixture.said()), vec![(id, String::new())]);
 }

@@ -918,6 +918,12 @@ impl AppState {
                     .and_then(|id| self.projects.get(&id))
                     .is_some_and(|open| open.db.password_prompt.is_some()),
             ),
+            (
+                Layer::KbPassword,
+                self.active_seen
+                    .and_then(|id| self.projects.get(&id))
+                    .is_some_and(|open| open.kb.password.is_some()),
+            ),
             (Layer::Settings, s.open),
             (Layer::Login, s.login.is_some()),
             (Layer::NewAgent, w.new_agent.is_some()),
@@ -1234,6 +1240,8 @@ impl AppState {
             self.close_harness_login(cx);
         } else if settings.open {
             self.close_settings(cx);
+        } else if self.kb(cx).is_some_and(|kb| kb.password.is_some()) {
+            self.cancel_kb_password(cx);
         } else if self.db(cx).is_some_and(|db| db.password_prompt.is_some()) {
             // The database family's two modals, in reverse paint order: the password question is
             // painted over the connection form, which is painted over the settings page.

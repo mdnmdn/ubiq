@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-10-06
+updated: 2026-10-07
 verified: 2026-10-06
 review_cycle: monthly
 ---
@@ -398,6 +398,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G408 | A diff cannot be read on an `MdView`. A markdown file's diff tab is drawn by `ui/viewer/diff.rs` over raw lines, so a changed paragraph is never shown rendered, block against block | [`features/workbench-ide.md`](./features/workbench-ide.md) |
 | G409 | A launch's extra folders are not persisted on the conversation row. `StartConversation.grants` (the New agent dialog's `Custom policies`) reach the run's isolation set at launch (`crates/ubiq-host/src/agent.rs`, `compose_run`) and are never written down, so a relaunch after a restart rebuilds the policy from the saved definition's `grants` alone and loses what that start added. Fixing it needs the folders on the conversation's record and the revive path reading them | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/workbench-agents.md`](./features/workbench-agents.md) |
 | G410 | The mission's *Any agent* loses its worker servers when the user picks an agent. `AppState::spawn_any_mission_agent` prefills the assignment form with the board and feedback MCPs only, so choosing a definition there replaces the `use-mission`/`use-task` set a worker spawn would have carried | [`features/workbench-tasks.md`](./features/workbench-tasks.md) |
+| G413 | `crates/agent-manager/src/credentials/os.rs` stores macOS keychain items with `security add-generic-password … -w <value>`, so the secret (a credential, the custom keychain's own password) sits on that process's argv, readable by any same-user process listing processes while it runs. It should reach `security` on stdin (`-w` last, no value) or through the Security framework | [`tech/decisions.md`](./tech/decisions.md) |
 | G411 | The viewer container (`D204`) has no base-side contributor and no specimen in the kitchen sink: the base registers nothing into it, so only `crates/ubiq/tests/viewer_container.rs` and a second edition exercise it. "Open with ▸" is a second stage of its menu rather than a cascade because `kit::context_menu` has no submenu, and a viewer offered only by the head of the text is missing from the explorer's list and does not by itself raise the top row's `⋯` | [`features/workbench-ide.md`](./features/workbench-ide.md), [`tech/decisions.md`](./tech/decisions.md) |
 
 

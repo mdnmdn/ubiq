@@ -89,8 +89,9 @@ pub use git::{
 };
 pub use image_edit::{EditOp, ImageEdit, ImageTool, ShapeKind};
 pub use kb::{
-    KbAction, KbDocKey, KbKind, KbList, KbMenu, KbMenuRow, KbPressed, KbRow, KbRowKind,
-    KbSourceForm, KbState, KbUrlCheck, kb_menu_entries, kb_parent_path, kb_tab_key,
+    KbAction, KbDocKey, KbKind, KbList, KbMenu, KbMenuRow, KbPasswordDialog, KbPasswordMode,
+    KbPressed, KbRow, KbRowKind, KbSourceForm, KbState, KbUrlCheck, kb_menu_entries,
+    kb_parent_path, kb_password_problem, kb_tab_key,
 };
 pub use layout::Layout;
 pub use logs::LogState;

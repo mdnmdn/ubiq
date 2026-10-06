@@ -205,6 +205,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .is_some_and(|db| db.password_prompt.is_some())
                 .then(|| crate::ui::db::explorer::password_prompt(app, window, cx)),
         )
+        // The password a protected wiki asks for, in `Layer`'s order after the database's.
+        .children(
+            app.kb(cx)
+                .is_some_and(|kb| kb.password.is_some())
+                .then(|| crate::ui::kb::password::render(app, window, cx)),
+        )
         // Application settings is a page with a nav, not the kit's one-question modal, so it is
         // painted here — over the window — the same way project settings is.
         .children(

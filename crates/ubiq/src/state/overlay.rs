@@ -33,6 +33,8 @@ pub enum Layer {
     DbForm,
     /// The password a database connection asked for.
     DbPassword,
+    /// The password a protected wiki asks for (`D206`), over the explorer or the settings page.
+    KbPassword,
     /// The application settings page.
     Settings,
     /// The harness login modal, over the settings page.

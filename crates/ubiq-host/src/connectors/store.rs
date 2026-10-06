@@ -1,10 +1,10 @@
 //! Where a connection's token lives, and what it says about itself.
 //!
-//! Five kinds of secret are filed here, in five namespaces that cannot collide: a connection's
+//! Six kinds of secret are filed here, in six namespaces that cannot collide: a connection's
 //! token ([`key`]), the client secret of an OAuth registration Ubiq authenticates *as*
 //! ([`app_key`]), an API provider's key ([`ai_key`]), the passphrase or password an SSH
-//! profile authenticates with ([`ssh_key`]), and the key that seals saved database passwords
-//! ([`db_key`]). One store rather than five, because
+//! profile authenticates with ([`ssh_key`]), the key that seals saved database passwords
+//! ([`db_key`]), and a protected wiki's password ([`wiki_key`]). One store rather than six, because
 //! whether the platform's keychain works at all is one fact and [`Store::usable`] answers it once —
 //! and because a second [`OsSecretStore`] over the same directory would be a second answer to it.
 //!
@@ -27,7 +27,7 @@ use agent_manager::credentials::{
 };
 use serde::{Deserialize, Serialize};
 use ubiq_proto::connectors::ProviderId;
-use ubiq_proto::ids::{AiProviderId, ConnectionId, OauthAppId, SshProfileId};
+use ubiq_proto::ids::{AiProviderId, ConnectionId, KbSourceId, OauthAppId, SshProfileId};
 use ubiq_proto::messages::LoginStatus;
 
 /// The one file a connection's credential is made of.
@@ -200,6 +200,26 @@ impl Store {
             .is_some_and(|blobs| !blobs.is_empty())
     }
 
+    /// File a protected wiki's password, so the next run opens it without asking (`D206`).
+    pub fn set_wiki_password(&self, source: KbSourceId, password: &str) -> Result<(), String> {
+        self.inner
+            .set(&wiki_key(source), &[blob(password.as_bytes().to_vec())])
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn clear_wiki_password(&self, source: KbSourceId) -> Result<(), String> {
+        self.inner
+            .delete(&wiki_key(source))
+            .map_err(|error| error.to_string())
+    }
+
+    /// The filed password, for opening the wiki. `None` is nothing filed, or a store that cannot
+    /// be read — either way the window is asked.
+    pub fn wiki_password(&self, source: KbSourceId) -> Option<String> {
+        let blobs = self.inner.get(&wiki_key(source)).ok().flatten()?;
+        String::from_utf8(blobs.first()?.bytes.clone()).ok()
+    }
+
     /// File the install's database-password key. Text, because the blob is what a keychain item
     /// holds and a key of raw bytes is the kind of value a platform store mangles; the caller
     /// encodes it.
@@ -274,6 +294,15 @@ pub fn db_key() -> CredentialId {
     CredentialId {
         harness: "db".to_string(),
         name: "secrets-key".to_string(),
+    }
+}
+
+/// Where a protected wiki's password is filed — a sixth namespace, keyed by the source's id
+/// alone, so renaming the source never moves the material (`D206`).
+pub fn wiki_key(source: KbSourceId) -> CredentialId {
+    CredentialId {
+        harness: "kb-wiki".to_string(),
+        name: source.to_string(),
     }
 }
 

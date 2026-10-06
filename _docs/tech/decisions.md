@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-06
+updated: 2026-10-07
 verified: 2026-09-29
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5127,6 +5127,52 @@ did. Two near-identical implementations were the cost `D140` named, and nothing 
 one it was in; a `graph` link is not a link; `ctrl-<n>` past `Teams` counts one lower; and the
 `WorkList` a project with nothing running answers carries sessions and no agents, so `SendToAgent`
 reaches only a live agent.
+
+### D206 — A wiki may be password-protected: contents sealed under an Argon2id key, names in the clear, agents shut out
+
+A `KbOrigin::Internal` source may carry `protected`, chosen when it is created and kept by the host
+whatever a later list says. Its pages live in a directory of their own,
+`<project data>/wikis/<source id>/pages/`, beside a plaintext `vault.toml` header. The key is
+Argon2id over the password with a random 16-byte salt; the header records the salt, the cost
+parameters (64 MiB / 3 passes / 1 lane for a new wiki; an existing one keeps what its header
+names), an 8-byte random key id and
+a verifier — a constant sealed under the key — so a wrong password is told apart from a damaged
+page. Every page is `UBQW`, a format byte, the key id, a random 24-byte nonce and the
+XChaCha20-Poly1305 ciphertext, the first 13 bytes as associated data; an empty file reads as an
+empty page and anything else unsealed is refused. Keys and plaintext buffers are `Zeroizing`.
+Plaintext exists only in host memory and in the `KbFileContents` sent to the window that asked;
+the bus tape writes every `Secret` as `***` and every KB page body as its length, since the tape
+is dumped to disk. A header missing over sealed pages is refused a new password ("this wiki's
+header is missing; its pages cannot be opened") rather than read as a first use, which would
+orphan every page under a new key id.
+
+The password is filed, if the user says `remember`, in the connector store's sixth namespace
+(`kb-wiki` / `<source id>`) — the same `OsSecretStore` `D201` uses, behind `vault::WikiKeychain` so
+a test uses memory. The host tries it once per source per run, when a window lists the sources;
+otherwise the source reads `Locked` and the window asks. Changing the password re-seals every page,
+each atomically, and is resumable: the header first names the new key *and* the old key sealed
+under it, then pages still under the old key id are re-sealed, then the old key is dropped — a
+crash between leaves a header the new password opens, and the next open finishes the job. The
+`ubiq-kb` MCP server never lists, reads or writes a protected wiki; `kb::ops` refuses one without
+its key as a second line.
+
+**Why:** names in the clear keep the tree, renames and links working with no key and no index of
+names to keep in step; Argon2id is the memory-hard default for a password, and XChaCha's 192-bit
+nonce makes a random nonce per write safe at any count. Re-encrypting on a password change, rather
+than wrapping a data key, is the design the user chose; the sealed old key in the header is what
+makes it crash-safe without a second password. An agent is shut out because a protected wiki is the
+user saying these pages are not for anything else to read.
+
+**Cost:** a forgotten password is unrecoverable — there is no second way in. File and folder names,
+sizes and times are visible to anyone with the disk. A page is not bound to its path: someone with
+write access can swap two pages or roll one back to an older sealed copy undetected — integrity,
+not confidentiality, and deliberate, so a rename stays a rename rather than a re-seal. A remembered
+password is only as safe as the OS secure store: on macOS any process running as the same user —
+an agent's harness included — can read it with the `security` command, so `remember` trades that
+exposure for convenience. An unlock runs one Argon2 derivation and a change re-seals every page on the
+coordinator's thread, which a large wiki would feel. A protected wiki is outside every search,
+since nothing indexes the config root, and its pages are not readable by the project's own file
+tools.
 
 ## Related docs
 

@@ -41,7 +41,9 @@ use ubiq_proto::bus::Voice;
 
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
-use super::{ArchifyReach, AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
+use super::{
+    ArchifyReach, AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess,
+};
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
 /// without needing to unblock the listener.
@@ -1680,9 +1682,14 @@ mod tests {
         std::fs::create_dir(docs.path().join("deep")).unwrap();
         std::fs::write(docs.path().join("deep/notes.md"), b"deeper").unwrap();
 
-        let kb = std::sync::Arc::new(crate::kb::Kb::new(root.path().to_path_buf()));
+        let kb = std::sync::Arc::new(crate::kb::Kb::with_keychain(
+            root.path().to_path_buf(),
+            std::sync::Arc::new(crate::kb::vault::MemoryKeychain::default()),
+            crate::kb::vault::KdfParams::insecure_fast(),
+        ));
         let project: ProjectId = facts().project.id.parse().unwrap();
         let folder = KbSourceId::generate();
+        let vault = KbSourceId::generate();
         kb.set_sources(
             project,
             vec![
@@ -1694,6 +1701,7 @@ mod tests {
                     },
                     filter: "*.md".to_string(),
                     access: KbAccess::ReadOnly,
+                    protected: false,
                 },
                 KbSource {
                     id: KbSourceId::generate(),
@@ -1701,11 +1709,22 @@ mod tests {
                     origin: KbOrigin::Internal,
                     filter: String::new(),
                     access: KbAccess::ReadOnly,
+                    protected: false,
+                },
+                // A password-protected wiki, open in the host: an agent still never sees it.
+                KbSource {
+                    id: vault,
+                    name: "Vault".to_string(),
+                    origin: KbOrigin::Internal,
+                    filter: String::new(),
+                    access: KbAccess::ReadWrite,
+                    protected: true,
                 },
             ],
             host.mailbox(ubiq_proto::bus::To::Everyone),
             std::path::Path::new("/tmp/project"),
         );
+        kb.unlock(project, vault, "pw", false).unwrap();
 
         let reach = crate::mcp::KbReach {
             kb: kb.clone(),
@@ -1795,6 +1814,46 @@ mod tests {
     }
 
     #[test]
+    fn a_protected_wiki_is_invisible_to_an_agent() {
+        let (serving, _hub, _host, fixture) = running_with_kb();
+        let url = url(&serving, KEY, "ubiq-kb");
+        let vault = fixture
+            .kb
+            .sources(fixture.project, std::path::Path::new("/tmp/project"))
+            .into_iter()
+            .find(|status| status.source.is_protected())
+            .expect("the fixture's protected wiki")
+            .source
+            .id;
+
+        let sources = answered(&call(&url, "list_kb_sources", json!({})));
+        assert!(
+            sources["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|row| row["name"] != "Vault"),
+            "{sources}"
+        );
+        for (tool, arguments) in [
+            ("list_kb_documents", json!({"path": "Vault"})),
+            ("read_kb_document", json!({"path": "Vault/a.md"})),
+            ("read_kb_document", json!({"path": format!("{vault}/a.md")})),
+            (
+                "write_kb_document",
+                json!({"path": "Vault/a.md", "contents": "x"}),
+            ),
+            (
+                "create_kb_entry",
+                json!({"path": "Vault/b.md", "kind": "file"}),
+            ),
+        ] {
+            let response = call(&url, tool, arguments);
+            assert_eq!(response["result"]["isError"], true, "{tool}: {response}");
+        }
+    }
+
+    #[test]
     fn a_kb_address_names_a_source_by_name_or_by_id() {
         let (serving, _hub, host, fixture) = running_with_kb();
         let url = url(&serving, KEY, "ubiq-kb");
@@ -1852,6 +1911,7 @@ mod tests {
                     },
                     filter: String::new(),
                     access: KbAccess::ReadOnly,
+                    protected: false,
                 },
                 KbSource {
                     id: twin,
@@ -1859,6 +1919,7 @@ mod tests {
                     origin: KbOrigin::Internal,
                     filter: String::new(),
                     access: KbAccess::ReadOnly,
+                    protected: false,
                 },
             ],
             host.mailbox(ubiq_proto::bus::To::Everyone),

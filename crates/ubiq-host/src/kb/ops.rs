@@ -18,6 +18,12 @@
 //! could be refused for the crime of not matching the glob that is about to hide it — a trap, not
 //! a protection. Nothing in this module reads `filter`.
 //!
+//! **A protected wiki is sealed here.** Every mutating function takes the source's key —
+//! [`crate::kb::Kb::vault_key`]'s answer — and [`require_open`] refuses a protected source without
+//! one, so a caller that never asked for a key (an MCP server) cannot write into a locked wiki
+//! even by mistake. A document's contents are sealed before they reach [`crate::atomic`]; its
+//! name is not, which is why a rename and a delete need nothing but the refusal (`D206`).
+//!
 //! Containment is [`crate::files::path`]'s, the same boundary the file family resolves every
 //! `rel_path` through — a second implementation here would be a second place for the two to drift
 //! apart.
@@ -28,6 +34,7 @@ use ubiq_proto::files::{EntryKind, FileError};
 use ubiq_proto::kb::KbSource;
 
 use crate::files::path;
+use crate::kb::vault::Key;
 
 /// Refuse a mutating call against a source Ubiq may not write to.
 fn require_writable(source: &KbSource) -> Result<(), FileError> {
@@ -37,6 +44,25 @@ fn require_writable(source: &KbSource) -> Result<(), FileError> {
         Err(FileError::Refused(
             "this knowledge-base source is read-only".to_string(),
         ))
+    }
+}
+
+/// Refuse a call against a protected wiki the caller holds no key for.
+fn require_open(source: &KbSource, key: Option<&Key>) -> Result<(), FileError> {
+    if source.is_protected() && key.is_none() {
+        Err(FileError::Refused("this wiki is locked".to_string()))
+    } else {
+        Ok(())
+    }
+}
+
+/// The bytes a document is written as: sealed under `key` when there is one.
+fn on_disk(key: Option<&Key>, contents: &[u8]) -> Result<Vec<u8>, FileError> {
+    match key {
+        Some(key) => key
+            .seal(contents)
+            .map_err(|error| FileError::Failed(error.to_string())),
+        None => Ok(contents.to_vec()),
     }
 }
 
@@ -64,10 +90,13 @@ pub fn write_file(
     source: &KbSource,
     rel_path: &str,
     contents: &str,
+    key: Option<&Key>,
 ) -> Result<(), FileError> {
     require_writable(source)?;
+    require_open(source, key)?;
     let target = path::resolve_for_write(base, rel_path)?;
-    crate::atomic::write_atomic(&target, contents.as_bytes()).map_err(from_io)
+    let bytes = on_disk(key, contents.as_bytes())?;
+    crate::atomic::write_atomic(&target, &bytes).map_err(from_io)
 }
 
 /// Create an empty file or a folder at `rel_path`. Refused for a source that is not writable, and
@@ -78,15 +107,19 @@ pub fn create(
     source: &KbSource,
     rel_path: &str,
     kind: EntryKind,
+    key: Option<&Key>,
 ) -> Result<(), FileError> {
     require_writable(source)?;
+    require_open(source, key)?;
     let target = path::resolve_for_write(base, rel_path)?;
     if target.exists() {
         return Err(FileError::Conflict);
     }
     match kind {
         EntryKind::Dir => std::fs::create_dir(&target).map_err(from_io),
-        EntryKind::File => crate::atomic::write_atomic(&target, b"").map_err(from_io),
+        EntryKind::File => {
+            crate::atomic::write_atomic(&target, &on_disk(key, b"")?).map_err(from_io)
+        }
         // Nothing the interface ever asks to create — a symlink, a socket, a device — belongs
         // here; refusing it is cheaper than a syscall that would only fail its own way.
         EntryKind::Other => Err(FileError::Refused(
@@ -105,8 +138,10 @@ pub fn rename(
     source: &KbSource,
     rel_path: &str,
     new_name: &str,
+    key: Option<&Key>,
 ) -> Result<String, FileError> {
     require_writable(source)?;
+    require_open(source, key)?;
     if new_name.is_empty() || new_name.contains(['/', '\\']) || new_name == "." || new_name == ".."
     {
         return Err(FileError::Refused(
@@ -127,8 +162,14 @@ pub fn rename(
 
 /// Delete one entry. A folder goes with everything under it. Refused for a source that is not
 /// writable.
-pub fn delete(base: &Path, source: &KbSource, rel_path: &str) -> Result<(), FileError> {
+pub fn delete(
+    base: &Path,
+    source: &KbSource,
+    rel_path: &str,
+    key: Option<&Key>,
+) -> Result<(), FileError> {
     require_writable(source)?;
+    require_open(source, key)?;
     let target = path::resolve_inside(base, rel_path)?;
     let stat = std::fs::metadata(&target).map_err(from_io)?;
     if stat.is_dir() {
@@ -225,6 +266,7 @@ mod tests {
             },
             filter: String::new(),
             access,
+            protected: false,
         }
     }
 
@@ -252,7 +294,7 @@ mod tests {
     fn a_write_against_a_read_only_source_is_refused() {
         let base = tempfile::TempDir::new().unwrap();
         let source = source(KbAccess::ReadOnly);
-        let error = write_file(base.path(), &source, "notes.md", "hi").unwrap_err();
+        let error = write_file(base.path(), &source, "notes.md", "hi", None).unwrap_err();
         assert!(matches!(error, FileError::Refused(_)));
         assert!(!base.path().join("notes.md").exists());
     }
@@ -261,7 +303,7 @@ mod tests {
     fn a_write_against_a_writable_folder_source_lands_on_disk() {
         let base = tempfile::TempDir::new().unwrap();
         let source = source(KbAccess::ReadWrite);
-        write_file(base.path(), &source, "notes.md", "hi").unwrap();
+        write_file(base.path(), &source, "notes.md", "hi", None).unwrap();
         assert_eq!(
             std::fs::read_to_string(base.path().join("notes.md")).unwrap(),
             "hi"
@@ -273,7 +315,7 @@ mod tests {
         let base = tempfile::TempDir::new().unwrap();
         let mut source = source(KbAccess::ReadOnly);
         source.origin = KbOrigin::Internal;
-        write_file(base.path(), &source, "notes.md", "hi").unwrap();
+        write_file(base.path(), &source, "notes.md", "hi", None).unwrap();
         assert!(base.path().join("notes.md").exists());
     }
 
@@ -281,7 +323,7 @@ mod tests {
     fn a_parent_dir_escape_is_refused() {
         let base = tempfile::TempDir::new().unwrap();
         let source = source(KbAccess::ReadWrite);
-        let error = write_file(base.path(), &source, "../outside.md", "hi").unwrap_err();
+        let error = write_file(base.path(), &source, "../outside.md", "hi", None).unwrap_err();
         assert!(matches!(error, FileError::Refused(_)));
     }
 
@@ -290,7 +332,7 @@ mod tests {
         let base = tempfile::TempDir::new().unwrap();
         std::fs::write(base.path().join("a.md"), b"a").unwrap();
         let source = source(KbAccess::ReadWrite);
-        let error = rename(base.path(), &source, "a.md", "sub/b.md").unwrap_err();
+        let error = rename(base.path(), &source, "a.md", "sub/b.md", None).unwrap_err();
         assert!(matches!(error, FileError::Refused(_)));
         assert!(base.path().join("a.md").exists());
     }
@@ -301,7 +343,7 @@ mod tests {
         std::fs::write(base.path().join("a.md"), b"a").unwrap();
         std::fs::write(base.path().join("b.md"), b"b").unwrap();
         let source = source(KbAccess::ReadWrite);
-        let error = rename(base.path(), &source, "a.md", "b.md").unwrap_err();
+        let error = rename(base.path(), &source, "a.md", "b.md", None).unwrap_err();
         assert!(matches!(error, FileError::Conflict));
         assert_eq!(
             std::fs::read_to_string(base.path().join("b.md")).unwrap(),
@@ -310,12 +352,58 @@ mod tests {
     }
 
     #[test]
+    fn a_protected_wiki_is_refused_without_its_key_and_sealed_with_it() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let key = crate::kb::vault::create(
+            dir.path(),
+            "pw",
+            crate::kb::vault::KdfParams::insecure_fast(),
+        )
+        .unwrap();
+        let base = dir.path().join(crate::kb::vault::PAGES);
+        let mut source = source(KbAccess::ReadWrite);
+        source.origin = KbOrigin::Internal;
+        source.protected = true;
+
+        for error in [
+            write_file(&base, &source, "a.md", "secret", None).unwrap_err(),
+            create(&base, &source, "b.md", EntryKind::File, None).unwrap_err(),
+        ] {
+            assert!(matches!(error, FileError::Refused(_)));
+        }
+        assert!(!base.join("a.md").exists());
+
+        write_file(&base, &source, "a.md", "the needle", Some(&key)).unwrap();
+        let on_disk = std::fs::read(base.join("a.md")).unwrap();
+        assert!(!on_disk.windows(6).any(|w| w == b"needle"));
+        assert_eq!(key.open(&on_disk).unwrap().as_slice(), b"the needle");
+
+        create(&base, &source, "b.md", EntryKind::File, Some(&key)).unwrap();
+        assert!(
+            key.open(&std::fs::read(base.join("b.md")).unwrap())
+                .unwrap()
+                .is_empty()
+        );
+
+        assert!(matches!(
+            rename(&base, &source, "a.md", "c.md", None).unwrap_err(),
+            FileError::Refused(_)
+        ));
+        assert!(matches!(
+            delete(&base, &source, "a.md", None).unwrap_err(),
+            FileError::Refused(_)
+        ));
+        rename(&base, &source, "a.md", "c.md", Some(&key)).unwrap();
+        assert!(base.join("c.md").exists());
+    }
+
+    #[test]
     fn delete_removes_a_folder_and_its_contents() {
         let base = tempfile::TempDir::new().unwrap();
         std::fs::create_dir(base.path().join("sub")).unwrap();
         std::fs::write(base.path().join("sub/a.md"), b"a").unwrap();
         let source = source(KbAccess::ReadWrite);
-        delete(base.path(), &source, "sub").unwrap();
+        delete(base.path(), &source, "sub", None).unwrap();
         assert!(!base.path().join("sub").exists());
     }
 }

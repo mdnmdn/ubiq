@@ -66,6 +66,19 @@ impl KbSourceView {
         &self.status.source.name
     }
 
+    /// Whether this is a password-protected wiki.
+    pub fn is_protected(&self) -> bool {
+        self.status.source.is_protected()
+    }
+
+    /// `Some(first_use)` while the wiki is locked.
+    pub fn locked(&self) -> Option<bool> {
+        match self.status.state {
+            KbSourceState::Locked { first_use } => Some(first_use),
+            _ => None,
+        }
+    }
+
     /// The one line under the source's name: where it comes from.
     pub fn origin(&self) -> String {
         match &self.status.source.origin {
@@ -104,6 +117,70 @@ pub struct KbState {
     /// Stamped onto each menu as it opens, so the outside click that dismisses the old one cannot
     /// shut the new one raised by the same event — `ExplorerState::close_menu`'s reasoning.
     menu_epoch: u64,
+    /// The password question while one is up (`D206`): unlock, first-use set, or change.
+    pub password: Option<KbPasswordDialog>,
+}
+
+/// Which of the three password questions a protected wiki asks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KbPasswordMode {
+    /// A wiki that has never had a password: new and confirm, and a warning.
+    Set,
+    /// A locked wiki that has one: the password.
+    Unlock,
+    /// An open one being given another: the old, the new and its confirmation.
+    Change,
+}
+
+impl KbPasswordMode {
+    /// Whether the dialog asks for the password already in force.
+    pub fn asks_current(self) -> bool {
+        self != KbPasswordMode::Set
+    }
+
+    /// Whether it asks for a new one, and a second typing of it.
+    pub fn asks_new(self) -> bool {
+        self != KbPasswordMode::Unlock
+    }
+}
+
+/// The password dialog's model. The three fields are the model — what is typed lives in them and
+/// nowhere else, and is emptied the moment it is sent, so no password is ever held in state.
+#[derive(Clone)]
+pub struct KbPasswordDialog {
+    pub source: KbSourceId,
+    pub mode: KbPasswordMode,
+    /// File the password in the OS keychain. On by default.
+    pub remember: bool,
+    /// Sent, and not yet answered.
+    pub busy: bool,
+    /// Why the last attempt did not go: a local check, or the host's sentence.
+    pub error: Option<String>,
+    /// The password in force (Unlock, Change).
+    pub current: gpui::Entity<gpui_component::input::InputState>,
+    pub new: gpui::Entity<gpui_component::input::InputState>,
+    pub confirm: gpui::Entity<gpui_component::input::InputState>,
+}
+
+/// What is wrong with the typed fields, if anything. Pure, so the rule is testable without a window.
+pub fn kb_password_problem(
+    mode: KbPasswordMode,
+    current: &str,
+    new: &str,
+    confirm: &str,
+) -> Option<&'static str> {
+    if mode.asks_current() && current.is_empty() {
+        return Some("Enter the password.");
+    }
+    if mode.asks_new() {
+        if new.is_empty() {
+            return Some("The new password cannot be empty.");
+        }
+        if new != confirm {
+            return Some("The two new passwords do not match.");
+        }
+    }
+    None
 }
 
 /// What identifies one document: its source and its path inside that source.
@@ -246,6 +323,10 @@ pub enum KbAction {
     /// One entry's name on disk — `RenameKbEntry`, and only where the source is writable.
     Rename,
     Delete,
+    /// Open a locked wiki — or set its first password.
+    Unlock,
+    /// Replace a protected wiki's password.
+    ChangePassword,
     /// The line between two groups. An action so that it occupies a slot in the list the pick
     /// indexes into, [`crate::state::explorer::ExplorerAction::Separator`]'s reason.
     Separator,
@@ -266,6 +347,8 @@ impl KbAction {
             KbAction::RenameSource => "Rename source",
             KbAction::Rename => "Rename",
             KbAction::Delete => "Delete",
+            KbAction::Unlock => "Unlock",
+            KbAction::ChangePassword => "Change password",
             KbAction::Separator => "",
         }
     }
@@ -292,13 +375,25 @@ pub struct KbMenu {
     /// Whether the source has to be fetched — [`KbOrigin::is_fetched`], true only for a
     /// repository.
     pub fetched: bool,
+    /// [`KbSourceView::is_protected`], and whether it is locked now.
+    pub protected: bool,
+    pub locked: bool,
     pub x: f32,
     pub y: f32,
 }
 
 impl KbMenu {
     pub fn entries(&self) -> Vec<KbAction> {
-        kb_menu_entries(self.row, self.writable, self.fetched)
+        let mut items = kb_menu_entries(self.row, self.writable, self.fetched);
+        // The password entries belong to the source's own row, in a group of their own.
+        if self.row == KbMenuRow::Root && self.protected {
+            items.push(KbAction::Separator);
+            items.push(match self.locked {
+                true => KbAction::Unlock,
+                false => KbAction::ChangePassword,
+            });
+        }
+        items
     }
 }
 
@@ -362,6 +457,8 @@ impl KbState {
         };
         let writable = view.status.source.is_writable();
         let fetched = view.status.source.origin.is_fetched();
+        let protected = view.is_protected();
+        let locked = view.locked().is_some();
         let row = if path.is_empty() {
             KbMenuRow::Root
         } else {
@@ -381,6 +478,8 @@ impl KbState {
             row,
             writable,
             fetched,
+            protected,
+            locked,
             x,
             y,
         });
@@ -483,6 +582,21 @@ impl KbState {
             view.children = Arc::new(Vec::new());
             view.listed = false;
             view.loading = false;
+        }
+    }
+
+    /// The host answered the password question. An error keeps the dialog up for another try; an
+    /// acceptance takes it down. An answer for a dialog no longer up is dropped.
+    pub fn password_answered(&mut self, source: KbSourceId, error: Option<String>) {
+        let Some(dialog) = self.password.as_mut().filter(|dialog| dialog.source == source) else {
+            return;
+        };
+        match error {
+            Some(error) => {
+                dialog.busy = false;
+                dialog.error = Some(error);
+            }
+            None => self.password = None,
         }
     }
 
@@ -609,6 +723,11 @@ impl KbState {
             return KbPressed::Toggled;
         };
         if path.is_empty() {
+            // A locked wiki is not retried — there is nothing to fetch, it wants a password, which
+            // the row's own handler raises (it holds the window the dialog's fields need).
+            if view.locked().is_some() {
+                return KbPressed::Toggled;
+            }
             if !view.status.state.is_ready() {
                 return KbPressed::Sync(source);
             }
@@ -865,6 +984,8 @@ pub struct KbSourceForm {
     pub branch: Option<String>,
     pub store: KbStore,
     pub access: KbAccess,
+    /// A wiki only: seal its documents under a password. Fixed once the source exists.
+    pub protected: bool,
     pub open: Option<KbList>,
 }
 
@@ -875,6 +996,7 @@ impl KbSourceForm {
             return;
         }
         self.kind = Some(kind);
+        self.protected = false;
         self.path = None;
         self.url = String::new();
         self.check = KbUrlCheck::Idle;
@@ -973,6 +1095,7 @@ impl KbSourceForm {
             origin: self.provisional_origin()?,
             filter: String::new(),
             access: self.access(),
+            protected: self.kind == Some(KbKind::Wiki) && self.protected,
         })
     }
 
@@ -1027,6 +1150,7 @@ mod tests {
                 },
                 filter: String::new(),
                 access: Default::default(),
+                protected: false,
             },
             state: KbSourceState::Ready,
         }
@@ -1051,6 +1175,46 @@ mod tests {
                 .collect(),
             truncated: false,
         }
+    }
+
+    #[test]
+    fn password_fields_must_be_filled_and_agree() {
+        use KbPasswordMode::*;
+        assert!(kb_password_problem(Unlock, "", "", "").is_some());
+        assert!(kb_password_problem(Unlock, "x", "", "").is_none());
+        assert!(kb_password_problem(Set, "", "", "").is_some());
+        assert!(kb_password_problem(Set, "", "a", "b").is_some());
+        assert!(kb_password_problem(Set, "", "a", "a").is_none());
+        assert!(kb_password_problem(Change, "", "a", "a").is_some());
+        assert!(kb_password_problem(Change, "o", "a", "a").is_none());
+    }
+
+    #[test]
+    fn only_a_wiki_form_can_be_protected_and_a_locked_row_is_not_synced() {
+        let mut form = KbSourceForm::default();
+        form.set_kind(KbKind::Wiki);
+        form.protected = true;
+        assert!(form.as_source().unwrap().protected);
+        form.set_kind(KbKind::Folder);
+        assert!(!form.protected);
+
+        let mut kb = KbState::default();
+        let mut locked = status("vault");
+        locked.source.origin = KbOrigin::Internal;
+        locked.source.protected = true;
+        locked.state = KbSourceState::Locked { first_use: true };
+        let id = locked.source.id;
+        kb.accept(vec![locked]);
+        assert!(matches!(kb.click(id, ""), KbPressed::Toggled));
+        assert!(kb.open_menu(id, "", 0., 0.));
+        let entries = kb.menu.as_ref().unwrap().entries();
+        assert_eq!(entries.last(), Some(&KbAction::Unlock));
+        kb.source_changed(id, KbSourceState::Ready);
+        assert!(kb.open_menu(id, "", 0., 0.));
+        assert_eq!(
+            kb.menu.as_ref().unwrap().entries().last(),
+            Some(&KbAction::ChangePassword)
+        );
     }
 
     #[test]

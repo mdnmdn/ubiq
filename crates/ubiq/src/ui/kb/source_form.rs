@@ -28,7 +28,7 @@ use crate::state::overlay::Layer;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    Picker, PickerStyle, elided, ghost_button, hint_row, label_hint, primary_button, slab,
+    Picker, PickerStyle, check_box, elided, ghost_button, hint_row, label_hint, primary_button, slab,
 };
 use crate::ui::sink::style::{framed_active, input_on};
 use crate::ui::{handler, indexed};
@@ -339,6 +339,29 @@ fn body(
         cx,
         |this, access, _window, cx| this.pick_kb_source_access(access, cx),
     ));
+
+    // 6 ─ a wiki only: seal its documents under a password. Chosen here and fixed for the life of
+    // the wiki — the host ignores a later change — so the note says what it costs.
+    if wiki {
+        rows = rows.child(hint_row(
+            "kb-source-protected-hint",
+            "Password protected",
+            "Encrypts every document under a password you choose when the wiki is first opened. It \
+             cannot be changed back afterwards, and if the password is forgotten the wiki cannot \
+             be recovered.",
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .w(px(CONTROL_WIDTH))
+                .child(check_box(
+                    "kb-source-protected",
+                    form.protected,
+                    cx.listener(|this, _, _, cx| this.toggle_kb_source_protected(cx)),
+                ))
+                .into_any_element(),
+        ));
+    }
 
     rows.into_any_element()
 }

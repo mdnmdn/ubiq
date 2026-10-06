@@ -409,6 +409,13 @@ impl ProjectData {
         self.dir.join("wiki")
     }
 
+    /// One password-protected wiki: its header and its sealed pages, in a directory of its own
+    /// keyed on the source's id (`D206`). Ciphertext only, so it is on the shared side like
+    /// [`Self::wiki`].
+    pub fn protected_wiki(&self, source: ubiq_proto::ids::KbSourceId) -> PathBuf {
+        self.dir.join("wikis").join(source.to_string())
+    }
+
     /// This project's own agent definitions (`D174`).
     #[cfg(feature = "harness")]
     pub fn definitions(&self) -> PathBuf {

@@ -82,6 +82,14 @@ const TASK_SYNC_EVERY: Duration = Duration::from_secs(2);
 /// scan. The ask is still answered at once from what is held; this only paces the re-reads.
 const RUNNER_FRESH: Duration = Duration::from_secs(3);
 
+/// One knowledge-base source resolved for a mutation: the record, where it lives, and — for a
+/// protected wiki — the key its documents are sealed with.
+type KbResolved = (
+    ubiq_proto::kb::KbSource,
+    PathBuf,
+    Option<Arc<kb::vault::Key>>,
+);
+
 /// What one finished runner scan hands back to the coordinator's thread.
 struct Scanned {
     project_id: ProjectId,
@@ -905,7 +913,13 @@ impl Coordinator {
         // Shared with the MCP listener for the same reason the board is: the `ubiq-kb` server
         // reads and writes the same sources a window does, and the in-flight sync states live in
         // this one object's memory.
-        let kb = Arc::new(Kb::new(root.path.clone()));
+        // A protected wiki's password is filed in the OS keychain through the connector family's
+        // store, the one place Ubiq files secrets (`D206`).
+        let kb = Arc::new(Kb::with_keychain(
+            root.path.clone(),
+            Arc::new(crate::connectors::store::Store::open(&root.path)),
+            kb::vault::KdfParams::default(),
+        ));
         // Reserved here rather than beside `web_assets` below: the MCP listener's `ubiq-help`
         // server needs it started before it can be handed to `mcp::start`, on the same footing as
         // the knowledge base above. It belongs to no project, and the interface is told a path
@@ -2495,6 +2509,9 @@ impl Coordinator {
             // sake — a project ulid with no record has no such source to resolve either, so an
             // empty path is exactly as unused as the lookup that produced it.
             Message::KbSources { project_id } => {
+                // A protected wiki whose password the keychain holds is opened before the list is
+                // drawn, so it reads `Ready` rather than prompting (`D206`).
+                self.kb.auto_unlock(project_id);
                 let sources = self
                     .kb
                     .sources(project_id, &self.kb_project_path(project_id));
@@ -2512,9 +2529,12 @@ impl Coordinator {
             } => {
                 let asker = self.host.mailbox(To::Client(client));
                 let project_path = self.kb_project_path(project_id);
-                let sources = self
-                    .kb
+                // Listed again after the auto-unlock below, so a wiki the keychain opens reads
+                // `Ready` in this very answer.
+                self.kb
                     .set_sources(project_id, sources, asker, &project_path);
+                self.kb.auto_unlock(project_id);
+                let sources = self.kb.sources(project_id, &project_path);
                 self.host.send(
                     To::Client(client),
                     Message::KbSourcesListed {
@@ -2553,6 +2573,37 @@ impl Coordinator {
                 let project_path = self.kb_project_path(project_id);
                 self.kb.sync(project_id, source, asker, &project_path);
             }
+            // A protected wiki's password (`D206`). Answered inline: one Argon2 derivation for an
+            // unlock, and a re-seal of every document for a change — a wiki of hand-written pages,
+            // not a tree worth a thread. The password is never logged; it leaves its `Secret` only
+            // to be stretched into a key and, if asked, filed in the keychain.
+            Message::UnlockKbSource {
+                project_id,
+                source,
+                password,
+                remember,
+            } => {
+                let result = self
+                    .kb
+                    .unlock(project_id, source, password.expose(), remember);
+                self.kb_password_answer(client, project_id, source, result);
+            }
+            Message::ChangeKbPassword {
+                project_id,
+                source,
+                old,
+                new,
+                remember,
+            } => {
+                let result = self.kb.change_password(
+                    project_id,
+                    source,
+                    old.expose(),
+                    new.expose(),
+                    remember,
+                );
+                self.kb_password_answer(client, project_id, source, result);
+            }
             // The six below are writes, a rename or a lookup against one already-resolved
             // source — cheap enough, and rare enough, to answer inline rather than through
             // `Files`: unlike `ProjectFileContents`, a knowledge-base document is markdown or a
@@ -2563,11 +2614,12 @@ impl Coordinator {
                 rel_path,
                 contents,
             } => match self.kb_resolve(project_id, source) {
-                Ok((found, base)) => match kb::ops::write_file(&base, &found, &rel_path, &contents)
-                {
-                    Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
-                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
-                },
+                Ok((found, base, key)) => {
+                    match kb::ops::write_file(&base, &found, &rel_path, &contents, key.as_deref()) {
+                        Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
+                        Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                    }
+                }
                 Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
             },
             Message::CreateKbEntry {
@@ -2576,10 +2628,12 @@ impl Coordinator {
                 rel_path,
                 kind,
             } => match self.kb_resolve(project_id, source) {
-                Ok((found, base)) => match kb::ops::create(&base, &found, &rel_path, kind) {
-                    Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
-                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
-                },
+                Ok((found, base, key)) => {
+                    match kb::ops::create(&base, &found, &rel_path, kind, key.as_deref()) {
+                        Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
+                        Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                    }
+                }
                 Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
             },
             Message::RenameKbEntry {
@@ -2588,10 +2642,12 @@ impl Coordinator {
                 rel_path,
                 new_name,
             } => match self.kb_resolve(project_id, source) {
-                Ok((found, base)) => match kb::ops::rename(&base, &found, &rel_path, &new_name) {
-                    Ok(_new_rel) => self.kb_changed(client, project_id, source, &rel_path),
-                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
-                },
+                Ok((found, base, key)) => {
+                    match kb::ops::rename(&base, &found, &rel_path, &new_name, key.as_deref()) {
+                        Ok(_new_rel) => self.kb_changed(client, project_id, source, &rel_path),
+                        Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                    }
+                }
                 Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
             },
             Message::DeleteKbEntry {
@@ -2599,10 +2655,12 @@ impl Coordinator {
                 source,
                 rel_path,
             } => match self.kb_resolve(project_id, source) {
-                Ok((found, base)) => match kb::ops::delete(&base, &found, &rel_path) {
-                    Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
-                    Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
-                },
+                Ok((found, base, key)) => {
+                    match kb::ops::delete(&base, &found, &rel_path, key.as_deref()) {
+                        Ok(()) => self.kb_changed(client, project_id, source, &rel_path),
+                        Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
+                    }
+                }
                 Err(error) => self.kb_failed(client, project_id, source, &rel_path, error),
             },
             Message::RevealKbPath {
@@ -2610,7 +2668,7 @@ impl Coordinator {
                 source,
                 rel_path,
             } => match self.kb_resolve(project_id, source) {
-                Ok((found, base)) => match kb::ops::absolute(&base, &found, &rel_path) {
+                Ok((found, base, _key)) => match kb::ops::absolute(&base, &found, &rel_path) {
                     Ok(path) => {
                         if let Err(error) = kb::ops::reveal(&path) {
                             self.kb_failed(
@@ -2631,7 +2689,7 @@ impl Coordinator {
                 source,
                 rel_path,
             } => match self.kb_resolve(project_id, source) {
-                Ok((found, base)) => match kb::ops::absolute(&base, &found, &rel_path) {
+                Ok((found, base, _key)) => match kb::ops::absolute(&base, &found, &rel_path) {
                     Ok(path) => self.host.send(
                         To::Client(client),
                         Message::KbPath {
@@ -5322,7 +5380,11 @@ impl Coordinator {
     /// Hand an agent-addressed comment to its agent, after the mutation succeeded: the mission's
     /// coordinator, else the task's assignee, through the same path a typed line takes. Nobody to
     /// tell is not an error — the comment and its `Agent` mark stand on the thread.
-    fn deliver_to_agent(&mut self, project: ProjectId, prompt: Option<(ubiq_proto::ids::TaskId, String)>) {
+    fn deliver_to_agent(
+        &mut self,
+        project: ProjectId,
+        prompt: Option<(ubiq_proto::ids::TaskId, String)>,
+    ) {
         let Some((task, text)) = prompt else {
             tracing::debug!("agent-addressed comment: nothing to deliver");
             return;
@@ -5484,6 +5546,16 @@ impl Coordinator {
             return;
         };
 
+        let key = match self.kb.vault_key(project_id, &source) {
+            Ok(key) => key,
+            Err(error) => {
+                self.host.send(
+                    To::Client(client),
+                    files::kb_error(project_id, source_id, rel_path, error),
+                );
+                return;
+            }
+        };
         let project_path = self.kb_project_path(project_id);
         let base = self.kb.base_path(project_id, &source, &project_path);
         self.files.submit(files::Job {
@@ -5492,6 +5564,7 @@ impl Coordinator {
                 source,
                 base,
                 request,
+                key,
             },
             reply_to: self.host.mailbox(To::Client(client)),
         });
@@ -5505,15 +5578,46 @@ impl Coordinator {
         &self,
         project_id: ProjectId,
         source_id: KbSourceId,
-    ) -> Result<(ubiq_proto::kb::KbSource, PathBuf), FileError> {
+    ) -> Result<KbResolved, FileError> {
         let Some(source) = self.kb.find(project_id, source_id) else {
             return Err(FileError::Refused(
                 "no such knowledge-base source".to_string(),
             ));
         };
+        let key = self.kb.vault_key(project_id, &source)?;
         let project_path = self.kb_project_path(project_id);
         let base = self.kb.base_path(project_id, &source, &project_path);
-        Ok((source, base))
+        Ok((source, base, key))
+    }
+
+    /// Answer an unlock or a password change to the window that asked, and on success tell every
+    /// window the wiki is open.
+    fn kb_password_answer(
+        &self,
+        client: ClientId,
+        project_id: ProjectId,
+        source: KbSourceId,
+        result: Result<(), String>,
+    ) {
+        let error = result.err();
+        if error.is_none() {
+            self.host.send(
+                To::Everyone,
+                Message::KbSourceChanged {
+                    project_id,
+                    source,
+                    state: ubiq_proto::kb::KbSourceState::Ready,
+                },
+            );
+        }
+        self.host.send(
+            To::Client(client),
+            Message::KbPasswordAnswer {
+                project_id,
+                source,
+                error,
+            },
+        );
     }
 
     /// Say a directory in one knowledge-base source changed, naming `rel_path`'s own parent — the

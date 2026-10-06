@@ -300,6 +300,34 @@ pub fn contents(
     })
 }
 
+/// [`contents`], for a document of a protected wiki: the whole ciphertext is read and opened in
+/// memory, and the ceiling applies to the plaintext. Nothing is written (`D206`).
+pub fn sealed_contents(
+    root: &Path,
+    rel_path: &str,
+    max_bytes: Option<u64>,
+    key: &crate::kb::vault::Key,
+) -> Result<FileContents, FileError> {
+    let file = path::resolve(root, rel_path)?;
+    let stat = fs::metadata(&file).map_err(from_io)?;
+    if !stat.is_file() {
+        return Err(FileError::WrongKind);
+    }
+    let plain = key
+        .open(&fs::read(&file).map_err(from_io)?)
+        .map_err(|error| FileError::Failed(error.to_string()))?;
+    let limit = max_bytes.unwrap_or(MAX_READ_BYTES).min(MAX_READ_BYTES);
+    let truncated = plain.len() as u64 > limit;
+    let bytes = plain[..plain.len().min(limit as usize)].to_vec();
+    Ok(FileContents {
+        is_binary: looks_binary(&bytes),
+        len: plain.len() as u64,
+        truncated,
+        bytes,
+        version: (!truncated).then(|| version_of(stat)),
+    })
+}
+
 /// Write a file whole, atomically, refusing a stale version.
 ///
 /// `expected` present is an overwrite that must land on exactly the file that was read.
@@ -904,6 +932,9 @@ pub enum JobKind {
         source: KbSource,
         base: PathBuf,
         request: Request,
+        /// A protected wiki's key, [`crate::kb::Kb::vault_key`]'s answer: a read is opened with
+        /// it, in memory, and never written anywhere. `None` for every other source.
+        key: Option<std::sync::Arc<crate::kb::vault::Key>>,
     },
 }
 
@@ -963,7 +994,8 @@ fn answer(job: &Job) -> Message {
             source,
             base,
             request,
-        } => kb_answer(*project_id, source, base, request),
+            key,
+        } => kb_answer(*project_id, source, base, request, key.as_deref()),
     }
 }
 
@@ -1107,7 +1139,25 @@ fn diff_answer(
 /// every other [`Request`] arm reaches here only if the coordinator is ever wired wrongly, and
 /// is refused rather than silently dropped, on [`Message::EditProjectPath`]'s own reasoning for a
 /// destination in the wrong place.
-fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Request) -> Message {
+fn kb_answer(
+    project_id: ProjectId,
+    source: &KbSource,
+    base: &Path,
+    request: &Request,
+    key: Option<&crate::kb::vault::Key>,
+) -> Message {
+    if source.is_protected() && key.is_none() {
+        let rel_path = match request {
+            Request::Tree { rel_path, .. } | Request::Read { rel_path, .. } => rel_path,
+            _ => "",
+        };
+        return kb_error(
+            project_id,
+            source.id,
+            rel_path,
+            FileError::Refused("this wiki is locked".to_string()),
+        );
+    }
     match request {
         Request::Tree {
             rel_path, depth, ..
@@ -1134,7 +1184,10 @@ fn kb_answer(project_id: ProjectId, source: &KbSource, base: &Path, request: &Re
         Request::Read {
             rel_path,
             max_bytes,
-        } => match contents(base, rel_path, *max_bytes) {
+        } => match match key {
+            Some(key) => sealed_contents(base, rel_path, *max_bytes, key),
+            None => contents(base, rel_path, *max_bytes),
+        } {
             Ok(contents) => Message::KbFileContents {
                 project_id,
                 source: source.id,

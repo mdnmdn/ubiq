@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and a document as a dock tab — the same `OpenFile` the IDE's editor uses, with its own Save gated on the source's write access.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or document tabs
-updated: 2026-09-22
+updated: 2026-10-07
 verified: 2026-09-22
-code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
+code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/vault.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/kb/password.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
 ---
 
@@ -259,10 +259,38 @@ a document over a writable source is edited and saved from its own panel, on top
 menu and the `ubiq-kb` MCP server — before `T-29` the panel drew a read-only viewer whatever
 `is_writable` said, because nothing between a click and the screen ever read it.
 
+**A password-protected wiki** (`D206`, T-335). An internal source with `protected` set — chosen in
+the list it is first saved in, and kept by `Kb::set_sources` from then on — keeps its pages under
+`<project data>/wikis/<source id>/pages/`, every one sealed by `crates/ubiq-host/src/kb/vault.rs`
+(Argon2id key, XChaCha20-Poly1305 per page, names in the clear), with a plaintext `vault.toml`
+beside them. `Kb` holds the key in memory once `UnlockKbSource` supplies the password (the first
+one *sets* it) or the keychain had it filed (`Kb::auto_unlock`, tried once per source per run when
+a window lists the sources); until then the source reads `Locked { first_use }` and
+`Kb::vault_key` refuses every request. The coordinator passes the key to the files worker for a read
+(`files::sealed_contents`) and to `ops` for a write; `ChangeKbPassword` re-seals every page. The
+`ubiq-kb` server drops protected sources before it lists or resolves anything. A `vault.toml` lost
+over sealed pages reads `Locked { first_use: false }`, and an unlock is refused (`vault::is_orphaned`)
+rather than setting a new password that would orphan them. The bus tape redacts every `Secret` and
+every KB page body (`bus::tape_value`). Two limits are deliberate: a page is not bound to its path,
+so a swap or a rollback by someone with write access goes undetected (integrity, not
+confidentiality — it keeps a rename cheap); and a remembered password is only as safe as the OS
+secure store — on macOS any same-user process, an agent's harness included, can read it with the
+`security` command. The interface half —
+`ui/kb/password.rs` and `app/kb.rs`. The Add source form shows a *Password protected* box for a
+wiki only (fixed once saved; a settings row then shows "password protected" and *Change password*).
+A locked source's row says `locked`, and a press on it, or *Unlock* on its menu, raises one modal in
+three shapes (`KbPasswordMode`): **set** on first use (new + confirm, "if you forget this password
+the wiki cannot be recovered"), **unlock** (the password), **change** (old, new, confirm). All
+fields are masked and emptied the moment they are sent; *Remember in keychain* is on by default. A
+mismatch or an empty field is refused locally; `KbPasswordAnswer { error }` is drawn under the
+fields and keeps the dialog up, an acceptance closes it, and the tree is re-asked on the
+`KbSourceChanged Ready` that comes with it.
+
 The wire is the Kb family in `crates/ubiq-proto/src/messages.rs`: UI → host is `KbSources`,
 `SetKbSources`, `KbTree`, `ReadKbFile`, `SyncKbSource`, `WriteKbFile`, `CreateKbEntry`,
-`RenameKbEntry`, `DeleteKbEntry`, `RevealKbPath`, `AskKbPath`; host → UI is `KbSourcesListed`,
-`KbSourceChanged`, `KbTreeListing`, `KbFileContents`, `KbFileError`, `KbChanged`, `KbPath`. Every
+`RenameKbEntry`, `DeleteKbEntry`, `RevealKbPath`, `AskKbPath`, `UnlockKbSource`,
+`ChangeKbPassword`; host → UI is `KbSourcesListed`, `KbSourceChanged`, `KbTreeListing`,
+`KbFileContents`, `KbFileError`, `KbChanged`, `KbPath`, `KbPasswordAnswer`. Every
 variant carries `project_id`, and every one naming a path carries a `KbSourceId` beside it, because a
 path in this family is relative to its source rather than to the project.
 
