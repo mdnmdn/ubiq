@@ -1655,7 +1655,7 @@ pub fn set_theme(id: ThemeId, accent: Option<AccentId>, cx: &mut App) {
     theme.palette.text = brightened(
         theme.palette.text,
         theme.palette.surface.base,
-        text_brightness(),
+        text_brightness_for(theme.mode),
     );
     Theme::set(theme);
     let mode = match theme.mode {
@@ -1671,19 +1671,39 @@ thread_local! {
     /// far every text token moves. A cell of its own beside the palette, on the size axis's
     /// footing — a number the user set, not something derived from the palette — so switching
     /// palette or accent re-applies it rather than dropping it.
-    static BRIGHTNESS: std::cell::Cell<crate::state::editor::TextShade> =
-        const { std::cell::Cell::new(crate::state::editor::TextShade::Primary) };
+    /// One level per ground — `[dark, light]` — so a dimmer dark mode does not dim the light one.
+    static BRIGHTNESS: std::cell::Cell<[crate::state::editor::TextShade; 2]> =
+        const { std::cell::Cell::new([crate::state::editor::TextShade::Primary; 2]) };
 }
 
-/// The text-brightness level the window is drawn at. `Primary` is the palette as written.
+fn brightness_slot(mode: Mode) -> usize {
+    match mode {
+        Mode::Dark => 0,
+        Mode::Light => 1,
+    }
+}
+
+/// The text-brightness level of the ground currently worn. `Primary` is the palette as written.
 pub fn text_brightness() -> crate::state::editor::TextShade {
-    BRIGHTNESS.get()
+    text_brightness_for(Theme::current().mode)
 }
 
-/// Set the text-brightness level. It reaches the tokens at the next [`set_theme`], which is where
-/// it is applied — the caller puts the palette back on, the same call that boots it.
+/// The text-brightness level remembered for one ground.
+pub fn text_brightness_for(mode: Mode) -> crate::state::editor::TextShade {
+    BRIGHTNESS.get()[brightness_slot(mode)]
+}
+
+/// Set the text-brightness level of the ground currently worn. It reaches the tokens at the next
+/// [`set_theme`], which is where it is applied — the caller puts the palette back on.
 pub fn set_text_brightness(level: crate::state::editor::TextShade) {
-    BRIGHTNESS.set(level);
+    set_text_brightness_for(Theme::current().mode, level);
+}
+
+/// Set the text-brightness level of one ground, worn or not (the boot path, before any palette).
+pub fn set_text_brightness_for(mode: Mode, level: crate::state::editor::TextShade) {
+    let mut all = BRIGHTNESS.get();
+    all[brightness_slot(mode)] = level;
+    BRIGHTNESS.set(all);
 }
 
 /// How far each brightness level moves the text tokens: toward the far end of the palette's range

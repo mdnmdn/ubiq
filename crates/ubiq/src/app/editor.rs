@@ -1,5 +1,6 @@
 use super::*;
 use crate::state::run_picker;
+use crate::state::{ViewerMenu, ViewerMenuRow};
 use crate::ui::mdview::MdViewConfig;
 use crate::ui::mdview::events::MdViewEvent;
 use crate::ui::mdview::view::MdView;
@@ -172,14 +173,20 @@ impl AppState {
         let Some(file) = open.editor.find_key_mut(key) else {
             return;
         };
+        // A tab coming off a viewer with nothing to toggle — the editor — holds a layout nobody
+        // chose, so it takes the new viewer's own rather than keeping that one.
+        let chosen = file.viewer.has_preview();
         file.viewer = viewer;
+        file.viewer_override = true;
         if let Some(language) = viewer.forced_language() {
             file.language = language;
         }
-        if !viewer.offers(file.layout)
-            && let Some(first) = viewer.layouts().first().copied()
+        // A built-in viewer settles on its first layout; a contributed one on the one its spec
+        // opens in (`D204`).
+        if (!chosen || !viewer.offers(file.layout))
+            && let Some(preferred) = viewer.preferred_layout()
         {
-            file.layout = first;
+            file.layout = preferred;
         }
         let settled = file.layout;
         let language = file.language;
@@ -210,6 +217,154 @@ impl AppState {
             state.focus(window, cx);
         });
         self.open_menu(MenuId::ViewerKind, cx);
+    }
+
+    /// Open a project file in the IDE drawn by `viewer` rather than the one its path names — the
+    /// explorer's "Open with". The tab opens (or comes forward) the way any open does, and the
+    /// viewer is then forced on it exactly as the `⋯` menu's "Open with" forces it: for this tab,
+    /// for this sitting (`D204`).
+    pub fn open_file_with(&mut self, path: String, viewer: ViewerKind, cx: &mut Context<Self>) {
+        let key = tab_key(&path, Subject::File);
+        self.select_file(path, cx);
+        self.set_viewer_kind(&key, viewer, cx);
+    }
+
+    /// Re-read one open file from disk when nothing in its tab is unsaved, answering whether a
+    /// read went out (`D204`).
+    ///
+    /// The watcher already re-reads a clean *background* tab and leaves the one on screen alone;
+    /// this is the call that asks for the one on screen too — what a contribution that knows its
+    /// file was just written (by its own host, by an agent it drove) uses to show the new text. A
+    /// dirty tab is never touched: what has been typed into it is not on disk anywhere. Nor is a
+    /// tab still loading, an untitled buffer, a guest file or a diff.
+    pub fn reload_file_if_clean(&mut self, path: &str, cx: &mut Context<Self>) -> bool {
+        let key = tab_key(path, Subject::File);
+        let clean = self.file(&key, cx).is_some_and(|file| {
+            !file.dirty() && !file.is_loading() && !file.untitled && !file.guest
+        });
+        if clean {
+            self.reload_editor_tab(&key, cx);
+        }
+        clean
+    }
+
+    /// The rows the editor top row's `⋯` offers for one tab, on the stage it is on — the one list
+    /// the draw and the pick both read (`D204`).
+    ///
+    /// The first stage is "Open with ▸" when there is a choice (an editor tab with more than one
+    /// viewer for its path), then the viewer's own rows. The second stage is the choice.
+    pub fn viewer_menu_rows(&self, key: &str, open_with: bool, cx: &App) -> Vec<ViewerMenuRow> {
+        let Some(file) = self.file(key, cx).or_else(|| self.kb_doc(key, cx)) else {
+            return Vec::new();
+        };
+        let mut kinds = match (file.kb_source, file.subject) {
+            // "Open with" is an IDE tab's: a knowledge-base document has no `set_viewer_kind`.
+            (None, Subject::File) => {
+                // Read only while the menu is down, never in the header's own draw.
+                let head = file
+                    .buffer()
+                    .map(|buffer| crate::ext::viewer::head(&buffer.read(cx).value()).to_string());
+                ViewerKind::open_with(&file.path, head.as_deref())
+            }
+            _ => Vec::new(),
+        };
+        // A viewer picked from the status bar is still the one drawing the tab, offered or not.
+        if !kinds.is_empty() && !kinds.contains(&file.viewer) {
+            kinds.push(file.viewer);
+        }
+        if open_with {
+            return kinds
+                .into_iter()
+                .map(|kind| ViewerMenuRow::Viewer {
+                    kind,
+                    current: kind == file.viewer,
+                })
+                .collect();
+        }
+        let mut rows = Vec::new();
+        if kinds.len() > 1 {
+            rows.push(ViewerMenuRow::OpenWith);
+        }
+        let actions = crate::ext::viewer::actions(self, file, cx);
+        if !rows.is_empty() && !actions.is_empty() {
+            rows.push(ViewerMenuRow::Separator);
+        }
+        rows.extend(
+            actions
+                .into_iter()
+                .enumerate()
+                .map(|(index, action)| ViewerMenuRow::Action {
+                    index,
+                    label: action.label,
+                    enabled: action.enabled,
+                }),
+        );
+        rows
+    }
+
+    /// Put the editor top row's `⋯` down on one tab, where it was clicked.
+    pub fn open_viewer_more(&mut self, key: &str, at: (f32, f32), cx: &mut Context<Self>) {
+        self.workbench.viewer_menu = Some(ViewerMenu {
+            key: key.to_string(),
+            at,
+            open_with: false,
+        });
+        self.open_menu(MenuId::ViewerMore, cx);
+    }
+
+    pub fn dismiss_viewer_more(&mut self, cx: &mut Context<Self>) {
+        self.workbench.viewer_menu = None;
+        if self.workbench.open_menu == Some(MenuId::ViewerMore) {
+            self.workbench.open_menu = None;
+        }
+        cx.notify();
+    }
+
+    /// One row of the `⋯`, by position in [`Self::viewer_menu_rows`].
+    pub fn pick_viewer_more(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(menu) = self.workbench.viewer_menu.clone() else {
+            return;
+        };
+        let Some(row) = self
+            .viewer_menu_rows(&menu.key, menu.open_with, cx)
+            .get(index)
+            .cloned()
+        else {
+            return;
+        };
+        match row {
+            ViewerMenuRow::OpenWith => {
+                if let Some(menu) = self.workbench.viewer_menu.as_mut() {
+                    menu.open_with = true;
+                }
+                cx.notify();
+            }
+            ViewerMenuRow::Viewer { kind, .. } => {
+                self.dismiss_viewer_more(cx);
+                self.set_viewer_kind(&menu.key, kind, cx);
+            }
+            ViewerMenuRow::Separator => {}
+            ViewerMenuRow::Action { index, enabled, .. } => {
+                if !enabled {
+                    return;
+                }
+                // Asked again rather than kept from the draw: an action's `run` is an `fn` the
+                // spec hands back each time, and the menu is a question about this moment.
+                let run = self
+                    .file(&menu.key, cx)
+                    .or_else(|| self.kb_doc(&menu.key, cx))
+                    .and_then(|file| {
+                        crate::ext::viewer::actions(self, file, cx)
+                            .into_iter()
+                            .nth(index)
+                            .map(|action| action.run)
+                    });
+                self.dismiss_viewer_more(cx);
+                if let Some(run) = run {
+                    run(self, &menu.key, window, cx);
+                }
+            }
+        }
     }
 
     /// Set the Markdown preview's text-column width preset. Global to the window, not per file
@@ -2056,7 +2211,19 @@ impl AppState {
         // Bytes are the host's, and decoding is the interface's: a file that is not valid UTF-8 is
         // still text somebody wants to read.
         let text = String::from_utf8_lossy(&contents.bytes).into_owned();
-        let language = FileLanguage::of(&path);
+        // The head of the text is a contributed viewer's second chance at a path its extension
+        // did not settle (`D204`), and it is asked before the buffer is built so the buffer is
+        // built in the language that viewer forces. The tab's own language, not the extension's:
+        // a viewer forced on before a re-read keeps its highlighting through it.
+        let language = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.editor.find_mut(&path))
+            .map(|file| {
+                file.claim_by_head(crate::ext::viewer::head(&text));
+                file.language
+            })
+            .unwrap_or_else(|| FileLanguage::of(&path));
         // The project's wrap is a preference of the project rather than of a file, so a buffer
         // opens the way the project was left rather than the editor's own default.
         let wrap = self

@@ -6,7 +6,7 @@ status: current
 summary: Phase 6 of the web-panel proposal as built — the container moves from an external browser into the window through `gpui-wry` on macOS and Windows, `Edit` becomes a fourth `ViewLayout` (reversing phase 5's call), a mark-and-sweep module keeps the child webview clipped to its own dock tab, sessions are settled every render rather than on a click, saving reaches the file through the existing `⌘S` path with a new `Save` bridge frame, and the explorer gains a `New Excalidraw` row. Every platform without `gpui-wry`'s finished Unix path keeps phase 5's external browser. A later addition, draw.io, is the second tenant on this same axis — it offers the same `[Edit, Preview]` layouts, the explorer gains a matching `New draw.io` row, and a new `Preview { svg }` bridge frame gives its Preview position a picture for a format the interface has no native renderer for.
 read_when: you are touching the embedded webview, the mark-and-sweep in `ui/web_view.rs`, the `Editor` `ViewLayout`, the web panel's save path, or the explorer's `New Excalidraw` row
 updated: 2026-09-17
-verified: 2026-09-20
+verified: 2026-10-06
 code_anchors: [crates/ubiq/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/tests/files.rs]
 depends_on: [wip-web-panel-phase2, wip-web-panel-phase3, wip-web-panel-phase45, feat-workbench, tech-decisions]
 ---
@@ -130,6 +130,19 @@ save path and no new transport message**: the version check, the dirty dot and
 the layout the file *took* into the panel rather than the one asked for, since a viewer can refuse a
 layout it does not offer and the panel must agree with what actually settled.
 
+## Keys and theme inside the webview
+
+While the webview holds the keyboard every chord belongs to the editor; Ubiq keeps three, which
+the page forwards because GPUI never hears them: `⌘S` (the `Save` frame above) and `⌘W`/`⌘K`, a
+`FromWeb::Shortcut { key: "w" | "k" }` that `apply_web_documents` runs as `close_active_editor` and
+`open_navigator`. Anything else in a `Shortcut` is dropped.
+
+Each editor kind has its own theme, independent of the window's: `WebTheme { Auto, Light, Dark }`
+in `UiSettings.excalidraw_theme` / `drawio_theme`, set from three `Theme: X` rows (ticked) that
+`ext::viewer::actions` adds to those viewers' `⋯` menu. `AppState::web_palette(app)` resolves it,
+so the palette the drain loop pushes is the pinned one and an app-theme change never overrides a
+non-`Auto` choice.
+
 ## A second tenant with no native painter draws its Preview from an export
 
 Excalidraw's Preview position is the native scene painter, so a `.excalidraw` file costs no download
@@ -182,7 +195,7 @@ the line it pins was dropped after 0.17.3, and the CDN load is offline-hostile.
 
 [`public/js/excalidraw-wc.umd.js`](https://raw.githubusercontent.com/mdnmdn/wikive/refs/heads/main/public/js/excalidraw-wc.umd.js)
 is the real thing: one 7.96 MB UMD file defining `<excalidraw-component>`, with React, Excalidraw
-**0.18.0** — the version this mirror already pins — and the stylesheet all inside it. Its element methods are
+**0.18.1** — the version this mirror already pins — and the stylesheet all inside it. Its element methods are
 save, load, export-PNG, zoom-to-fit, clear and a raw-API escape hatch, beside an `initial-data`
 attribute and a bubbling `change` event. `save()` is `serializeAsJSON(elements, appState, files,
 "local")`, which is what this chrome already calls.

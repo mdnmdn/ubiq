@@ -336,7 +336,12 @@ pub fn centre(app: &AppState, _window: &mut Window, cx: &mut Context<AppState>) 
 /// buffer, the Markdown render, the layout toggle. The header naming the document is gone with
 /// the single-document centre it existed for: the dock's tab strip says which document this is,
 /// and says it for every one of them at once.
-pub fn render_doc(app: &AppState, key: &str, cx: &mut Context<AppState>) -> AnyElement {
+pub fn render_doc(
+    app: &AppState,
+    key: &str,
+    window: &mut gpui::Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(doc) = app.kb_doc(key, cx) else {
         // A panel whose tab has gone is hidden rather than drawn, so this is the frame between
         // the two.
@@ -346,5 +351,5 @@ pub fn render_doc(app: &AppState, key: &str, cx: &mut Context<AppState>) -> AnyE
     // `ui/viewer/image.rs`, exactly as a project file's is, and a diagram is the same buffer and
     // the same `Edit` layout that opens the web-panel bridge for one (`T-32`). `ui/viewer/`
     // decides what to draw; nothing here decides for it.
-    crate::ui::viewer::render(app, doc, cx)
+    crate::ui::viewer::render(app, doc, window, cx)
 }

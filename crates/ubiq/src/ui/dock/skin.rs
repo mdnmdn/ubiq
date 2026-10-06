@@ -9,7 +9,7 @@
 //! Nothing here names `AppState`. It draws a tab from what the panel answers, which is what keeps
 //! the skin a skin.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -114,6 +114,10 @@ pub struct NewPane {
 /// to grab, drawn as an edge rather than a bar.
 const RESIZE_STRIP: f32 = 4.0;
 
+/// What gpui-component's dock area reserves for a closed bottom dock (`CLOSED_BOTTOM_STRIP`, not
+/// re-exported). Kept in step by hand; the centre gives it back in `center_frame`.
+const CLOSED_BOTTOM_STRIP: f32 = 29.0;
+
 /// What a panel's tab says. Recovered across the renderer seam: the library carries every panel as
 /// a name and a view, and a title is presentation.
 fn tab_of(panel: &Arc<dyn BasePanelView>, cx: &App) -> TabInfo {
@@ -154,6 +158,13 @@ pub struct Skin {
     /// anywhere in the window rather than only over the strip, so the listener that tracks it sits
     /// on the area's frame — which is not handed a region.
     resizing: Rc<RefCell<Option<DockContext>>>,
+    /// Whether the bottom region was closed when it last rendered. The area reserves a strip for a
+    /// closed bottom dock and the centre is drawn before the dock is, so the centre reads this to
+    /// give the strip back (see `center_frame`).
+    bottom_closed: Rc<Cell<bool>>,
+    /// Whether the centre gave that strip back in the frame being drawn, so the dock can tell the
+    /// two disagree and ask for one more frame.
+    strip_reclaimed: Rc<Cell<bool>>,
     /// The window's "new terminal" control, drawn at the right of the bottom region's tab bar.
     /// `None` in windows with no project, where there is nothing to spawn a pane for.
     new_pane: Option<NewPane>,
@@ -176,6 +187,8 @@ impl Default for Skin {
     fn default() -> Self {
         Self {
             resizing: Rc::new(RefCell::new(None)),
+            bottom_closed: Rc::new(Cell::new(false)),
+            strip_reclaimed: Rc::new(Cell::new(false)),
             new_pane: None,
             new_chat: None,
             tab_menu: None,
@@ -290,8 +303,15 @@ impl DockAreaRenderer for Skin {
     }
 
     fn center_frame(&self, _: &mut Window, _: &mut App) -> Stateful<Div> {
+        // The area keeps `CLOSED_BOTTOM_STRIP` for a closed bottom dock, so its tab bar stays
+        // clickable. Ubiq's closed region draws nothing and is brought back by the titlebar, so
+        // the strip is an empty band above the status bar. A negative bottom margin grows the
+        // centre by the strip and the area's own clip hides it, leaving the centre the full height.
+        let closed = self.bottom_closed.get();
+        self.strip_reclaimed.set(closed);
         div()
             .id("ubiq-dock-centre")
+            .when(closed, |this| this.mb(px(-CLOSED_BOTTOM_STRIP)))
             .flex()
             .flex_1()
             .flex_col()
@@ -320,10 +340,18 @@ impl DockAreaRenderer for Skin {
         &self,
         dock: &DockContext,
         content: AnyElement,
-        _: &mut Window,
+        window: &mut Window,
         _: &mut App,
     ) -> AnyElement {
         // A closed region takes no space at all. The titlebar's switches are what bring it back.
+        if dock.placement() == DockPlacement::Bottom {
+            let closed = !dock.is_open();
+            self.bottom_closed.set(closed);
+            // The centre was drawn first, with last frame's answer.
+            if closed != self.strip_reclaimed.get() {
+                window.refresh();
+            }
+        }
         if !dock.is_open() {
             return div().into_any_element();
         }

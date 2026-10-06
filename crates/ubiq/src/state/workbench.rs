@@ -451,6 +451,41 @@ pub enum MenuId {
     /// density, minimap visibility and side. `kit::popover`, not a modal — the same Escape and
     /// outside click every other anchored panel takes.
     MdOptions,
+    /// The editor top row's `⋯` (`D204`): "Open with ▸" and whatever the tab's viewer adds. Which
+    /// tab, where, and which stage is `WorkbenchState::viewer_menu`.
+    ViewerMore,
+}
+
+/// The editor top row's `⋯`, while it is down.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewerMenu {
+    /// The tab it was opened on.
+    pub key: String,
+    /// Where the click landed, which is where the menu is painted.
+    pub at: (f32, f32),
+    /// Whether "Open with ▸" was picked: the menu then lists viewers, at the same spot.
+    pub open_with: bool,
+}
+
+/// One row of the editor top row's `⋯`, in the order it is drawn — the list the draw and the pick
+/// both read, so a click resolves against the row that was drawn.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ViewerMenuRow {
+    /// "Open with ▸" — the second stage.
+    OpenWith,
+    /// One viewer on the second stage; `current` is the one drawing the tab now.
+    Viewer {
+        kind: crate::state::editor::ViewerKind,
+        current: bool,
+    },
+    /// The line between "Open with" and the viewer's own rows.
+    Separator,
+    /// The `n`th row the tab's contributed viewer added (`ViewerSpec::menu`).
+    Action {
+        index: usize,
+        label: SharedString,
+        enabled: bool,
+    },
 }
 
 /// The file a chip on a sent turn was clicked to look at, and what has arrived of it.
@@ -855,6 +890,9 @@ pub struct WorkbenchState {
     /// `MenuId::Mission` — the anchor task travels with the position because several mission
     /// panels may be open at once and the rows are about one of them.
     pub mission_menu: Option<(TaskId, (f32, f32))>,
+    /// The editor top row's `⋯`, while it is down (`D204`). `Some` exactly while `open_menu` is
+    /// `MenuId::ViewerMore`.
+    pub viewer_menu: Option<ViewerMenu>,
     /// The mission *Spawn ▾*, while it is down (§6.1). `Some` exactly while `open_menu` is
     /// `MenuId::MissionSpawn`; the stage is which question it is on — what to spawn, or which
     /// running agent to adopt.
@@ -1043,6 +1081,7 @@ impl Default for WorkbenchState {
             new_project_menu: None,
             hidden_agents_menu: None,
             mission_menu: None,
+            viewer_menu: None,
             mission_spawn_menu: None,
             mission_kind_menu: None,
             feedback_mission: None,

@@ -220,6 +220,12 @@ pub struct Contributions {
     /// registered a kind for is drawn with a generic icon. See `ubiq::ext::runner`.
     #[cfg(feature = "ui")]
     pub runner_kinds: ubiq::ext::Registry<ubiq::ext::runner::RunnerKindSpec>,
+    /// The IDE editor's contributed viewers (`D204`). Empty in the base: its own viewers are
+    /// `ViewerKind`'s built-in variants. A spec claims paths (`Default` opens them in it, `Offer`
+    /// lists it under "Open with"), declares its layouts, and draws from the tab's own buffer —
+    /// the file stays the IDE's to read, watch and save. See `ubiq::ext::viewer`.
+    #[cfg(feature = "ui")]
+    pub viewers: ubiq::ext::Registry<ubiq::ext::viewer::ViewerSpec>,
 }
 
 impl Default for Contributions {
@@ -235,6 +241,8 @@ impl Default for Contributions {
             bar_menus: ubiq::ext::menu::base_registry(),
             #[cfg(feature = "ui")]
             runner_kinds: ubiq::ext::runner::base_registry(),
+            #[cfg(feature = "ui")]
+            viewers: ubiq::ext::viewer::base_registry(),
         }
     }
 }
@@ -459,6 +467,7 @@ pub fn run(boot: Boot) {
         ubiq::ext::rail::install(boot.contributions.rail_modes);
         ubiq::ext::menu::install(boot.contributions.bar_menus);
         ubiq::ext::runner::install(boot.contributions.runner_kinds);
+        ubiq::ext::viewer::install(boot.contributions.viewers);
         window(hub, paths, listener);
     }
 }

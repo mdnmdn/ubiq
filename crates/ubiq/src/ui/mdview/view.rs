@@ -402,6 +402,18 @@ impl MdView {
         }
     }
 
+    /// Put root block `ix` at the top of the viewport, so a heading and what follows it are what
+    /// shows. The row's own padding is the top margin; `reveal_block` is the minimal scroll.
+    pub fn scroll_block_to_top(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if ix < self.doc.blocks.len() {
+            self.list.scroll_to(ListOffset {
+                item_ix: ix,
+                offset_in_item: px(0.),
+            });
+            cx.notify();
+        }
+    }
+
     /// Select root block `ix`, emitting [`MdViewEvent::BlockSelected`] when it changed.
     pub fn select_block(&mut self, ix: usize, cx: &mut Context<Self>) {
         if ix >= self.doc.blocks.len() {
@@ -415,12 +427,12 @@ impl MdView {
 
     // ── The navigator ───────────────────────────────────────────────
 
-    /// How the jump popover reaches this view: a picked heading is revealed, and a closed popover
+    /// How the jump popover reaches this view: a picked heading is scrolled to the top, and a closed popover
     /// hands focus back to the page so its keys work.
     const JUMP: JumpHooks<MdView> = JumpHooks {
         jump: |this| &mut this.jump,
         pick: |this, target, _window, cx| match target {
-            Target::Block(ix) => this.reveal_block(ix, cx),
+            Target::Block(ix) => this.scroll_block_to_top(ix, cx),
         },
         closed: |this, window, cx| window.focus(&this.focus, cx),
     };

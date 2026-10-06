@@ -1085,7 +1085,10 @@ impl AppState {
                             .editor
                             .index_of(path)
                             .map(|index| &open.editor.open[index])?;
-                        if file.dirty() || file.is_loading() || Some(file.key()) == active_key {
+                        // …unless its viewer asked to follow the file live (`D204`).
+                        let on_screen =
+                            Some(file.key()) == active_key && !file.viewer.reloads_on_screen();
+                        if file.dirty() || file.is_loading() || on_screen {
                             return None;
                         }
                         let restore = file.buffer().map(|buffer| {
@@ -1359,6 +1362,9 @@ impl AppState {
                 }
                 open.git_view.log_done = next_cursor.is_none();
                 open.git_view.log_cursor = next_cursor;
+                if self.project(cx) == Some(project_id) {
+                    self.settle_git_jump(cx);
+                }
                 cx.notify();
             }
 

@@ -183,7 +183,7 @@ who wants a tidy diff should not round-trip a file they did not change.
 ## Deviations, and what is unverified
 
 - **`app.js` carries the mirror's package version as one constant**
-  (`vendor/npm/@excalidraw/excalidraw@0.18.0/dist/prod/`). It must equal the host's
+  (`vendor/npm/@excalidraw/excalidraw@0.18.1/dist/prod/`). It must equal the host's
   `manifest::ASSET_SUBPATH`, and `crates/ubiq` cannot depend on `crates/ubiq-host` to read it. A
   version bump that moves that directory shows up as the chrome's explicit failure notice rather
   than as a blank page, but it is a duplicated constant and a bump has to touch both.

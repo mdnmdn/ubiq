@@ -542,6 +542,15 @@ impl AppState {
             let Some(entry) = menu.entries().get(index).copied() else {
                 return;
             };
+            // "Open with ▸" keeps the menu up, on its second stage: the same menu, the same
+            // epoch, listing viewers instead of gestures.
+            if entry.action == ExplorerAction::OpenWith {
+                if let Some(menu) = open.explorer.menu.as_mut() {
+                    menu.open_with = true;
+                }
+                cx.notify();
+                return;
+            }
             open.explorer.menu = None;
             self.workbench.open_menu = None;
             (entry, menu.path)
@@ -562,6 +571,13 @@ impl AppState {
             ExplorerAction::OpenDiff => {
                 if let Some(path) = path {
                     self.open_diff(path, DiffBase::Head, cx);
+                }
+            }
+            // Handled above, before the menu was taken down.
+            ExplorerAction::OpenWith => {}
+            ExplorerAction::OpenWithViewer(kind) => {
+                if let Some(path) = path {
+                    self.open_file_with(path, kind, cx);
                 }
             }
             ExplorerAction::CopyPath

@@ -142,6 +142,12 @@ pub const RUNNER_MAKE: SlotId = SlotId::new("ubiq.runner.make");
 pub const RUNNER_JUST: SlotId = SlotId::new("ubiq.runner.just");
 pub const RUNNER_MISE: SlotId = SlotId::new("ubiq.runner.mise");
 
+// ── The viewer container (`D204`) ───────────────────────────────────
+
+/// The IDE editor's contributed viewers — one group, since a viewer is ordered by registration
+/// alone. The base registers none: its own viewers are `ViewerKind`'s built-in variants.
+pub const VIEWER: SlotId = SlotId::new("viewer");
+
 // ── The kitchen sink's own demo registrations (`X11`, invariant 9, M4) ──────
 //
 // Not a conversion of anything that used to be a closed enum's variant — the first item on either

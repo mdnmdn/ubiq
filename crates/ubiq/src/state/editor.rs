@@ -122,6 +122,10 @@ pub enum ViewerKind {
     Drawio,
     /// The image itself.
     Image,
+    /// A viewer a second edition registered through `crate::ext::viewer` (`D204`). Every question
+    /// this enum answers is answered for it from the spec its id names; an id nothing is
+    /// registered under draws a note saying so.
+    Contributed(crate::ext::SlotId),
 }
 
 impl ViewerKind {
@@ -136,24 +140,94 @@ impl ViewerKind {
             ViewerKind::Excalidraw => "Excalidraw",
             ViewerKind::Drawio => "draw.io",
             ViewerKind::Image => "Image",
+            ViewerKind::Contributed(id) => crate::ext::viewer::spec(id)
+                .map(|spec| spec.label)
+                .unwrap_or(id.0),
         }
     }
 
-    /// Every variant, in the order a picker offers them — the editor first, because it is the one
-    /// that can draw anything and so the one worth falling back to.
-    pub fn all() -> [ViewerKind; 6] {
-        [
+    /// Every viewer, in the order a picker offers them — the editor first, because it is the one
+    /// that can draw anything and so the one worth falling back to, and the contributed ones after
+    /// the built-in six, in registration order.
+    pub fn all() -> Vec<ViewerKind> {
+        let mut all = vec![
             ViewerKind::Editor,
             ViewerKind::Markdown,
             ViewerKind::Mermaid,
             ViewerKind::Excalidraw,
             ViewerKind::Drawio,
             ViewerKind::Image,
-        ]
+        ];
+        all.extend(
+            crate::ext::viewer::viewers()
+                .iter()
+                .map(|spec| ViewerKind::Contributed(spec.id)),
+        );
+        all
     }
 
-    /// The viewer a path's extension names.
+    /// The viewer a path opens in.
+    ///
+    /// The extension table first: a built-in viewer that names the extension draws it. Where the
+    /// table falls through to the editor, a contributed viewer that claims the path as its default
+    /// draws it instead (`D204`) — asked with the path alone, because nothing has been read yet.
+    /// The head of the text gets its say when the bytes arrive (`AppState::attach_file`).
     pub fn of(path: &str) -> Self {
+        match Self::builtin(path) {
+            ViewerKind::Editor => crate::ext::viewer::default_for(path, None)
+                .map(ViewerKind::Contributed)
+                .unwrap_or(ViewerKind::Editor),
+            builtin => builtin,
+        }
+    }
+
+    /// The viewers "Open with" lists for a path, in the order it lists them: the editor (unless
+    /// the path is an image, which the editor cannot hold), the built-in viewer its extension
+    /// names, then every contributed viewer claiming it as a default or offering itself for it.
+    /// `head` is the start of the text when the bytes are here, `None` before.
+    pub fn open_with(path: &str, head: Option<&str>) -> Vec<ViewerKind> {
+        let builtin = Self::builtin(path);
+        let mut kinds = Vec::new();
+        if builtin != ViewerKind::Image {
+            kinds.push(ViewerKind::Editor);
+        }
+        if builtin != ViewerKind::Editor {
+            kinds.push(builtin);
+        }
+        kinds.extend(
+            crate::ext::viewer::offering(path, head)
+                .into_iter()
+                .map(ViewerKind::Contributed),
+        );
+        kinds
+    }
+
+    /// The registered spec behind a contributed viewer, when there is one.
+    pub fn contributed(self) -> Option<&'static crate::ext::viewer::ViewerSpec> {
+        match self {
+            ViewerKind::Contributed(id) => crate::ext::viewer::spec(id),
+            _ => None,
+        }
+    }
+
+    /// The position a tab switched onto this viewer settles in when the one it was in is not on
+    /// offer. A contributed viewer says so itself; a built-in takes its first layout.
+    pub fn preferred_layout(self) -> Option<ViewLayout> {
+        match self.contributed() {
+            Some(spec) => Some(spec.default_layout),
+            None => self.layouts().first().copied(),
+        }
+    }
+
+    /// Whether the tab on screen is re-read when its file changes on disk and nothing in it is
+    /// unsaved. Only a contributed viewer that asked for it (`ViewerSpec::live_reload`): the base
+    /// leaves the visible tab alone, because rebuilding its buffer reruns the highlighter.
+    pub fn reloads_on_screen(self) -> bool {
+        self.contributed().is_some_and(|spec| spec.live_reload)
+    }
+
+    /// The viewer the extension table names, before any contribution is asked.
+    fn builtin(path: &str) -> Self {
         match extension(path).as_str() {
             "md" | "markdown" => ViewerKind::Markdown,
             "mmd" | "mermaid" => ViewerKind::Mermaid,
@@ -170,26 +244,31 @@ impl ViewerKind {
     /// source and an image has none at all; an Excalidraw or draw.io scene is a serialised
     /// document, but it is still text worth reading raw, so it gets the same source/preview/split
     /// toggle as Markdown and Mermaid.
+    /// A contributed viewer has one exactly when it declares a layout to switch between.
     pub fn has_preview(self) -> bool {
-        matches!(
-            self,
+        match self {
             ViewerKind::Markdown
-                | ViewerKind::Mermaid
-                | ViewerKind::Excalidraw
-                | ViewerKind::Drawio
-        )
+            | ViewerKind::Mermaid
+            | ViewerKind::Excalidraw
+            | ViewerKind::Drawio => true,
+            ViewerKind::Editor | ViewerKind::Image => false,
+            ViewerKind::Contributed(_) => !self.layouts().is_empty(),
+        }
     }
 
     /// Whether this viewer draws the buffer itself for `layout` — the only thing in a tab worth
     /// handing the keyboard to today. The editor always does; Image draws through its panel, so
     /// it never does; Markdown and Mermaid only do in the half of their toggle that shows source,
     /// and Excalidraw and draw.io never do, because their own editor is a webview that takes the
-    /// keyboard itself.
+    /// keyboard itself. A contributed viewer shows it where the base draws it — `Source` and the
+    /// source half of `Split` — and draws everything else itself.
     pub fn shows_buffer(self, layout: ViewLayout) -> bool {
         match self {
             ViewerKind::Editor => true,
             ViewerKind::Image | ViewerKind::Excalidraw | ViewerKind::Drawio => false,
-            ViewerKind::Markdown | ViewerKind::Mermaid => layout.shows_source(),
+            ViewerKind::Markdown | ViewerKind::Mermaid | ViewerKind::Contributed(_) => {
+                layout.shows_source()
+            }
         }
     }
 
@@ -215,6 +294,10 @@ impl ViewerKind {
             ],
             ViewerKind::Mermaid => &[ViewLayout::Source, ViewLayout::Preview, ViewLayout::Split],
             ViewerKind::Editor | ViewerKind::Image => &[],
+            // What the spec declares; an id nothing is registered under offers nothing.
+            ViewerKind::Contributed(_) => {
+                self.contributed().map(|spec| spec.layouts).unwrap_or(&[])
+            }
         }
     }
 
@@ -239,9 +322,11 @@ impl ViewerKind {
     /// something else — or nothing. The other viewers say nothing about a language — Editor keeps
     /// whatever the extension already named, and Mermaid, Excalidraw, draw.io and Image have no
     /// language of their own in [`FileLanguage`] to force.
+    /// A contributed viewer forces the language its spec names, if any.
     pub fn forced_language(self) -> Option<FileLanguage> {
         match self {
             ViewerKind::Markdown => Some(FileLanguage::Markdown),
+            ViewerKind::Contributed(_) => self.contributed().and_then(|spec| spec.language),
             _ => None,
         }
     }
@@ -533,8 +618,16 @@ pub struct OpenFile {
     /// The file itself, or a comparison the host made from it.
     pub subject: Subject,
     pub language: FileLanguage,
-    /// What draws it. Chosen from the extension once, when the tab opens.
+    /// What draws it. Chosen from the extension once, when the tab opens — or, where the extension
+    /// names no built-in viewer, by a contributed viewer's claim on the path and then on the head
+    /// of the text once it arrives (`D204`).
     pub viewer: ViewerKind,
+    /// The user picked [`Self::viewer`] — "Open with", or the status bar's picker — rather than
+    /// the path deciding it. A picked viewer is never re-decided by the head of the text when the
+    /// bytes arrive or are re-read. **Session-only**, like the pick itself: nothing writes it
+    /// down, and a tab closed and reopened starts from [`ViewerKind::of`] again
+    /// (`AppState::set_viewer_kind`).
+    pub viewer_override: bool,
     /// Which of the viewer's layouts is on screen. Meaningless for a viewer with no preview, and
     /// harmless there.
     ///
@@ -611,6 +704,8 @@ impl OpenFile {
             ViewerKind::Markdown => markdown_open,
             // A web panel is opened, never fallen into: an Excalidraw file still draws instantly
             // through the native painter, and the embedded editor is a press away.
+            // A contributed viewer opens where its spec says.
+            ViewerKind::Contributed(_) => viewer.preferred_layout().unwrap_or_default(),
             other if other.has_preview() => ViewLayout::default(),
             _ => ViewLayout::Source,
         };
@@ -619,8 +714,13 @@ impl OpenFile {
             path: path.to_string(),
             kb_source: None,
             subject,
-            language: FileLanguage::of(path),
+            language: match viewer {
+                ViewerKind::Contributed(_) => viewer.forced_language(),
+                _ => None,
+            }
+            .unwrap_or_else(|| FileLanguage::of(path)),
             viewer,
+            viewer_override: false,
             layout,
             body: FileBody::Loading,
             save: SaveState::Idle,
@@ -676,6 +776,7 @@ impl OpenFile {
         self.path = path.to_string();
         self.language = FileLanguage::of(path);
         self.viewer = ViewerKind::of(path);
+        self.viewer_override = false;
         self.untitled = false;
     }
 
@@ -864,6 +965,32 @@ impl OpenFile {
     /// `crate::app::AppState::has_annotations`.
     pub fn annotation_sidecar(&self) -> String {
         format!("{}.annotation.json", self.path)
+    }
+
+    /// Let a contributed viewer claim the tab from the head of its text, now that it has arrived
+    /// (`D204`).
+    ///
+    /// Only a tab the path left on the editor and the user did not pick a viewer for: a built-in
+    /// viewer's extension is never second-guessed, and neither is a pick. Answers whether the
+    /// viewer changed — the caller builds the buffer afterwards, in the language it now forces.
+    pub fn claim_by_head(&mut self, head: &str) -> bool {
+        if self.viewer_override
+            || self.viewer != ViewerKind::Editor
+            || !matches!(self.subject, Subject::File)
+        {
+            return false;
+        }
+        let Some(id) = crate::ext::viewer::default_for(&self.path, Some(head)) else {
+            return false;
+        };
+        self.viewer = ViewerKind::Contributed(id);
+        if let Some(layout) = self.viewer.preferred_layout() {
+            self.layout = layout;
+        }
+        if let Some(language) = self.viewer.forced_language() {
+            self.language = language;
+        }
+        true
     }
 
     /// Whether the tab's bytes go to a viewer rather than into a buffer. A read still has to

@@ -978,8 +978,9 @@ the ground; the ground itself, the same flip the titlebar offers, within the fam
 row of swatches, the palette's own first and then the six the build ships, each named on its
 hover; **Text brightness**, four pills — `Faint`, `Muted`, `Primary`, `Strong`, the markdown
 reading options' own shades, `Primary` the palette as written — that move every text token
-brighter or dimmer together (`InterfacePrefs.text_brightness`, the status bar's size popover
-carries the same pills); then **Themes**, the themes the user authored as pills beside the built-ins, each with an
+brighter or dimmer together (remembered per ground — `InterfacePrefs.text_brightness` for dark, `text_brightness_light` for
+light, absent meaning the same as dark — so the titlebar's flip restores that ground's level; the
+status bar's size popover carries the same pills); then **Themes**, the themes the user authored as pills beside the built-ins, each with an
 edit affordance, and **New theme…** — followed by
 whether the rail carries the open-project badges, whether
 the titlebar's capture control and its keystroke are offered at all, and whether a conversation

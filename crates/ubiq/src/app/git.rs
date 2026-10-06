@@ -414,29 +414,66 @@ impl AppState {
         cx.notify();
     }
 
-    /// Bring the history to the named ref's commit, scrolling it into view. If that commit is not
-    /// in the loaded walk, the history is asked again from that ref so the tip is on screen.
+    /// Bring the history to the named ref's commit: select it and scroll it into view, keeping
+    /// the history's filters. Only when that row is not drawn under them are the filters cleared
+    /// (and the log asked again if the branch filter was one), and when the commit is not in the
+    /// loaded pages the jump waits for them — see [`Self::settle_git_jump`].
     pub fn jump_to_git_ref(&mut self, index: usize, cx: &mut Context<Self>) {
         self.select_git_ref(index, cx);
-        if let Some(slot) = self.git_view(cx).and_then(|git| {
-            let commit = git.commit_index_for_ref(index)?;
-            git.visible_commits()
-                .iter()
-                .position(|(held, _)| *held == commit)
-        }) {
-            if let Some(git) = self.git_view_mut(cx) {
-                git.selected_commit = git.commit_index_for_ref(index);
-            }
-            self.git_scroll
-                .scroll_to_item(slot, gpui::ScrollStrategy::Top);
-            cx.notify();
+        if self.scroll_to_git_ref(index, cx) {
             return;
         }
-        let name = self
-            .git_view(cx)
-            .and_then(|git| git.refs.get(index).map(|row| row.name.clone()));
-        if let Some(name) = name {
-            self.set_git_branch_filter(Some(name), cx);
+        let Some(git) = self.git_view_mut(cx) else {
+            return;
+        };
+        let reload = git.branch_filter.is_some();
+        git.clear_filters();
+        git.jump_ref = Some(index);
+        if reload {
+            self.send_git_log(None, cx);
+            cx.notify();
+        } else if !self.scroll_to_git_ref(index, cx) {
+            self.load_more_git_log(cx);
+        }
+    }
+
+    /// Select the ref's commit and scroll to its row if that row is drawn. Returns whether it was.
+    fn scroll_to_git_ref(&mut self, index: usize, cx: &mut Context<Self>) -> bool {
+        let Some((commit, slot)) = self.git_view(cx).and_then(|git| {
+            let commit = git.commit_index_for_ref(index)?;
+            let slot = git
+                .visible_commits()
+                .iter()
+                .position(|(held, _)| *held == commit)?;
+            Some((commit, slot))
+        }) else {
+            return false;
+        };
+        self.select_git_commit(Some(commit), cx);
+        if let Some(git) = self.git_view_mut(cx) {
+            git.jump_ref = None;
+        }
+        self.git_scroll
+            .scroll_to_item(slot, gpui::ScrollStrategy::Top);
+        cx.notify();
+        true
+    }
+
+    /// Finish a pending [`Self::jump_to_git_ref`] after a log page landed: scroll if the commit is
+    /// there now, ask for the next page if not, give up when the history has no more.
+    pub fn settle_git_jump(&mut self, cx: &mut Context<Self>) {
+        let Some(index) = self.git_view(cx).and_then(|git| git.jump_ref) else {
+            return;
+        };
+        if self.scroll_to_git_ref(index, cx) {
+            return;
+        }
+        if self.git_view(cx).is_some_and(|git| git.log_done) {
+            if let Some(git) = self.git_view_mut(cx) {
+                git.jump_ref = None;
+            }
+        } else {
+            self.load_more_git_log(cx);
         }
     }
 

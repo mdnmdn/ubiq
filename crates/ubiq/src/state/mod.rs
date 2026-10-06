@@ -117,6 +117,6 @@ pub use workbench::{
     AllProjectsState, AttachmentPreview, FileDialog, HarnessChoice, HelpTargeting, MenuId,
     NewAgentMenu, NewAgentStage, NewAgentSurface, ProjectSettings, ProjectSettingsMode, RailMode,
     RowAction, SizePrompt, TeamsCreateMenu, TeamsCreateStage, ThemeEditor, ThemePrompt,
-    WorkbenchState,
+    ViewerMenu, ViewerMenuRow, WorkbenchState,
 };
 pub use zoom::ImageZoom;

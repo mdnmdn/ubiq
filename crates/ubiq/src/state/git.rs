@@ -44,8 +44,7 @@ use crate::state::when;
 /// The width of the ref sidebar, and of the uncommitted-changes panel on the other side.
 pub const SIDEBAR_WIDTH: f32 = 280.0;
 pub const CHANGES_WIDTH: f32 = 380.0;
-/// How tall the diff under the history is when it is open, and the height of one commit row.
-pub const DIFF_HEIGHT: f32 = 320.0;
+/// The height of one commit row.
 pub const COMMIT_ROW: f32 = 26.0;
 /// Fixed trailing columns on a history row, so refs of different widths cannot shove author, when
 /// or the short id around.
@@ -1038,6 +1037,10 @@ pub struct GitView {
     pub log_cursor: Option<String>,
     /// Whether the last page had no `next_cursor`: the history has nothing more to page in.
     pub log_done: bool,
+    /// The ref (an index into `refs`) a branch click wants scrolled to and selected once its
+    /// commit is on screen — set when the filters were cleared or older pages must be paged in
+    /// first. Settled by `AppState::settle_git_jump` after each log page.
+    pub jump_ref: Option<usize>,
     /// The cursor of the `ProjectGitLog` request currently in flight, i.e. the one whose
     /// `GitLogPage` reply the view is waiting on. `None` means no reply is outstanding.
     ///
@@ -1113,6 +1116,7 @@ impl GitView {
             lane_count: 0,
             log_cursor: None,
             log_done: false,
+            jump_ref: None,
             log_inflight: None,
             range_from: None,
             range_to: None,
@@ -1407,6 +1411,7 @@ impl GitView {
         self.set_commits(Vec::new());
         self.log_cursor = None;
         self.log_done = false;
+        self.jump_ref = None;
         self.log_inflight = None;
         self.branch_filter = None;
         self.selected_commit = None;

@@ -49,13 +49,13 @@ MANIFEST = REPO / "crates/ubiq-host/src/web_assets/manifest.rs"
 
 APP = "excalidraw"
 PACKAGE = "@excalidraw/excalidraw"
-DEFAULT_VERSION = "0.18.0"
+DEFAULT_VERSION = "0.18.1"
 
 # draw.io's webapp is not published to npm, so it is a second tenant with a second generating rule
 # below (`snapshot_drawio`), not a second call into the npm walk above.
 DRAWIO_APP = "drawio"
 DRAWIO_REPO = "jgraph/drawio"
-DRAWIO_DEFAULT_VERSION = "31.4.5"
+DRAWIO_DEFAULT_VERSION = "32.2.0"
 DRAWIO_MANIFEST = REPO / "crates/ubiq-host/src/web_assets/manifest_drawio.rs"
 DRAWIO_WEBAPP_PREFIX = "src/main/webapp/"
 

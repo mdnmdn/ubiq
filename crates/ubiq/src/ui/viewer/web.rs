@@ -65,7 +65,7 @@ pub fn render(app: &AppState, file: &OpenFile, _cx: &mut Context<AppState>) -> A
             .unwrap_or_else(|| loading("Starting\u{2026}", None, None, "starting the browser")),
         None => loading(
             bundle
-                .unavailable()
+                .unavailable(tenant_name(file.viewer))
                 .unwrap_or_else(|| format!("Loading {}\u{2026}", tenant_name(file.viewer))),
             fetched(&bundle),
             bundle.fetching_file().map(str::to_string),

@@ -286,6 +286,11 @@ pub struct UiSettings {
     /// naming a harness this build no longer lists simply matches nothing.
     #[serde(default)]
     pub acp_enabled: BTreeSet<String>,
+    /// The theme each web editor wears, pinned per kind; `Auto` follows the window.
+    #[serde(default)]
+    pub excalidraw_theme: crate::state::web_panel::WebTheme,
+    #[serde(default)]
+    pub drawio_theme: crate::state::web_panel::WebTheme,
 }
 
 fn default_md_char_scale() -> f32 {
@@ -321,6 +326,8 @@ impl Default for UiSettings {
             md_line_spacing_default: 1.0,
             md_paragraph_spacing_default: 1.0,
             acp_enabled: BTreeSet::new(),
+            excalidraw_theme: Default::default(),
+            drawio_theme: Default::default(),
         }
     }
 }

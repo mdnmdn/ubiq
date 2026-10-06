@@ -55,6 +55,8 @@ fn a_blob_survives_the_round_trip() {
         md_line_spacing_default: 1.2,
         md_paragraph_spacing_default: 1.5,
         acp_enabled: ["claude-code-acp".to_string()].into_iter().collect(),
+        excalidraw_theme: ubiq::state::web_panel::WebTheme::Light,
+        drawio_theme: ubiq::state::web_panel::WebTheme::Dark,
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);

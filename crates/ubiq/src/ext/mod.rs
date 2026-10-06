@@ -14,6 +14,7 @@ pub mod rail;
 mod registry;
 pub mod runner;
 pub mod settings;
+pub mod viewer;
 
 pub use id::SlotId;
 pub use registry::{Registry, Slotted};

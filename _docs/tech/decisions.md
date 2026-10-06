@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-04
+updated: 2026-10-05
 verified: 2026-09-29
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5081,6 +5081,29 @@ it.
 whose text differs from the buffer (an unsaved edit) maps to no row and draws no decor until the
 next save re-indexes it. Several host blocks sharing a row cannot be told apart in
 the margin, only in the rail.
+
+### D204 — A contributed viewer is one open variant of `ViewerKind`, answered from a spec, and the built-in viewers stay closed
+
+A second edition adds an IDE viewer by registering a `ViewerSpec` (`crates/ubiq/src/ext/viewer.rs`,
+`Contributions::viewers`); a tab drawn by it is `ViewerKind::Contributed(SlotId)`, and every match on
+the enum answers that arm from the spec — label, layouts, forced language, the drawing arm, the
+watcher's on-screen exception (`live_reload`). The six built-in viewers are **not** converted: each
+is wired into something only the base has (a web tenant, `MdView`, the image editor's panel focus),
+and `X16`'s full conversion would move those into spec fields for no second user. The container
+arrives empty for the same reason. **A claim is a ranking** — `Default`, `Offer`, `No` — asked
+with the project-relative path (a string, the way every interface path is) and, once the bytes are
+here, the head of the text; the extension table still decides first, so a `Default` claim only
+takes a path the table would hand the buffer, and the first registered claimant wins. **The file
+stays the IDE's**: the tab reads, watches and saves through the host, `Source` is the tab's own
+buffer, and the spec only draws. "Open with" is the existing session-only viewer override
+(`set_viewer_kind`, marked by `OpenFile::viewer_override` so the head never re-decides a pick),
+offered as a second stage of the explorer's menu and of the top row's `⋯` rather than a cascading
+submenu, which the kit has no primitive for.
+
+**Cost:** a contribution cannot take over a built-in extension by default, only by "Open with"; an
+offer that depends on the head of the text is invisible to the explorer's menu and to the top row's
+`⋯` decision, both of which ask with the path alone; and a live-reloading tab flashes its
+"Reading…" note for the frame between the re-read and the new buffer.
 
 ## Related docs
 

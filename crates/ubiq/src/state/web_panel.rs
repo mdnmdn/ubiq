@@ -12,7 +12,39 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::ProjectId;
+
+/// Which theme a web editor wears: the window's own, or one pinned for that editor kind so a
+/// draw.io canvas can be light under a dark window. Persisted per kind in `UiSettings`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum WebTheme {
+    /// Follow the window's palette.
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+impl WebTheme {
+    pub fn label(self) -> &'static str {
+        match self {
+            WebTheme::Auto => "Auto",
+            WebTheme::Light => "Light",
+            WebTheme::Dark => "Dark",
+        }
+    }
+
+    /// The palette name the chrome is sent, given whether the window is dark.
+    pub fn palette(self, window_dark: bool) -> &'static str {
+        match self {
+            WebTheme::Light => "light",
+            WebTheme::Dark => "dark",
+            WebTheme::Auto if window_dark => "dark",
+            WebTheme::Auto => "light",
+        }
+    }
+}
 
 /// Where the vendor bundle for one web app stands, as far as this window knows.
 ///
@@ -48,13 +80,13 @@ impl BundleState {
     ///
     /// [`BundleState::Unknown`] answers `None`: nothing has been asked for yet, so the control is
     /// live and pressing it is what asks.
-    pub fn unavailable(&self) -> Option<String> {
+    pub fn unavailable(&self, name: &str) -> Option<String> {
         match self {
             BundleState::Ready { .. } | BundleState::Unknown => None,
             BundleState::Fetching { done, total, .. } if *total > 0 => Some(format!(
-                "Downloading Excalidraw\u{2026} {done}/{total} files"
+                "Downloading {name}\u{2026} {done}/{total} files"
             )),
-            BundleState::Fetching { .. } => Some("Downloading Excalidraw\u{2026}".to_string()),
+            BundleState::Fetching { .. } => Some(format!("Downloading {name}\u{2026}")),
             BundleState::Unavailable { reason } => Some(reason.clone()),
         }
     }
@@ -79,6 +111,8 @@ impl BundleState {
 pub struct WebPanelSession {
     /// The tab whose buffer this session writes into. The session exists only as long as it does.
     pub key: String,
+    /// The tenant's app id (`bridge::*_APP`), which says which theme setting applies.
+    pub app: &'static str,
     /// The project that tab belongs to, so a window pointed elsewhere still finds the buffer.
     pub project: ProjectId,
     /// The bridge credential. Every frame repeats it; one that does not is dropped.
@@ -109,6 +143,8 @@ pub struct WebPanels {
     /// Tabs whose chrome asked for a save, run once the text it sent has reached the buffer.
     /// A save before that write would put yesterday's drawing on disk.
     pub saving: Vec<String>,
+    /// Chords (`"w"`, `"k"`) the chrome heard, run by the next frame that has a `Window`.
+    pub shortcuts: Vec<String>,
     /// Whether the drain loop is running. One per window, however many sessions there are.
     pub polling: bool,
 }

@@ -563,7 +563,8 @@ crates/ubiq/src/
 │   ├── settings.rs
 │   ├── rail.rs
 │   ├── menu.rs
-│   └── runner.rs
+│   ├── runner.rs
+│   └── viewer.rs
 └── .DS_Store
 
 crates/ubiq-app/src/
@@ -842,6 +843,7 @@ the documents in its row.
 | `crates/ubiq/src/ext/registry.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/ext/runner.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/ext/settings.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
+| `crates/ubiq/src/ext/viewer.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/lib.rs` | [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/a2ui.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md) |
 | `crates/ubiq/src/state/a2ui/action.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md) |
@@ -1086,6 +1088,7 @@ the documents in its row.
 | `crates/ubiq/tests/tasksrc.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md) |
 | `crates/ubiq/tests/teams.rs` | [`features/workbench-teams.md`](../features/workbench-teams.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/tests/ui_id.rs` | [`wip/in-place-help.md`](../wip/in-place-help.md) |
+| `crates/ubiq/tests/viewer_container.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/tests/viewer_kind.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/tests/viewport.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/tests/vim.rs` | [`features/workbench.md`](../features/workbench.md) |

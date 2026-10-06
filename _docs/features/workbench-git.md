@@ -147,7 +147,10 @@ what the sidebar is opened for and the other four are long enough to push it off
 level of the local and the remote tree, the current branch sorts first, then `main`, `master`,
 `develop` and `dev` in that order, then everything else alphabetically — only a branch with no
 folder of its own is pinned this way, so `main` inside a folder stays where its folder puts it. A
-single click on a local or a remote-tracking branch row jumps the history to that branch's tip,
+single click on a local or a remote-tracking branch row jumps the history to that branch's tip
+without filtering it: the tip's row is selected and scrolled to, under whatever filter is set, and
+only when that row is not drawn (hidden by the search or Mine, or older than the loaded pages) are
+the filters cleared and the log paged until it is, the way `GitView::jump_ref` waits for it —
 revealing the commit list if it was put away; a double-click checks it out (the toolbar's own
 confirm rule applies). A tag, stash or submodule row keeps its own click, which scrolls the list to
 the commit it points at. A search field above the sidebar's sections narrows every one of
@@ -277,7 +280,9 @@ or the changes panel is not a first visit and gets no injection: the region it l
 is closed by `collapse_empty_regions()` instead, and the titlebar's side-panel switch — answered by
 `mode_side_furniture()`, shared with `toggle_region()` — is what puts Git's furniture there on a
 click. `select_git_ref()` reveals that panel if it was
-hidden; `jump_to_git_ref()` selects the commit the ref points at and scrolls the list to it.
+hidden; `jump_to_git_ref()` selects the commit the ref points at and scrolls the list to it, clearing the
+filters only when the row is not visible under them (`settle_git_jump()` finishes it after the log
+page that brings the commit in).
 `select_git_path()` reveals the diff panel. The IDE's right region stays shut on a first visit,
 whatever `settle_persistent_chat()` attaches behind it. `git_view()`, `git_view_mut()` and
 `git_entries()` are the accessors; `select_git_path()` is the one mutator that sends anything, and

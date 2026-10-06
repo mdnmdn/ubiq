@@ -110,5 +110,24 @@
     poll();
   }
 
-  window.ubiq = { post: post, on: on };
+  // macOS hands an arrow, Home, Delete-forward... to a text field's input machinery as a character
+  // in the private-use area (U+F700..U+F8FF, `NSUpArrowFunctionKey` and friends) when the same
+  // key event has already been through another input context — here, the host window's. The
+  // field then types it as a glyph "not in the font". These are never text: veto them before
+  // they land. Capturing, so the editor's own handlers never see the insertion either.
+  var PRIVATE_USE = /[\uF700-\uF8FF]/;
+  function guardText(doc) {
+    doc.addEventListener("beforeinput", function (event) {
+      if (typeof event.data === "string" && PRIVATE_USE.test(event.data)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+    doc.addEventListener("keypress", function (event) {
+      if (event.charCode >= 0xf700 && event.charCode <= 0xf8ff) event.preventDefault();
+    }, true);
+  }
+  guardText(document);
+
+  window.ubiq = { post: post, on: on, guardText: guardText };
 })();

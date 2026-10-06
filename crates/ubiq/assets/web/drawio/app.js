@@ -65,6 +65,23 @@
       "&gl=0&db=0&dbx=0&tr=0&plugins=0&lang=en&dark=" + (palette === "dark" ? "1" : "0");
   }
 
+  // Save, close and search are Ubiq's; every other chord belongs to the editor. The webview
+  // swallows the chord before GPUI sees it, so the page hears it and says so. The editor is a
+  // same-origin frame, so its document is hooked as well as this one.
+  function hookKeys(doc) {
+    doc.addEventListener("keydown", function (event) {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+      if (event.key !== "w" && event.key !== "k") return;
+      event.preventDefault();
+      event.stopPropagation();
+      post({ type: "shortcut", key: event.key });
+    }, true);
+  }
+  hookKeys(document);
+  frame.addEventListener("load", function () {
+    try { var inner = frame.contentWindow.document; hookKeys(inner); window.ubiq.guardText(inner); } catch (e) { /* cross-origin: nothing to hook */ }
+  });
+
   function mount() {
     inited = false;
     frame.src = src();

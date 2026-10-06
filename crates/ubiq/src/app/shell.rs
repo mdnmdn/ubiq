@@ -1303,6 +1303,7 @@ impl AppState {
         self.workbench.overflow_menu = None;
         self.workbench.new_project_menu = None;
         self.workbench.mission_menu = None;
+        self.workbench.viewer_menu = None;
         self.workbench.mission_spawn_menu = None;
         self.workbench.mission_kind_menu = None;
         self.workbench.run_tool_menu = None;

@@ -288,6 +288,11 @@ pub enum ExplorerPressed {
 pub enum ExplorerAction {
     Open,
     OpenDiff,
+    /// "Open with ▸": swaps the menu for the viewers that can draw the file. Offered only when
+    /// there is more than one (`ViewerKind::open_with`).
+    OpenWith,
+    /// One row of the "Open with" list: open the file and draw it with this viewer (`D204`).
+    OpenWithViewer(crate::state::editor::ViewerKind),
     CopyPath,
     CopyFullPath,
     /// The row as a `ubiq://` destination, which is what a link in a document wants.
@@ -343,6 +348,8 @@ impl ExplorerAction {
         match self {
             ExplorerAction::Open => "Open",
             ExplorerAction::OpenDiff => "Open diff vs HEAD",
+            ExplorerAction::OpenWith => "Open with \u{25b8}",
+            ExplorerAction::OpenWithViewer(kind) => kind.label(),
             ExplorerAction::CopyPath => "Copy path",
             ExplorerAction::CopyFullPath => "Copy full path",
             ExplorerAction::CopyLink => "Copy link",
@@ -424,6 +431,10 @@ pub struct ExplorerMenu {
     /// opened. Held here for the same reason `can_paste` is: `entries()` stays a pure function of
     /// the remembered menu, and the project's excludes are AppState's, not this tree's, to know.
     pub is_excluded: bool,
+    /// Whether "Open with ▸" was picked: the menu then lists the viewers that can draw the row
+    /// instead of its gestures — a second stage of the same menu, at the same spot, rather than a
+    /// cascade.
+    pub open_with: bool,
     pub x: f32,
     pub y: f32,
 }
@@ -431,6 +442,17 @@ pub struct ExplorerMenu {
 impl ExplorerMenu {
     /// What this click offers, in the order the menu draws it.
     pub fn entries(&self) -> Vec<ExplorerEntry> {
+        if self.open_with
+            && let Some(path) = self.path.as_deref()
+        {
+            return crate::state::editor::ViewerKind::open_with(path, None)
+                .into_iter()
+                .map(|kind| ExplorerEntry {
+                    action: ExplorerAction::OpenWithViewer(kind),
+                    enabled: true,
+                })
+                .collect();
+        }
         menu_entries(
             self.path.as_deref(),
             self.is_dir,

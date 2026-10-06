@@ -11,7 +11,8 @@
 
 use anyhow::Result;
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, Rgba, SharedString, Styled, Task, div, px,
+    AnyElement, Context, IntoElement, ParentElement, Rgba, SharedString, Styled, Task, Window, div,
+    px,
 };
 use gpui_component::highlighter::{Language, LanguageConfig, LanguageRegistry};
 use gpui_component::input::{CompletionProvider, Rope, RopeExt as _};
@@ -150,13 +151,18 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// **The viewer seam.** What draws a file is `ViewerKind`'s answer rather than this function's
 /// shape, so everything past the lookup is `ui/viewer/`'s — including the plain text case, which
 /// is the editor viewer among the others rather than the arm the rest fall out of.
-pub fn render_file(app: &AppState, key: &str, cx: &mut Context<AppState>) -> AnyElement {
+pub fn render_file(
+    app: &AppState,
+    key: &str,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(file) = app.file(key, cx) else {
         // A panel whose tab has gone is hidden rather than drawn, so this is the frame between
         // the two.
         return note("No file open", theme::text_faint());
     };
-    super::viewer::render(app, file, cx)
+    super::viewer::render(app, file, window, cx)
 }
 
 fn note(text: impl Into<SharedString>, colour: Rgba) -> AnyElement {

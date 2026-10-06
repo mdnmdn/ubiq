@@ -31,6 +31,7 @@ impl ExplorerState {
             expanded,
             can_paste: self.copied.is_some(),
             is_excluded,
+            open_with: false,
             x,
             y,
         });
@@ -84,9 +85,18 @@ pub fn menu_entries(
         ],
         // A row the host will not follow keeps only the path group: there is nothing behind it to
         // open, list, copy or rename.
-        Some(_) => vec![
+        Some(path) => vec![
             match readable && !is_dir {
-                true => vec![entry(ExplorerAction::Open), entry(ExplorerAction::OpenDiff)],
+                true => {
+                    let mut open = vec![entry(ExplorerAction::Open)];
+                    // "Open with ▸" only when there is a choice: a file only the editor can draw
+                    // keeps the menu it always had (`D204`).
+                    if crate::state::editor::ViewerKind::open_with(path, None).len() > 1 {
+                        open.push(entry(ExplorerAction::OpenWith));
+                    }
+                    open.push(entry(ExplorerAction::OpenDiff));
+                    open
+                }
                 false => Vec::new(),
             },
             // New file and new folder land in the folder holding this row, which is what

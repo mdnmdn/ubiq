@@ -25,15 +25,16 @@ pub mod zoom_modal;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, div, px, relative,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, point, px, relative,
 };
+use gpui_component::IconName;
 use gpui_component::input::{Editor, EditorState};
 
 use crate::app::AppState;
-use crate::state::editor::{ViewLayout, ViewerKind};
-use crate::state::{FileBody, OpenFile};
+use crate::state::editor::{Subject, ViewLayout, ViewerKind};
+use crate::state::{FileBody, OpenFile, ViewerMenuRow};
 use crate::theme;
-use crate::ui::kit::{choice_pill, mono, status_dot};
+use crate::ui::kit::{ContextItem, choice_pill, context_menu, icon_button, mono, status_dot};
 use crate::ui::mdview::view::MdView;
 use crate::ui::{eid, eid2};
 
@@ -45,12 +46,31 @@ const HEADER: f32 = 32.0;
 /// This is the whole of what a file panel shows. The header comes first and is the viewer's only
 /// chrome — a viewer with more than one layout says which one it is in, and one with a single
 /// layout says nothing at all, because the editor and the image have nothing to toggle between.
-pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
+/// The one exception is the `⋯`: a tab with another viewer to open it in, or a contributed viewer
+/// with rows of its own, gets the header for it even with nothing to toggle (`D204`).
+pub fn render(
+    app: &AppState,
+    file: &OpenFile,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let mut root = surface();
-    if file.viewer.has_preview() || file.editable_image() {
+    if file.viewer.has_preview() || file.editable_image() || has_more(file) {
         root = root.child(header(app, file, cx));
     }
-    root.child(body(app, file, cx)).into_any_element()
+    root.child(body(app, file, window, cx)).into_any_element()
+}
+
+/// Whether the tab's top row carries a `⋯`: an IDE tab with more than one viewer for its path, or
+/// a contributed viewer that adds rows. Asked from the path alone — the head of the text is read
+/// only once the menu is down, never in a draw.
+fn has_more(file: &OpenFile) -> bool {
+    let ide_file = file.kb_source.is_none() && file.subject == Subject::File;
+    (ide_file && ViewerKind::open_with(&file.path, None).len() > 1)
+        || file
+            .viewer
+            .contributed()
+            .is_some_and(|spec| spec.menu.is_some())
 }
 
 /// The layout toggle: the positions the file's own viewer offers, and no others.
@@ -58,6 +78,9 @@ pub fn render(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> An
 /// Which one is on screen belongs to the file rather than to this row, so the click goes to
 /// `AppState` and comes back as the file's own `layout` — which is also what the panel writes into
 /// the dock's saved arrangement, so a document reopens as it was left.
+///
+/// The same row draws a contributed viewer's declared layouts (`D204`), and ends in the `⋯` when
+/// the tab has one.
 fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl IntoElement {
     // A picture's strip is the annotation toolbar; every other viewer keeps the layout toggle.
     if file.editable_image() {
@@ -72,24 +95,24 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
 
     div()
         .h(px(HEADER))
-        .px_2()
         .flex()
         .flex_none()
         .items_center()
         .justify_end()
-        .gap_2()
         .bg(theme::pane_bg())
         .border_b_1()
         .border_color(theme::border())
         // The navigator is offered wherever the document is drawn rather than its source: over the
         // annotation surface's own block index, or over the markdown view's.
         .children(markdown.then(|| navigator(app, file, cx)).flatten())
+        .children(slot(app, file, |spec| spec.header_left, cx))
         .child(div().flex_1().min_w(px(0.)))
         .children(markdown.then(|| edit_chip(file, cx)).flatten())
         .when(markdown && current != ViewLayout::Source, |this| {
             this.child(md_options::control(app, file, cx))
         })
-        .child(div().flex().items_center().gap_1().children(
+        .children(slot(app, file, |spec| spec.header_right, cx))
+        .child(div().flex().items_center().h_full().children(
             file.viewer.layouts().iter().copied().map(|layout| {
                 let key = key.clone();
                 let pill = choice_pill(
@@ -103,7 +126,6 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
                     div()
                         .flex()
                         .items_center()
-                        .gap_1()
                         .h_full()
                         .child(pill)
                         .child(status_dot(theme::info(), theme::transparent()))
@@ -113,7 +135,87 @@ fn header(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> impl I
                 }
             }),
         ))
+        .children(has_more(file).then(|| more(app, file, cx)))
         .into_any_element()
+}
+
+/// A contributed viewer's header slot, if the tab's viewer has one.
+fn slot(
+    app: &AppState,
+    file: &OpenFile,
+    pick: fn(&crate::ext::viewer::ViewerSpec) -> Option<crate::ext::viewer::HeaderSlot>,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    let spec = file.viewer.contributed()?;
+    pick(spec).map(|f| f(app, file, cx))
+}
+
+/// The top row's `⋯`: "Open with ▸" and whatever the tab's viewer adds, and the menu itself while
+/// it is down on this tab. Rows are matched by position against `AppState::viewer_menu_rows`, the
+/// list the pick reads too.
+fn more(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
+    let key = file.key();
+    let menu = app
+        .workbench
+        .viewer_menu
+        .as_ref()
+        .filter(|menu| {
+            menu.key == key && app.workbench.open_menu == Some(crate::state::MenuId::ViewerMore)
+        })
+        .cloned();
+    let open = menu.is_some();
+    let trigger_key = key.clone();
+    let mut root = div().h_full().flex().items_center().child(
+        icon_button(
+            eid("viewer-more", &key),
+            IconName::EllipsisVertical,
+            open,
+            cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                let at = event.position();
+                this.open_viewer_more(&trigger_key, (at.x.into(), at.y.into()), cx);
+            }),
+        )
+        .h_full()
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new("More: open with another viewer, and its actions")
+                .build(window, cx)
+        }),
+    );
+    if let Some(menu) = menu {
+        let items: Vec<ContextItem> = app
+            .viewer_menu_rows(&key, menu.open_with, cx)
+            .into_iter()
+            .map(|row| match row {
+                ViewerMenuRow::OpenWith => ContextItem::new("Open with \u{25b8}"),
+                ViewerMenuRow::Viewer { kind, current } => {
+                    let item = ContextItem::new(kind.label());
+                    match current {
+                        true => item.detail("current"),
+                        false => item,
+                    }
+                }
+                ViewerMenuRow::Separator => ContextItem::separator(),
+                ViewerMenuRow::Action { label, enabled, .. } => {
+                    let item = ContextItem::new(label);
+                    match enabled {
+                        true => item,
+                        false => item.disabled(),
+                    }
+                }
+            })
+            .collect();
+        let view = cx.entity();
+        root = root.child(context_menu(
+            eid("viewer-more-menu", &key),
+            point(px(menu.at.0), px(menu.at.1)),
+            items,
+            crate::ui::indexed(&view, |this, index, window, cx| {
+                this.pick_viewer_more(index, window, cx);
+            }),
+            crate::ui::handler(&view, |this, _, cx| this.dismiss_viewer_more(cx)),
+        ));
+    }
+    root.into_any_element()
 }
 
 /// The header's heading navigator: the markdown view's own jump popover over the parsed document,
@@ -155,7 +257,12 @@ fn edit_chip(file: &OpenFile, cx: &mut Context<AppState>) -> Option<AnyElement> 
 
 /// What the file is showing, which is not always what its viewer draws: a tab exists before its
 /// bytes do, and a read that failed has to say so somewhere.
-fn body(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
+fn body(
+    app: &AppState,
+    file: &OpenFile,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     match &file.body {
         FileBody::Loading => note("Reading\u{2026}", theme::text_faint()),
         FileBody::Failed(reason) => note(reason.clone(), theme::danger()),
@@ -163,7 +270,51 @@ fn body(app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyEleme
         FileBody::Diff(diff) => diff::render(diff, file.layout),
         FileBody::Bytes(bytes) => image::render(bytes, &file.path),
         FileBody::ImageEdit(_) => image_edit::render(app, file, cx),
-        FileBody::Text { state, .. } => drawn(app, file, state, cx),
+        FileBody::Text { state, .. } => match file.viewer {
+            ViewerKind::Contributed(id) => contributed(app, file, state, id, window, cx),
+            _ => drawn(app, file, state, cx),
+        },
+    }
+}
+
+/// A contributed viewer's tab (`D204`): the buffer for `Source`, the buffer beside the spec's own
+/// body for `Split`, and the spec's body for every other position it declares. The buffer is the
+/// tab's own — the same entity the editor draws — so a switch costs nothing and loses no undo.
+fn contributed(
+    app: &AppState,
+    file: &OpenFile,
+    state: &Entity<EditorState>,
+    id: crate::ext::SlotId,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let Some(spec) = crate::ext::viewer::spec(id) else {
+        return note(
+            format!("No viewer is registered as `{id}` in this build"),
+            theme::text_faint(),
+        );
+    };
+    let ctx = crate::ext::viewer::ViewerCtx {
+        app,
+        file,
+        buffer: state,
+        layout: file.layout,
+    };
+    match file.layout {
+        ViewLayout::Source => buffer(state),
+        ViewLayout::Split => div()
+            .flex()
+            .flex_1()
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .child(
+                half(buffer(state))
+                    .border_r_1()
+                    .border_color(theme::border()),
+            )
+            .child(half((spec.render)(&ctx, window, cx)))
+            .into_any_element(),
+        _ => (spec.render)(&ctx, window, cx),
     }
 }
 
@@ -187,7 +338,10 @@ fn drawn(
     if !file.viewer.has_preview() {
         return match file.viewer {
             ViewerKind::Editor => buf(),
-            ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
+            // `body` draws a contributed viewer before it ever reaches here.
+            ViewerKind::Image | ViewerKind::Contributed(_) => {
+                note("Nothing to draw", theme::text_faint())
+            }
             // Markdown, Mermaid, Excalidraw and Drawio do have the toggle, so these are
             // unreachable here.
             ViewerKind::Markdown
@@ -221,7 +375,9 @@ fn drawn(
             diagram::exported(app, &key, &source, cx)
         }
         // `has_preview` names Markdown, Mermaid, Excalidraw and Drawio and nothing else.
-        ViewerKind::Editor | ViewerKind::Image => note("Nothing to draw", theme::text_faint()),
+        ViewerKind::Editor | ViewerKind::Image | ViewerKind::Contributed(_) => {
+            note("Nothing to draw", theme::text_faint())
+        }
     };
 
     match file.layout {

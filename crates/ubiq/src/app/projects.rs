@@ -1284,7 +1284,11 @@ impl AppState {
                     // scale that never reached it would leave every spacing where it was.
                     // The brightness rides the same resolve, so it is set first and the one
                     // `set_theme` below puts both on.
-                    theme::set_text_brightness(prefs.text_brightness);
+                    theme::set_text_brightness_for(theme::Mode::Dark, prefs.text_brightness);
+                    theme::set_text_brightness_for(
+                        theme::Mode::Light,
+                        prefs.text_brightness_light.unwrap_or(prefs.text_brightness),
+                    );
                     theme::set_theme(self.workbench.theme_id, prefs.accent, cx);
                     self.redress_terminals(cx);
                 }

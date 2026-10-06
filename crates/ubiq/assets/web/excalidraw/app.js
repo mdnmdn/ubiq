@@ -24,7 +24,7 @@
   // on `crates/ubiq-host`, so the host's `manifest::ASSET_SUBPATH` cannot be read from here; this
   // must equal it. A version bump that moves the directory shows up as the explicit failure
   // below rather than as a blank page.
-  var DIST = "vendor/npm/@excalidraw/excalidraw@0.18.0/dist/prod/";
+  var DIST = "vendor/npm/@excalidraw/excalidraw@0.18.1/dist/prod/";
   var IMPORT_MAP = "vendor/importmap.json";
 
   // How long the drawing must be still before the document is serialised. `onChange` fires
@@ -280,16 +280,23 @@
       }
     }
 
-    // ⌘S and Ctrl-S never reach GPUI: while the webview has the keyboard the native view
+    // ⌘S, ⌘W, ⌘K and their Ctrl forms never reach GPUI: while the webview has the keyboard the native view
     // swallows the chord, so the page is the only place that can hear it. Captured, so the
     // component's own handlers cannot take it first.
     document.addEventListener(
       "keydown",
       function (event) {
-        if (event.key !== "s" || !(event.metaKey || event.ctrlKey)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        save();
+        if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+        // Save, close and search are Ubiq's; every other chord belongs to the editor.
+        if (event.key === "s") {
+          event.preventDefault();
+          event.stopPropagation();
+          save();
+        } else if (event.key === "w" || event.key === "k") {
+          event.preventDefault();
+          event.stopPropagation();
+          window.ubiq.post({ type: "shortcut", key: event.key });
+        }
       },
       true,
     );

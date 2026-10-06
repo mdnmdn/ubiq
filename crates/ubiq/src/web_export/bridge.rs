@@ -69,6 +69,10 @@ pub enum FromWeb {
     /// the window's chrome. The document travels with it so the write is of what is on screen,
     /// not of whatever the 600 ms debounce last sent.
     Save { document: String },
+    /// One of the three chords Ubiq keeps while the webview has the keyboard besides save: `w`
+    /// (close the tab) or `k` (the navigator). Every other chord belongs to the editor. A
+    /// closed vocabulary of intents, not a command surface: anything else is ignored.
+    Shortcut { key: String },
     /// An SVG of what is on screen, for the Preview position of a format the interface has no
     /// renderer for. A document like every other frame: the interface asked for nothing and the
     /// page volunteers nothing else. Excalidraw never sends it — it is drawn natively.

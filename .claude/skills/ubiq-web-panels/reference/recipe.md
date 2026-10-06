@@ -103,7 +103,8 @@ the session URL → `ready` → `Open { document, palette }`.
 
 ## 7. Wire it into the editor
 
-- `crates/ubiq/src/state/editor.rs` — a `ViewerKind` variant, its extensions in `of`, and an
+- `crates/ubiq/src/state/editor.rs` — a `ViewerKind` variant, its extensions in `builtin` (the
+  table `of` reads before any contributed viewer's claim, `D204`), and an
   honest answer from `has_preview`, `shows_buffer` and `layouts`. A tenant whose document is JSON
   or XML nobody hand-edits offers `[Edit, Preview]` as Excalidraw and draw.io do; one whose source
   is what an author writes keeps `[Source, Preview, Split]` and the panel is a fourth thing only if

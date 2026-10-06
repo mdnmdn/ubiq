@@ -33,7 +33,7 @@ use ubiq_proto::ids::ProjectId;
 use ubiq_proto::messages::Message;
 
 use super::AppState;
-use crate::state::web_panel::{BundleState, WebPanelSession};
+use crate::state::web_panel::{BundleState, WebPanelSession, WebTheme};
 use crate::theme;
 use crate::ui::web_view;
 use crate::web_export::{self, bridge};
@@ -46,13 +46,45 @@ use crate::web_export::{self, bridge};
 const DRAIN: Duration = Duration::from_millis(250);
 
 impl AppState {
-    /// The palette the chrome is told to wear, as Excalidraw's own `theme` takes it.
-    fn web_palette() -> String {
-        if theme::Theme::current().is_dark() {
-            "dark".to_string()
-        } else {
-            "light".to_string()
+    /// The palette the chrome is told to wear for tenant `app`: the editor kind's own pinned
+    /// theme, or the window's when it is `Auto`.
+    fn web_palette(&self, app: &str) -> String {
+        self.web_theme(app)
+            .palette(theme::Theme::current().is_dark())
+            .to_string()
+    }
+
+    /// [`AppState::set_web_theme`] for the editor kind the tab `key` is open as.
+    pub fn set_web_theme_for_tab(&mut self, key: &str, mode: WebTheme, cx: &mut Context<Self>) {
+        let app = self
+            .web_doc(key, cx)
+            .and_then(|file| bridge::web_app(file.viewer));
+        if let Some(app) = app {
+            self.set_web_theme(app, mode, cx);
         }
+    }
+
+    /// The theme setting for one editor kind.
+    pub fn web_theme(&self, app: &str) -> WebTheme {
+        let ui = &self.workbench.settings.ui;
+        match app {
+            bridge::EXCALIDRAW_APP => ui.excalidraw_theme,
+            bridge::DRAWIO_APP => ui.drawio_theme,
+            _ => WebTheme::Auto,
+        }
+    }
+
+    /// Pin (or release, with `Auto`) the theme of one editor kind, persist it, and let the drain
+    /// loop push the palette to every live session of that kind.
+    pub fn set_web_theme(&mut self, app: &str, mode: WebTheme, cx: &mut Context<Self>) {
+        let ui = &mut self.workbench.settings.ui;
+        match app {
+            bridge::EXCALIDRAW_APP => ui.excalidraw_theme = mode,
+            bridge::DRAWIO_APP => ui.drawio_theme = mode,
+            _ => return,
+        }
+        self.remember_settings();
+        cx.notify();
     }
 
     /// The open document a web-panel session's key names, whichever half of the project holds it.
@@ -225,11 +257,12 @@ impl AppState {
             key.to_string(),
             WebPanelSession {
                 key: key.to_string(),
+                app,
                 project,
                 token: session.token,
                 url: session.url,
                 ready: false,
-                palette: Self::web_palette(),
+                palette: self.web_palette(app),
                 error: None,
             },
         );
@@ -339,7 +372,6 @@ impl AppState {
 
     /// One pass: push a palette change out, pull whatever came in, act on it.
     fn drain_web_frames(&mut self, cx: &mut Context<Self>) {
-        let palette = Self::web_palette();
         let keys: Vec<String> = self.web_panels.sessions.keys().cloned().collect();
         let mut notify = false;
 
@@ -348,6 +380,7 @@ impl AppState {
                 continue;
             };
             let token = session.token.clone();
+            let palette = self.web_palette(session.app);
 
             // A theme change is noticed once, and switches the component's theme without touching
             // its scene.
@@ -392,7 +425,10 @@ impl AppState {
                 let Some(document) = file.buffer().map(|b| b.read(cx).value().to_string()) else {
                     return false;
                 };
-                let palette = Self::web_palette();
+                let Some(app) = self.web_panels.sessions.get(key).map(|s| s.app) else {
+                    return false;
+                };
+                let palette = self.web_palette(app);
                 let Some(session) = self.web_panels.sessions.get_mut(key) else {
                     return false;
                 };
@@ -426,6 +462,14 @@ impl AppState {
                 self.web_panels.incoming.insert(key.to_string(), document);
                 if !self.web_panels.saving.iter().any(|k| k == key) {
                     self.web_panels.saving.push(key.to_string());
+                }
+                true
+            }
+            bridge::FromWeb::Shortcut { key } => {
+                // Only the two chords Ubiq keeps; the actions need a `Window`, so they wait for
+                // `apply_web_documents`.
+                if key == "w" || key == "k" {
+                    self.web_panels.shortcuts.push(key);
                 }
                 true
             }
@@ -491,6 +535,7 @@ impl AppState {
     ) {
         if self.web_panels.incoming.is_empty() {
             self.flush_web_saves(window, cx);
+            self.flush_web_shortcuts(window, cx);
             return;
         }
         for (key, document) in std::mem::take(&mut self.web_panels.incoming) {
@@ -510,7 +555,18 @@ impl AppState {
             });
         }
         self.flush_web_saves(window, cx);
+        self.flush_web_shortcuts(window, cx);
         cx.notify();
+    }
+
+    /// The close and search chords the chrome forwarded: the same handlers `⌘W` and `⌘K` run.
+    fn flush_web_shortcuts(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        for key in std::mem::take(&mut self.web_panels.shortcuts) {
+            match key.as_str() {
+                "w" => self.close_active_editor(&super::CloseEditor, window, cx),
+                _ => self.open_navigator(&super::OpenNavigator, window, cx),
+            }
+        }
     }
 
     /// The saves the chrome asked for, run after the text it sent has reached the buffer.

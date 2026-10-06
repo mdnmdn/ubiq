@@ -13,7 +13,6 @@ use gpui_component::IconName;
 
 use crate::app::AppState;
 use crate::state::editor::ViewLayout;
-use crate::state::git::DIFF_HEIGHT;
 use crate::theme;
 use crate::ui::kit::{choice_pill, icon_button, mono};
 use crate::ui::viewer;
@@ -49,9 +48,10 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     };
 
     div()
-        .h(px(DIFF_HEIGHT))
+        .size_full()
         .flex()
-        .flex_none()
+        .flex_1()
+        .min_h(px(0.))
         .flex_col()
         .bg(theme::pane_bg())
         .border_t_1()

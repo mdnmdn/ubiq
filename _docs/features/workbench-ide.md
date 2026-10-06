@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-10-04
+updated: 2026-10-05
 verified: 2026-10-04
-code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs]
+code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -359,6 +359,24 @@ not a verdict: the status bar's file-kind chip overrides it for as long as the t
 `AppState::set_viewer_kind` re-settles the layout when the new kind does not offer the one the tab
 was in.
 
+**A second edition can add a viewer, and it is an editor like the others** (`D204`). Where the
+extension table falls through to the buffer, a contributed viewer that claims the path as its
+default opens it — asked by path when the tab opens, and again by the head of the text when the
+bytes arrive; one that only *offers* itself opens nothing unasked. **"Open with ▸"** lists the
+viewers that can draw a file — the buffer (never for an image), the built-in viewer its extension
+names, then every contributed viewer claiming or offering it — in two places: the explorer's
+right-click on a file, as the row after Open when there is more than one, and the **`⋯` at the
+right end of the tab's top row**, which appears whenever there is that choice or the tab's viewer
+adds rows of its own below it. Picking the row swaps the menu for the list, at the same spot; the
+viewer drawing the tab is marked *current*. A pick is the same session-only override the status
+bar's chip makes, and the head of the text never takes it back. The top row draws a contributed
+viewer's declared layouts the way it draws Markdown's — `Source` is the tab's own buffer, `Split`
+is the buffer beside the viewer's body — so Markdown's row is unchanged apart from the `⋯`. The
+file stays the IDE's: read, watched and saved through the host as any tab is, the viewer drawing
+from the buffer. A contributed viewer may ask that **the tab on screen follows its file**: a disk
+change re-reads it when nothing in it is unsaved, where every other viewer's on-screen tab is left
+alone.
+
 **A viewer with more than one thing to draw has a layout toggle, and it persists.** A strip above the
 body offers the positions that viewer's kind names — `ViewerKind::layouts()` — and only those: the
 buffer has nothing to toggle to and an image has no source, so neither draws a strip at all. Markdown offers Source, Split, Preview and Annotation —
@@ -474,7 +492,7 @@ beside a linked buffer in Split. The plan surface draws the same view, so the sa
 **The header's heading navigator lists the document's headings** in Preview, Split and Annotation — "N
 headings" opens `MdView`'s jump popover over the parsed outline (`ui/mdview/outline.rs`'s `Jump`,
 over `structure.rs`'s `Outline`): a filter field, the headings indented by level with the section
-on screen marked, ↑/↓/Enter to pick and Escape to close; a pick reveals that heading's block
+on screen marked, ↑/↓/Enter to pick and Escape to close; a pick scrolls that heading's block to the top of the viewport
 (`ui::document::heading_control`, which the plan dialog's chrome draws too). In `Annotation` the
 view is the annotated-document surface's page, with its annotation layer on
 (`_docs/features/workbench-tasks.md`). `Source` draws no document and offers none.
@@ -835,7 +853,15 @@ and dispatches on `ViewerKind`: `diff.rs`, `diagram.rs`, `scene.rs` and `image.r
 markdown file in Preview or Split the tab's `OpenFile::md` entity (`ui/mdview/view.rs`'s `MdView`,
 created by `app/editor.rs`'s `attach_md_view` from `attach_file` and `app/kb.rs`'s attach path,
 its `MdViewEvent::LinkClicked` routed to `AppState::follow_link`). The header's navigator and Edit
-chip call `MdView::open_navigator` and `MdView::set_editable`. `markdown.rs` — the `TextView`
+chip call `MdView::open_navigator` and `MdView::set_editable`. A contributed viewer is
+`ViewerKind::Contributed(SlotId)` over `crates/ubiq/src/ext/viewer.rs`'s `ViewerSpec` — `claims`,
+`layouts`, `default_layout`, `language`, `live_reload`, `render`, `menu`, `header_left` / `header_right` (content for the top row, either side of the layout pills, flush) — installed from
+`Contributions::viewers`; `ViewerKind::of` consults `default_for` where the table falls through,
+`OpenFile::claim_by_head` runs in `attach_file` before the buffer is built, `ViewerKind::open_with`
+is the "Open with" list, and `mod.rs`'s `contributed` and `more` draw the body and the `⋯`, whose
+rows are `AppState::viewer_menu_rows` (`app/editor.rs`, beside `open_file_with` and
+`reload_file_if_clean`). The watcher's on-screen exception reads `ViewerKind::reloads_on_screen`.
+`markdown.rs` — the `TextView`
 renderer — still draws help pages, the docs fixture and the plan surface's blocks, which is all it
 is called for now.
 The buffer's text is cloned out of its entity only in the branches that read it — the general case,

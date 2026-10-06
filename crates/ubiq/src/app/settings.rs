@@ -24,7 +24,8 @@ impl AppState {
             schema: prefs::SCHEMA,
             theme: self.workbench.theme_id,
             accent: theme::accent_id(),
-            text_brightness: theme::text_brightness(),
+            text_brightness: theme::text_brightness_for(theme::Mode::Dark),
+            text_brightness_light: Some(theme::text_brightness_for(theme::Mode::Light)),
             // The whole size axis, the content family's included: appearance is one setting for
             // all of Ubiq (`D151`).
             ui_scale: metrics.ui_scale,

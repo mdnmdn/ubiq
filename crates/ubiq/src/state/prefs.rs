@@ -207,6 +207,11 @@ pub struct InterfacePrefs {
     /// written, and what a blob older than this field reads as: `default`, no schema bump.
     #[serde(default)]
     pub text_brightness: crate::state::editor::TextShade,
+    /// The same axis for the light ground; `text_brightness` is the dark one's. `None` — and a
+    /// blob written when there was a single value — reads as `text_brightness`, so an upgrade
+    /// starts both grounds where the one value was.
+    #[serde(default)]
+    pub text_brightness_light: Option<crate::state::editor::TextShade>,
     /// The size axis — [`crate::theme::Metrics`], written out flat.
     ///
     /// `ui_scale` moves every dimension in the window and `text_ratio` moves type within it; the
@@ -267,6 +272,7 @@ impl Default for InterfacePrefs {
             theme: ThemeId::DARK,
             accent: None,
             text_brightness: crate::state::editor::TextShade::Primary,
+            text_brightness_light: None,
             ui_scale: 1.0,
             text_ratio: 1.0,
             content_trim: 1.0,

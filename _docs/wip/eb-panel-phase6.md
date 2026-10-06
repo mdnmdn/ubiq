@@ -6,7 +6,7 @@ status: current
 summary: Phase 2 of the web-panel proposal as built — the `_web/<app>/<token>/` routes on the interface's existing loopback server, a per-panel token from the platform's CSPRNG, two frame queues per session with a long-poll that answers on its own thread, the two-transport `bridge.js` shim, and a demo tenant that proves the loop. The container is the external browser; the embedded `wry` webview was not built and the shim carries its half anyway.
 read_when: you are opening a web panel, adding a tenant to the bridge, or changing the `_web` routes or the session token
 updated: 2026-09-12
-verified: 2026-10-06
+verified: 2026-09-12
 code_anchors: [crates/ubiq/src/web_export/server.rs, crates/ubiq/src/web_export/routes.rs, crates/ubiq/src/web_export/bridge.rs, crates/ubiq/src/web_export/assets.rs, crates/ubiq/src/web_export/archive.rs, crates/ubiq/assets/web/bridge.js, crates/ubiq/build.rs]
 depends_on: [tech-architecture, tech-structure, tech-decisions, feat-workbench]
 ---

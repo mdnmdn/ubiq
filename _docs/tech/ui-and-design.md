@@ -177,7 +177,9 @@ palette's own seed. **The project swatches stay outside this axis**: `D19` makes
 rather than role, and recolouring sixteen of them with one accent would make two projects look the
 same, so they keep their per-palette literals.
 
-**Text brightness is a third colour axis, over the text group only.** `InterfacePrefs.text_brightness`
+**Text brightness is a third colour axis, over the text group only**, remembered per ground
+(`text_brightness` dark, `text_brightness_light` light — `None` reads as the dark value — and
+`theme::text_brightness` reads the worn ground's). `InterfacePrefs.text_brightness`
 is one of the markdown reading options' four `TextShade`s, held in a thread-local cell beside the
 theme's (`theme::text_brightness`/`set_text_brightness`) and applied by `set_theme` after
 `resolve`: `Primary` leaves the palette as written, `Strong` mixes `text`, `text_muted`,

@@ -87,7 +87,8 @@ fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> An
         // The sink has no draw.io fixture: the picture only exists once a panel has exported it.
         ViewerKind::Drawio => viewer::diagram::exported(app, doc.key, &source, cx),
         // The plain buffer has no preview, so this page never asks it for one.
-        ViewerKind::Editor | ViewerKind::Image => {
+        // A contributed viewer has no fixture here: the sink's documents are the base's own.
+        ViewerKind::Editor | ViewerKind::Image | ViewerKind::Contributed(_) => {
             viewer::note("Nothing to draw", theme::text_faint())
         }
     };

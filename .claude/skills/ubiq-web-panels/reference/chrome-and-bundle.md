@@ -119,13 +119,13 @@ because jsDelivr says not to SRI-pin `+esm` output; builds an import map of one 
 plus per-specifier entries plus the set that collapses the stray React copies onto one; and writes
 `VERSION` as the package version plus a digest over the whole snapshot, so the directory name
 changes whenever any file does. `drawio`'s has no npm package to walk: it enumerates
-`src/main/webapp/` from the **GitHub tree API** at a pinned tag (`jgraph/drawio`, `v31.4.5`),
+`src/main/webapp/` from the **GitHub tree API** at a pinned tag (`jgraph/drawio`, `v32.2.0`),
 because jsDelivr refuses to list a package over its size ceiling; keeps only what an offline embed
 needs, dropping `stencils/`, `templates/`, `img/`, `math4/`, `plugins/` and `WEB-INF/`; fetches the
 bytes off jsDelivr's GitHub CDN mirror all the same, retrying its transient `403`s in rounds; and
 hashes every file itself at snapshot time, since GitHub publishes no per-file digest either — a
 later mismatch means upstream changed a file at that tag, which is the event worth failing on. The
-committed manifest is 243 files, 33.3 MiB, `VERSION = "31.4.5-cd257901251e"`. Its `IMPORT_MAP` is
+committed manifest is 244 files, 30.9 MiB, `VERSION = "32.2.0-e8fa9ac05464"`. Its `IMPORT_MAP` is
 `"{}"`: draw.io loads through classic `<script>` tags, so there is nothing to route through one.
 The `Entry` type itself is shared with Excalidraw's manifest rather than redeclared.
 
