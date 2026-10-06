@@ -58,6 +58,7 @@ fn a_blob_survives_the_round_trip() {
         acp_enabled: ["claude-code-acp".to_string()].into_iter().collect(),
         excalidraw_theme: ubiq::state::web_panel::WebTheme::Light,
         drawio_theme: ubiq::state::web_panel::WebTheme::Dark,
+        archify: Default::default(),
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
