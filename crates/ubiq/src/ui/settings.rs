@@ -2229,24 +2229,30 @@ pub(crate) fn definition_row(
     let clone_id = definition.id.clone();
     div()
         .flex()
-        .items_center()
+        .items_start()
         .justify_between()
         .gap_2()
         .py_1()
         .child(
+            // The text part takes what the actions leave and clips; the actions never shrink.
             div()
                 .flex()
                 .flex_col()
+                .flex_1()
                 .gap_0p5()
                 .min_w(px(0.))
+                .overflow_hidden()
                 .child(
+                    // Title line: as tall as a button, so the actions line up with it.
                     div()
                         .flex()
                         .items_center()
+                        .h(px(26.))
                         .gap_2()
                         .min_w(px(0.))
                         .child(
                             div()
+                                .flex_none()
                                 .text_size(theme::font(Family::Chrome, Role::Body))
                                 // A switched-off setup reads faint for the same reason a harness
                                 // that is not installed does: it is listed, and it is not on offer.
@@ -2257,16 +2263,22 @@ pub(crate) fn definition_row(
                                 })
                                 .child(SharedString::from(definition.id.clone())),
                         )
-                        .children(definition_marks(definition))
                         .child(
                             div()
-                                .text_size(theme::font(Family::Chrome, Role::Meta))
-                                .text_color(theme::text_muted())
-                                .child(SharedString::from(format!(
-                                    "\u{2014} {}",
-                                    parts.join(" \u{b7} ")
-                                ))),
-                        ),
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .gap_2()
+                                .children(definition_marks(definition)),
+                        )
+                        .child(elided(
+                            ElementId::Name(
+                                format!("app-settings-definition-{}-summary", definition.id).into(),
+                            ),
+                            format!("\u{2014} {}", parts.join(" \u{b7} ")),
+                            theme::text_muted(),
+                            theme::font(Family::Chrome, Role::Meta),
+                        )),
                 )
                 // What the definition is for, under the name — one line, elided rather than
                 // wrapped: this row is a summary, not the form.
@@ -2294,6 +2306,7 @@ pub(crate) fn definition_row(
         .child(
             div()
                 .flex()
+                .flex_none()
                 .items_center()
                 .gap_1()
                 .child(ghost_button(
