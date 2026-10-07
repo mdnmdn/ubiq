@@ -114,6 +114,9 @@ pub struct WorkAccess {
 pub struct PlanReach {
     pub plans: crate::plan::Handle,
     pub everyone: Mailbox,
+    /// The running agents, so a refusal on a document bound to another agent (`D207`) can name
+    /// that agent the way the interface does rather than by id.
+    pub agents: Registry,
 }
 
 /// How the mission tools reach the mission the caller is in, and how they tell every window what

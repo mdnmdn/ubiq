@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-10-05
+updated: 2026-10-07
 verified: 2026-10-04
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
 depends_on: [feat-workbench, tech-ui]
@@ -377,6 +377,20 @@ from the buffer. A contributed viewer may ask that **the tab on screen follows i
 change re-reads it when nothing in it is unsaved, where every other viewer's on-screen tab is left
 alone.
 
+**A markdown tab follows its file live** (`D208`). Whatever moved it — an agent's `write_doc`, another
+window, an editor outside Ubiq — the fresh bytes are merged into the buffer the tab already has, on
+screen or not, dirty or not, with nothing asked: a clean buffer simply takes them; a dirty one is
+three-way merged (base = what was last read or saved, ours = the buffer, theirs = the disk) by
+`ubiq_proto::merge`, line-level and then word-level, so edits to different lines or different words
+of one line both land, and where both changed the same words the user's text stays and the other
+side's is handed to the host to post as a thread. The caret keeps its line and column, the scroll
+stays, and the rows the other writer changed flash in `agent_edit_flash` and fade over ~1.8 s —
+never the user's own edits. A save refused because the file moved is no dialog either: the file is
+read again, merged, and the save goes again. In the `Annotation` layout the tab also **saves itself**
+1.5 s after the last keystroke, so an agent reading the document reads what the user sees; a merge
+re-arms that wait rather than saving at once, and no merge is made while the tab's own save is in
+flight (the watcher's echo of that save brings the re-read).
+
 **A viewer with more than one thing to draw has a layout toggle, and it persists.** A strip above the
 body offers the positions that viewer's kind names — `ViewerKind::layouts()` — and only those: the
 buffer has nothing to toggle to and an image has no source, so neither draws a strip at all. Markdown offers Source, Split, Preview and Annotation —
@@ -495,7 +509,9 @@ over `structure.rs`'s `Outline`): a filter field, the headings indented by level
 on screen marked, ↑/↓/Enter to pick and Escape to close; a pick scrolls that heading's block to the top of the viewport
 (`ui::document::heading_control`, which the plan dialog's chrome draws too). In `Annotation` the
 view is the annotated-document surface's page, with its annotation layer on
-(`_docs/features/workbench-tasks.md`). `Source` draws no document and offers none.
+(`_docs/features/workbench-tasks.md`). `Source` draws no document and offers none. The explorer's
+right-click on a `.md` file offers **Open in annotation mode** after Open (and Open with), which
+opens the tab straight into `Annotation` (`ExplorerAction::Annotate`).
 
 **A diagram is drawn in the interface, on a background thread.** A Mermaid document is just text;
 the bus already carries a file's bytes, so nothing about a diagram crosses it. The window renders it

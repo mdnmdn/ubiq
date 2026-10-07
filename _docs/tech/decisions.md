@@ -3711,8 +3711,9 @@ failure the paragraph above already rejects.
 
 **Cost:** a repository acquires a file to commit, which is exactly what `D30`
 existed to avoid; and the two sidecar spellings have to be remembered. In plan mode annotations
-also feed the agents through `ubiq-plan`; for a file document they only sit there until a later
-card gives them a reader.
+also feed the agents through `ubiq-plan`; a file document's reach them through `ubiq-doc` (T-348),
+the same handlers with the document named by a project-relative path — an agent asks for them, and
+an `@agent` comment on a file reaches the agent the file is bound to (`D207`).
 
 ### D162 — The GPUI interface is a cargo feature, `ui`, default-on
 
@@ -5173,6 +5174,94 @@ exposure for convenience. An unlock runs one Argon2 derivation and a change re-s
 coordinator's thread, which a large wiki would feel. A protected wiki is outside every search,
 since nothing indexes the config root, and its pages are not readable by the project's own file
 tools.
+
+### D207 — A document's agent is kept in its sidecar, and what the user says reaches it through a host-side queue of one prompt per agent
+
+An annotated document carries `agent` and `auto_send` in its sidecar (`PlanSidecar`, additive and
+defaulted, so the annotation format's version stays), and every annotation snapshot carries them as
+`DocBinding`. One document has at most one agent; an agent may own many. A user comment on a bound
+document — every one with `auto_send` on, none with it off, addressed or not — and the manual ask go
+into `plan::queue::DocQueue`, held by the coordinator: **one pending entry per agent**, a new thread
+merged into it rather than queued behind it. **The entry holds references** — document,
+annotation, comment ids — and the prompt is composed from the sidecar only when it is delivered, so
+an edited comment goes as edited and a thread resolved or gone by then is dropped. It is
+delivered when the agent's conversation is live, takes input and is between turns —
+`Conversation::busy()`, turns prompted against turns ended (two counters, so a turn end the pump
+reads late cannot mark the next turn idle), polled by the run loop. The prompt goes to the model and
+into the agent's thread row, in the host's voice. An agent that is not running when its entry has
+something to deliver is started by the host through its owning window's own resume path
+(`autostart_doc_agent` → `resume_conversation`) — the host is the one launcher, so two windows
+showing the document cannot both start it; a refused prompt
+leaves the entry queued and backs off, 2 s doubling to 60 s. Through the MCP tools — `ubiq-doc`,
+`ubiq-plan` and `ubiq-mission`'s `write_document` — an agent's write or answer on a document bound
+to another agent is refused, naming that agent, and the windows hear `DocOwnershipConflict`. The
+check is advisory, not a security boundary.
+
+**Why:** the sidecar is the one file that travels with the document and holds everything
+said about it, so the binding needs no second store and moves with the file. Delivering a prompt per
+comment would interrupt an agent mid-turn or stack a burst of prompts behind each other; coalescing
+gives it one prompt per turn boundary carrying everything since the last, and composing at delivery
+lets a few threads be inlined and many be named and fetched. The queue is the host's because only
+the host sees a conversation's turn end — the window's own queued composer line is a different
+thing. Refusing another agent's write keeps two agents from rewriting one document from different
+instructions; asking the user is the only resolution that respects whoever bound it.
+
+**Cost:** the queue is in memory, so a pending prompt is lost on a host restart (the threads stay on
+the document). A live harness that never reports `TurnEnded` stays busy and its entry waits; one
+whose pump ends counts every turn ended. A one-shot
+harness never takes the queue, since it takes no input between turns. The refusal covers the MCP
+tools only — an agent's own file tools can still edit the markdown — and an agent run in a pane, whose
+key is a pane id, can be refused but cannot be offered the document. The binding sits in the user's
+repository for a file document, so it is committed with the file and names an agent id meaningless
+on another machine.
+
+### D208 — A document a person and an agent write together is merged, never overwritten, and only the person closes a thread
+
+One three-way text merge, `ubiq_proto::merge::merge3` — line-level, then word-level inside a region
+both sides changed (skipped past 16 KB; every diff time-bounded); two insertions at one point both
+kept, or the longer alone when one extends the other; line endings compared as `\n` and written in
+ours'; a region still contested keeps **ours** and is reported with theirs. The host runs it on an
+agent's `write_doc`/`write_plan` (base = what that agent last read, or last *sent*; ours = the disk;
+theirs = the agent's body) — read under the plans lock, merged with it released, committed under it
+only if the disk is still what was read, else merged again. Every Ubiq write to an annotated file
+holds that lock: an agent's, a `SavePlan`, and a tab's `WriteProjectFile` of a markdown file with a
+sidecar, which the coordinator now writes itself and stamps as the user's provenance. The window runs
+the merge when a followed markdown tab's file moves (base = the tab's baseline, ours = the buffer,
+theirs = the disk), never while its own save is in flight. Either way the user's text wins a contested
+region and the losing passage becomes a thread on its block (once — a thread already saying it is not
+repeated): the agent's when the host merged it, and for a window's claim (`DocMergeConflicts`, checked
+against the disk) whoever the provenance stamps say wrote those lines, or an "edited outside Ubiq"
+label when they cannot say. A write whose saved body differs from what the agent sent answers
+`merged: true` and tells the agent to read again. A markdown tab follows its file live and, in
+annotation mode, saves itself after 1.5 s idle, re-armed after every merge. After every save a quoted
+thread follows its quote to the one block that holds it — an ambiguous quote moves nothing. An
+agent's `resolve_annotation` sets the annotation's `review` flag instead of resolving; only the
+user's Accept resolves, and Reopen sends it back to the agent with a reply saying so. A thread under
+review is not queued for the agent. Every block carries a **lineage code** beside its persisted
+ULID (`plan::lineage`, `PlanBlock::lineage`): minted flat by the host (`AAA`, `AAB`, …) when a
+surface opens the document (`ListPlanAnnotations { open }`) or first touches it, carried across
+saves — a split block's parts become `AAB.AA`, `AAB.AB`, an insertion takes a code ordered between
+its neighbours' — never written to the sidecar and never an anchor. A thread on a block that split
+follows its lineage to the part holding its quote, else the first part. `read_doc` and
+`list_annotations` show the codes.
+
+**Why:** the goal is a document that grows from both sides without either side ever being asked
+"reload?" or losing text. The merge has to be shared because the two halves must agree on what a
+conflict is, and `ubiq-proto` is the only crate both may depend on. Text, not block ids, is what is
+merged, because a block split or moved by one side is still only lines to the other. The agent's base
+is what it sent rather than what was saved because that is what it believes the document holds: its
+next write, from its own text or from the merged body, then merges the user's edits in again instead
+of reverting them. `review` is a defaulted field rather than a mark so an older build still reads the
+sidecar. Codes exist so a person or an agent can always tell where a block came from; keeping them
+out of the sidecar leaves every persisted anchor exactly as it was.
+
+**Cost:** the agent's base is in memory — after a host restart a write has no base and falls back to
+the `expected_revision` refusal. An editor outside Ubiq takes no lock, so its write can still land
+between a check and a write. A window-side claim is anchored by the other side's text until the
+user's text is saved. `ubiq-mission`'s `write_document` still saves without the merge. The flash is
+keyed by row, not lineage code (a tab outside annotation mode has no host blocks), so a reparse
+inside its 1.8 s can tint a neighbouring row. A split is read from text containment, so a block
+rewritten as it is split reads as an insertion.
 
 ## Related docs
 

@@ -34,8 +34,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{PaneId, ProjectId};
 use ubiq_proto::messages::{
-    AccountInfo, AgentDefinition, AgentTypeInfo, LoginStatus, TAG_COORDINATOR, TAG_PLANNER,
-    TAG_WORKER,
+    AccountInfo, AgentDefinition, AgentTypeInfo, LoginStatus, TAG_COORDINATOR, TAG_DOC,
+    TAG_PLANNER, TAG_WORKER,
 };
 use ubiq_proto::settings::{AgentHome, Grant};
 use ubiq_proto::work::AgentId;
@@ -92,13 +92,14 @@ fn may_write_definition(exists: bool, has_harness: bool) -> Result<()> {
     Ok(())
 }
 
-/// Merge back the MCP servers this definition's role tags (`coordinator`, `worker`) imply,
+/// Merge back the MCP servers this definition's role tags (`coordinator`, `worker`, `doc`) imply,
 /// keeping what it already names and its order. The rule the tags exist for: a coordinator
 /// without the coordinator's servers is not a coordinator, whatever a checklist was left saying.
 fn apply_role_mcps(definition: &mut AgentDefinition) {
     let coordinator = definition.has_tag(TAG_COORDINATOR);
     let worker = definition.has_tag(TAG_WORKER);
-    for name in catalogue::role_mcps(coordinator, worker) {
+    let doc = definition.has_tag(TAG_DOC);
+    for name in catalogue::role_mcps(coordinator, worker, doc) {
         if !definition.mcps.contains(&name) {
             definition.mcps.push(name);
         }
@@ -2614,13 +2615,32 @@ mod tests {
             Some("ubiq-help"),
             "what the user picked keeps its place"
         );
-        for implied in crate::mcp::catalogue::role_mcps(true, true) {
+        for implied in crate::mcp::catalogue::role_mcps(true, true, false) {
             assert!(
                 saved.mcps.contains(&implied),
                 "a coordinator-and-worker definition carries {implied}"
             );
         }
         assert_eq!(saved.tags, vec!["coordinator", "worker", "reviewer"]);
+    }
+
+    /// The `doc` tag implies the annotated-document servers, `ubiq-doc` and `ubiq-archify`, and
+    /// nothing of the mission roles'.
+    #[test]
+    fn the_doc_tag_re_adds_ubiq_doc_and_ubiq_archify_on_save() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+
+        agents
+            .save_definition(AgentDefinition {
+                tags: vec![TAG_DOC.to_string()],
+                mcps: vec!["ubiq-help".to_string()],
+                ..a_definition("writer")
+            })
+            .unwrap();
+
+        let saved = agents.definitions().unwrap().remove(0);
+        assert_eq!(saved.mcps, vec!["ubiq-help", "ubiq-doc", "ubiq-archify"]);
     }
 
     /// `description` round-trips like every other optional field: written, read back verbatim,

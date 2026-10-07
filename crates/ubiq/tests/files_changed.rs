@@ -611,3 +611,84 @@ fn a_burst_relists_every_open_folder_and_rereads_the_clean_background_tabs(
         "the clean background tab is read again; the tab on screen is left alone: {said:?}"
     );
 }
+
+/// `D208`: a markdown tab follows its file live. On screen and holding an unsaved edit, it is
+/// still read again, and the fresh bytes are merged into the buffer it has — the other writer's
+/// line lands, the user's typing stays, and nothing is asked.
+#[gpui::test]
+fn a_markdown_tab_on_screen_merges_a_disk_change_into_its_unsaved_edit(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let base = "# Notes\n\nFirst.\n\nSecond.\n";
+    fixture.open_file("notes.md", base, cx);
+
+    // The user types into the first paragraph and has not saved.
+    let typed = "# Notes\n\nFirst, edited.\n\nSecond.\n";
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                let open = state.open_project_mut(cx).expect("the project is open");
+                let tab = open.editor.find_mut("notes.md").expect("the tab is open");
+                let buffer = tab.buffer().expect("the tab has a buffer").clone();
+                buffer.update(cx, |buffer, cx| buffer.set_value(typed, window, cx));
+                tab.refresh_dirty(typed);
+            });
+        })
+        .expect("the window is open");
+    let _ = fixture.said();
+
+    fixture.deliver(
+        Message::ProjectFilesChanged {
+            project_id: fixture.project,
+            changed: vec!["notes.md".to_string()],
+            truncated: false,
+            repository: false,
+        },
+        cx,
+    );
+    let said = fixture.said();
+    assert_eq!(
+        reads_asked(&said),
+        vec!["notes.md".to_string()],
+        "the tab on screen, dirty, is still read again: {said:?}"
+    );
+
+    // An agent rewrote the second paragraph.
+    let theirs = "# Notes\n\nFirst.\n\nSecond, by the agent.\n";
+    fixture.deliver(
+        Message::ProjectFileContents {
+            project_id: fixture.project,
+            rel_path: "notes.md".to_string(),
+            contents: FileContents {
+                bytes: theirs.as_bytes().to_vec(),
+                len: theirs.len() as u64,
+                truncated: false,
+                is_binary: false,
+                version: Some(FileVersion {
+                    len: theirs.len() as u64,
+                    modified: Some(Utc::now()),
+                }),
+            },
+        },
+        cx,
+    );
+
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                let open = state.open_project_mut(cx).expect("the project is open");
+                let tab = open.editor.find_mut("notes.md").expect("the tab is open");
+                let text = tab
+                    .buffer()
+                    .expect("the same buffer, not a rebuilt one")
+                    .read(cx)
+                    .value()
+                    .to_string();
+                assert_eq!(text, "# Notes\n\nFirst, edited.\n\nSecond, by the agent.\n");
+                assert_eq!(tab.baseline(), Some(theirs), "the disk is the new baseline");
+                assert!(tab.dirty(), "the user's edit is still unsaved");
+            });
+        })
+        .expect("the window is open");
+}

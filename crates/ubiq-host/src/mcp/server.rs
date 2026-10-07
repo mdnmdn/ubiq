@@ -832,6 +832,7 @@ mod tests {
         let reach = PlanReach {
             plans: plans.clone(),
             everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
+            agents: Default::default(),
         };
         let serving = start(
             registry,
@@ -1417,9 +1418,21 @@ mod tests {
         let resolved = answered(&call(
             &url,
             "resolve_annotation",
-            json!({"task_id": task_id, "annotation_id": annotation_id}),
+            json!({"task_id": task_id, "annotation_id": annotation_id, "note": "done"}),
         ));
-        assert_eq!(resolved["state"], "resolved");
+        // An agent proposes, it never closes (`D208`): open, awaiting review, its note appended.
+        assert_eq!(resolved["state"], "open");
+        assert_eq!(resolved["review"], true);
+        assert_eq!(resolved["thread"][2]["text"], "done");
+        // The user's Accept is what closes it.
+        plans.lock().resolve(
+            &crate::plan::Target::plan(
+                facts().project.id.parse().unwrap(),
+                task_id.parse().unwrap(),
+            ),
+            annotation_id.parse().unwrap(),
+            true,
+        );
 
         // Resolved is excluded by default, and comes back with `include_resolved`.
         let open_only = answered(&call(&url, "list_annotations", json!({"task_id": task_id})));
@@ -1496,6 +1509,209 @@ mod tests {
             .unwrap();
         assert_eq!(orphaned["orphaned"], true);
         assert_eq!(orphaned["block_text"], Value::Null);
+    }
+
+    /// `ubiq-doc` runs the plan's handlers on a markdown file named by path: the annotation a
+    /// user left is found, read, answered, the file rewritten, and the thread resolved — and a
+    /// path outside the project or not markdown is refused.
+    #[test]
+    fn the_doc_server_collaborates_on_any_project_markdown_file() {
+        let project_dir = tempfile::tempdir().unwrap();
+        let root = project_dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::write(root.join("docs/spec.md"), "# Spec\n\nStep one.\n\nStep two.\n").unwrap();
+
+        let (hub, host) = bus::hub();
+        let registry = Registry::new();
+        let mut agent = facts();
+        agent.project.path = root.to_string_lossy().to_string();
+        registry.register(agent.clone());
+        let project: ubiq_proto::ids::ProjectId = agent.project.id.parse().unwrap();
+        let work = crate::work::Handle::new(crate::work::Work::open(Box::new(
+            crate::store::memory::MemoryTaskStore::new(),
+        )));
+        let config = tempfile::tempdir().unwrap();
+        let store = crate::store::plan::FilePlanStore::new(config.path().to_path_buf());
+        let plans = crate::plan::Handle::new(crate::plan::Plans::open(store, work));
+        let reach = PlanReach {
+            plans: plans.clone(),
+            everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
+            agents: Default::default(),
+        };
+        let serving = start(
+            registry,
+            host.voice(),
+            None,
+            Some(reach),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("the listener binds");
+        let _keep = (&hub, &host);
+        let url = url(&serving, KEY, "ubiq-doc");
+
+        // The user annotates in the window: the same `Plans` call the coordinator makes.
+        let target = crate::plan::Target::resolve(
+            &ubiq_proto::plan::DocumentHandle::File {
+                project_id: project,
+                rel_path: "docs/spec.md".to_string(),
+            },
+            &root,
+        )
+        .unwrap();
+        {
+            let mut lock = plans.lock();
+            let block = lock.block_for_quote(&target, "Step two").unwrap();
+            lock.annotate(
+                &target,
+                block,
+                Some("Step two".to_string()),
+                ubiq_proto::work::CommentAuthor::User,
+                "Say more here.".to_string(),
+                Vec::new(),
+                None,
+            );
+        }
+
+        let found = answered(&call(&url, "list_annotated_docs", json!({})));
+        assert_eq!(found["documents"][0]["path"], "docs/spec.md");
+        assert_eq!(found["documents"][0]["open"], 1);
+
+        let listed = answered(&call(&url, "list_annotations", json!({"path": "docs/spec.md"})));
+        assert_eq!(listed["path"], "docs/spec.md");
+        let annotation = &listed["annotations"][0];
+        assert_eq!(annotation["block_text"], "Step two.");
+        let id = annotation["id"].as_str().unwrap().to_string();
+
+        let read = answered(&call(&url, "read_doc", json!({"path": "./docs/spec.md"})));
+        assert_eq!(read["path"], "docs/spec.md");
+        let revision = read["revision"].as_u64().unwrap();
+
+        let replied = answered(&call(
+            &url,
+            "reply_annotation",
+            json!({"path": "docs/spec.md", "annotation_id": id, "text": "Expanded."}),
+        ));
+        assert_eq!(replied["thread"][1]["author"], "agent");
+
+        let body = "# Spec\n\nStep one.\n\nStep two, in detail.\n";
+        let written = answered(&call(
+            &url,
+            "write_doc",
+            json!({"path": "docs/spec.md", "body": body, "expected_revision": revision}),
+        ));
+        assert_eq!(written["body"], body);
+        assert_eq!(std::fs::read_to_string(root.join("docs/spec.md")).unwrap(), body);
+
+        let resolved = answered(&call(
+            &url,
+            "resolve_annotation",
+            json!({"path": "docs/spec.md", "annotation_id": id}),
+        ));
+        // Proposed, not closed (`D208`): the document still has its one open thread.
+        assert_eq!(resolved["state"], "open");
+        assert_eq!(resolved["review"], true);
+        let open = answered(&call(&url, "list_annotated_docs", json!({})));
+        assert_eq!(open["documents"][0]["open"], 1);
+
+        for path in ["../outside.md", "docs/image.png"] {
+            let refused = call(&url, "read_doc", json!({"path": path}));
+            assert_eq!(refused["result"]["isError"], true, "{path}");
+        }
+    }
+
+    /// A document bound to another agent refuses this agent's writes and answers, and tells every
+    /// window who asked; the owner sees it in `list_my_docs` and may write it (`D207`).
+    #[test]
+    fn a_document_bound_to_another_agent_is_refused_and_the_windows_are_told() {
+        let project_dir = tempfile::tempdir().unwrap();
+        let root = project_dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("spec.md"), "# Spec\n\nStep one.\n").unwrap();
+
+        let (hub, host) = bus::hub();
+        let window = hub.connect();
+        let registry = Registry::new();
+        let me = ubiq_proto::work::AgentId::generate();
+        let owner = ubiq_proto::work::AgentId::generate();
+        let mut agent = facts();
+        agent.key = me.to_string();
+        agent.project.path = root.to_string_lossy().to_string();
+        registry.register(agent.clone());
+        let project: ubiq_proto::ids::ProjectId = agent.project.id.parse().unwrap();
+        let work = crate::work::Handle::new(crate::work::Work::open(Box::new(
+            crate::store::memory::MemoryTaskStore::new(),
+        )));
+        let config = tempfile::tempdir().unwrap();
+        let store = crate::store::plan::FilePlanStore::new(config.path().to_path_buf());
+        let plans = crate::plan::Handle::new(crate::plan::Plans::open(store, work));
+        let reach = PlanReach {
+            plans: plans.clone(),
+            everyone: host.mailbox(ubiq_proto::bus::To::Everyone),
+            agents: Default::default(),
+        };
+        let serving = start(
+            registry,
+            host.voice(),
+            None,
+            Some(reach),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("the listener binds");
+        let _keep = (&hub, &host);
+        let url = url(&serving, &me.to_string(), "ubiq-doc");
+        let target = crate::plan::Target::resolve(
+            &ubiq_proto::plan::DocumentHandle::File {
+                project_id: project,
+                rel_path: "spec.md".to_string(),
+            },
+            &root,
+        )
+        .unwrap();
+
+        plans.lock().set_agent(&target, Some(owner));
+        let refused = call(
+            &url,
+            "write_doc",
+            json!({"path": "spec.md", "body": "# Spec\n\nRewritten.\n"}),
+        );
+        assert_eq!(refused["result"]["isError"], true);
+        let said = refused["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(said.contains(&owner.to_string()) && said.contains("ask the user"), "{said}");
+        assert_eq!(
+            std::fs::read_to_string(root.join("spec.md")).unwrap(),
+            "# Spec\n\nStep one.\n",
+            "nothing was written"
+        );
+        let told = window
+            .from_host()
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the windows are told");
+        assert!(matches!(
+            told,
+            ubiq_proto::messages::Message::DocOwnershipConflict { requester, owner: o, .. }
+                if requester == me && o == owner
+        ));
+        let mine = answered(&call(&url, "list_my_docs", json!({})));
+        assert_eq!(mine["documents"].as_array().unwrap().len(), 0);
+
+        plans.lock().set_agent(&target, Some(me));
+        let mine = answered(&call(&url, "list_my_docs", json!({})));
+        assert_eq!(mine["documents"][0]["path"], "spec.md");
+        let written = answered(&call(
+            &url,
+            "write_doc",
+            json!({"path": "spec.md", "body": "# Spec\n\nRewritten.\n"}),
+        ));
+        assert_eq!(written["body"], "# Spec\n\nRewritten.\n");
     }
 
     /// `annotate_plan` anchors by a unique quote or a block id, stamps the agent, takes marks, and

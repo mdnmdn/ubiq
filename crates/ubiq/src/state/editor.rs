@@ -684,6 +684,27 @@ pub struct OpenFile {
     /// the user was looking rather than opening at the top. Set only for a background tab: the tab
     /// on screen is never silently reloaded in the first place.
     restore: Option<(Range<usize>, Point<Pixels>)>,
+    /// A re-read is in flight whose answer is **merged into the live buffer** rather than replacing
+    /// it — a tab that [`Self::follows_disk`] (`D208`).
+    pub follow: bool,
+    /// A save the host refused because the file moved under it: it goes again once the re-read
+    /// has been merged in.
+    pub resave: bool,
+    /// The annotation-mode autosave's debounce generation: a timer whose value is no longer current
+    /// was overtaken by a later keystroke and saves nothing.
+    pub autosave_gen: u64,
+}
+
+/// What [`OpenFile::merge_disk`] made of a change on disk.
+#[derive(Default)]
+pub struct DiskMerge {
+    /// The text the buffer is to hold now, when it differs from what it holds.
+    pub text: Option<String>,
+    /// Byte ranges of `text` the other writer changed — what the view flashes. Never the user's
+    /// own edits: these are measured against what the buffer held before.
+    pub flash: Vec<Range<usize>>,
+    /// Passages both sides changed: the buffer kept the user's, these carry the other side's.
+    pub conflicts: Vec<ubiq_proto::merge::Conflict>,
 }
 
 impl OpenFile {
@@ -735,6 +756,9 @@ impl OpenFile {
             _change: None,
             _md_events: None,
             restore: None,
+            follow: false,
+            resave: false,
+            autosave_gen: 0,
         }
     }
 
@@ -1210,6 +1234,79 @@ impl OpenFile {
     /// tab's fresh buffer at the first tab's spot.
     pub fn take_restore(&mut self) -> Option<(Range<usize>, Point<Pixels>)> {
         self.restore.take()
+    }
+
+    /// Whether a change on disk is merged into this tab's live buffer — on screen or not, dirty or
+    /// not — instead of the background-tab reload (`D208`). A whole markdown file of the project's
+    /// own tree, the one kind a person and an agent write together.
+    pub fn follows_disk(&self) -> bool {
+        self.viewer == ViewerKind::Markdown
+            && matches!(self.subject, Subject::File)
+            && self.kb_source.is_none()
+            && !self.guest
+            && !self.untitled
+            && matches!(
+                self.body,
+                FileBody::Text {
+                    truncated: false,
+                    version: Some(_),
+                    ..
+                }
+            )
+    }
+
+    /// Fold what the file now says on disk (`theirs`, at `version`) into a buffer holding `ours`
+    /// (`D208`): a three-way merge from the baseline, so an unsaved edit and the other writer's
+    /// change both land, and the user's text wins where both changed the same words.
+    ///
+    /// The baseline becomes `theirs` and the version the read's, whatever the outcome — so a save
+    /// after a contested merge replaces the other side *knowingly*, its passages having been
+    /// handed back as [`DiskMerge::conflicts`]. Dirty is the merged text against `theirs`.
+    pub fn merge_disk(
+        &mut self,
+        theirs: String,
+        version: Option<FileVersion>,
+        ours: &str,
+    ) -> DiskMerge {
+        self.follow = false;
+        let FileBody::Text {
+            baseline,
+            version: held,
+            ..
+        } = &mut self.body
+        else {
+            return DiskMerge::default();
+        };
+        let merged = ubiq_proto::merge::merge3(baseline, ours, &theirs);
+        *baseline = theirs;
+        *held = version;
+        self.dirty = merged.text != *baseline;
+        if merged.text == ours {
+            return DiskMerge {
+                conflicts: merged.conflicts,
+                ..DiskMerge::default()
+            };
+        }
+        DiskMerge {
+            flash: ubiq_proto::merge::changed_spans(ours, &merged.text),
+            text: Some(merged.text),
+            conflicts: merged.conflicts,
+        }
+    }
+
+    /// The host refused a save because the file moved: not a failure to show but a merge to make.
+    /// The re-read is the caller's to send; its answer lands in [`Self::merge_disk`] and the save
+    /// goes again.
+    pub fn retry_after_merge(&mut self) {
+        self.save = SaveState::Idle;
+        self.follow = true;
+        self.resave = true;
+    }
+
+    /// Arm the autosave's debounce afresh, answering the generation the timer must still find.
+    pub fn bump_autosave(&mut self) -> u64 {
+        self.autosave_gen = self.autosave_gen.wrapping_add(1);
+        self.autosave_gen
     }
 
     /// The host refused. The buffer is untouched and the file is still dirty.

@@ -258,6 +258,9 @@ impl RenderOnce for Picker {
         // is one line high, and a long model id is what would otherwise widen the whole column.
         let value = match style {
             PickerStyle::Field => div().flex_1().min_w(px(0.)).truncate().child(label),
+            // A plain trigger sits in a strip beside controls that must stay visible: its label
+            // gives way with an ellipsis.
+            PickerStyle::Plain => div().min_w(px(0.)).truncate().child(label),
             _ => div().child(label),
         };
         let mut trigger = trigger_shell(id, style, icon, on_toggle)
@@ -337,7 +340,7 @@ fn trigger_shell(
                 .border_l(px(theme::accent_edge()))
                 .border_color(theme::border());
         }
-        PickerStyle::Plain => trigger = trigger.px_2(),
+        PickerStyle::Plain => trigger = trigger.px_2().flex_shrink(1.).min_w(px(0.)),
     }
 
     if let Some(icon) = icon {

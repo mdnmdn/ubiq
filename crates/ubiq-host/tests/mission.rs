@@ -426,6 +426,7 @@ fn seed_plan(dir: &TempDir, project: ProjectId, task: TaskId, body: &str, open_t
             id: BlockId::generate(),
             kind: "paragraph".to_string(),
             text: body.trim().to_string(),
+            lineage: String::new(),
         };
         let annotation = Annotation::new(
             block.id,

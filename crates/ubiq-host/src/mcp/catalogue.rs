@@ -36,6 +36,12 @@ pub const USE_TASK: &str = "use-task";
 /// with plan tools added — see `_docs/wip/planning-system.md` decision 7.
 pub const UBIQ_PLAN: &str = "ubiq-plan";
 
+/// The slug of the server that collaborates on **any** markdown file in the project: the same
+/// annotation handlers `ubiq-plan` runs, with the document named by a project-relative path
+/// instead of a task (`D161`'s `DocumentHandle::File`). Not in a default set — a definition names
+/// it.
+pub const UBIQ_DOC: &str = "ubiq-doc";
+
 /// The slug of the server a mission's **coordinator** runs the mission from (M16).
 pub const UBIQ_MISSION: &str = "ubiq-mission";
 
@@ -78,11 +84,20 @@ pub const COORDINATOR_MCPS: &[&str] = &[UBIQ_MISSION, UBIQ_PLAN, MANAGE_UBIQ_TAS
 /// task servers, what project it is working in, and the knowledge base.
 pub const WORKER_MCPS: &[&str] = &[USE_MISSION, USE_TASK, PROJECT_INFO, UBIQ_KB];
 
-/// The servers the two role tags (`coordinator`, `worker`) imply between them, in catalogue order and without repeats —
-/// a definition carrying both roles gets both sets, and `ubiq-kb` only once.
-pub fn role_mcps(coordinator: bool, worker: bool) -> Vec<String> {
+/// What a **document** agent definition runs with: the annotated-document server and the
+/// architecture-diagram one, for working on markdown together with the user.
+pub const DOC_MCPS: &[&str] = &[UBIQ_DOC, UBIQ_ARCHIFY];
+
+/// The servers the three role tags (`coordinator`, `worker`, `doc`) imply between them, in
+/// catalogue order and without repeats — a definition carrying several roles gets every set, and
+/// `ubiq-kb` only once.
+pub fn role_mcps(coordinator: bool, worker: bool, doc: bool) -> Vec<String> {
     let mut named: Vec<String> = Vec::new();
-    let sets = [(coordinator, COORDINATOR_MCPS), (worker, WORKER_MCPS)];
+    let sets = [
+        (coordinator, COORDINATOR_MCPS),
+        (worker, WORKER_MCPS),
+        (doc, DOC_MCPS),
+    ];
     for (on, set) in sets {
         if !on {
             continue;
@@ -896,7 +911,7 @@ pub const SERVERS: &[ServerSpec] = &[
             },
             ToolSpec {
                 name: "write_plan",
-                description: "Replace a task's plan, whole, with the markdown given. There is no partial edit: send the full document every time. Refused for a task with no level. If you read the plan first, pass expected_revision: the write is refused, and nothing is overwritten, if somebody saved in between.",
+                description: "Replace a task's plan, whole, with the markdown given. There is no partial edit: send the full document every time. Refused for a task with no level. Read the plan with read_plan first: if the user edits it while you work, your write is merged with theirs instead of replacing it — where you both changed the same words the user's text is kept and your version is posted as a thread on that block (the result then carries conflicts.threads). Always continue from the body the result returns.",
                 schema: r#"{
                     "type": "object",
                     "properties": {
@@ -929,7 +944,7 @@ pub const SERVERS: &[ServerSpec] = &[
             },
             ToolSpec {
                 name: "list_annotations",
-                description: "The plan's annotations, open ones by default, each with the text of the block it is about so you do not have to guess what the comment refers to. An annotation whose block has vanished from the plan comes back with orphaned true and block_text null: do not try to answer that one, the passage it named is gone.",
+                description: "The plan's annotations, open ones by default, each with the text of the block it is about so you do not have to guess what the comment refers to. An annotation whose block has vanished from the plan comes back with orphaned true and block_text null: do not try to answer that one, the passage it named is gone. review true means you proposed it resolved and the user has not ruled yet: leave it be.",
                 schema: r#"{
                     "type": "object",
                     "properties": {
@@ -980,15 +995,153 @@ pub const SERVERS: &[ServerSpec] = &[
             },
             ToolSpec {
                 name: "resolve_annotation",
-                description: "Close an annotation, or reopen one. resolved defaults to true. Anyone may resolve an annotation, including the agent that answered it — there is no author check.",
+                description: "Propose an annotation resolved, or reopen one. You cannot close a thread: resolved (default true) marks it awaiting the user's review — it stays open with the review mark, and only the user's Accept resolves it (their Reopen sends it back to you). Pass note to say what you did; it is added to the thread as your comment. resolved false reopens it.",
                 schema: r#"{
                     "type": "object",
                     "properties": {
                         "task_id": {"type": "string"},
                         "annotation_id": {"type": "string"},
-                        "resolved": {"type": "boolean"}
+                        "resolved": {"type": "boolean"},
+                        "note": {"type": "string", "description": "What you did about it — added to the thread as your comment."}
                     },
                     "required": ["task_id", "annotation_id"]
+                }"#,
+            },
+        ],
+    },
+    ServerSpec {
+        name: UBIQ_DOC,
+        title: "Annotated documents",
+        description: "Work on any markdown file in this project together with the user: read and write it, and answer the annotations the user left on it in annotation mode.",
+        tools: &[
+            ToolSpec {
+                name: "list_annotated_docs",
+                description: "The markdown files in this project that carry annotations, with how many threads are open on each. Call this first when you have not been told which document to look at. Files with nothing open are left out unless include_resolved is true.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "include_resolved": {
+                            "type": "boolean",
+                            "description": "Also list files whose annotations are all resolved. Defaults to false."
+                        }
+                    }
+                }"#,
+            },
+            ToolSpec {
+                name: "list_my_docs",
+                description: "Your working documents: the markdown files of this project the user has bound to you, with how many threads are open on each and whether auto_send is on (every comment the user leaves there is sent to you). A file bound to another agent cannot be written, annotated, replied on or resolved by you: ask the user to reassign it.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {}
+                }"#,
+            },
+            ToolSpec {
+                name: "read_doc",
+                description: "A markdown file of this project, whole, with the revision it stands at. Empty for a file that does not exist yet. Keep the revision: write_doc and doc_changes use it. An annotated file also lists its blocks, each with a lineage code (AAA, AAB…; a block split in two becomes AAB.AA and AAB.AB) that says where a block came from — informative only: anchor threads by block id or quote.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Project-relative path of a .md file."}
+                    },
+                    "required": ["path"]
+                }"#,
+            },
+            ToolSpec {
+                name: "write_doc",
+                description: "Replace a markdown file of this project, whole, with the markdown given. Edit annotated files through this tool rather than your own file editing: it re-anchors the annotations to the new text, and a thread whose passage is gone is marked orphaned rather than lost. Read the file with read_doc first: if the user edits it while you work, your write is merged with theirs instead of replacing it — edits to different lines or words both land, and where you both changed the same words the user's text is kept and your version is posted as a thread on that block (the result then carries conflicts.threads). Always continue from the body the result returns, not from what you sent.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Project-relative path of a .md file."},
+                        "body": {"type": "string", "description": "The file's full markdown body."},
+                        "expected_revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "The revision you read the file at. Omit only when you are writing a file you did not read."
+                        }
+                    },
+                    "required": ["path", "body"]
+                }"#,
+            },
+            ToolSpec {
+                name: "doc_changes",
+                description: "Where the file has been edited since you last wrote it with write_doc, and by whom (human or agent): each changed run of lines with its line numbers and text, the block it falls in, and counts. Pass since_revision to ask from a different point. Returns no regions when nothing has changed.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "since_revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Report changes made after this revision. Defaults to the revision of your own last write_doc; 0 means everything that is known."
+                        }
+                    },
+                    "required": ["path"]
+                }"#,
+            },
+            ToolSpec {
+                name: "list_annotations",
+                description: "The file's annotations, open ones by default, each with the text of the block it is about. An annotation whose block has vanished comes back with orphaned true and block_text null: do not try to answer that one. review true means you proposed it resolved and the user has not ruled yet: leave it be.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "include_resolved": {
+                            "type": "boolean",
+                            "description": "Also return annotations already resolved. Defaults to false."
+                        },
+                        "mark": {
+                            "type": "string",
+                            "enum": ["agent", "todo", "question"],
+                            "description": "Only annotations carrying this mark."
+                        }
+                    },
+                    "required": ["path"]
+                }"#,
+            },
+            ToolSpec {
+                name: "annotate_doc",
+                description: "Open a new annotation thread on the file, as this agent. Say where with quote (a passage that appears in exactly one block; refused if none or several) or block_id (from list_annotations), which wins over quote.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "text": {"type": "string"},
+                        "quote": {"type": "string"},
+                        "block_id": {"type": "string"},
+                        "marks": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["agent", "todo", "question"]}
+                        }
+                    },
+                    "required": ["path", "text"]
+                }"#,
+            },
+            ToolSpec {
+                name: "reply_annotation",
+                description: "Append a reply to an annotation's thread, as this agent.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "annotation_id": {"type": "string"},
+                        "text": {"type": "string"}
+                    },
+                    "required": ["path", "annotation_id", "text"]
+                }"#,
+            },
+            ToolSpec {
+                name: "resolve_annotation",
+                description: "Propose an annotation resolved, or reopen one. You cannot close a thread: resolved (default true) marks it awaiting the user's review — it stays open with the review mark, and only the user's Accept resolves it (their Reopen sends it back to you). Pass note to say what you did; it is added to the thread as your comment. resolved false reopens it.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "annotation_id": {"type": "string"},
+                        "resolved": {"type": "boolean"},
+                        "note": {"type": "string", "description": "What you did about it — added to the thread as your comment."}
+                    },
+                    "required": ["path", "annotation_id"]
                 }"#,
             },
         ],

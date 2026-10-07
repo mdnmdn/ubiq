@@ -1673,6 +1673,7 @@ impl AppState {
         self.pending_chat_open = false;
         self.sink.messages.pending_attach = false;
         self.new_agent_project = None;
+        self.new_agent_for_doc = None;
     }
 
     /// Show a conversation on the surface that asked for it.

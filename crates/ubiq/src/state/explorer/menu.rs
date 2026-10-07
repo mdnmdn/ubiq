@@ -94,6 +94,9 @@ pub fn menu_entries(
                     if crate::state::editor::ViewerKind::open_with(path, None).len() > 1 {
                         open.push(entry(ExplorerAction::OpenWith));
                     }
+                    if path.to_ascii_lowercase().ends_with(".md") {
+                        open.push(entry(ExplorerAction::Annotate));
+                    }
                     open.push(entry(ExplorerAction::OpenDiff));
                     open
                 }

@@ -30,11 +30,14 @@ use ubiq_proto::bus::{self, FromClient, To};
 use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
-    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocumentHandle, HighlightColour,
-    PlanBlock, PlanChangeStats, PlanChangedRegion, SaveOrigin,
+    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocBinding, DocDelivery,
+    DocThreadRef, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion, SaveOrigin,
 };
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
-use ubiq_proto::work::{Addressee, CommentAuthor, Level, Priority, Status, TaskRecord};
+use ubiq_proto::work::{
+    Activity, Addressee, AgentId, CommentAuthor, Level, Priority, Status, TaskRecord, WorkAgent,
+    WorkSession,
+};
 
 const PATIENCE: Duration = Duration::from_millis(500);
 
@@ -233,7 +236,7 @@ fn open_plan_asks_and_loads(cx: &mut TestAppContext) {
     )));
     assert!(said.iter().any(|message| matches!(
         message,
-        Message::ListPlanAnnotations { doc }
+        Message::ListPlanAnnotations { doc, .. }
             if *doc == doc_of(fixture.project, task)
     )));
     fixture.state.read_with(cx, |state, _| {
@@ -277,7 +280,7 @@ fn open_mission_doc_asks_and_loads(cx: &mut TestAppContext) {
     );
     assert!(
         said.iter().any(
-            |message| matches!(message, Message::ListPlanAnnotations { doc } if *doc == handle)
+            |message| matches!(message, Message::ListPlanAnnotations { doc, .. } if *doc == handle)
         )
     );
     fixture.state.read_with(cx, |state, _| {
@@ -410,6 +413,7 @@ fn plan_error_lands_on_load_then_on_export(cx: &mut TestAppContext) {
             blocks: Vec::new(),
             annotations: Vec::new(),
             highlights: Vec::new(),
+            binding: Default::default(),
         },
         cx,
     );
@@ -459,6 +463,7 @@ fn plan_annotations_land_on_the_open_viewer(cx: &mut TestAppContext) {
         id: BlockId::generate(),
         kind: "paragraph".to_string(),
         text: "A passage.".to_string(),
+        lineage: String::new(),
     };
     let annotation = Annotation::new(
         block.id,
@@ -474,6 +479,7 @@ fn plan_annotations_land_on_the_open_viewer(cx: &mut TestAppContext) {
             blocks: vec![block.clone()],
             annotations: vec![annotation.clone()],
             highlights: Vec::new(),
+            binding: Default::default(),
         },
         cx,
     );
@@ -515,7 +521,7 @@ fn plan_annotations_changed_reasks(cx: &mut TestAppContext) {
     assert_eq!(said.len(), 1);
     assert!(matches!(
         &said[0],
-        Message::ListPlanAnnotations { doc }
+        Message::ListPlanAnnotations { doc, .. }
             if *doc == doc_of(fixture.project, task)
     ));
     fixture.state.read_with(cx, |state, _| {
@@ -744,6 +750,7 @@ fn orphaned_and_resolved_are_independent_facts(cx: &mut TestAppContext) {
             blocks: Vec::new(),
             annotations: vec![annotation.clone()],
             highlights: Vec::new(),
+            binding: Default::default(),
         },
         cx,
     );
@@ -913,6 +920,7 @@ fn loaded_plan(
             blocks,
             annotations,
             highlights,
+            binding: Default::default(),
         },
         cx,
     );
@@ -925,6 +933,7 @@ fn paragraph(text: &str) -> PlanBlock {
         id: BlockId::generate(),
         kind: "paragraph".to_string(),
         text: text.to_string(),
+        lineage: String::new(),
     }
 }
 
@@ -962,6 +971,7 @@ fn annotations_decorate_their_rows(cx: &mut TestAppContext) {
         id: BlockId::generate(),
         kind: "heading:1".to_string(),
         text: "# The plan".to_string(),
+        lineage: String::new(),
     };
     let step = paragraph("Ship the thing by Friday.");
     let mut open = thread_on(&step, "is that real?");
@@ -1188,8 +1198,174 @@ fn the_agent_toggle_addresses_the_comment(cx: &mut TestAppContext) {
     ));
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("still open");
-        assert!(!plan.composer_to_agent, "the toggle is one-shot");
+        assert!(plan.composer_to_agent, "the toggle is sticky across a post");
     });
+}
+
+/// A document open on a plan, with `annotations` and `binding` delivered by the host.
+fn open_bound(
+    fixture: &Fixture,
+    cx: &mut TestAppContext,
+    annotations: Vec<Annotation>,
+    binding: DocBinding,
+) -> DocumentHandle {
+    let task = fixture.seed_task(Some(Level::Mission), cx);
+    fixture.said();
+    fixture.with(cx, |state, _, cx| state.open_plan(task, cx));
+    fixture.said();
+    let doc = doc_of(fixture.project, task);
+    fixture.deliver(
+        Message::PlanAnnotations {
+            doc: doc.clone(),
+            blocks: Vec::new(),
+            annotations,
+            highlights: Vec::new(),
+            binding,
+        },
+        cx,
+    );
+    doc
+}
+
+/// The binding rides in on `PlanAnnotations`, and `DocAgentQueue` is kept per agent until it is
+/// empty.
+#[gpui::test]
+fn the_binding_and_the_queue_land(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let agent = AgentId::generate();
+    let doc = open_bound(
+        &fixture,
+        cx,
+        Vec::new(),
+        DocBinding {
+            agent: Some(agent),
+            auto_send: true,
+        },
+    );
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("open");
+        assert_eq!(plan.binding.agent, Some(agent));
+        assert!(plan.binding.auto_send);
+    });
+
+    let queue = |pending: Vec<DocThreadRef>, state| Message::DocAgentQueue {
+        project_id: fixture.project,
+        agent_id: agent,
+        pending,
+        state,
+    };
+    let thread = DocThreadRef {
+        doc: doc.clone(),
+        annotation_id: AnnotationId::generate(),
+    };
+    fixture.deliver(queue(vec![thread], DocDelivery::Waiting), cx);
+    fixture.state.read_with(cx, |state, _| {
+        assert_eq!(state.workbench.doc_agent_queues[&agent].0.len(), 1);
+    });
+    fixture.deliver(queue(Vec::new(), DocDelivery::NotRunning), cx);
+    fixture.state.read_with(cx, |state, _| {
+        assert!(!state.workbench.doc_agent_queues.contains_key(&agent));
+    });
+}
+
+/// *New agent…* parks the document; the agent's `ConversationStarted` spends it as `SetDocAgent`.
+#[gpui::test]
+fn a_started_agent_is_bound_to_its_document(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let doc = open_bound(&fixture, cx, Vec::new(), DocBinding::default());
+    fixture.said();
+    let id = AgentId::generate();
+    fixture.with(cx, |state, _, _| {
+        state.workbench.doc_binds.insert(id, doc.clone());
+    });
+    let session = ubiq_proto::ids::SessionId::generate();
+    let agent = WorkAgent {
+        id,
+        session,
+        task: None,
+        parent: None,
+        name: "claude".to_string(),
+        summary: None,
+        title: None,
+        definition: None,
+        activity: Activity::Thinking,
+        branch: "main".to_string(),
+        tokens: 0.0,
+        harness: "Claude Code".to_string(),
+        account: "work".to_string(),
+        model: String::new(),
+        context_pct: 0,
+        persistent: false,
+        accept_all: false,
+        debug_dump: None,
+        run_dir: None,
+        config_dir: None,
+        thread: Vec::new(),
+    };
+    fixture.deliver(
+        Message::ConversationStarted {
+            project_id: fixture.project,
+            agent: Box::new(agent),
+            session: WorkSession {
+                id: session,
+                name: "the project".to_string(),
+                branch: String::new(),
+                worktree: false,
+            },
+            accepts_input: true,
+        },
+        cx,
+    );
+    assert!(fixture.said().iter().any(|m| matches!(
+        m,
+        Message::SetDocAgent { doc: d, agent_id: Some(a) } if *d == doc && *a == id
+    )));
+    fixture.state.read_with(cx, |state, _| {
+        assert!(state.workbench.doc_binds.is_empty(), "spent once");
+    });
+}
+
+/// Editing a user comment seeds the composer, sends `EditAnnotationComment` for changed text and
+/// nothing for unchanged text.
+#[gpui::test]
+fn editing_a_comment_round_trips(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let annotation = Annotation::new(
+        BlockId::generate(),
+        None,
+        CommentAuthor::User,
+        "first draft".to_string(),
+        Utc::now(),
+    );
+    let (annotation_id, comment_id) = (annotation.id, annotation.thread[0].id);
+    let doc = open_bound(&fixture, cx, vec![annotation], DocBinding::default());
+    fixture.said();
+
+    fixture.with(cx, |state, window, cx| {
+        state.compose_edit(annotation_id, comment_id, window, cx)
+    });
+    fixture.state.read_with(cx, |state, _| {
+        let plan = state.workbench.plan.as_ref().expect("open");
+        assert_eq!(plan.composer, Some(ComposerTarget::Edit(annotation_id, comment_id)));
+        assert_eq!(plan.composer_text, "first draft");
+    });
+
+    // Unchanged: closes without a message.
+    fixture.with(cx, |state, window, cx| state.submit_annotation_composer(window, cx));
+    assert!(fixture.said().is_empty());
+
+    fixture.with(cx, |state, window, cx| {
+        state.compose_edit(annotation_id, comment_id, window, cx);
+        if let Some(plan) = state.workbench.plan.as_mut() {
+            plan.composer_text = " second draft ".to_string();
+        }
+        state.submit_annotation_composer(window, cx)
+    });
+    assert!(matches!(
+        &fixture.said()[..],
+        [Message::EditAnnotationComment { doc: d, annotation_id: a, comment_id: c, text }]
+            if *d == doc && *a == annotation_id && *c == comment_id && text == "second draft"
+    ));
 }
 /// The `/` menu is a `CompletionProvider` against the editor's own popover: the trigger fires on
 /// the typed character, and what it offers is filtered by the `/word` behind the caret. Nothing
@@ -1634,7 +1810,7 @@ fn annotation_mode_opens_the_files_document(cx: &mut TestAppContext) {
     );
     assert!(
         said.iter().any(
-            |message| matches!(message, Message::ListPlanAnnotations { doc } if *doc == handle)
+            |message| matches!(message, Message::ListPlanAnnotations { doc, .. } if *doc == handle)
         ),
         "the threads were asked for: {said:?}",
     );

@@ -35,8 +35,10 @@
 //! an annotation, including an agent**, so there is no author check anywhere below.
 
 pub mod blocks;
+pub mod lineage;
 pub mod lines;
 pub mod provenance;
+pub mod queue;
 
 /// `Plans`, `Handle`, `Target` and `Saver` — the part of this module that checks a task's level
 /// through `crate::work::Handle`, which only exists behind `harness`. `blocks`, `lines` and

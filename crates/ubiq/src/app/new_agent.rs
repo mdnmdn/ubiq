@@ -867,6 +867,10 @@ impl AppState {
         }
         // A task assignment links the agent to its task and names it after the card — both owed
         // until `ConversationStarted`, when there is a `WorkAgent` to assign and to rename (T-320).
+        // Annotation mode's *New agent…*: owed a `SetDocAgent` once the conversation exists.
+        if let Some(doc) = self.new_agent_for_doc.take() {
+            self.workbench.doc_binds.insert(agent_id, doc);
+        }
         if let Some(task_id) = form.for_task {
             self.workbench
                 .agent_assignments

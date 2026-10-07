@@ -28,6 +28,9 @@
 //! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
 //! - `git`: a project's repository as the host has observed it — overview, working-tree map, errors
 //! - `mcp`: the MCP servers Ubiq itself offers a harness, and the tools each one answers
+//! - `merge`: the three-way text merge a document written by a person and an agent at once is
+//!   kept whole by — shared because the host merges an agent's write and the window merges a disk
+//!   change into its buffer, and the two must agree on what a conflict is
 //! - `repos`: a repository somewhere else, and the clone that turns one into a project
 //! - `stats`: one reading of the host, and the usage meter's buckets
 //! - `tasksrc`: a card on a board somewhere, as one type — the neutral half of the task-source
@@ -62,6 +65,7 @@ pub mod ids;
 pub mod kb;
 pub mod log;
 pub mod mcp;
+pub mod merge;
 pub mod messages;
 pub mod mission;
 pub mod notifications;

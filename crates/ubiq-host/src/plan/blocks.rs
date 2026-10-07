@@ -118,6 +118,7 @@ pub fn match_blocks(previous: &[IndexedBlock], current: &[Block]) -> Matching {
             id: matched[i].map_or_else(BlockId::generate, |j| previous[j].id),
             kind: block.kind.clone(),
             text: block.text.clone(),
+            lineage: String::new(),
         })
         .collect();
     let vanished = previous

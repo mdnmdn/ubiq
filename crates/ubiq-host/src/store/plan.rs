@@ -52,7 +52,8 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::{ProjectId, TaskId};
-use ubiq_proto::plan::{Annotation, BlockHighlight, PlanRevision, SaveOrigin};
+use ubiq_proto::plan::{Annotation, BlockHighlight, DocBinding, PlanRevision, SaveOrigin};
+use ubiq_proto::work::AgentId;
 
 use super::StoreError;
 use crate::atomic::{preserve_aside, write_atomic, write_atomic_with};
@@ -94,6 +95,13 @@ pub struct PlanSidecar {
     /// [`crate::plan::provenance::HISTORY_LIMIT`].
     #[serde(default)]
     pub history: Vec<RevisionEntry>,
+    /// The agent this document is bound to (`D207`). Absent on an unbound document and on every
+    /// sidecar written before binding existed — additive, so [`ANNOTATIONS_VERSION`] stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentId>,
+    /// Queue every user comment for [`Self::agent`], not only the addressed ones.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_send: bool,
 }
 
 impl PlanSidecar {
@@ -103,6 +111,14 @@ impl PlanSidecar {
             blocks,
             annotations,
             ..Self::default()
+        }
+    }
+
+    /// The binding as the wire carries it.
+    pub fn binding(&self) -> DocBinding {
+        DocBinding {
+            agent: self.agent,
+            auto_send: self.auto_send,
         }
     }
 
@@ -438,5 +454,31 @@ mod tests {
         store.delete(project, task).unwrap();
         assert!(!store.path(project, task).exists());
         assert_eq!(store.load(project, task).unwrap(), None);
+    }
+
+    /// A sidecar written before binding and comment editing existed loads unbound, auto-send off,
+    /// and with no comment marked edited (`D207`); a bound one round-trips.
+    #[test]
+    fn a_sidecar_from_before_binding_loads_unbound() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md.annotation.json");
+        let old = r#"{"version":1,"blocks":[],"annotations":[{
+            "id":"01J0000000000000000000000A","block_id":"01J0000000000000000000000B",
+            "state":"open","created_at":"2026-01-01T00:00:00Z",
+            "thread":[{"id":"01J0000000000000000000000C","author":"user","text":"hi",
+                       "created_at":"2026-01-01T00:00:00Z"}]}]}"#;
+        std::fs::write(&path, old).unwrap();
+        let sidecar = load_sidecar(&path).unwrap().unwrap();
+        assert_eq!(sidecar.binding(), DocBinding::default());
+        assert_eq!(sidecar.annotations[0].thread[0].edited_at, None);
+
+        let mut bound = sidecar;
+        bound.agent = Some(AgentId::generate());
+        bound.auto_send = true;
+        save_sidecar(&path, &bound, Placement::ConfigRoot).unwrap();
+        assert_eq!(
+            load_sidecar(&path).unwrap().unwrap().binding(),
+            bound.binding()
+        );
     }
 }

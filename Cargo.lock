@@ -11909,6 +11909,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "sha2 0.10.9",
+ "similar",
  "tempfile",
  "toml 1.1.2+spec-1.1.0",
  "tracing",

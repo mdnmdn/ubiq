@@ -59,6 +59,12 @@ use crate::theme::ThemeId;
 pub struct RailMode(pub SlotId);
 
 impl RailMode {
+    /// Whether the mode sits in the rail's APP group, which also decides it is the application's
+    /// to switch (Settings) rather than the project's.
+    pub fn is_app(self) -> bool {
+        self.spec().is_some_and(|spec| spec.group == ids::RAIL_APP)
+    }
+
     pub const CONTROL: RailMode = RailMode(ids::RAIL_CONTROL);
     pub const IDE: RailMode = RailMode(ids::RAIL_IDE);
     pub const GIT: RailMode = RailMode(ids::RAIL_GIT);
@@ -283,9 +289,22 @@ pub enum ThemePrompt {
     Rename { theme: ThemeId },
 }
 
+/// The question an ownership conflict raises: `requester` tried to work on `doc`, which is bound to
+/// `owner`. Answering yes sends `SetDocAgent(requester)`.
+#[derive(Clone, Debug)]
+pub struct DocConflict {
+    pub doc: ubiq_proto::plan::DocumentHandle,
+    pub requester: AgentId,
+    pub requester_name: String,
+    pub owner: AgentId,
+}
+
 /// Every menu in the window. Exactly one may be open, so the shell keeps a single `Option`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuId {
+    /// Annotation mode's agent menu: *New agent…* and the project's agents, to bind to the open
+    /// document (`D207`).
+    DocAgent,
     Project,
     LogSubsystem,
     LogLevel,
@@ -821,6 +840,22 @@ pub struct WorkbenchState {
     /// `ConversationStarted` arm for [`Self::agent_assignments`]' reason, and sent before the
     /// initial prompt so the host's naming pass never runs over it.
     pub agent_names: std::collections::HashMap<AgentId, String>,
+    /// The document a conversation is to be bound to the moment it exists, by the agent it will
+    /// be — annotation mode's *New agent…*. Parked and spent in the `ConversationStarted` arm for
+    /// [`Self::agent_assignments`]' reason: `SetDocAgent` names an agent the host must know.
+    pub doc_binds: std::collections::HashMap<AgentId, ubiq_proto::plan::DocumentHandle>,
+    /// Where each agent's doc queue stands, as the host last broadcast it (`D207`) — the threads
+    /// waiting for it and why. Drawn beside the bound-agent label in annotation mode.
+    pub doc_agent_queues:
+        std::collections::HashMap<AgentId, (Vec<ubiq_proto::plan::DocThreadRef>, ubiq_proto::plan::DocDelivery)>,
+    /// The annotation thread rail's width, dragged from its edge against the page. Session-only.
+    pub doc_rail_width: f32,
+    /// An agent refused a document another owns (`Message::DocOwnershipConflict`): the question
+    /// "reassign it?", while it is up. `None` when no confirm is up.
+    pub doc_conflict: Option<DocConflict>,
+    /// The `(document, requester)` pairs the user refused to reassign, for the session — so an
+    /// agent retrying through MCP does not raise the same question again.
+    pub doc_conflict_refused: Vec<(ubiq_proto::plan::DocumentHandle, AgentId)>,
     /// The "Connect to a remote host" modal, while it is up. Beside `clone_project` for the same
     /// reason: raised from the titlebar rather than from settings, and answering a question that
     /// has nothing to do with any project on screen.
@@ -1059,6 +1094,11 @@ impl Default for WorkbenchState {
             agent_initial_prompts: Default::default(),
             agent_assignments: Default::default(),
             agent_names: Default::default(),
+            doc_binds: Default::default(),
+            doc_agent_queues: Default::default(),
+            doc_rail_width: crate::ui::document::RAIL_WIDTH,
+            doc_conflict: None,
+            doc_conflict_refused: Vec::new(),
             remote_connect: None,
             remote_manager: RemoteManagerState::default(),
             settings: SettingsState::default(),

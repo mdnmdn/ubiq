@@ -45,6 +45,27 @@ pub fn file_document(project_id: ProjectId, rel_path: impl Into<String>) -> Docu
     }
 }
 
+/// The MCP servers an **editor agent** is started with: `ubiq-doc`, the collaboration tools over
+/// any markdown file in the project, and `ubiq-ask`, so it can put a question to the user.
+pub const DOC_AGENT_MCPS: [&str; 3] = [
+    crate::state::new_agent::DOC_MCPS[0],
+    crate::state::new_agent::DOC_MCPS[1],
+    "ubiq-ask",
+];
+
+/// The opening turn an editor agent is offered for `rel_path` — what the annotation rail's
+/// *Agent* button pre-fills the New agent form with. The user may edit it before Start.
+pub fn doc_agent_prompt(rel_path: &str) -> String {
+    format!(
+        "You are working with me on the markdown document `{rel_path}` in collaboration mode. \
+         Use the ubiq-doc tools with path \"{rel_path}\": list_annotations for my open threads, \
+         read_doc to read it, reply_annotation to answer a thread, write_doc (with the \
+         expected_revision read_doc gave you) to change the document, and resolve_annotation \
+         when a thread is done. Edit the file only through write_doc, so the annotations stay \
+         anchored. Start by reading the open threads and answering them."
+    )
+}
+
 /// A mission document beyond the plan, as a document handle (M8). `name` is a bare document name
 /// — flat, never a path — and the host refuses one for a task that does not exist or is not a
 /// mission.

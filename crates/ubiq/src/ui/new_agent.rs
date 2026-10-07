@@ -20,7 +20,9 @@ use gpui::{
 };
 use gpui_component::input::Textarea;
 use ubiq_proto::mcp::McpInfo;
-use ubiq_proto::messages::{AgentTypeInfo, STANDARD_AGENT_TAGS, TAG_COORDINATOR, TAG_WORKER};
+use ubiq_proto::messages::{
+    AgentTypeInfo, STANDARD_AGENT_TAGS, TAG_COORDINATOR, TAG_DOC, TAG_WORKER,
+};
 
 use crate::app::{AppState, DialogConfirm, SubmitSearch};
 use crate::state::Layer;
@@ -1151,6 +1153,7 @@ fn tags_block(
             let colour = match *tag {
                 TAG_COORDINATOR => theme::accent(),
                 TAG_WORKER => theme::info(),
+                TAG_DOC => theme::agent_controlled(),
                 _ => theme::text_muted(),
             };
             let name = tag.to_string();
@@ -1303,10 +1306,17 @@ pub fn target_rows(app: &AppState, form: &NewAgentForm, cx: &App) -> Vec<(String
     // heading — but only when there are both: a single group needs no heading to say which it is.
     // A start narrowed to tags offers only the definitions carrying one.
     if on_agents_tab(form) {
-        let (own, global): (Vec<_>, Vec<_>) = definitions
+        let (mut own, mut global): (Vec<_>, Vec<_>) = definitions
             .into_iter()
             .filter(|it| form.offers(it))
             .partition(|it| it.project.is_some());
+        // Raised from annotation mode: the definitions made for documents come first in each
+        // group (a stable sort, so everything else keeps its order).
+        if app.new_agent_for_doc.is_some() {
+            for group in [&mut own, &mut global] {
+                group.sort_by_key(|it| !it.has_tag(TAG_DOC));
+            }
+        }
         let headed = !own.is_empty() && !global.is_empty();
         let mut rows = Vec::new();
         if headed {

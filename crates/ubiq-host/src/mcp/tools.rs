@@ -26,7 +26,7 @@ use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
 use super::catalogue::{
-    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ARCHIFY, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, UBIQ_MISSION, UBIQ_PLAN,
+    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ARCHIFY, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, UBIQ_DOC, UBIQ_MISSION, UBIQ_PLAN,
     UBIQ_SQL_READ, UBIQ_SQL_WRITE, USE_MISSION, USE_TASK,
 };
 use super::registry::AgentFacts;
@@ -69,6 +69,12 @@ pub fn call(
             let reach =
                 plan.ok_or_else(|| "this host has no plan store for agents to reach".to_string())?;
             super::plan::call(tool, arguments, facts, reach)
+        }
+        // The same handlers, the document named by a path in the agent's project (`D161`).
+        (UBIQ_DOC, _) => {
+            let reach =
+                plan.ok_or_else(|| "this host has no document store for agents to reach".to_string())?;
+            super::plan::doc_call(tool, arguments, facts, reach)
         }
         // Both mission servers reach the same handlers; which tools a worker may call is
         // [`super::mission::use_call`]'s own list, so the split cannot drift from the catalogue's.

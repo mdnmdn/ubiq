@@ -520,6 +520,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .confirm_end_conversation
                 .map(|_| end_conversation_confirm(app, window, cx)),
         )
+        // A doc ownership conflict: an agent asked for a document another owns.
+        .children(
+            app.workbench
+                .doc_conflict
+                .as_ref()
+                .map(|conflict| doc_conflict_confirm(app, conflict, window, cx)),
+        )
         // The Git screen's destructive-write confirm, on `Layer::GitConfirm`'s rung just above the
         // two confirms just painted — see `git_confirm`.
         .children(git_confirm(app, window, cx))
@@ -685,6 +692,39 @@ fn end_conversation_confirm(
     )
 }
 
+/// An agent tried to work on a document bound to another one (`D207`): reassign it?
+fn doc_conflict_confirm(
+    app: &AppState,
+    conflict: &crate::state::workbench::DocConflict,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> gpui::AnyElement {
+    let entity = cx.entity();
+    let owner = app
+        .work(cx)
+        .and_then(|work| work.agent(conflict.owner))
+        .map(|agent| app.agent_label(agent).title.to_string())
+        .unwrap_or_else(|| "another agent".to_string());
+    let doc = conflict
+        .doc
+        .rel_path()
+        .map(str::to_string)
+        .unwrap_or_else(|| "this document".to_string());
+    kit::confirm_modal(
+        "doc-conflict-confirm",
+        "Reassign document",
+        &format!(
+            "{} wants to work on {doc}, owned by {owner}. Reassign?",
+            conflict.requester_name
+        ),
+        "Reassign",
+        false,
+        handler(&entity, |this, _, cx| this.confirm_doc_conflict(cx)),
+        handler(&entity, |this, _, cx| this.dismiss_doc_conflict(cx)),
+        window,
+    )
+}
+
 /// The Git screen's destructive-write confirm — a forced checkout, a discard, a reset, deleting a
 /// ref or reverting a file to a commit — over the window on `Layer::GitConfirm`'s rung, the same
 /// footing the pane's and the
@@ -779,6 +819,7 @@ fn overlaid(app: &AppState) -> bool {
         || workbench.theme_prompt.is_some()
         || workbench.confirm_close_pane.is_some()
         || workbench.confirm_end_conversation.is_some()
+        || workbench.doc_conflict.is_some()
         || workbench.remote_manager.open
         || workbench.remote_connect.is_some()
         || workbench.new_agent_menu.is_some()

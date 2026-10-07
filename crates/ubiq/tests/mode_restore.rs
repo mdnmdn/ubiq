@@ -825,6 +825,72 @@ fn hiding_modes_never_empties_the_rail(cx: &mut TestAppContext) {
     cx.run_until_parked();
 }
 
+/// T-353: an APP-group mode is stored app-wide, a PROJECT-group one in the open project's own
+/// prefs and never in the app-wide list.
+#[gpui::test]
+fn mode_visibility_is_stored_by_group(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let state = fixture.state.clone();
+
+    state.update(cx, |state, cx| {
+        state.toggle_mode(RailMode::GIT, cx);
+        assert!(!state.mode_enabled(RailMode::GIT, cx));
+        assert!(!state.workbench.settings.ui.hidden_modes.contains(&RailMode::GIT));
+
+        state.toggle_mode(RailMode::CONTROL, cx);
+        assert!(!state.mode_enabled(RailMode::CONTROL, cx));
+        assert!(state.workbench.settings.ui.hidden_modes.contains(&RailMode::CONTROL));
+    });
+    cx.run_until_parked();
+}
+
+/// T-353: the last enabled `Always` app-group mode cannot be hidden even after every project mode
+/// is gone, because the app-group modes are the only ones every project shows.
+#[gpui::test]
+fn the_last_app_mode_survives_hiding_every_project_mode(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let state = fixture.state.clone();
+
+    state.update(cx, |state, cx| {
+        for mode in RailMode::every().filter(|m| !m.is_app()) {
+            if state.mode_enabled(mode, cx) {
+                state.toggle_mode(mode, cx);
+            }
+        }
+        for mode in RailMode::every().filter(|m| m.is_app()) {
+            if state.mode_enabled(mode, cx) {
+                state.toggle_mode(mode, cx);
+            }
+        }
+        let left: Vec<_> = RailMode::every()
+            .filter(|m| m.is_app() && state.mode_enabled(*m, cx))
+            .collect();
+        assert_eq!(left.len(), 1, "one app mode always survives: {left:?}");
+    });
+    cx.run_until_parked();
+}
+
+/// T-353: an app-group mode that is `When`-available is still stored app-wide, and with no
+/// project open.
+#[gpui::test]
+fn a_when_mode_in_the_app_group_is_stored_app_wide(cx: &mut TestAppContext) {
+    let fixture = Fixture::open_without_project(cx);
+    let state = fixture.state.clone();
+    let demo = RailMode(ubiq::ext::ids::EXT_DEMO_RAIL);
+
+    state.update(cx, |state, cx| {
+        state.sink.ext_demo_on = true;
+        assert!(state.mode_enabled(demo, cx));
+        state.toggle_mode(demo, cx);
+        assert!(!state.mode_enabled(demo, cx));
+        assert!(state.workbench.settings.ui.hidden_modes.contains(&demo));
+        state.toggle_mode(demo, cx);
+        assert!(state.mode_enabled(demo, cx));
+        assert!(!state.workbench.settings.ui.hidden_modes.contains(&demo));
+    });
+    cx.run_until_parked();
+}
+
 /// DB is the base's one opt-in mode: no project draws it until it is ticked, and ticking it is the
 /// allow-list, not the deny-list the others are.
 #[gpui::test]

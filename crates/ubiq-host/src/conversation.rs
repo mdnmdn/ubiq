@@ -349,6 +349,53 @@ pub struct Conversation {
     /// Ubiq's own two overrides — see [`ConvFlags`]. Held here as well as in the pump so the
     /// coordinator, which owns this side, can flip one on a running conversation.
     flags: Arc<ConvFlags>,
+    /// How many turns were prompted and how many have ended — what the doc queue (`D207`) waits
+    /// on before delivering, so a prompt never lands mid-turn. See [`Turns`].
+    turns: Arc<Turns>,
+}
+
+/// Turns prompted against turns ended, shared by [`Conversation::prompt`] and the pump.
+///
+/// **Two counters, not a flag.** A flag set by a prompt and cleared by `TurnEnded` is wrong when a
+/// prompt lands just before the pump reads the *previous* turn's end: the clear then marks the new
+/// turn idle. Counting cannot be fooled that way — the stale end brings `ended` up to the old
+/// count, still one short of `prompted`. An end is never counted past the prompts, so a harness
+/// that reports a turn nobody prompted cannot make a later one read as over.
+#[derive(Default)]
+pub struct Turns {
+    prompted: AtomicU64,
+    ended: AtomicU64,
+}
+
+impl Turns {
+    fn prompt(&self) {
+        self.prompted.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn unprompt(&self) {
+        let _ = self
+            .prompted
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+    }
+
+    fn end_one(&self) {
+        let prompted = self.prompted.load(Ordering::SeqCst);
+        let _ = self
+            .ended
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < prompted).then_some(n + 1)
+            });
+    }
+
+    /// The harness is gone: no turn is in flight any more.
+    fn end_all(&self) {
+        self.ended
+            .store(self.prompted.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+
+    pub fn busy(&self) -> bool {
+        self.ended.load(Ordering::SeqCst) < self.prompted.load(Ordering::SeqCst)
+    }
 }
 
 /// The agent's first message, while the pump is still gathering it.
@@ -410,6 +457,8 @@ impl Conversation {
         let harness_title = Arc::new(Mutex::new(None));
         let pump_harness_title = harness_title.clone();
         let pump_flags = flags.clone();
+        let turns = Arc::new(Turns::default());
+        let pump_turns = turns.clone();
         // The pump answers a permission itself when `accept_all` is on, and the way in is the
         // same detached sink a prompt takes — the bridge it is reading cannot also be written to.
         let pump_input = input.clone();
@@ -433,6 +482,7 @@ impl Conversation {
                     pump_flags,
                     pump_input,
                     fire,
+                    pump_turns,
                 )
             })
             .ok();
@@ -450,7 +500,19 @@ impl Conversation {
             first_reply,
             harness_title,
             flags,
+            turns,
         }
+    }
+
+    /// What the pump does on a `TurnEnded`, for a test whose bridge says none.
+    #[cfg(test)]
+    pub(crate) fn end_turn_for_test(&self) {
+        self.turns.end_one();
+    }
+
+    /// Whether a turn is in flight — prompted and not yet ended.
+    pub fn busy(&self) -> bool {
+        self.turns.busy()
     }
 
     /// Ubiq's own two overrides, for the coordinator to flip one on a running conversation.
@@ -508,9 +570,15 @@ impl Conversation {
 
     /// Send one turn.
     pub fn prompt(&self, text: String) -> anyhow::Result<()> {
-        self.send(AgentInput::Prompt {
+        // Counted before sending, so a turn that ends before this returns is counted against it.
+        self.turns.prompt();
+        let sent = self.send(AgentInput::Prompt {
             content: vec![Content::text(text)],
-        })
+        });
+        if sent.is_err() {
+            self.turns.unprompt();
+        }
+        sent
     }
 
     /// Interrupt the turn in flight, and nothing else: **the conversation and its harness stay**,
@@ -704,6 +772,7 @@ fn pump(
     flags: Arc<ConvFlags>,
     input: Option<Arc<dyn AgentInputSink>>,
     fire: Option<AskFire>,
+    turns: Arc<Turns>,
 ) {
     let mut seq = start_seq;
     let mut stop_reason = StopReason::EndTurn;
@@ -735,6 +804,7 @@ fn pump(
         } = &event
         {
             stop_reason = map_stop_reason(r);
+            turns.end_one();
             // Nothing is waiting on an answer once the turn is over, and a stale id would make a
             // later cancel answer a request that closed with the turn.
             if let Ok(mut held) = outstanding.lock() {
@@ -898,6 +968,7 @@ fn pump(
             // The window this agent belongs to has gone. Nothing left to say.
             tracing::debug!(agent = %id, "conversation has no listener; pump ending");
             ended.store(true, Ordering::Relaxed);
+            turns.end_all();
             return;
         }
     }
@@ -906,6 +977,9 @@ fn pump(
     // is idempotent), but there must be no window where the pump has already returned — the
     // thread `Conversation::stop` would join — while the flag still reads false.
     ended.store(true, Ordering::Relaxed);
+    // No turn outlives the harness, whether it ended, failed or was stopped (`D207`'s queue
+    // waits on this).
+    turns.end_all();
     if !quiet.load(Ordering::Relaxed) {
         out.send(Message::ConversationEnded {
             agent_id: id,
@@ -1898,8 +1972,39 @@ mod tests {
             first_reply: Arc::new(Mutex::new(None)),
             harness_title: Arc::new(Mutex::new(None)),
             flags: ConvFlags::new(id, false, false),
+            turns: Arc::new(Turns::default()),
         };
         (conversation, seen)
+    }
+
+    /// A prompt opens a turn — what the doc queue waits on before delivering (`D207`).
+    #[test]
+    fn a_prompt_marks_the_conversation_busy() {
+        let (conversation, _seen) = recording();
+        assert!(!conversation.busy());
+        conversation.prompt("hello".to_string()).unwrap();
+        assert!(conversation.busy());
+    }
+
+    /// The race a flag loses: a prompt lands before the pump reads the previous turn's end. The
+    /// stale end must not mark the new turn idle, and an end nobody prompted is not counted.
+    #[test]
+    fn a_stale_turn_end_does_not_mark_the_next_turn_idle() {
+        let turns = Turns::default();
+        turns.end_one();
+        assert!(!turns.busy(), "an unprompted end is not counted");
+        turns.prompt();
+        turns.prompt();
+        turns.end_one();
+        assert!(turns.busy(), "the second turn is still in flight");
+        turns.end_one();
+        assert!(!turns.busy());
+        turns.prompt();
+        turns.end_all();
+        assert!(
+            !turns.busy(),
+            "a harness that is gone has no turn in flight"
+        );
     }
 
     /// Upstream makes this the cancelling client's obligation, and it is not a courtesy: a

@@ -19,10 +19,11 @@
 //! with its mark chips and the "@agent" toggle.
 
 use gpui::{
-    AnyElement, App, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
+    AnyElement, App, Context, CursorStyle, DragMoveEvent, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, list, px,
 };
-use gpui_component::input::Input;
+use gpui::AppContext as _;
+use gpui_component::input::Textarea;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -34,7 +35,15 @@ use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::eid2;
-use crate::ui::kit::{check_box, choice_pill, ghost_button, primary_button, slab, toggle_pill};
+use crate::state::status::{Lifecycle, agent_status};
+use crate::state::workbench::MenuId;
+use crate::ui::kit::{
+    Picker, PickerStyle, check_box, choice_pill, ghost_button, icon_button, primary_button, slab, toggle_pill,
+};
+use crate::ui::teams::status::{card_colour, status_mark};
+use crate::ui::{handler, indexed};
+use ubiq_proto::ids::AnnotationId;
+use ubiq_proto::work::AgentId;
 use crate::ui::mdview::annotation::{MARKS, mark_label};
 use crate::ui::mdview::view::MdView;
 use ubiq_proto::plan::{Annotation, AnnotationMark, AnnotationState};
@@ -42,6 +51,23 @@ use ubiq_proto::work::{Comment, CommentAuthor};
 
 /// The rail is a fixed column: a thread is short, and a wider one would only narrow the document.
 pub const RAIL_WIDTH: f32 = 320.0;
+/// The narrowest and widest the rail is dragged to; the page keeps at least `PAGE_MIN`.
+const RAIL_MIN: f32 = 240.0;
+const RAIL_MAX: f32 = 640.0;
+const PAGE_MIN: f32 = 280.0;
+
+/// The rail's edge, as a drag payload: its own type, so no other drop target answers it.
+#[derive(Clone)]
+struct RailEdge;
+
+/// What follows the pointer while the edge is dragged: nothing, the rail itself moves.
+struct NoGhost;
+
+impl gpui::Render for NoGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
 /// The chrome strip above the rail, the file viewer's own header height.
 const HEADER: f32 = 32.0;
 /// How far past the viewport the rail keeps threads rendered, so a scroll has something already
@@ -61,19 +87,42 @@ pub fn surface(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>)
         .child(page(app, doc, cx));
     let rail_col = div()
         .flex_none()
-        .w(px(RAIL_WIDTH))
+        .w(px(app.workbench.doc_rail_width.clamp(RAIL_MIN, RAIL_MAX)))
         .min_h(px(0.))
         .flex()
         .flex_col()
+        .relative()
         .border_l_1()
         .border_color(theme::border())
-        .child(rail(app, doc, cx));
+        .child(rail(app, doc, cx))
+        .child(
+            div()
+                .id(eid("doc-rail-edge", &doc.surface_key()))
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(-3.))
+                .w(px(6.))
+                .cursor(CursorStyle::ResizeLeftRight)
+                .hover(|this| this.bg(theme::accent_soft()))
+                .on_drag(RailEdge, |_, _, _, cx: &mut App| cx.new(|_| NoGhost)),
+        );
 
     div()
         .flex()
         .flex_col()
         .flex_1()
         .min_h(px(0.))
+        .on_drag_move(
+            cx.listener(|this, event: &DragMoveEvent<RailEdge>, _, cx| {
+                let right = f32::from(event.bounds.right());
+                let room = f32::from(event.bounds.size.width) - PAGE_MIN;
+                let width = (right - f32::from(event.event.position.x))
+                    .clamp(RAIL_MIN, RAIL_MAX.min(room.max(RAIL_MIN)));
+                this.workbench.doc_rail_width = width;
+                cx.notify();
+            }),
+        )
         .children(doc.notice.as_ref().map(banner))
         .children(state_banner(doc, cx))
         .child(
@@ -205,8 +254,204 @@ fn rail(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> Any
                     .h_full()
                 })),
         )
+        .child(agent_strip(app, doc, cx))
         .child(body)
         .child(foot(app, doc, cx))
+        .into_any_element()
+}
+
+/// What one row of the agent menu does.
+#[derive(Clone, Copy)]
+enum AgentRow {
+    /// Open the New agent form, bound to this document on Start.
+    New,
+    Separator,
+    Agent(AgentId),
+    Unbind,
+}
+
+/// The agent menu's rows, in the order they are drawn and picked by: *New agent…* (a file's only —
+/// a plan has its mission's coordinator), then the project's agents idle-first, then *Unbind*.
+/// Read again by the pick handler, so an index names the row the user saw.
+fn agent_rows(
+    app: &AppState,
+    doc: &DocumentEditor,
+    cx: &App,
+) -> Vec<(AgentRow, String, Option<gpui::Rgba>, bool)> {
+    let mut rows = Vec::new();
+    if doc.doc.rel_path().is_some() {
+        rows.push((AgentRow::New, "New agent\u{2026}".to_string(), None, false));
+    }
+    let mut agents: Vec<_> = app
+        .work(cx)
+        .map(|work| {
+            work.agents
+                .iter()
+                .map(|agent| {
+                    let status = agent_status(agent, app.conversation(agent.id, cx));
+                    (agent, status)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // Idle (able to take a turn now) first, then the rest, each group by name.
+    let rank = |lifecycle: Lifecycle| match lifecycle {
+        Lifecycle::Idle | Lifecycle::Ready => 0,
+        Lifecycle::Ended | Lifecycle::Unloaded => 2,
+        _ => 1,
+    };
+    agents.sort_by_key(|(agent, status)| (rank(status.lifecycle), app.agent_label(agent).title));
+    if !agents.is_empty() && !rows.is_empty() {
+        rows.push((AgentRow::Separator, String::new(), None, false));
+    }
+    for (agent, status) in agents {
+        rows.push((
+            AgentRow::Agent(agent.id),
+            app.agent_label(agent).title.to_string(),
+            Some(card_colour(status)),
+            rank(status.lifecycle) == 2,
+        ));
+    }
+    if doc.binding.agent.is_some() {
+        rows.push((AgentRow::Separator, String::new(), None, false));
+        rows.push((AgentRow::Unbind, "Unbind".to_string(), None, false));
+    }
+    rows
+}
+
+/// The strip under the rail's header: the document's agent — its hexagon and name, or the button
+/// that picks one — with where its queue stands, then the auto-send switch and *Ask agent*.
+fn agent_strip(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>) -> AnyElement {
+    let key = doc.surface_key();
+    let view = cx.entity();
+    let bound = doc
+        .binding
+        .agent
+        .and_then(|id| app.work(cx).and_then(|work| work.agent(id)));
+    let rows = agent_rows(app, doc, cx);
+    let label = bound
+        .map(|agent| app.agent_label(agent).title.to_string())
+        .unwrap_or_else(|| match doc.binding.agent {
+            // Bound to an agent this window's work no longer lists: the menu still opens, to rebind
+            // or unbind.
+            Some(_) => "Unknown agent".to_string(),
+            None => "Agent".to_string(),
+        });
+    let kinds: Vec<AgentRow> = rows.iter().map(|row| row.0).collect();
+
+    let mut picker = Picker::new(eid("doc-agent", &key), label)
+        .style(PickerStyle::Plain)
+        .anchor(gpui::Anchor::TopRight)
+        .items(rows.iter().map(|row| row.1.clone()))
+        .dots(rows.iter().map(|row| row.2))
+        .dim(
+            rows.iter()
+                .enumerate()
+                .filter(|(_, row)| row.3)
+                .map(|(ix, _)| ix),
+        )
+        .separators(
+            rows.iter()
+                .enumerate()
+                .filter(|(_, row)| matches!(row.0, AgentRow::Separator))
+                .map(|(ix, _)| ix),
+        )
+        .open(app.workbench.open_menu == Some(MenuId::DocAgent))
+        .tooltip("The agent working on this document")
+        .on_toggle(handler(&view, |this, _, cx| {
+            this.open_menu(MenuId::DocAgent, cx)
+        }))
+        .on_dismiss(handler(&view, |this, _, cx| this.close_menu(cx)))
+        // The rows as drawn, captured: an index names the row the user saw, not a fresh list.
+        .on_pick(indexed(&view, move |this, index, window, cx| {
+            let Some(kind) = kinds.get(index).copied() else {
+                return;
+            };
+            match kind {
+                AgentRow::New => {
+                    this.close_menu(cx);
+                    this.start_doc_agent(window, cx);
+                }
+                AgentRow::Agent(id) => this.set_doc_agent(Some(id), cx),
+                AgentRow::Unbind => this.set_doc_agent(None, cx),
+                AgentRow::Separator => {}
+            }
+        }));
+    if doc.binding.agent.is_none() {
+        picker = picker.icon(IconName::Bot);
+    }
+    if let Some(at) = rows
+        .iter()
+        .position(|row| matches!(row.0, AgentRow::Agent(id) if Some(id) == doc.binding.agent))
+    {
+        picker = picker.selected(at);
+    }
+
+    let mark = bound.map(|agent| {
+        let status = agent_status(agent, app.conversation(agent.id, cx));
+        status_mark(status, 14.0, eid("doc-agent-mark", &key))
+    });
+    // Where the agent's queue stands, said in words beside its name: nothing once delivered.
+    let queue = doc
+        .binding
+        .agent
+        .and_then(|id| app.workbench.doc_agent_queues.get(&id))
+        .map(|(pending, state)| {
+            let n = pending.len();
+            match state {
+                ubiq_proto::plan::DocDelivery::Waiting => format!("{n} waiting"),
+                ubiq_proto::plan::DocDelivery::NotRunning => format!("{n} queued, not running"),
+                ubiq_proto::plan::DocDelivery::Delivered => String::new(),
+            }
+        })
+        .filter(|text| !text.is_empty());
+
+    let auto = doc.binding.auto_send;
+    let has_agent = doc.binding.agent.is_some();
+    let toggle = has_agent.then(|| {
+        icon_button(
+            eid("doc-auto-send", &key),
+            IconName::Bot,
+            auto,
+            cx.listener(|this, _, _, cx| this.toggle_doc_auto_send(cx)),
+        )
+        .tooltip(|window, cx| Tooltip::new("Send automatically to agent").build(window, cx))
+    });
+    let waiting = doc.awaiting_agent();
+    let ask = (has_agent && !auto && waiting > 0).then(|| {
+        ghost_button(
+            eid("doc-ask-agent", &key),
+            None,
+            format!("Ask agent ({waiting})"),
+            cx.listener(|this, _, _, cx| this.ask_doc_agent(cx)),
+        )
+        .tooltip(|window, cx| {
+            Tooltip::new("Send the open threads waiting on the agent").build(window, cx)
+        })
+    });
+
+    div()
+        .flex_none()
+        .h(px(HEADER))
+        .px_3()
+        .flex()
+        .items_center()
+        .gap_1p5()
+        .border_b_1()
+        .border_color(theme::border())
+        .children(mark.map(|mark| div().flex_none().child(mark)))
+        .child(picker)
+        .children(queue.map(|text| {
+            div()
+                .flex_none()
+                .whitespace_nowrap()
+                .text_size(theme::font(Family::Chrome, Role::Micro))
+                .text_color(theme::text_faint())
+                .child(text)
+        }))
+        .child(div().flex_1().min_w(px(0.)))
+        .children(ask.map(|ask| div().flex_none().child(ask)))
+        .children(toggle.map(|toggle| div().flex_none().child(toggle)))
         .into_any_element()
 }
 
@@ -393,10 +638,27 @@ fn expanded(
                 .min_w(px(0.))
                 .child(state_line(doc, annotation)),
         )
+        // An agent proposed it done (`D208`): the user's two answers are Accept, which resolves,
+        // and Reopen, which hands it back to the agent. Only the user ever resolves.
+        .children(annotation.review.then(|| {
+            ghost_button(
+                eid2("plan-review-reopen", id, "btn"),
+                None,
+                "Reopen",
+                window.listener_for(view, move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.reopen_for_agent(id, cx);
+                }),
+            )
+        }))
         .child(ghost_button(
             eid2("plan-resolve", id, "btn"),
             Some(IconName::Check),
-            "Resolve",
+            if annotation.review {
+                "Accept"
+            } else {
+                "Resolve"
+            },
             window.listener_for(view, move |this, _, _, cx| {
                 cx.stop_propagation();
                 this.set_annotation_resolved(id, true, cx);
@@ -425,7 +687,12 @@ fn expanded(
         .child(header)
         .children(annotation.orphaned.then(orphan_banner))
         .child(marks)
-        .children(annotation.thread.iter().map(comment_row));
+        .children(
+            annotation
+                .thread
+                .iter()
+                .map(|comment| comment_row(app, doc, id, comment, view, window)),
+        );
 
     root = if replying {
         root.child(composer_field(app, doc, "Reply", view))
@@ -465,8 +732,13 @@ fn state_line(doc: &DocumentEditor, annotation: &Annotation) -> AnyElement {
     if annotation.orphaned {
         state.push_str(" \u{b7} orphaned");
     }
+    if annotation.review && annotation.state == AnnotationState::Open {
+        state.push_str(" \u{b7} awaiting your review");
+    }
     let colour = if annotation.orphaned {
         theme::warning()
+    } else if annotation.review && annotation.state == AnnotationState::Open {
+        theme::agent_controlled()
     } else if annotation.state == AnnotationState::Resolved {
         theme::success()
     } else {
@@ -537,8 +809,18 @@ fn orphan_banner() -> AnyElement {
 }
 
 /// One comment, whole: who and when — an agent's in the agent's own ink, on its own ground — a
-/// `→ agent` badge when it was addressed to one, then the text.
-fn comment_row(comment: &Comment) -> AnyElement {
+/// `→ agent` badge when it was addressed to one, then the text. The user's own comment offers
+/// *Edit*, which swaps the text for the composer field seeded with it.
+fn comment_row(
+    app: &AppState,
+    doc: &DocumentEditor,
+    annotation_id: AnnotationId,
+    comment: &Comment,
+    view: &Entity<AppState>,
+    window: &Window,
+) -> AnyElement {
+    let editing = doc.composer == Some(ComposerTarget::Edit(annotation_id, comment.id));
+    let comment_id = comment.id;
     let agent = comment.author == CommentAuthor::Agent;
     let (author, ink) = match comment.author {
         CommentAuthor::User => ("you", theme::text_muted()),
@@ -562,24 +844,44 @@ fn comment_row(comment: &Comment) -> AnyElement {
             .child(
                 div()
                     .font_family(theme::MONO_FONT)
-                    .text_size(theme::font(Family::Chrome, Role::Meta))
+                    .text_size(theme::font(Family::Conversation, Role::Label))
                     .text_color(ink)
                     .child(author),
             )
             .child(
                 div()
-                    .text_size(theme::font(Family::Chrome, Role::Micro))
+                    .text_size(theme::font(Family::Conversation, Role::Meta))
                     .text_color(theme::text_faint())
                     .child(when),
             )
-            .children(comment.to.map(|_| addressee_badge())),
+            .children(comment.to.map(|_| addressee_badge()))
+            .children(comment.edited_at.map(|_| {
+                div()
+                    .text_size(theme::font(Family::Conversation, Role::Meta))
+                    .text_color(theme::text_faint())
+                    .child("edited")
+            }))
+            .child(div().flex_1().min_w(px(0.)))
+            .children((!agent && !editing).then(|| {
+                ghost_button(
+                    eid2("plan-comment-edit", comment_id, "btn"),
+                    None,
+                    "Edit",
+                    window.listener_for(view, move |this, _, window, cx| {
+                        this.compose_edit(annotation_id, comment_id, window, cx)
+                    }),
+                )
+            })),
     )
-    .child(
+    .child(if editing {
+        composer_field(app, doc, "Save", view)
+    } else {
         div()
-            .text_size(theme::font(Family::Content, Role::Body))
+            .text_size(theme::font(Family::Conversation, Role::Body))
             .text_color(theme::text())
-            .child(SharedString::from(comment.text.clone())),
-    )
+            .child(SharedString::from(comment.text.clone()))
+            .into_any_element()
+    })
     .into_any_element()
 }
 
@@ -669,7 +971,8 @@ fn composer_field(
 ) -> AnyElement {
     let key = doc.surface_key();
     let can_send = !doc.composer_text.trim().is_empty();
-    let to_agent = doc.composer_to_agent;
+    let editing = matches!(doc.composer, Some(ComposerTarget::Edit(..)));
+    let to_agent = doc.composer_to_agent && !editing;
     let act = |f: fn(&mut AppState, &mut Window, &mut Context<AppState>)| {
         let view = view.clone();
         move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
@@ -713,14 +1016,19 @@ fn composer_field(
                 } else {
                     theme::border()
                 })
-                .child(Input::new(&app.annotation_composer_input).appearance(false)),
+                .child(Textarea::new(&app.annotation_composer_input)
+                        .appearance(false)
+                        .bordered(false)
+                        .w_full()
+                        .text_size(theme::font(Family::Conversation, Role::Body)),
+                ),
         )
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(agent_chip)
+                .children((!editing).then_some(agent_chip))
                 .child(div().flex_1().min_w(px(0.)))
                 .child(ghost_button(
                     eid("plan-composer-cancel", &key),

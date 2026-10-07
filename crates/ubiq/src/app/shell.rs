@@ -298,6 +298,17 @@ impl AppState {
         // left in Control would come back to a screen of em dashes until the user touched a tab.
         // Asking here is what makes the restored screen say something.
         self.poll_stats(cx);
+        // The same holds for the knowledge base's `on_enter`: a project reopened in KB mode never
+        // goes through the switch, so its explorer would stay blank until the user left and came
+        // back. `project` is not yet the one `self.project(cx)` answers, hence the direct ask.
+        if view.rail_mode == RailMode::KB
+            && self
+                .projects
+                .get(&project)
+                .is_some_and(|open| !open.kb.loaded)
+        {
+            self.ask_kb_sources(project);
+        }
         // The arrangement is the mode's own: whichever mode this project was left in is the one
         // whose window comes back. A mode this project never arranged opens on that mode's
         // defaults, regions and all — the same answer a mode switch gives — because otherwise a
@@ -979,6 +990,7 @@ impl AppState {
             (Layer::ThemeNaming, w.theme_prompt.is_some()),
             (Layer::ClosePane, w.confirm_close_pane.is_some()),
             (Layer::EndConversation, w.confirm_end_conversation.is_some()),
+            (Layer::DocConflict, w.doc_conflict.is_some()),
             (
                 Layer::GitConfirm,
                 // No `cx` at this signature (`top_layer` reads only `self`), so the on-screen
@@ -1128,6 +1140,8 @@ impl AppState {
             // The Git screen's destructive-write confirm, on the same rung as the pane's and the
             // conversation's confirms just below it — see `Layer::GitConfirm`.
             self.cancel_git_confirm(cx);
+        } else if self.workbench.doc_conflict.is_some() {
+            self.dismiss_doc_conflict(cx);
         } else if self.workbench.confirm_end_conversation.is_some() {
             // The two destructive closes, in reverse paint order: `ui::shell` draws the pane's
             // question and then the conversation's, so Escape peels the conversation's first.
@@ -1444,9 +1458,10 @@ impl AppState {
     /// Three answers rather than one, because a contributed mode is often about a feature that is
     /// only switched on for some projects (`D184`):
     ///
-    /// - [`Availability::Always`] is a **deny**-list — on screen unless the user hid it, app-wide
-    ///   (`UiSettings::hidden_modes`), for every project and window. A project's own
-    ///   `hidden_modes` is never read for one.
+    /// - [`Availability::Always`] is a **deny**-list — on screen unless hidden. An
+    ///   app-group mode (`RailMode::is_app`) is hidden app-wide (`UiSettings::hidden_modes`), for
+    ///   every project and window; a project-group one by the project's own `hidden_modes`,
+    ///   and with no project open it counts as on.
     /// - [`Availability::OptIn`] is an **allow**-list — off until the project asks for it, so a
     ///   project that has never heard of the mode does not draw it, and neither does a window
     ///   with no project.
@@ -1457,60 +1472,84 @@ impl AppState {
         let Some(spec) = mode.spec() else {
             return false;
         };
+        let app_group = mode.is_app();
         let prefs = self
             .project(cx)
             .and_then(|id| self.projects.get(&id))
             .map(|open| &open.prefs);
+        // The deny-list follows the rail group alone, whatever the availability: app-group modes
+        // in the app-wide list, project-group ones in the project's.
+        let hidden = if app_group {
+            self.workbench.settings.ui.hidden_modes.contains(&mode)
+        } else {
+            prefs.is_some_and(|p| p.hidden_modes.contains(&mode))
+        };
         match spec.availability {
-            Availability::Always => !self.workbench.settings.ui.hidden_modes.contains(&mode),
+            Availability::Always => !hidden,
             Availability::OptIn => prefs.is_some_and(|p| p.opted_in_modes.contains(&mode)),
-            Availability::When(pred) => {
-                pred(self, cx) && prefs.is_none_or(|p| !p.hidden_modes.contains(&mode))
-            }
+            Availability::When(pred) => pred(self, cx) && !hidden,
         }
     }
 
-    /// Show or hide one rail mode. An `Always` mode is the application's and needs no project;
-    /// the other kinds are the active project's. The last visible mode cannot be hidden,
-    /// and hiding the mode the window is in moves it to the first one still visible.
+    /// Show or hide one rail mode. An app-group mode is the application's and needs no project;
+    /// a project-group one is the active project's. The rail never empties: the last enabled
+    /// `Always` app-group mode cannot be hidden (the only modes every project shows), nor the
+    /// last enabled mode of the project. Hiding the mode the window is in moves it to the first
+    /// one still visible.
     pub fn toggle_mode(&mut self, mode: RailMode, cx: &mut Context<Self>) {
-        let always = matches!(
-            mode.spec().map(|spec| spec.availability),
-            Some(Availability::Always)
-        );
-        if always {
-            let hidden = &self.workbench.settings.ui.hidden_modes;
-            if let Some(at) = hidden.iter().position(|m| *m == mode) {
-                self.workbench.settings.ui.hidden_modes.remove(at);
-            } else {
-                // Count only the other `Always` modes still shown: they are app-wide, so the
-                // project's OptIn/When modes (which come and go with the project) cannot
-                // keep the rail from emptying.
-                let others = RailMode::every()
-                    .filter(|m| {
-                        *m != mode
-                            && matches!(
-                                m.spec().map(|spec| spec.availability),
-                                Some(Availability::Always)
-                            )
-                            && !self.workbench.settings.ui.hidden_modes.contains(m)
-                    })
-                    .count();
-                if others == 0 {
-                    return;
-                }
-                self.workbench.settings.ui.hidden_modes.push(mode);
-            }
-            if self.workbench.rail_mode == mode
-                && let Some(next) = RailMode::every().find(|m| self.mode_enabled(*m, cx))
+        let availability = mode.spec().map(|spec| spec.availability);
+        let app_wide = mode.is_app() && !matches!(availability, Some(Availability::OptIn));
+        let opt_in = matches!(availability, Some(Availability::OptIn));
+        // The ceilings that keep the rail from ever emptying. A project's: how many modes are
+        // *enabled right now*, not how many are registered — a mode nothing has turned on is not
+        // spare room (found by the kitchen sink's demo mode, M4). The app's: the other `Always`
+        // app-group modes still shown, since those are the only ones every project draws.
+        let enabled_now = RailMode::every()
+            .filter(|m| self.mode_enabled(*m, cx))
+            .count();
+        let other_app_modes = RailMode::every()
+            .filter(|m| {
+                *m != mode
+                    && m.is_app()
+                    && matches!(
+                        m.spec().map(|spec| spec.availability),
+                        Some(Availability::Always)
+                    )
+                    && self.mode_enabled(*m, cx)
+            })
+            .count();
+        let project = self.project(cx);
+        let finish = |this: &mut Self, cx: &mut Context<Self>| {
+            if this.workbench.rail_mode == mode
+                && let Some(next) = RailMode::every().find(|m| this.mode_enabled(*m, cx))
             {
-                self.enter_rail_mode(next, false, cx);
+                // Hiding the mode the window is in moves the window; the user asked for the mode
+                // to go, not for the console to go with it, so this sweeps nothing (`D156`).
+                this.enter_rail_mode(next, false, cx);
             }
+        };
+        if app_wide {
+            let hidden = &mut self.workbench.settings.ui.hidden_modes;
+            match hidden.iter().position(|m| *m == mode) {
+                Some(at) => {
+                    hidden.remove(at);
+                }
+                None => {
+                    if other_app_modes == 0 {
+                        return;
+                    }
+                    hidden.push(mode);
+                }
+            }
+            finish(self, cx);
             self.remember_settings();
             cx.notify();
             return;
         }
-        let Some(id) = self.project(cx) else {
+        let Some(id) = project else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&id) else {
             return;
         };
         // An `OptIn` mode is an allow-list and every other kind is a deny-list, so the switch
@@ -1518,27 +1557,6 @@ impl AppState {
         // rather than one signed list: a project that has opted into a mode and a project that
         // has not hidden one are different facts, and a build that loses a registration must not
         // read the first as the second.
-        let opt_in = matches!(
-            mode.spec().map(|spec| spec.availability),
-            Some(Availability::OptIn)
-        );
-        // The ceiling that keeps the rail from ever emptying, computed before `open` borrows the
-        // project mutably: how many modes are *enabled right now*, not how many are registered.
-        // `RailMode::every().count()` was the base's original ceiling, and it was correct only by
-        // accident — every one of the base's own ten is `Always`, so "registered" and "could be
-        // showing" were the same number. A container mixing in `OptIn` or `When` breaks that:
-        // a mode nothing has turned on is not spare room, and counting it as some let every
-        // `Always` mode be hidden right down to zero in a project where a `When` contribution
-        // simply never fired. Found by the kitchen sink's own demo mode (M4) — the first
-        // registration on the container that is not `Always`.
-        let enabled_now = (!opt_in).then(|| {
-            RailMode::every()
-                .filter(|m| self.mode_enabled(*m, cx))
-                .count()
-        });
-        let Some(open) = self.projects.get_mut(&id) else {
-            return;
-        };
         if opt_in {
             match open.prefs.opted_in_modes.iter().position(|m| *m == mode) {
                 Some(at) => {
@@ -1552,20 +1570,14 @@ impl AppState {
                     open.prefs.hidden_modes.remove(at);
                 }
                 None => {
-                    if enabled_now.is_none_or(|n| n <= 1) {
+                    if enabled_now <= 1 {
                         return;
                     }
                     open.prefs.hidden_modes.push(mode);
                 }
             }
         }
-        if self.workbench.rail_mode == mode
-            && let Some(next) = RailMode::every().find(|m| self.mode_enabled(*m, cx))
-        {
-            // Hiding the mode the window is in moves the window; the user asked for the mode to
-            // go, not for the console to go with it, so this sweeps nothing (`D156`).
-            self.enter_rail_mode(next, false, cx);
-        }
+        finish(self, cx);
         self.remember(id, cx);
         cx.notify();
     }

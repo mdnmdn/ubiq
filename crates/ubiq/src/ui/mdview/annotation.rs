@@ -133,6 +133,17 @@ pub fn overlays(
     let decor = this.decor_at(ix);
     let actions = this.row_actions(ix);
     let mut out = Vec::new();
+    // Another writer just changed this row (`D208`): a tint under everything else, fading out.
+    let flash = this.flash_alpha(ix);
+    if flash > 0.0 {
+        out.push(
+            div()
+                .absolute()
+                .inset_0()
+                .bg(theme::fade(theme::agent_edit_flash(), flash))
+                .into_any_element(),
+        );
+    }
     if actions.selected_bar {
         out.push(
             div()

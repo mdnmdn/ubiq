@@ -8,7 +8,7 @@
 use ubiq_proto::conversation::ConfigChoice;
 use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::{
-    AgentDefinition, AgentTypeInfo, CatalogueModel, TAG_COORDINATOR, TAG_WORKER,
+    AgentDefinition, AgentTypeInfo, CatalogueModel, TAG_COORDINATOR, TAG_DOC, TAG_WORKER,
 };
 use ubiq_proto::settings::Grant;
 
@@ -257,6 +257,10 @@ pub const COORDINATOR_MCPS: [&str; 4] =
 /// What the **mission/task worker** flag implies — mirrors `catalogue::WORKER_MCPS`, on the same
 /// terms as [`COORDINATOR_MCPS`].
 pub const WORKER_MCPS: [&str; 4] = ["use-mission", "use-task", "project-info", "ubiq-kb"];
+
+/// What the **`doc`** tag implies — the collaboration tools over a markdown file and the
+/// architecture-diagram server, on the same terms as [`COORDINATOR_MCPS`].
+pub const DOC_MCPS: [&str; 2] = ["ubiq-doc", "ubiq-archify"];
 
 /// The opening prompt a task assignment starts the agent on: what to work on, and how it should
 /// handle a gap in what it knows.
@@ -507,6 +511,7 @@ impl NewAgentForm {
     pub fn implies_mcp(&self, name: &str) -> bool {
         (self.has_tag(TAG_COORDINATOR) && COORDINATOR_MCPS.contains(&name))
             || (self.has_tag(TAG_WORKER) && WORKER_MCPS.contains(&name))
+            || (self.has_tag(TAG_DOC) && DOC_MCPS.contains(&name))
     }
 
     /// Whether this server is ticked at all, by hand or by a role.

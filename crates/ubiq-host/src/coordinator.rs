@@ -69,6 +69,10 @@ const INITIAL_ROWS: u16 = 24;
 /// finishes on another thread is collected promptly rather than only on the next unrelated
 /// message. See the wait computation in `run` for why this is needed at all.
 const CONVERSATION_POLL: Duration = Duration::from_millis(500);
+/// The first wait after a doc prompt the conversation refused, doubled per refusal up to
+/// [`DOC_RETRY_MAX`] (`D207`).
+const DOC_RETRY_FIRST: Duration = Duration::from_secs(2);
+const DOC_RETRY_MAX: Duration = Duration::from_secs(60);
 
 /// How long one suggestion may take before it is answered with a failure instead. Generation
 /// cannot be interrupted, so this bounds the wait rather than the work.
@@ -343,6 +347,12 @@ struct Coordinator {
     /// have, for the same two reasons: a reply goes to the window that asked, and a project's
     /// count changes when one ends.
     conversation_owners: HashMap<AgentId, (ClientId, ProjectId)>,
+    /// What the user said on annotated documents, waiting for the agent bound to them — at most
+    /// one pending prompt per agent, delivered when the agent is live and idle (`D207`).
+    doc_queue: crate::plan::queue::DocQueue,
+    /// When each agent whose doc prompt was refused may be tried again, and the wait after that —
+    /// doubled per refusal, so a broken input is not retried, logged and broadcast every poll.
+    doc_backoff: HashMap<AgentId, (Instant, Duration)>,
     /// Every question an agent has put to the user and not yet had an answer to. `Arc` because
     /// the MCP listener parks its tool calls on the same table this thread answers into — the two
     /// halves of an ask never meet anywhere else (`D138`, [`crate::ask`]).
@@ -949,6 +959,7 @@ impl Coordinator {
             Some(crate::mcp::PlanReach {
                 plans: plans.clone(),
                 everyone: host.mailbox(To::Everyone),
+                agents: mcp_agents.clone(),
             }),
             // The missions, on the plans' own footing: one handle, shared with the listener, so
             // `ubiq-mission` writes the same records and the same journal a window reads (`D120`).
@@ -1166,6 +1177,8 @@ impl Coordinator {
             focused: HashMap::new(),
             conversations: HashMap::new(),
             conversation_owners: HashMap::new(),
+            doc_queue: Default::default(),
+            doc_backoff: HashMap::new(),
             asks,
             armed,
             pending_conversations,
@@ -1261,6 +1274,7 @@ impl Coordinator {
             self.name_conversations();
             self.adopt_harness_titles();
             self.reap_conversations();
+            self.flush_doc_queue();
             self.register_clones();
             self.projects.flush_due(Instant::now());
         }
@@ -2439,13 +2453,39 @@ impl Coordinator {
                 expected,
                 overwrite,
             } => {
-                let request = files::Request::Write {
-                    rel_path: rel_path.clone(),
-                    bytes,
-                    expected,
-                    overwrite,
-                };
-                self.file_job(client, project_id, &rel_path, request);
+                // An annotated markdown file is written under the plans lock and stamped as the
+                // user's (`D208`), so an agent's merge cannot land between this write's version
+                // check and its write, and the threads and provenance follow the save.
+                if let Some((root, target)) = self.annotated_file(project_id, &rel_path) {
+                    let outcome = self.plans.lock().file_save(
+                        &target, &root, &rel_path, &bytes, expected, overwrite,
+                    );
+                    match outcome {
+                        Ok((version, replies)) => {
+                            self.host.send(
+                                To::Client(client),
+                                Message::ProjectFileWritten {
+                                    project_id,
+                                    rel_path,
+                                    version,
+                                },
+                            );
+                            self.answer(client, replies);
+                        }
+                        Err(error) => self.host.send(
+                            To::Client(client),
+                            files::file_error(project_id, &rel_path, error),
+                        ),
+                    }
+                } else {
+                    let request = files::Request::Write {
+                        rel_path: rel_path.clone(),
+                        bytes,
+                        expected,
+                        overwrite,
+                    };
+                    self.file_job(client, project_id, &rel_path, request);
+                }
             }
             Message::DiffProjectFile {
                 project_id,
@@ -3061,8 +3101,13 @@ impl Coordinator {
             Message::ExportPlan { doc, rel_path } => {
                 self.export_plan(client, &doc, rel_path);
             }
-            Message::ListPlanAnnotations { doc } => {
-                self.plan_job(client, &doc, |plans, target| plans.annotations(target));
+            Message::ListPlanAnnotations { doc, open } => {
+                self.plan_job(client, &doc, |plans, target| {
+                    if open {
+                        plans.reopen_lineage(target);
+                    }
+                    plans.annotations(target)
+                });
             }
             // The author is stamped from the path the message arrived on and never read off the
             // wire — `D121`'s rule for a task's comments, and a window is a user by construction.
@@ -3074,7 +3119,7 @@ impl Coordinator {
                 marks,
                 to,
             } => {
-                let mut prompt = None;
+                let mut thread = None;
                 self.plan_job(client, &doc, |plans, target| {
                     let replies = plans.annotate(
                         target,
@@ -3085,12 +3130,18 @@ impl Coordinator {
                         marks,
                         to,
                     );
-                    if to == Some(ubiq_proto::work::Addressee::Agent) && !failed(&replies) {
-                        prompt = plans.agent_prompt(target, None);
-                    }
+                    thread = crate::plan::queued_from(&replies, None);
                     replies
                 });
-                self.deliver_to_agent(doc.project_id(), prompt);
+                self.deliver_to_agent(&doc, thread, to);
+            }
+            // A window's disk merge kept the user's words over another writer's (`D208`): the
+            // other side's passages become threads, checked against the disk and authored by
+            // whoever provenance says moved it — `Plans::disk_conflicts`.
+            Message::DocMergeConflicts { doc, conflicts } => {
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.disk_conflicts(target, conflicts)
+                });
             }
             Message::ReplyToAnnotation {
                 doc,
@@ -3098,7 +3149,7 @@ impl Coordinator {
                 text,
                 to,
             } => {
-                let mut prompt = None;
+                let mut thread = None;
                 self.plan_job(client, &doc, |plans, target| {
                     let replies = plans.reply_to(
                         target,
@@ -3107,12 +3158,10 @@ impl Coordinator {
                         text,
                         to,
                     );
-                    if to == Some(ubiq_proto::work::Addressee::Agent) && !failed(&replies) {
-                        prompt = plans.agent_prompt(target, Some(annotation_id));
-                    }
+                    thread = crate::plan::queued_from(&replies, Some(annotation_id));
                     replies
                 });
-                self.deliver_to_agent(doc.project_id(), prompt);
+                self.deliver_to_agent(&doc, thread, to);
             }
             Message::MarkAnnotation {
                 doc,
@@ -3149,6 +3198,61 @@ impl Coordinator {
                 self.plan_job(client, &doc, |plans, target| {
                     plans.changes(target, since_revision)
                 });
+            }
+            Message::EditAnnotationComment {
+                doc,
+                annotation_id,
+                comment_id,
+                text,
+            } => {
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.edit_comment(target, annotation_id, comment_id, text)
+                });
+            }
+            // ── the doc binding (`D207`) ──
+            Message::SetDocAgent { doc, agent_id } => {
+                let mut bound = false;
+                self.plan_job(client, &doc, |plans, target| {
+                    let replies = plans.set_agent(target, agent_id);
+                    bound = !failed(&replies);
+                    replies
+                });
+                if bound {
+                    // A thread queued for the old agent is no longer its to answer.
+                    for agent in self.doc_queue.drop_doc(&doc, agent_id) {
+                        self.deliver_doc_queue(agent, doc.project_id());
+                    }
+                }
+            }
+            Message::SetDocAutoSend { doc, auto_send } => {
+                self.plan_job(client, &doc, |plans, target| {
+                    plans.set_auto_send(target, auto_send)
+                });
+            }
+            Message::AskDocAgent {
+                doc,
+                annotation_ids,
+            } => {
+                let mut found = None;
+                self.plan_job(client, &doc, |plans, target| {
+                    match plans.awaiting_threads(target, &annotation_ids) {
+                        Ok((binding, _)) if binding.agent.is_none() => vec![Reply::Asker(
+                            crate::plan::doc_error(target, "no agent is bound to this document"),
+                        )],
+                        Ok((binding, threads)) => {
+                            found = binding.agent.map(|agent| (agent, threads));
+                            Vec::new()
+                        }
+                        Err(error) => vec![Reply::Asker(crate::plan::doc_error(target, error))],
+                    }
+                });
+                // Nothing waiting on the agent is nothing to say: no message, no empty report.
+                if let Some((agent, threads)) = found.filter(|(_, threads)| !threads.is_empty()) {
+                    for thread in threads {
+                        self.doc_queue.push(agent, thread);
+                    }
+                    self.deliver_doc_queue(agent, doc.project_id());
+                }
             }
 
             Message::ListMissions { project_id } => {
@@ -4634,6 +4738,7 @@ impl Coordinator {
         if !self.drives(client, agent_id) {
             return;
         }
+        self.forget_doc_delivery(agent_id);
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
@@ -4666,6 +4771,7 @@ impl Coordinator {
         if !self.drives(client, agent_id) {
             return;
         }
+        self.forget_doc_delivery(agent_id);
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
@@ -5072,6 +5178,7 @@ impl Coordinator {
     /// no memory of this one, which is the honest limit of what a harness that reports no
     /// resumable id can do, and better than a conversation that refuses to take another turn.
     fn finish_one_shot_turn(&mut self, agent_id: AgentId) {
+        self.forget_doc_delivery(agent_id);
         let Some(conversation) = self.conversations.remove(&agent_id) else {
             return;
         };
@@ -5121,6 +5228,7 @@ impl Coordinator {
     /// [`Message::ReviveConversation`] to read. Only [`Message::EndConversation`] means gone, and
     /// that arm retires and forgets explicitly on top of this.
     fn end_conversation(&mut self, agent_id: AgentId, reason: StopReason) {
+        self.forget_doc_delivery(agent_id);
         if let Some(conversation) = self.conversations.remove(&agent_id) {
             tracing::info!("agent {agent_id} ending: {reason:?}");
             conversation.stop(false);
@@ -5377,35 +5485,182 @@ impl Coordinator {
         self.answer(client, replies);
     }
 
-    /// Hand an agent-addressed comment to its agent, after the mutation succeeded: the mission's
-    /// coordinator, else the task's assignee, through the same path a typed line takes. Nobody to
-    /// tell is not an error — the comment and its `Agent` mark stand on the thread.
+    /// Queue a user's comment for the agent it goes to, after the mutation succeeded (`D207`).
+    ///
+    /// **A bound document goes to its agent only with auto-send on**; with it off every thread
+    /// waits on the document, addressed or not, for the user's `AskDocAgent`. An unbound plan or
+    /// mission document keeps the older rule for an addressed comment: the mission's coordinator,
+    /// else the task's assignee. Anything else — an unbound file document — goes nowhere, and the
+    /// comment and its `Agent` mark stand on the thread.
     fn deliver_to_agent(
         &mut self,
-        project: ProjectId,
-        prompt: Option<(ubiq_proto::ids::TaskId, String)>,
+        doc: &ubiq_proto::plan::DocumentHandle,
+        found: Option<(ubiq_proto::plan::DocBinding, crate::plan::queue::QueuedRef)>,
+        to: Option<ubiq_proto::work::Addressee>,
     ) {
-        let Some((task, text)) = prompt else {
-            tracing::debug!("agent-addressed comment: nothing to deliver");
+        let Some((binding, queued)) = found else {
             return;
         };
-        let coordinator = self
-            .missions
-            .lock()
-            .record(project, task)
-            .and_then(|record| record.coordinator);
-        let (_, tasks) = self.work.lock().tasks(project);
-        let assigned = tasks
-            .iter()
-            .find(|record| record.id == task)
-            .and_then(|record| record.assigned_to.clone());
-        let Some(agent) = crate::plan::choose_agent(coordinator, assigned.as_deref()) else {
-            tracing::debug!("agent-addressed comment on {task}: no coordinator or assignee");
+        let project = doc.project_id();
+        let addressed = to == Some(ubiq_proto::work::Addressee::Agent);
+        let agent = match binding.agent {
+            // Auto-send off: the thread waits on the document, addressed or not, until the
+            // user's Ask agent (`AskDocAgent`) sends everything waiting in one prompt.
+            Some(agent) => binding.auto_send.then_some(agent),
+            None if addressed => doc.task_id().and_then(|task| {
+                let coordinator = self
+                    .missions
+                    .lock()
+                    .record(project, task)
+                    .and_then(|record| record.coordinator);
+                let (_, tasks) = self.work.lock().tasks(project);
+                let assigned = tasks
+                    .iter()
+                    .find(|record| record.id == task)
+                    .and_then(|record| record.assigned_to.clone());
+                crate::plan::choose_agent(coordinator, assigned.as_deref())
+            }),
+            None => None,
+        };
+        let Some(agent) = agent else {
+            tracing::debug!("comment on {doc:?}: nobody to deliver to");
             return;
         };
-        let replies = self.work.lock().send_to_agent(project, agent, text);
-        for reply in replies {
-            self.host.send(To::Everyone, reply.into_message());
+        self.doc_queue.push(agent, queued);
+        self.deliver_doc_queue(agent, project);
+    }
+
+    /// Deliver the agent's pending doc prompt if it can take one now — a live conversation that
+    /// takes input and is between turns, and not backing off a refused send — and tell the windows
+    /// where its queue stands either way. `project` is where to report when nothing is left
+    /// queued to say it.
+    ///
+    /// The prompt is composed from the sidecars as they read now (`Plans::thread_view`), goes in
+    /// front of the model *and* into the agent's thread row, as `Missions::tell_agent` does. An
+    /// agent that is not running is started first ([`Self::autostart_doc_agent`]) — the user
+    /// bound it and asked; one that cannot be started keeps its entry until it runs.
+    fn deliver_doc_queue(&mut self, agent: AgentId, project: ProjectId) {
+        use crate::plan::queue::Delivery;
+        use ubiq_proto::plan::DocDelivery;
+        let project = self.doc_queue.project_of(agent).unwrap_or(project);
+        self.autostart_doc_agent(agent);
+        let backing_off = self
+            .doc_backoff
+            .get(&agent)
+            .is_some_and(|(until, _)| Instant::now() < *until);
+        let mut state = self.doc_state(agent);
+        let delivery = match self.conversations.get(&agent) {
+            Some(conversation) if state == DocDelivery::Delivered && !backing_off => {
+                let projects = &self.projects;
+                let mut plans = self.plans.lock();
+                self.doc_queue.deliver(
+                    agent,
+                    |queued| {
+                        // Only a file document resolves against the project's root.
+                        let root = projects
+                            .record(queued.doc.project_id())
+                            .map(|record| PathBuf::from(&record.path))
+                            .unwrap_or_default();
+                        let target = crate::plan::Target::resolve(&queued.doc, &root).ok()?;
+                        plans.thread_view(&target, queued)
+                    },
+                    |text| conversation.prompt(text.to_string()),
+                )
+            }
+            _ => Delivery::Nothing,
+        };
+        match delivery {
+            Delivery::Sent(text) => {
+                self.doc_backoff.remove(&agent);
+                if let Some((_, owner_project)) = self.conversation_owners.get(&agent).copied() {
+                    let replies = self.work.lock().send_to_agent(owner_project, agent, text);
+                    for reply in replies {
+                        self.host.send(To::Everyone, reply.into_message());
+                    }
+                }
+            }
+            Delivery::Failed(error) => {
+                // The entry stays queued (`DocQueue::deliver`); the next try waits, doubling.
+                let wait = self
+                    .doc_backoff
+                    .get(&agent)
+                    .map_or(DOC_RETRY_FIRST, |(_, wait)| (*wait * 2).min(DOC_RETRY_MAX));
+                self.doc_backoff
+                    .insert(agent, (Instant::now() + wait, wait));
+                tracing::warn!(
+                    "agent {agent}: the doc prompt was not delivered, retrying in {wait:?}: \
+                     {error:#}"
+                );
+                state = DocDelivery::NotRunning;
+            }
+            // Nothing went out. An idle agent with nothing left queued (every thread resolved or
+            // gone) stays `Delivered` — nothing is held back; one backing off is not taking input.
+            Delivery::Nothing if backing_off && state == DocDelivery::Delivered => {
+                state = DocDelivery::NotRunning;
+            }
+            Delivery::Nothing => {}
+        }
+        self.host.send(
+            To::Everyone,
+            Message::DocAgentQueue {
+                project_id: project,
+                agent_id: agent,
+                pending: self.doc_queue.pending(agent),
+                state,
+            },
+        );
+    }
+
+    /// Start the bound agent when its doc queue has something for it and it is not running —
+    /// exactly what the owning window's `ResumeConversation` does, on that window's behalf, so the
+    /// one launcher stays the host's and two windows showing the document cannot both start it.
+    /// An agent no window owns, or never set up here, stays `NotRunning`; a one-shot harness is
+    /// left alone (`resume_conversation`'s own rule). After the launch the conversation is idle,
+    /// so the delivery that follows goes out at once.
+    fn autostart_doc_agent(&mut self, agent: AgentId) {
+        if self.conversations.contains_key(&agent) || !self.doc_queue.has(agent) {
+            return;
+        }
+        let Some((owner, _)) = self.conversation_owners.get(&agent).copied() else {
+            return;
+        };
+        tracing::debug!(agent = %agent, "starting the agent its doc queue is waiting on");
+        self.resume_conversation(owner, agent);
+    }
+
+    /// The conversation is going: its next one has been sent no document yet, and a refused send
+    /// against this one says nothing about the next.
+    fn forget_doc_delivery(&mut self, agent: AgentId) {
+        self.doc_queue.forget(agent);
+        self.doc_backoff.remove(&agent);
+    }
+
+    /// Where the agent stands for the doc queue: `Delivered` means it could take a prompt now.
+    fn doc_state(&self, agent: AgentId) -> ubiq_proto::plan::DocDelivery {
+        use ubiq_proto::plan::DocDelivery;
+        match self.conversations.get(&agent) {
+            None => DocDelivery::NotRunning,
+            Some(conversation) if !conversation.accepts_input() => DocDelivery::NotRunning,
+            Some(conversation) if conversation.busy() => DocDelivery::Waiting,
+            Some(_) => DocDelivery::Delivered,
+        }
+    }
+
+    /// The run loop's half of the doc queue: an agent whose turn has ended since its entry was
+    /// queued — or whose conversation has since come up, or whose back-off has run out — gets it
+    /// now. Polled, because the turn end is seen by the pump thread, which counts it and says
+    /// nothing to this one; the loop wakes every `CONVERSATION_POLL` while a conversation is live.
+    fn flush_doc_queue(&mut self) {
+        let now = Instant::now();
+        for agent in self.doc_queue.waiting() {
+            let ready = self.doc_state(agent) == ubiq_proto::plan::DocDelivery::Delivered
+                && self
+                    .doc_backoff
+                    .get(&agent)
+                    .is_none_or(|(until, _)| now >= *until);
+            if ready && let Some(project) = self.doc_queue.project_of(agent) {
+                self.deliver_doc_queue(agent, project);
+            }
         }
     }
 
@@ -5480,6 +5735,28 @@ impl Coordinator {
     ///
     /// The only thing this decides is which folder the request is against; a project the catalogue
     /// does not hold is refused here rather than reaching a thread that could not answer it.
+    /// The project root and annotation target for `rel_path`, when it names a markdown file that
+    /// carries a sidecar — the files whose tab saves go through the plans lock (`D208`).
+    fn annotated_file(
+        &self,
+        project_id: ProjectId,
+        rel_path: &str,
+    ) -> Option<(PathBuf, crate::plan::Target)> {
+        if !rel_path.to_ascii_lowercase().ends_with(".md") {
+            return None;
+        }
+        let root = PathBuf::from(&self.projects.record(project_id)?.path);
+        let doc = ubiq_proto::plan::DocumentHandle::File {
+            project_id,
+            rel_path: rel_path.to_string(),
+        };
+        let target = crate::plan::Target::resolve(&doc, &root).ok()?;
+        self.plans
+            .lock()
+            .is_annotated(&target)
+            .then_some((root, target))
+    }
+
     fn file_job(
         &self,
         client: ClientId,
@@ -7588,6 +7865,254 @@ mod tests {
                 .ok()
         })
         .collect()
+    }
+
+    /// A project in the catalogue with `spec.md` in it, and its file document bound to `agent`.
+    fn bound_spec(
+        coordinator: &mut Coordinator,
+        client: &ubiq_proto::bus::Client,
+        agent: AgentId,
+    ) -> ubiq_proto::plan::DocumentHandle {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::mem::forget(dir);
+        std::fs::write(root.join("spec.md"), "# Spec\n\nOne.\n\nTwo.\n").unwrap();
+        let replies = coordinator.projects.add(
+            &root.to_string_lossy(),
+            None,
+            None,
+            None,
+            false,
+            Default::default(),
+        );
+        let project_id = replies
+            .iter()
+            .find_map(|reply| match reply.message() {
+                Message::ProjectAdded { project } => Some(project.record.id),
+                _ => None,
+            })
+            .expect("the project was added");
+        let doc = ubiq_proto::plan::DocumentHandle::File {
+            project_id,
+            rel_path: "spec.md".to_string(),
+        };
+        coordinator.dispatch(
+            client.id(),
+            Message::SetDocAgent {
+                doc: doc.clone(),
+                agent_id: Some(agent),
+            },
+        );
+        doc
+    }
+
+    fn block_ids(
+        coordinator: &Coordinator,
+        doc: &ubiq_proto::plan::DocumentHandle,
+    ) -> Vec<ubiq_proto::ids::BlockId> {
+        let root = PathBuf::from(&coordinator.projects.record(doc.project_id()).unwrap().path);
+        let target = crate::plan::Target::resolve(doc, &root).unwrap();
+        let (blocks, _, _) = coordinator.plans.lock().annotation_list(&target).unwrap();
+        blocks.into_iter().map(|block| block.id).collect()
+    }
+
+    fn doc_prompts(written: &crate::conversation::test_support::Written) -> Vec<String> {
+        written
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|input| matches!(input, agent_manager::io::AgentInput::Prompt { .. }))
+            .map(|input| format!("{input:?}"))
+            .collect()
+    }
+
+    /// Auto-send off: an addressed comment and a reply queue nothing and reach nobody — the
+    /// threads wait on the document — and the user's Ask agent then sends both in one prompt.
+    #[test]
+    fn with_auto_send_off_threads_wait_until_the_user_asks_and_go_in_one_prompt() {
+        let (mut coordinator, client) = test_coordinator();
+        let (agent, _, written) = seed_live_conversation_writing(&mut coordinator, &client, 0);
+        let doc = bound_spec(&mut coordinator, &client, agent);
+        let blocks = block_ids(&coordinator, &doc);
+        let addressed = Some(ubiq_proto::work::Addressee::Agent);
+        for (block, text) in [(blocks[1], "first point"), (blocks[2], "second point")] {
+            coordinator.dispatch(
+                client.id(),
+                Message::AnnotatePlan {
+                    doc: doc.clone(),
+                    block_id: block,
+                    quote: None,
+                    text: text.to_string(),
+                    marks: Vec::new(),
+                    to: addressed,
+                },
+            );
+        }
+        coordinator.flush_doc_queue();
+        assert!(!coordinator.doc_queue.has(agent), "nothing queued with auto-send off");
+        assert!(doc_prompts(&written).is_empty(), "nothing delivered");
+
+        coordinator.dispatch(
+            client.id(),
+            Message::AskDocAgent {
+                doc: doc.clone(),
+                annotation_ids: Vec::new(),
+            },
+        );
+        let sent = doc_prompts(&written);
+        assert_eq!(sent.len(), 1, "one coalesced prompt");
+        assert!(sent[0].contains("first point") && sent[0].contains("second point"));
+        assert!(!coordinator.doc_queue.has(agent));
+    }
+
+    /// An agent that is not running keeps what was asked of it, honestly reported, and gets it the
+    /// moment its conversation is back up and idle — the launch `autostart_doc_agent` asks for.
+    #[test]
+    fn a_queue_for_an_agent_not_running_waits_and_flushes_once_it_is_up() {
+        use ubiq_proto::plan::DocDelivery;
+        let (mut coordinator, client) = test_coordinator();
+        let (agent, _) = seed_live_conversation(&mut coordinator, &client, 0);
+        let doc = bound_spec(&mut coordinator, &client, agent);
+        let blocks = block_ids(&coordinator, &doc);
+        coordinator.unload_conversation(client.id(), agent);
+        drain_all(&client);
+
+        coordinator.dispatch(
+            client.id(),
+            Message::AnnotatePlan {
+                doc: doc.clone(),
+                block_id: blocks[1],
+                quote: None,
+                text: "while you were away".to_string(),
+                marks: Vec::new(),
+                to: None,
+            },
+        );
+        coordinator.dispatch(
+            client.id(),
+            Message::AskDocAgent {
+                doc: doc.clone(),
+                annotation_ids: Vec::new(),
+            },
+        );
+        // The test harness is not one the host can launch, so the autostart leaves it down.
+        assert!(coordinator.doc_queue.has(agent), "the entry waits");
+        assert!(drain_all(&client).iter().any(|message| matches!(
+            message,
+            Message::DocAgentQueue { pending, state: DocDelivery::NotRunning, .. }
+                if pending.len() == 1
+        )));
+
+        // What a successful launch leaves behind: a live, idle conversation.
+        let bridge = crate::conversation::test_support::Idle::new();
+        let written = bridge.written();
+        let mailbox = coordinator.host.mailbox(To::Client(client.id()));
+        let conversation = Conversation::start(
+            agent,
+            Box::new(bridge),
+            mailbox,
+            0,
+            None,
+            None,
+            false,
+            ConvFlags::new(agent, false, false),
+            None,
+        );
+        coordinator.conversations.insert(agent, conversation);
+        coordinator.flush_doc_queue();
+        let sent = doc_prompts(&written);
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("while you were away"));
+    }
+
+    /// The doc queue (`D207`) holds a comment while the agent is mid-turn, and the run loop's
+    /// flush delivers it once the turn ends — composed from the sidecar as it reads then.
+    #[test]
+    fn a_queued_doc_comment_waits_for_the_turn_and_is_delivered_when_it_ends() {
+        use ubiq_proto::plan::DocDelivery;
+        let (mut coordinator, client) = test_coordinator();
+        let (agent, project, written) =
+            seed_live_conversation_writing(&mut coordinator, &client, 0);
+        let task = {
+            let mut work = coordinator.work.lock();
+            let replies = work.create(project, "a mission".to_string(), None);
+            let id = replies
+                .iter()
+                .find_map(|reply| match reply.message() {
+                    Message::TaskCreated { task, .. } => Some(task.id),
+                    _ => None,
+                })
+                .unwrap();
+            work.set_field(
+                project,
+                id,
+                ubiq_proto::messages::TaskField::Level(Some(ubiq_proto::work::Level::Mission)),
+            );
+            id
+        };
+        let target = crate::plan::Target::plan(project, task);
+        let replies = {
+            let mut plans = coordinator.plans.lock();
+            plans.save(
+                &target,
+                "# Plan\n\nShip it.".to_string(),
+                &crate::plan::Saver::human(),
+                None,
+            );
+            let (blocks, _, _) = plans.annotation_list(&target).unwrap();
+            plans.set_agent(&target, Some(agent));
+            plans.annotate(
+                &target,
+                blocks[1].id,
+                None,
+                ubiq_proto::work::CommentAuthor::User,
+                "first draft".to_string(),
+                Vec::new(),
+                Some(ubiq_proto::work::Addressee::Agent),
+            )
+        };
+        let (_, queued) = crate::plan::queued_from(&replies, None).unwrap();
+        let prompts = |written: &crate::conversation::test_support::Written| {
+            written
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|input| matches!(input, agent_manager::io::AgentInput::Prompt { .. }))
+                .map(|input| format!("{input:?}"))
+                .collect::<Vec<_>>()
+        };
+
+        // The agent is mid-turn: the comment waits.
+        coordinator.conversations[&agent]
+            .prompt("the user's own turn".to_string())
+            .unwrap();
+        coordinator.doc_queue.push(agent, queued.clone());
+        coordinator.deliver_doc_queue(agent, project);
+        coordinator.flush_doc_queue();
+        assert_eq!(prompts(&written).len(), 1, "nothing delivered mid-turn");
+        let told = drain_all(&client);
+        assert!(told.iter().any(|message| matches!(
+            message,
+            Message::DocAgentQueue { pending, state: DocDelivery::Waiting, .. } if pending.len() == 1
+        )));
+
+        // Edited while it waited, then the turn ends: the flush delivers it as it reads now.
+        coordinator.plans.lock().edit_comment(
+            &target,
+            queued.annotation_id,
+            queued.comment_ids[0],
+            "final words".to_string(),
+        );
+        coordinator.conversations[&agent].end_turn_for_test();
+        coordinator.flush_doc_queue();
+        let sent = prompts(&written);
+        assert_eq!(sent.len(), 2, "delivered once the turn ended");
+        assert!(sent[1].contains("final words") && !sent[1].contains("first draft"));
+        assert!(!coordinator.doc_queue.has(agent));
+        assert!(
+            coordinator.conversations[&agent].busy(),
+            "the delivery opened a turn"
+        );
     }
 
     #[test]

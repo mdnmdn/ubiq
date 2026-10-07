@@ -293,6 +293,9 @@ pub enum ExplorerAction {
     OpenWith,
     /// One row of the "Open with" list: open the file and draw it with this viewer (`D204`).
     OpenWithViewer(crate::state::editor::ViewerKind),
+    /// A markdown file, opened straight into its tab's `ViewLayout::Annotation` — collaboration
+    /// mode, where threads are left for an agent.
+    Annotate,
     CopyPath,
     CopyFullPath,
     /// The row as a `ubiq://` destination, which is what a link in a document wants.
@@ -350,6 +353,7 @@ impl ExplorerAction {
             ExplorerAction::OpenDiff => "Open diff vs HEAD",
             ExplorerAction::OpenWith => "Open with \u{25b8}",
             ExplorerAction::OpenWithViewer(kind) => kind.label(),
+            ExplorerAction::Annotate => "Open in annotation mode",
             ExplorerAction::CopyPath => "Copy path",
             ExplorerAction::CopyFullPath => "Copy full path",
             ExplorerAction::CopyLink => "Copy link",

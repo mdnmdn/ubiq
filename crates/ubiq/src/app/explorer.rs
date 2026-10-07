@@ -591,6 +591,13 @@ impl AppState {
                     self.open_file_with(path, kind, cx);
                 }
             }
+            ExplorerAction::Annotate => {
+                if let Some(path) = path {
+                    let key = tab_key(&path, Subject::File);
+                    self.select_file(path, cx);
+                    self.set_view_layout(&key, ViewLayout::Annotation, cx);
+                }
+            }
             ExplorerAction::CopyPath
             | ExplorerAction::CopyFullPath
             | ExplorerAction::CopyLink

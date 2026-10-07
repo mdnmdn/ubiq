@@ -71,6 +71,15 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
             ext: None,
         });
         state.workbench.confirm_close_pane = Some(PaneId::generate());
+        state.workbench.doc_conflict = Some(ubiq::state::workbench::DocConflict {
+            doc: ubiq_proto::plan::DocumentHandle::File {
+                project_id: ubiq_proto::ids::ProjectId::generate(),
+                rel_path: "a.md".to_string(),
+            },
+            requester: AgentId::generate(),
+            requester_name: "claude".to_string(),
+            owner: AgentId::generate(),
+        });
         state.open_menu(MenuId::SinkPicker, cx);
     });
     cx.run_until_parked();
@@ -95,6 +104,14 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
             state.workbench.confirm_end_conversation.is_some(),
             "the menu took the confirm under it"
         );
+    });
+
+    // The ownership question is the topmost confirm, and refusing it is remembered.
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.doc_conflict.is_none());
+        assert_eq!(state.workbench.doc_conflict_refused.len(), 1);
+        assert!(state.workbench.confirm_end_conversation.is_some());
     });
 
     // The two destructive closes, both painted at the window root just over the file question and

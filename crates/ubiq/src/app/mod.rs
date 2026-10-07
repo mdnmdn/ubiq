@@ -153,6 +153,11 @@ const REFLOW_DEBOUNCE: Duration = Duration::from_millis(500);
 /// second time, so a held key must not do it once per character.
 const OUTLINE_DEBOUNCE: Duration = Duration::from_millis(200);
 
+/// How long a markdown tab in annotation mode waits after the last keystroke before it saves
+/// itself (`D208`) — long enough not to write per word, short enough that an agent reading the
+/// document reads what the user sees.
+const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1500);
+
 gpui::actions!(
     ubiq,
     [
@@ -801,6 +806,10 @@ pub struct AppState {
     /// [`Self::clear_aim`]. A form that never started anything must not leave the next start,
     /// from anywhere, pointed at somebody else's project.
     pub new_agent_project: Option<ProjectId>,
+    /// The document the New agent form was raised for, by annotation mode's Agent menu: the start
+    /// binds the new agent to it (`WorkbenchState::doc_binds`), and the definitions tagged `doc`
+    /// are listed first. An aim, cleared with the others by [`Self::clear_aim`].
+    pub new_agent_for_doc: Option<crate::state::document::DocumentHandle>,
     /// Whether the task panel draws the fields nobody has filled in. Off at every start, flipped by
     /// the eye in the panel's own bar, and one answer for every task the window opens — the run of
     /// `no link` / `no parent` / `blocks nothing` placeholders is noise per panel, not per task, so
@@ -1016,7 +1025,7 @@ pub struct AppState {
     /// The annotation panel's one field: a fresh thread on a block, or a reply to one, whichever
     /// `DocumentEditor::composer` says it is answering. One at a time, `new_comment_input`'s own
     /// arrangement.
-    pub annotation_composer_input: Entity<InputState>,
+    pub annotation_composer_input: Entity<TextareaState>,
     /// The plan dialog's buffer — one per window, because one document is open at a time. It is
     /// the same `EditorState` a file tab holds, seeded from the host's body and written back by
     /// `save_document`; the dialog's `MdView` (`DocumentEditor::md`) is drawn over it, and its

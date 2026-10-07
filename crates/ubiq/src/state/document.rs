@@ -34,9 +34,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
 use gpui::{Entity, Subscription};
-use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
+use ubiq_proto::ids::{AnnotationId, BlockId, CommentId, ProjectId, TaskId};
 use ubiq_proto::plan::{
-    Annotation, AnnotationMark, AnnotationState, BlockHighlight, HighlightColour, PlanBlock,
+    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocBinding, HighlightColour,
+    PlanBlock,
     PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
 };
 use ubiq_proto::work::Addressee;
@@ -107,6 +108,9 @@ pub enum ComposerTarget {
     Block(BlockId),
     /// A reply appended to this thread.
     Reply(AnnotationId),
+    /// New text for one of the user's own comments on this thread. The composer's field is
+    /// seeded with the old text, and "send" is `EditAnnotationComment`.
+    Edit(AnnotationId, CommentId),
 }
 
 /// Which frame the one annotated-document surface is drawn in.
@@ -201,9 +205,13 @@ pub struct DocumentEditor {
     /// The marks a fresh thread is opened with — preset by marking a row that has no thread yet
     /// (`MdViewEvent::MarkRequested`), toggled by the composer's own chips.
     pub composer_marks: Vec<AnnotationMark>,
-    /// The composer's "@agent" toggle: the next post is addressed to the agent. One-shot — a post
-    /// or a cancel clears it.
+    /// The composer's "@agent" toggle: the next post is addressed to the agent. **Sticky** — it
+    /// stays as the user left it across posts, cancels and new threads, for the life of this
+    /// document's surface.
     pub composer_to_agent: bool,
+    /// The agent this document is bound to and its auto-send switch, as the host last stated them
+    /// (`D207`) — `PlanAnnotations`' `binding`, the answer to every mutation in the family.
+    pub binding: DocBinding,
     /// Mirrored out of `AppState::annotation_composer_input`: the entity behind the field is the
     /// window's, what was typed is the document's.
     pub composer_text: String,
@@ -253,6 +261,7 @@ impl DocumentEditor {
             composer: None,
             composer_marks: Vec::new(),
             composer_to_agent: false,
+            binding: DocBinding::default(),
             composer_text: String::new(),
             composer_needs_focus: false,
             notice: None,
@@ -350,6 +359,15 @@ impl DocumentEditor {
         {
             self.focused = None;
         }
+        // An edit whose comment went away has nothing left to edit.
+        if let Some(ComposerTarget::Edit(annotation, comment)) = self.composer
+            && !self
+                .annotation(annotation)
+                .is_some_and(|a| a.thread.iter().any(|c| c.id == comment))
+        {
+            self.composer = None;
+            self.composer_text.clear();
+        }
         self.decor_stale = true;
     }
 
@@ -393,6 +411,23 @@ impl DocumentEditor {
             .filter(|annotation| self.show_resolved || annotation.is_open())
             .map(|annotation| annotation.id)
             .collect()
+    }
+
+    /// How many open threads end on the user's own comment — what the host's *Ask agent* would
+    /// queue (`AskDocAgent` with no ids).
+    pub fn awaiting_agent(&self) -> usize {
+        self.annotations
+            .annotations()
+            .iter()
+            .filter(|annotation| {
+                annotation.is_open()
+                    && !annotation.review
+                    && annotation
+                        .thread
+                        .last()
+                        .is_some_and(|c| c.author == ubiq_proto::work::CommentAuthor::User)
+            })
+            .count()
     }
 
     /// Every annotation naming a given block, open and resolved alike.
@@ -853,6 +888,7 @@ mod tests {
             id: BlockId::generate(),
             kind: "paragraph".to_string(),
             text: text.to_string(),
+            lineage: String::new(),
         }
     }
 
@@ -861,6 +897,7 @@ mod tests {
             id: BlockId::generate(),
             kind: format!("heading:{depth}"),
             text: text.to_string(),
+            lineage: String::new(),
         }
     }
 

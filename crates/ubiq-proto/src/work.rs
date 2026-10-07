@@ -388,6 +388,11 @@ pub struct Comment {
     /// written before addressing existed, and on every comment that is simply said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to: Option<Addressee>,
+    /// When the text was last changed after it was written. Absent on a comment nobody edited,
+    /// and on every comment written before editing existed. Only an annotation thread's
+    /// user-authored comments can be edited (`Message::EditAnnotationComment`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<DateTime<Utc>>,
 }
 
 /// Who a comment is addressed to. The comment is still on the thread for everyone; this is what
@@ -416,6 +421,7 @@ impl Comment {
             text,
             created_at: now,
             to,
+            edited_at: None,
         }
     }
 }

@@ -7,18 +7,20 @@
 //! module is declared `#[cfg(feature = "harness")]` and re-exported with `pub use` in
 //! `super`, so nothing outside the crate can tell it moved.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::Utc;
-use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
+use ubiq_proto::ids::{AnnotationId, BlockId, CommentId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
-    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion,
+    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocBinding, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion,
     PlanRevision, SaveOrigin,
 };
-use ubiq_proto::work::{Addressee, CommentAuthor, Level};
+use ubiq_proto::work::{Addressee, AgentId, CommentAuthor, Level};
 
+use super::queue::{QueuedRef, ThreadView};
 use crate::reply::Reply;
 use crate::store::mission::MissionStore;
 use crate::store::plan::{FilePlanStore, Placement, PlanSidecar, sidecar_beside};
@@ -205,6 +207,79 @@ impl Target {
     }
 }
 
+/// Move every thread whose block split into the part its lineage says it belongs in (`D208`): the
+/// one part holding its quote, else the first part. Answers whether anything moved.
+fn follow_lineage(
+    annotations: &mut [Annotation],
+    children: &HashMap<BlockId, Vec<BlockId>>,
+    blocks: &[PlanBlock],
+) -> bool {
+    let normalise = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut moved = false;
+    for annotation in annotations.iter_mut() {
+        let Some(parts) = children.get(&annotation.block_id) else {
+            continue;
+        };
+        let holding: Vec<BlockId> = match annotation.quote.as_deref().map(normalise) {
+            Some(quote) if !quote.is_empty() => parts
+                .iter()
+                .copied()
+                .filter(|part| {
+                    blocks
+                        .iter()
+                        .any(|b| b.id == *part && normalise(&b.text).contains(&quote))
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let to = match holding.as_slice() {
+            [one] => *one,
+            _ => parts[0],
+        };
+        if to != annotation.block_id || annotation.orphaned {
+            annotation.block_id = to;
+            annotation.orphaned = false;
+            moved = true;
+        }
+    }
+    moved
+}
+
+/// Re-anchor every thread that quotes a passage by **where the passage now is**, after a save's
+/// block matching (`D208`). A block split in two keeps its id on one half only; a thread whose
+/// quote sits in the other half moves there, and a thread orphaned because its block vanished is
+/// brought back when its quote survives somewhere. **Only a unique match moves a thread** —
+/// `annotate_doc`'s own rule for a quote: a quote two blocks hold is ambiguous, and a wrong anchor
+/// is worse than an admitted missing one. A thread with no quote, or whose quote is gone or
+/// ambiguous, keeps what the matching decided. Answers whether anything moved.
+fn follow_quotes(annotations: &mut [Annotation], blocks: &[PlanBlock]) -> bool {
+    let normalise = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut moved = false;
+    for annotation in annotations.iter_mut() {
+        let Some(quote) = annotation.quote.as_deref().map(normalise) else {
+            continue;
+        };
+        if quote.is_empty() {
+            continue;
+        }
+        let holds = |block: &PlanBlock| normalise(&block.text).contains(&quote);
+        let here = !annotation.orphaned
+            && blocks
+                .iter()
+                .any(|block| block.id == annotation.block_id && holds(block));
+        if here {
+            continue;
+        }
+        let mut found = blocks.iter().filter(|block| holds(block));
+        if let (Some(block), None) = (found.next(), found.next()) {
+            annotation.block_id = block.id;
+            annotation.orphaned = false;
+            moved = true;
+        }
+    }
+    moved
+}
+
 /// Where a mission document's body sits, from the config root alone — the same `docs/` subtree
 /// [`crate::store::mission::MissionStore::docs_dir`] computes, reached without holding a full
 /// `MissionStore`: `Plans` already holds the config root through its own [`FilePlanStore`], and a
@@ -215,6 +290,53 @@ fn mission_doc_path(root: &Path, project: ProjectId, task: TaskId, name: &str) -
         .join(format!("{name}.md"))
 }
 
+/// The opening line of a thread posted for an agent's passage a merge kept the user's text over.
+const PROPOSED: &str = "Proposed (conflicted with your edit):";
+/// The same, for a passage another window saved.
+const FROM_ELSEWHERE: &str = "Saved elsewhere (conflicted with your edit):";
+/// The same, for a passage nothing in Ubiq wrote — an editor outside it.
+const FROM_OUTSIDE: &str = "Edited outside Ubiq (conflicted with your edit):";
+
+/// An agent's write, merged and ready to commit ([`Plans::agent_commit`]).
+pub struct AgentWrite {
+    /// What will be written.
+    pub body: String,
+    /// The passages the user's text won, each carrying the agent's losing version.
+    pub conflicts: Vec<ubiq_proto::merge::Conflict>,
+    /// A base was on record, so the merge stands in for the revision check.
+    pub based: bool,
+}
+
+impl AgentWrite {
+    /// Merge `body` from `base` against `current` — pure, so it runs with the lock released.
+    pub fn prepare(base: Option<&str>, current: Option<&str>, body: &str) -> Self {
+        match (base, current) {
+            (Some(base), Some(current)) => {
+                let merged = ubiq_proto::merge::merge3(base, current, body);
+                Self {
+                    body: merged.text,
+                    conflicts: merged.conflicts,
+                    based: true,
+                }
+            }
+            _ => Self {
+                body: body.to_string(),
+                conflicts: Vec::new(),
+                based: false,
+            },
+        }
+    }
+}
+
+/// What an agent's committed write came to.
+pub struct AgentSaved {
+    pub replies: Vec<Reply>,
+    /// Threads made from the passages the user's text won.
+    pub threads: Vec<AnnotationId>,
+    /// What was saved is not what the agent sent — merged with newer edits.
+    pub merged: bool,
+}
+
 /// One project's plans.
 pub struct Plans {
     store: FilePlanStore,
@@ -222,6 +344,14 @@ pub struct Plans {
     /// saved or exported. See the module doc for why this does not make `crate::mcp::PlanReach`
     /// hold a work handle of its own.
     work: work::Handle,
+    /// The body each agent last read or wrote, per document — the base an agent's next write is
+    /// merged from (`agent_save`). Keyed by the agent's MCP key and `DocumentHandle::key`. In
+    /// memory only: a host restart forgets it, and a write with no base is a plain save.
+    agent_bases: HashMap<(String, String), String>,
+    /// Each document's lineage codes by block id (`super::lineage`, `D208`), keyed by
+    /// `DocumentHandle::key`. In memory only — minted flat when absent, carried across every save,
+    /// and dropped by [`Self::reopen_lineage`] so the next answer mints them flat again.
+    lineage: HashMap<String, HashMap<BlockId, String>>,
 }
 
 /// A cloneable handle to [`Plans`], on [`crate::work::Handle`]'s own footing: the coordinator
@@ -231,6 +361,35 @@ pub struct Plans {
 pub struct Handle(Arc<Mutex<Plans>>);
 
 impl Handle {
+    /// An agent's write (`D208`), **merged outside the lock**: the base and the disk are read under
+    /// it, the merge — the one slow step — runs with it released, and the commit takes it again and
+    /// is refused if the disk moved meanwhile, in which case the merge is made again. A document
+    /// that keeps moving gets the whole thing under one hold on the last attempt.
+    pub fn agent_save(
+        &self,
+        target: &Target,
+        body: &str,
+        agent: &str,
+        expected: Option<PlanRevision>,
+    ) -> AgentSaved {
+        for _ in 0..3 {
+            let (base, current) = self.lock().agent_merge_inputs(target, agent);
+            let prepared = AgentWrite::prepare(base.as_deref(), current.as_deref(), body);
+            if let Some(saved) = self.lock().agent_commit(
+                target,
+                body,
+                agent,
+                expected,
+                current.as_deref(),
+                prepared,
+            ) {
+                return saved;
+            }
+        }
+        self.lock()
+            .agent_save(target, body.to_string(), agent, expected)
+    }
+
     pub fn new(plans: Plans) -> Self {
         Self(Arc::new(Mutex::new(plans)))
     }
@@ -247,7 +406,12 @@ impl Handle {
 
 impl Plans {
     pub fn open(store: FilePlanStore, work: work::Handle) -> Self {
-        Self { store, work }
+        Self {
+            store,
+            work,
+            agent_bases: HashMap::new(),
+            lineage: HashMap::new(),
+        }
     }
 
     /// Why this document may not be read or written, if there is a reason.
@@ -454,6 +618,296 @@ impl Plans {
         replies
     }
 
+    /// Remember what an agent just read, as the base its next write is merged from.
+    pub fn note_agent_read(&mut self, target: &Target, agent: &str, body: &str) {
+        self.agent_bases
+            .insert((agent.to_string(), target.handle().key()), body.to_string());
+    }
+
+    /// What an agent's write is merged against, read under the lock: the body the agent last read
+    /// or wrote (`None` when nothing is on record — a host restart, a first write) and the body on
+    /// disk now (`None` when the document may not be read).
+    pub fn agent_merge_inputs(
+        &mut self,
+        target: &Target,
+        agent: &str,
+    ) -> (Option<String>, Option<String>) {
+        let base = self
+            .agent_bases
+            .get(&(agent.to_string(), target.handle().key()))
+            .cloned();
+        let current = if self.refusal(target).is_none() {
+            self.read_body(target).ok()
+        } else {
+            None
+        };
+        (base, current)
+    }
+
+    /// An agent's write, **merged rather than replacing** whatever landed since the agent last
+    /// read or wrote the document (`D208`), all under one hold of the lock — what
+    /// [`Handle::agent_save`] falls back to when the document keeps moving under its unlocked
+    /// merge, and what a test drives directly.
+    pub fn agent_save(
+        &mut self,
+        target: &Target,
+        body: String,
+        agent: &str,
+        expected: Option<PlanRevision>,
+    ) -> AgentSaved {
+        let (base, current) = self.agent_merge_inputs(target, agent);
+        let prepared = AgentWrite::prepare(base.as_deref(), current.as_deref(), &body);
+        self.agent_commit(target, &body, agent, expected, current.as_deref(), prepared)
+            .expect("nothing moved: the read and the commit share one hold of the lock")
+    }
+
+    /// Commit a write [`AgentWrite::prepare`] merged — **refused, writing nothing, when the disk is
+    /// no longer `read`**, the body the merge was made against. Every write Ubiq makes to an
+    /// annotated document holds this lock (an agent's here, a window's `SavePlan`, a tab's save
+    /// through [`Self::file_save`]), so the check and the write cannot be split by another of them.
+    ///
+    /// Base is the body the agent last read or wrote, ours the disk, theirs the agent's body.
+    /// Disjoint edits all land; where both changed the same words **the user's text wins** and the
+    /// agent's version becomes a thread on that block, authored by the agent. With no base on
+    /// record the write is the plain [`Self::save`] with `expected` as given.
+    ///
+    /// **The base kept afterwards is what the agent sent**, not what was saved: it is the text the
+    /// agent believes the document holds, so its next write — built on its own text, or on the
+    /// merged body it was handed back — merges the user's edits in again rather than reverting
+    /// them. A read moves the base to the disk.
+    pub fn agent_commit(
+        &mut self,
+        target: &Target,
+        sent: &str,
+        agent: &str,
+        expected: Option<PlanRevision>,
+        read: Option<&str>,
+        prepared: AgentWrite,
+    ) -> Option<AgentSaved> {
+        let (_, current) = self.agent_merge_inputs(target, agent);
+        if current.as_deref() != read {
+            return None;
+        }
+        let expected = if prepared.based { None } else { expected };
+        let merged = prepared.body != sent;
+        let mut replies = self.save(target, prepared.body, &Saver::agent(agent), expected);
+        let saved = replies
+            .iter()
+            .any(|reply| matches!(reply.message(), Message::Plan { .. }));
+        if !saved {
+            return Some(AgentSaved {
+                replies,
+                threads: Vec::new(),
+                merged: false,
+            });
+        }
+        self.agent_bases
+            .insert((agent.to_string(), target.handle().key()), sent.to_string());
+        let (posted, threads) = self.post_proposals(
+            target,
+            &prepared.conflicts,
+            CommentAuthor::Agent,
+            PROPOSED,
+            false,
+        );
+        // Only the broadcast travels on: the asker of a write wants the body, not a thread list.
+        replies.extend(
+            posted
+                .into_iter()
+                .filter(|reply| matches!(reply, Reply::Everyone(_))),
+        );
+        Some(AgentSaved {
+            replies,
+            threads,
+            merged,
+        })
+    }
+
+    /// Post each contested passage's losing side as a thread on its block, unless that block
+    /// already carries a thread saying exactly this — a merge made twice over the same edit must
+    /// not say it twice. `by_theirs` anchors by the losing side's text (what is on disk, for a
+    /// window's claim) rather than the winning side's.
+    fn post_proposals(
+        &mut self,
+        target: &Target,
+        conflicts: &[ubiq_proto::merge::Conflict],
+        author: CommentAuthor,
+        label: &str,
+        by_theirs: bool,
+    ) -> (Vec<Reply>, Vec<AnnotationId>) {
+        let mut replies = Vec::new();
+        let mut threads = Vec::new();
+        for conflict in conflicts {
+            let theirs = conflict.theirs.trim();
+            if theirs.is_empty() {
+                continue;
+            }
+            let (anchor, other) = if by_theirs {
+                (&conflict.theirs, &conflict.ours)
+            } else {
+                (&conflict.ours, &conflict.theirs)
+            };
+            let Some(block) = self.anchor_block(target, anchor, other) else {
+                continue;
+            };
+            let text = format!("{label}\n\n{theirs}");
+            let before: Vec<Annotation> = self
+                .annotation_list(target)
+                .map(|(_, annotations, _)| annotations)
+                .unwrap_or_default();
+            let said = before.iter().any(|a| {
+                a.block_id == block && a.thread.iter().any(|comment| comment.text == text)
+            });
+            if said {
+                continue;
+            }
+            let made = self.annotate(target, block, None, author, text, Vec::new(), None);
+            for reply in &made {
+                if let Message::PlanAnnotations { annotations, .. } = reply.message() {
+                    threads.extend(
+                        annotations
+                            .iter()
+                            .map(|a| a.id)
+                            .filter(|id| !before.iter().any(|a| a.id == *id)),
+                    );
+                }
+            }
+            replies.extend(made);
+        }
+        (replies, threads)
+    }
+
+    /// A window kept the user's words over passages another writer put on disk (`D208`,
+    /// `Message::DocMergeConflicts`): post each such passage as a thread on its block.
+    ///
+    /// A claim is only honoured when its `theirs` is in the body as it stands on disk now — the
+    /// window cannot invent text and have it posted under another author. **Who wrote it is read
+    /// per passage** from the provenance stamps ([`Self::passage_origin`]): an agent's lines are
+    /// posted as the agent's proposal, another window's as the user's, and a passage the stamps
+    /// cannot vouch for (an edit made outside Ubiq) as an outside edit — never guessed at.
+    pub fn disk_conflicts(
+        &mut self,
+        target: &Target,
+        conflicts: Vec<ubiq_proto::merge::Conflict>,
+    ) -> Vec<Reply> {
+        let Ok(disk) = self.body(target) else {
+            return Vec::new();
+        };
+        let disk = disk.replace("\r\n", "\n");
+        let mut replies = Vec::new();
+        for conflict in conflicts {
+            let theirs = conflict.theirs.replace("\r\n", "\n");
+            if theirs.trim().is_empty() || !disk.contains(theirs.trim()) {
+                continue;
+            }
+            let (author, label) = match self.passage_origin(target, &disk, theirs.trim()) {
+                Some(SaveOrigin::Agent) => (CommentAuthor::Agent, PROPOSED),
+                Some(SaveOrigin::Human) => (CommentAuthor::User, FROM_ELSEWHERE),
+                None => (CommentAuthor::User, FROM_OUTSIDE),
+            };
+            let (posted, _) = self.post_proposals(target, &[conflict], author, label, true);
+            replies.extend(posted);
+        }
+        replies
+    }
+
+    /// Who last wrote every line of `passage`, as the provenance stamps say — `None` when the lines
+    /// disagree, a line carries no stamp, or the disk is no longer the body the stamps were made
+    /// for (its blocks differ from the last indexed ones: something wrote it outside Ubiq).
+    fn passage_origin(&mut self, target: &Target, disk: &str, passage: &str) -> Option<SaveOrigin> {
+        let sidecar = self.read_sidecar(target).ok()??;
+        let now = super::blocks::blocks(disk);
+        if now.len() != sidecar.blocks.len()
+            || now
+                .iter()
+                .zip(&sidecar.blocks)
+                .any(|(block, indexed)| block.text != indexed.text)
+        {
+            return None;
+        }
+        let at = disk.find(passage)?;
+        let first = disk[..at].matches('\n').count() as u32 + 1;
+        let last = first + passage.matches('\n').count() as u32;
+        let mut origin = None;
+        for line in first..=last {
+            let run = sidecar
+                .provenance
+                .iter()
+                .find(|run| run.first_line <= line && line <= run.last_line)?;
+            match origin {
+                None => origin = Some(run.origin),
+                Some(seen) if seen != run.origin => return None,
+                _ => {}
+            }
+        }
+        origin
+    }
+
+    /// Whether this document has a sidecar — an annotated document, whose every write goes
+    /// through this lock and stamps provenance (`D208`).
+    pub fn is_annotated(&self, target: &Target) -> bool {
+        self.sidecar_path(target).exists()
+    }
+
+    /// A window's ordinary tab save of an annotated markdown file (`WriteProjectFile`), made under
+    /// this lock and stamped as the user's (`D208`): the file is written with the tab's own
+    /// version check exactly as the file worker would, then re-indexed — so the block index, the
+    /// threads and the provenance follow a tab save the way they follow a `SavePlan`, and an
+    /// agent's merge can never land between this write's check and its write.
+    pub fn file_save(
+        &mut self,
+        target: &Target,
+        root: &Path,
+        rel_path: &str,
+        bytes: &[u8],
+        expected: Option<ubiq_proto::files::FileVersion>,
+        overwrite: bool,
+    ) -> Result<(ubiq_proto::files::FileVersion, Vec<Reply>), ubiq_proto::files::FileError> {
+        let previous = self.read_body(target).unwrap_or_default();
+        let version = crate::files::save(root, rel_path, bytes, expected, overwrite)?;
+        let body = String::from_utf8_lossy(bytes).into_owned();
+        let mut replies = Vec::new();
+        // The body is on disk either way; a sidecar that will not take the stamp leaves the index
+        // where every pre-`D208` tab save left it.
+        if let Ok((revision, changed)) = self.reindex(target, &previous, &body, &Saver::human()) {
+            replies.push(Reply::Everyone(Message::PlanChanged {
+                doc: target.handle(),
+                revision,
+                origin: SaveOrigin::Human,
+            }));
+            if changed {
+                replies.push(Reply::Everyone(Message::PlanAnnotationsChanged {
+                    doc: target.handle(),
+                }));
+            }
+        }
+        Ok((version, replies))
+    }
+
+    /// The block a contested region belongs to: the first whose text holds one of the lines only
+    /// the user's side has (where the two actually disagree), then any of the region's lines, else
+    /// the document's first block — a thread is never dropped for want of a place.
+    fn anchor_block(&mut self, target: &Target, ours: &str, theirs: &str) -> Option<BlockId> {
+        let normalise = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let (blocks, _, _) = self.annotation_list(target).ok()?;
+        let theirs = normalise(theirs);
+        let (only_ours, shared): (Vec<String>, Vec<String>) = ours
+            .lines()
+            .map(normalise)
+            .filter(|line| !line.is_empty())
+            .partition(|line| !theirs.contains(line.as_str()));
+        only_ours
+            .into_iter()
+            .chain(shared)
+            .find_map(|line| {
+                blocks
+                    .iter()
+                    .find(|block| normalise(&block.text).contains(&line))
+            })
+            .or_else(|| blocks.first())
+            .map(|block| block.id)
+    }
+
     /// Where a task's plan has been edited since `since`, and by how much.
     ///
     /// `since` absent means from the beginning, which for a plan with provenance is every line
@@ -541,6 +995,27 @@ impl Plans {
                 changed = true;
             }
         }
+        // The codes follow the save, and a thread on a block that split follows its lineage into
+        // the part that holds its quote — before the document-wide quote rule below.
+        let previous_blocks = sidecar.blocks.clone();
+        let codes = {
+            let codes = self.lineage.entry(target.handle().key()).or_default();
+            let order: Vec<BlockId> = previous_blocks.iter().map(|block| block.id).collect();
+            super::lineage::fill(codes, &order);
+            codes.clone()
+        };
+        let seen = |blocks: &[PlanBlock]| -> Vec<(BlockId, String)> {
+            blocks.iter().map(|b| (b.id, b.text.clone())).collect()
+        };
+        let (prev, next) = (seen(&previous_blocks), seen(&matching.blocks));
+        let carried = super::lineage::carry(
+            &prev.iter().map(|(id, t)| (*id, t.as_str())).collect::<Vec<_>>(),
+            &next.iter().map(|(id, t)| (*id, t.as_str())).collect::<Vec<_>>(),
+            &codes,
+        );
+        changed |= follow_lineage(&mut sidecar.annotations, &carried.children, &matching.blocks);
+        self.lineage.insert(target.handle().key(), carried.codes);
+        changed |= follow_quotes(&mut sidecar.annotations, &matching.blocks);
         let before = sidecar.highlights.len();
         sidecar
             .highlights
@@ -627,15 +1102,28 @@ impl Plans {
     /// index they anchor to. The filtering is the interface's; see
     /// [`Message::ListPlanAnnotations`].
     pub fn annotations(&mut self, target: &Target) -> Vec<Reply> {
-        match self.annotation_list(target) {
-            Ok((blocks, annotations, highlights)) => vec![Reply::Asker(Message::PlanAnnotations {
-                doc: target.handle(),
-                blocks,
-                annotations,
-                highlights,
-            })],
+        if let Some(refusal) = self.refusal(target) {
+            return vec![Reply::Asker(doc_error(target, refusal))];
+        }
+        match self.sidecar(target) {
+            Ok(mut sidecar) => {
+                self.code(target, &mut sidecar.blocks);
+                vec![Reply::Asker(snapshot(target, sidecar))]
+            }
             Err(error) => vec![Reply::Asker(doc_error(target, error))],
         }
+    }
+
+    /// The agent the document is bound to and its auto-send switch (`D207`), read without
+    /// re-indexing anything. Unbound for a document with no sidecar yet.
+    pub fn binding(&mut self, target: &Target) -> Result<DocBinding, String> {
+        if let Some(refusal) = self.refusal(target) {
+            return Err(refusal);
+        }
+        Ok(self
+            .read_sidecar(target)?
+            .map(|sidecar| sidecar.binding())
+            .unwrap_or_default())
     }
 
     /// The blocks and the annotations themselves, for a caller that wants the records rather than
@@ -648,8 +1136,26 @@ impl Plans {
         if let Some(refusal) = self.refusal(target) {
             return Err(refusal);
         }
-        let sidecar = self.sidecar(target)?;
+        let mut sidecar = self.sidecar(target)?;
+        self.code(target, &mut sidecar.blocks);
         Ok((sidecar.blocks, sidecar.annotations, sidecar.highlights))
+    }
+
+    /// Stamp each block with its lineage code (`D208`) — on a copy bound for an answer, never on
+    /// the sidecar's own, which is written without them. Blocks with no code yet get one here.
+    fn code(&mut self, target: &Target, blocks: &mut [PlanBlock]) {
+        let codes = self.lineage.entry(target.handle().key()).or_default();
+        let order: Vec<BlockId> = blocks.iter().map(|block| block.id).collect();
+        super::lineage::fill(codes, &order);
+        for block in blocks {
+            block.lineage = codes.get(&block.id).cloned().unwrap_or_default();
+        }
+    }
+
+    /// The document was opened again: its codes are forgotten, so the next answer mints them flat
+    /// — the compaction a long editing session's `AAB.AB.AA` codes are owed.
+    pub fn reopen_lineage(&mut self, target: &Target) {
+        self.lineage.remove(&target.handle().key());
     }
 
     /// The one block whose text contains `quote`, whitespace-normalised on both sides. Refused
@@ -803,6 +1309,86 @@ impl Plans {
             } else {
                 AnnotationState::Open
             };
+            // A ruling either way answers the review an agent asked for.
+            found.review = false;
+            Ok(())
+        })
+    }
+
+    /// An agent's "resolve": **it proposes, it never closes** (`D208`). The thread stays open,
+    /// takes `review`, and the agent's closing note — when it gave one — is
+    /// appended as its comment. Only the user's [`Self::resolve`] closes a thread.
+    pub fn propose_resolution(
+        &mut self,
+        target: &Target,
+        annotation: AnnotationId,
+        note: Option<String>,
+    ) -> Vec<Reply> {
+        self.mutate(target, |sidecar| {
+            let found = sidecar
+                .annotations
+                .iter_mut()
+                .find(|existing| existing.id == annotation)
+                .ok_or_else(|| "no such annotation".to_string())?;
+            if let Some(note) = note.map(|note| note.trim().to_string()).filter(|n| !n.is_empty())
+            {
+                found.thread.push(ubiq_proto::work::Comment::new(
+                    CommentAuthor::Agent,
+                    note,
+                    Utc::now(),
+                ));
+            }
+            found.review = true;
+            Ok(())
+        })
+    }
+
+    /// Replace a comment's text and stamp `edited_at`. **Only a user's comment** — the interface
+    /// is the only caller, and an agent's words are never rewritten by it.
+    pub fn edit_comment(
+        &mut self,
+        target: &Target,
+        annotation: AnnotationId,
+        comment: CommentId,
+        text: String,
+    ) -> Vec<Reply> {
+        self.mutate(target, |sidecar| {
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                return Err("a comment needs some text".to_string());
+            }
+            let found = sidecar
+                .annotations
+                .iter_mut()
+                .find(|existing| existing.id == annotation)
+                .ok_or_else(|| "no such annotation".to_string())?
+                .thread
+                .iter_mut()
+                .find(|existing| existing.id == comment)
+                .ok_or_else(|| "no such comment".to_string())?;
+            if found.author != CommentAuthor::User {
+                return Err("only your own comments can be edited".to_string());
+            }
+            if found.text != text {
+                found.text = text;
+                found.edited_at = Some(Utc::now());
+            }
+            Ok(())
+        })
+    }
+
+    /// Bind the document to an agent, move it, or unbind it (`D207`).
+    pub fn set_agent(&mut self, target: &Target, agent: Option<AgentId>) -> Vec<Reply> {
+        self.mutate(target, |sidecar| {
+            sidecar.agent = agent;
+            Ok(())
+        })
+    }
+
+    /// Turn auto-send on or off.
+    pub fn set_auto_send(&mut self, target: &Target, auto_send: bool) -> Vec<Reply> {
+        self.mutate(target, |sidecar| {
+            sidecar.auto_send = auto_send;
             Ok(())
         })
     }
@@ -829,13 +1415,10 @@ impl Plans {
         if let Err(error) = self.write_sidecar(target, &sidecar) {
             return vec![Reply::Asker(doc_error(target, error))];
         }
+        let mut answer = sidecar;
+        self.code(target, &mut answer.blocks);
         vec![
-            Reply::Asker(Message::PlanAnnotations {
-                doc: target.handle(),
-                blocks: sidecar.blocks,
-                annotations: sidecar.annotations,
-                highlights: sidecar.highlights,
-            }),
+            Reply::Asker(snapshot(target, answer)),
             Reply::Everyone(Message::PlanAnnotationsChanged {
                 doc: target.handle(),
             }),
@@ -843,34 +1426,82 @@ impl Plans {
     }
 
     // ── agent delivery ─────────────────────────────────────────
-    /// The prompt that delivers an agent-addressed comment, and the task it belongs to. `None`
-    /// for a file document (an `Agent` mark only, nobody to deliver to), for a missing
-    /// annotation, and when the document cannot be read. `annotation` of `None` is the newest
-    /// annotation, which is what a just-created one is.
-    pub fn agent_prompt(
+    /// The threads the manual ask hands the doc queue, with the binding they go to — one sidecar
+    /// read.
+    ///
+    /// `ids` empty is every open thread whose last word is the user's — what is waiting on the
+    /// agent. Each carries the user's trailing comments, the ones since anybody else spoke.
+    pub fn awaiting_threads(
         &mut self,
         target: &Target,
-        annotation: Option<AnnotationId>,
-    ) -> Option<(TaskId, String)> {
-        let (task, label) = match target {
-            Target::Plan { task, .. } => (*task, "the plan".to_string()),
-            Target::MissionDoc { task, name, .. } => (*task, format!("the mission document {name}")),
-            Target::File { .. } => return None,
-        };
-        let (blocks, annotations, _) = self.annotation_list(target).ok()?;
-        let found = match annotation {
-            Some(id) => annotations.iter().find(|existing| existing.id == id)?,
-            None => annotations.last()?,
-        };
-        let comment = found.thread.last()?;
-        let excerpt = blocks
+        ids: &[AnnotationId],
+    ) -> Result<(DocBinding, Vec<QueuedRef>), String> {
+        if let Some(refusal) = self.refusal(target) {
+            return Err(refusal);
+        }
+        let sidecar = self.sidecar(target)?;
+        let threads = sidecar
+            .annotations
             .iter()
-            .find(|block| block.id == found.block_id)
-            .map(|block| block.text.as_str());
-        Some((
-            task,
-            agent_prompt_text(&label, found, excerpt, &comment.text),
-        ))
+            .filter(|annotation| {
+                // A thread awaiting the user's review is the user's move, never the agent's.
+                if ids.is_empty() {
+                    annotation.is_open()
+                        && !annotation.review
+                        && annotation
+                            .thread
+                            .last()
+                            .is_some_and(|comment| comment.author == CommentAuthor::User)
+                } else {
+                    ids.contains(&annotation.id)
+                }
+            })
+            .map(|annotation| {
+                let mut comment_ids: Vec<CommentId> = annotation
+                    .thread
+                    .iter()
+                    .rev()
+                    .take_while(|comment| comment.author == CommentAuthor::User)
+                    .map(|comment| comment.id)
+                    .collect();
+                comment_ids.reverse();
+                QueuedRef {
+                    doc: target.handle(),
+                    annotation_id: annotation.id,
+                    comment_ids,
+                }
+            })
+            .collect();
+        Ok((sidecar.binding(), threads))
+    }
+
+    /// A queued thread as the sidecar reads now, for the doc queue's delivery. `None` for a thread
+    /// resolved, deleted or unreadable since it was queued — it is not delivered. The comments are
+    /// the queued ones as they now read; one deleted since is left out.
+    pub fn thread_view(&mut self, target: &Target, queued: &QueuedRef) -> Option<ThreadView> {
+        let (blocks, annotations, _) = self.annotation_list(target).ok()?;
+        let annotation = annotations
+            .iter()
+            .find(|annotation| annotation.id == queued.annotation_id)
+            .filter(|annotation| annotation.is_open())?;
+        let quote = annotation.quote.clone().or_else(|| {
+            blocks
+                .iter()
+                .find(|block| block.id == annotation.block_id)
+                .map(|block| block.text.clone())
+        });
+        let texts = annotation
+            .thread
+            .iter()
+            .filter(|comment| queued.comment_ids.contains(&comment.id))
+            .map(|comment| comment.text.clone())
+            .collect();
+        Some(ThreadView {
+            doc: queued.doc.clone(),
+            annotation_id: annotation.id,
+            quote,
+            texts,
+        })
     }
 
     /// A task's plan body, or the reason it may not be read — for a caller that wants the string
@@ -893,31 +1524,48 @@ pub fn choose_agent(
     coordinator.or_else(|| assigned_to.and_then(|who| who.trim().parse().ok()))
 }
 
-/// The words an agent is handed for a comment addressed to it.
-fn agent_prompt_text(
-    label: &str,
-    annotation: &Annotation,
-    excerpt: Option<&str>,
-    comment: &str,
-) -> String {
-    let mut text = format!(
-        "A comment on {label} is addressed to you (annotation {}).\n",
-        annotation.id
-    );
-    if let Some(excerpt) = excerpt.map(str::trim).filter(|excerpt| !excerpt.is_empty()) {
-        let clipped: String = excerpt.chars().take(400).collect();
-        let ellipsis = if clipped.len() < excerpt.len() { "…" } else { "" };
-        text.push_str(&format!("Block: {clipped}{ellipsis}\n"));
+/// What a user comment just added hands the doc queue (`D207`), read off the mutation's own
+/// `PlanAnnotations` reply so the sidecar is not read again: the document's binding and the thread
+/// with the newest comment on it. `annotation` of `None` is the newest annotation, which is what a
+/// just-created one is. `None` when the mutation failed.
+pub fn queued_from(
+    replies: &[Reply],
+    annotation: Option<AnnotationId>,
+) -> Option<(DocBinding, QueuedRef)> {
+    replies.iter().find_map(|reply| match reply.message() {
+        Message::PlanAnnotations {
+            doc,
+            annotations,
+            binding,
+            ..
+        } => {
+            let found = match annotation {
+                Some(id) => annotations.iter().find(|existing| existing.id == id)?,
+                None => annotations.last()?,
+            };
+            Some((
+                *binding,
+                QueuedRef {
+                    doc: doc.clone(),
+                    annotation_id: found.id,
+                    comment_ids: vec![found.thread.last()?.id],
+                },
+            ))
+        }
+        _ => None,
+    })
+}
+
+/// A document's annotation snapshot, binding included — what every read and mutation answers.
+fn snapshot(target: &Target, sidecar: PlanSidecar) -> Message {
+    let binding = sidecar.binding();
+    Message::PlanAnnotations {
+        doc: target.handle(),
+        blocks: sidecar.blocks,
+        annotations: sidecar.annotations,
+        highlights: sidecar.highlights,
+        binding,
     }
-    if let Some(quote) = &annotation.quote {
-        text.push_str(&format!("Quoted: {quote}\n"));
-    }
-    text.push_str(&format!(
-        "Comment: {comment}\n\
-         Answer with the `reply_annotation` tool of the ubiq-plan MCP, and call \
-         `resolve_annotation` once it is dealt with."
-    ));
-    text
 }
 
 /// One failure, named against the document it is about.
@@ -2255,17 +2903,17 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_prompt_carries_the_annotation_the_block_and_the_comment() {
+    fn a_queued_thread_reads_the_annotation_the_block_and_the_comment_at_delivery() {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let target = Target::plan(project, task);
         plans.save(&target, "# Plan\n\nShip the thing.".to_string(), &Saver::human(), None);
         let (blocks, _, _) = plans.annotation_list(&target).unwrap();
         let block = blocks.iter().find(|b| b.text.contains("Ship")).unwrap().id;
-        plans.annotate(
+        let replies = plans.annotate(
             &target,
             block,
-            Some("Ship".to_string()),
+            None,
             CommentAuthor::User,
             "why now?".to_string(),
             Vec::new(),
@@ -2273,14 +2921,104 @@ mod tests {
         );
         let (_, annotations, _) = plans.annotation_list(&target).unwrap();
         let id = annotations[0].id;
-        let (for_task, prompt) = plans.agent_prompt(&target, None).unwrap();
-        assert_eq!(for_task, task);
-        assert!(prompt.contains(&id.to_string()));
-        assert!(prompt.contains("the plan"));
-        assert!(prompt.contains("Ship the thing."));
-        assert!(prompt.contains("why now?"));
-        assert!(prompt.contains("reply_annotation") && prompt.contains("resolve_annotation"));
-        assert!(plans.agent_prompt(&target, Some(AnnotationId::generate())).is_none());
+        let (binding, queued) = queued_from(&replies, None).unwrap();
+        assert_eq!(binding, DocBinding::default());
+        assert_eq!(queued.annotation_id, id);
+        assert!(queued_from(&replies, Some(AnnotationId::generate())).is_none());
+
+        let view = plans.thread_view(&target, &queued).unwrap();
+        assert_eq!(view.quote.as_deref(), Some("Ship the thing."));
+        assert_eq!(view.texts, vec!["why now?".to_string()]);
+
+        // Edited since it was queued: delivered as it now reads. Resolved: not delivered.
+        plans.edit_comment(&target, id, queued.comment_ids[0], "why now, really?".to_string());
+        assert_eq!(
+            plans.thread_view(&target, &queued).unwrap().texts,
+            vec!["why now, really?".to_string()]
+        );
+        plans.resolve(&target, id, true);
+        assert!(plans.thread_view(&target, &queued).is_none());
+    }
+
+    /// A file document reaches its bound agent: the thread comes back with the binding, where it
+    /// used to come back as nothing at all.
+    #[test]
+    fn a_bound_file_documents_thread_reaches_the_agent_and_the_snapshot_carries_the_binding() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("spec.md"), "# Spec\n\nA claim.").unwrap();
+        let target = file_target(&repo, project, "spec.md");
+        let agent = AgentId::generate();
+        plans.set_agent(&target, Some(agent));
+        let replies = plans.set_auto_send(&target, true);
+        let carried = replies.iter().find_map(|reply| match reply.message() {
+            Message::PlanAnnotations { binding, .. } => Some(*binding),
+            _ => None,
+        });
+        assert_eq!(
+            carried,
+            Some(DocBinding {
+                agent: Some(agent),
+                auto_send: true
+            })
+        );
+        let (blocks, _, _) = plans.annotation_list(&target).unwrap();
+        let replies = plans.annotate(
+            &target,
+            blocks[1].id,
+            Some("claim".to_string()),
+            CommentAuthor::User,
+            "source?".to_string(),
+            Vec::new(),
+            None,
+        );
+        let (binding, queued) = queued_from(&replies, None).unwrap();
+        assert_eq!(binding.agent, Some(agent));
+        assert_eq!(queued.doc, target.handle());
+        assert!(plans.thread_view(&target, &queued).is_some());
+
+        let (_, waiting) = plans.awaiting_threads(&target, &[]).unwrap();
+        assert_eq!(waiting.len(), 1, "an open thread whose last word is the user's");
+
+        plans.set_agent(&target, None);
+        assert_eq!(plans.binding(&target).unwrap().agent, None);
+    }
+
+    #[test]
+    fn only_a_users_comment_can_be_edited_and_an_edit_is_stamped() {
+        let (mut plans, work, project, _dir) = plans_with_work();
+        let task = make_mission(&work, project);
+        let target = Target::plan(project, task);
+        plans.save(&target, "# Plan\n\nShip it.".to_string(), &Saver::human(), None);
+        let (blocks, _, _) = plans.annotation_list(&target).unwrap();
+        plans.annotate(
+            &target,
+            blocks[1].id,
+            None,
+            CommentAuthor::User,
+            "first".to_string(),
+            Vec::new(),
+            None,
+        );
+        let (_, annotations, _) = plans.annotation_list(&target).unwrap();
+        let annotation = annotations[0].id;
+        plans.reply_to(&target, annotation, CommentAuthor::Agent, "agent".to_string(), None);
+        let (_, annotations, _) = plans.annotation_list(&target).unwrap();
+        let (mine, theirs) = (annotations[0].thread[0].id, annotations[0].thread[1].id);
+
+        plans.edit_comment(&target, annotation, mine, "first, edited".to_string());
+        let refused = plans.edit_comment(&target, annotation, theirs, "hijack".to_string());
+        assert!(refused.iter().any(|reply| matches!(
+            reply.message(),
+            Message::PlanError { error, .. } if error.contains("only your own")
+        )));
+
+        let (_, annotations, _) = plans.annotation_list(&target).unwrap();
+        let thread = &annotations[0].thread;
+        assert_eq!(thread[0].text, "first, edited");
+        assert!(thread[0].edited_at.is_some());
+        assert_eq!(thread[1].text, "agent");
+        assert!(thread[1].edited_at.is_none());
     }
 
     #[test]
@@ -2292,5 +3030,245 @@ mod tests {
         assert_eq!(choose_agent(None, Some(&assigned)), Some(assignee));
         assert_eq!(choose_agent(None, Some("a person")), None);
         assert_eq!(choose_agent(None, None), None);
+    }
+
+    // ── an agent's write merged over the user's newer text (`D208`) ─────
+
+    const BASE: &str = "# T\n\nAlpha one. Alpha two.\n\nBeta.\n\nGamma old.\n";
+    const SPLIT: &str = "# T\n\nAlpha one.\n\nAlpha two.\n\nBeta.\n\nGamma old.\n";
+
+    /// A file document at [`BASE`], read by `agent`, then split by the user in its first block.
+    fn read_then_split(agent: &str) -> (Plans, Target, tempfile::TempDir, tempfile::TempDir) {
+        let (mut plans, _work, project, dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+        plans.save(&target, BASE.to_string(), &Saver::human(), None);
+        plans.note_agent_read(&target, agent, BASE);
+        plans.save(&target, SPLIT.to_string(), &Saver::human(), None);
+        (plans, target, repo, dir)
+    }
+
+    fn on_disk(plans: &Plans, target: &Target) -> String {
+        plans.read_body(target).unwrap()
+    }
+
+    #[test]
+    fn a_split_and_a_later_agent_edit_both_land() {
+        let (mut plans, target, _repo, _dir) = read_then_split("a1");
+        let theirs = BASE.replace("Gamma old.", "Gamma new.");
+        // A stale revision is no refusal when there is a base to merge from.
+        let threads = plans.agent_save(&target, theirs, "a1", Some(1)).threads;
+        assert!(threads.is_empty());
+        assert_eq!(
+            on_disk(&plans, &target),
+            "# T\n\nAlpha one.\n\nAlpha two.\n\nBeta.\n\nGamma new.\n"
+        );
+    }
+
+    #[test]
+    fn an_agent_edit_inside_the_split_block_merges_by_word() {
+        let (mut plans, target, _repo, _dir) = read_then_split("a1");
+        let theirs = BASE.replace("Alpha two.", "Alpha 2.");
+        let threads = plans.agent_save(&target, theirs, "a1", None).threads;
+        assert!(threads.is_empty());
+        assert_eq!(
+            on_disk(&plans, &target),
+            "# T\n\nAlpha one.\n\nAlpha 2.\n\nBeta.\n\nGamma old.\n"
+        );
+    }
+
+    #[test]
+    fn a_true_overlap_keeps_the_user_and_posts_the_agent_as_a_thread() {
+        let (mut plans, target, _repo, _dir) = read_then_split("a1");
+        plans.save(
+            &target,
+            SPLIT.replace("Alpha two.", "Alpha zwei."),
+            &Saver::human(),
+            None,
+        );
+        let theirs = BASE.replace("Alpha two.", "Alpha deux.");
+        let threads = plans.agent_save(&target, theirs, "a1", None).threads;
+        assert!(on_disk(&plans, &target).contains("Alpha zwei."));
+        assert!(!on_disk(&plans, &target).contains("deux"));
+        assert_eq!(threads.len(), 1);
+        let (blocks, annotations, _) = plans.annotation_list(&target).unwrap();
+        let thread = annotations.iter().find(|a| a.id == threads[0]).unwrap();
+        assert_eq!(thread.thread[0].author, CommentAuthor::Agent);
+        assert!(thread.thread[0].text.contains("Alpha deux."));
+        let block = blocks.iter().find(|b| b.id == thread.block_id).unwrap();
+        assert!(block.text.contains("zwei"), "anchored on the contested block");
+    }
+
+    #[test]
+    fn a_thread_follows_its_quote_into_the_half_of_a_split_block() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+        plans.save(&target, BASE.to_string(), &Saver::human(), None);
+        let block = plans.block_for_quote(&target, "Alpha two").unwrap();
+        plans.annotate(
+            &target,
+            block,
+            Some("Alpha two".to_string()),
+            CommentAuthor::User,
+            "why two?".to_string(),
+            Vec::new(),
+            None,
+        );
+        plans.save(&target, SPLIT.to_string(), &Saver::human(), None);
+        let (blocks, annotations, _) = plans.annotation_list(&target).unwrap();
+        let anchored = blocks
+            .iter()
+            .find(|b| b.id == annotations[0].block_id)
+            .unwrap();
+        assert!(!annotations[0].orphaned);
+        assert_eq!(anchored.text.trim(), "Alpha two.");
+    }
+
+    /// Review fix 1: a second write built on the agent's own text, after a clean merge, keeps the
+    /// user's edit — the base is what the agent sent, so the user's change is merged in again.
+    #[test]
+    fn a_second_agent_write_after_a_clean_merge_keeps_the_users_edit() {
+        let (mut plans, target, _repo, _dir) = read_then_split("a1");
+        let first = BASE.replace("Gamma old.", "Gamma new.");
+        let saved = plans.agent_save(&target, first.clone(), "a1", None);
+        assert!(saved.merged, "the split is in what stands, not in what was sent");
+        // The agent ignores the note and writes again from its own text.
+        let second = first.replace("Beta.", "Beta, expanded.");
+        plans.agent_save(&target, second, "a1", None);
+        assert_eq!(
+            on_disk(&plans, &target),
+            "# T\n\nAlpha one.\n\nAlpha two.\n\nBeta, expanded.\n\nGamma new.\n"
+        );
+    }
+
+    /// Review fix 3: a tab save landing between an agent's unlocked merge and its commit refuses
+    /// the commit, and the handle merges again over the user's newer text.
+    #[test]
+    fn a_tab_save_between_merge_and_commit_is_merged_not_overwritten() {
+        let (mut plans, target, repo, _dir) = read_then_split("a1");
+        let theirs = BASE.replace("Gamma old.", "Gamma new.");
+        let (base, current) = plans.agent_merge_inputs(&target, "a1");
+        let prepared = AgentWrite::prepare(base.as_deref(), current.as_deref(), &theirs);
+        // The user's tab saves meanwhile, under the lock.
+        let user = SPLIT.replace("Beta.", "Beta (user).");
+        let version = crate::files::save(repo.path(), "notes.md", SPLIT.as_bytes(), None, true)
+            .unwrap();
+        plans
+            .file_save(&target, repo.path(), "notes.md", user.as_bytes(), Some(version), false)
+            .unwrap();
+        assert!(
+            plans
+                .agent_commit(&target, &theirs, "a1", None, current.as_deref(), prepared)
+                .is_none(),
+            "the disk moved under the merge, so nothing is written"
+        );
+        let handle = Handle::new(plans);
+        handle.agent_save(&target, &theirs, "a1", None);
+        assert_eq!(
+            handle.lock().read_body(&target).unwrap(),
+            "# T\n\nAlpha one.\n\nAlpha two.\n\nBeta (user).\n\nGamma new.\n"
+        );
+    }
+
+    /// Review fixes 2 and 10: a window's conflict claim is authored by who the stamps say wrote
+    /// the passage, and the same claim twice makes one thread.
+    #[test]
+    fn a_window_claim_is_stamped_by_provenance_and_said_once() {
+        let (mut plans, target, _repo, _dir) = read_then_split("a1");
+        let theirs = SPLIT.replace("Gamma old.", "Gamma by agent.");
+        plans.agent_save(&target, theirs, "a1", None);
+        let claim = ubiq_proto::merge::Conflict {
+            base: "Gamma old.\n".into(),
+            ours: "Gamma by user.\n".into(),
+            theirs: "Gamma by agent.\n".into(),
+        };
+        plans.disk_conflicts(&target, vec![claim.clone()]);
+        plans.disk_conflicts(&target, vec![claim]);
+        let (_, annotations, _) = plans.annotation_list(&target).unwrap();
+        assert_eq!(annotations.len(), 1, "said once");
+        assert_eq!(annotations[0].thread[0].author, CommentAuthor::Agent);
+        // A passage not on disk is refused outright.
+        let invented = ubiq_proto::merge::Conflict {
+            base: String::new(),
+            ours: String::new(),
+            theirs: "Never written.".into(),
+        };
+        assert!(plans.disk_conflicts(&target, vec![invented]).is_empty());
+    }
+
+    /// Lineage (`D208`): the user splits a block while an agent's write is in flight; the parts
+    /// take child codes, the agent's edit elsewhere keeps its block's code, and a thread on the
+    /// split block follows its quote into the part holding it.
+    #[test]
+    fn a_split_during_an_agent_write_carries_codes_and_threads() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+        plans.save(&target, BASE.to_string(), &Saver::human(), None);
+        let code_of = |plans: &mut Plans, text: &str| {
+            let (blocks, _, _) = plans.annotation_list(&target).unwrap();
+            blocks
+                .into_iter()
+                .find(|b| b.text.trim() == text)
+                .map(|b| b.lineage)
+                .unwrap()
+        };
+        assert_eq!(code_of(&mut plans, "Alpha one. Alpha two."), "AAB");
+        let alpha = plans.block_for_quote(&target, "Alpha two").unwrap();
+        plans.annotate(
+            &target,
+            alpha,
+            Some("Alpha two".to_string()),
+            CommentAuthor::User,
+            "why two?".to_string(),
+            Vec::new(),
+            None,
+        );
+        plans.note_agent_read(&target, "a1", BASE);
+        // The user's split lands while the agent works on the last block.
+        plans.save(&target, SPLIT.to_string(), &Saver::human(), None);
+        plans.agent_save(&target, BASE.replace("Gamma old.", "Gamma new."), "a1", None);
+
+        assert_eq!(code_of(&mut plans, "Alpha one."), "AAB.AA");
+        assert_eq!(code_of(&mut plans, "Alpha two."), "AAB.AB");
+        assert_eq!(code_of(&mut plans, "Gamma new."), "AAD");
+        let (blocks, annotations, _) = plans.annotation_list(&target).unwrap();
+        let anchored = blocks.iter().find(|b| b.id == annotations[0].block_id).unwrap();
+        assert_eq!(anchored.lineage, "AAB.AB");
+        // Nothing of it is written down: the sidecar's blocks carry no code.
+        let sidecar = plans.read_sidecar(&target).unwrap().unwrap();
+        assert!(sidecar.blocks.iter().all(|b| b.lineage.is_empty()));
+        // Reopening compacts.
+        plans.reopen_lineage(&target);
+        assert_eq!(code_of(&mut plans, "Alpha two."), "AAC");
+    }
+
+    /// Review fix 6: a quote two blocks hold does not move a thread.
+    #[test]
+    fn an_ambiguous_quote_does_not_move_a_thread() {
+        let mut annotation = Annotation::new(
+            BlockId::generate(),
+            Some("same".to_string()),
+            CommentAuthor::User,
+            "?".to_string(),
+            Utc::now(),
+        );
+        annotation.orphaned = true;
+        let block = |text: &str| PlanBlock {
+            id: BlockId::generate(),
+            kind: "paragraph".to_string(),
+            text: text.to_string(),
+            lineage: String::new(),
+        };
+        let mut annotations = vec![annotation];
+        assert!(!follow_quotes(
+            &mut annotations,
+            &[block("the same one"), block("same again")]
+        ));
+        assert!(annotations[0].orphaned);
     }
 }

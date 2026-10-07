@@ -29,7 +29,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{AnnotationId, BlockId, ProjectId, TaskId};
-use crate::work::{Addressee, Comment, CommentAuthor};
+use crate::work::{Addressee, AgentId, Comment, CommentAuthor};
 
 /// Which document the annotation family is talking about.
 ///
@@ -253,6 +253,12 @@ pub struct PlanBlock {
     /// Two blocks of different kinds never match across a save.
     pub kind: String,
     pub text: String,
+    /// The block's lineage code — `AAB`, `AAB.AA` after a split — minted by the host when the
+    /// document is opened and carried across saves (`D208`, `ubiq_host::plan::lineage`). **Never
+    /// persisted and never an anchor**: the sidecar's copy is always empty, and only an answer on
+    /// the wire carries one. Empty where the host has not coded the block.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lineage: String,
 }
 
 /// Whether an annotation's thread is still asking for something.
@@ -305,6 +311,41 @@ pub struct BlockHighlight {
     pub colour: HighlightColour,
 }
 
+/// The agent a document is bound to, and whether the user's comments go to it unasked.
+///
+/// Kept in the document's sidecar, so it travels with the annotations and an old sidecar loads as
+/// unbound (`D207`). **An agent may own many documents; a document has at most one agent.** While
+/// one is bound, another agent's write, annotation, reply or resolve through the MCP tools is
+/// refused and the windows hear [`crate::messages::Message::DocOwnershipConflict`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub struct DocBinding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentId>,
+    /// Every user annotation or reply on the document is queued for the bound agent, not only the
+    /// ones addressed to it. Meaningless with no agent bound.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_send: bool,
+}
+
+/// One thread waiting in an agent's doc queue: the document and the annotation, nothing else.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct DocThreadRef {
+    pub doc: DocumentHandle,
+    pub annotation_id: AnnotationId,
+}
+
+/// Where an agent's doc queue stands, as [`crate::messages::Message::DocAgentQueue`] reports it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DocDelivery {
+    /// The pending prompt went to the agent just now; nothing is left waiting.
+    Delivered,
+    /// The agent is mid-turn; the prompt goes when the turn ends.
+    Waiting,
+    /// The agent has no live conversation that takes input; the prompt waits until it has one.
+    NotRunning,
+}
+
 /// One annotation on a plan, with its whole thread.
 ///
 /// The thread is never empty: the comment that opened the annotation is its first entry, and a
@@ -330,6 +371,12 @@ pub struct Annotation {
     /// The flags standing on the thread, each at most once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<AnnotationMark>,
+    /// An agent proposes the thread is done and waits on the user's review (`D208`). **Only the
+    /// user resolves**: an agent's `resolve_annotation` sets this instead, the user's Accept
+    /// resolves and Reopen reopens, and either clears it. A field rather than a mark so a sidecar
+    /// carrying it still reads in a build that predates it — the field is simply ignored there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub review: bool,
 }
 
 impl Annotation {
@@ -349,6 +396,7 @@ impl Annotation {
             thread: vec![Comment::new(author, text, now)],
             created_at: now,
             marks: Vec::new(),
+            review: false,
         }
     }
 

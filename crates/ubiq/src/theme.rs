@@ -2040,6 +2040,13 @@ pub fn agent_controlled_soft() -> Rgba {
     Theme::current().palette.status.agent_controlled_soft
 }
 
+/// The tint a markdown row takes for a moment when another writer — an agent, most often —
+/// changed it under the reader (`D208`). Derived from [`agent_controlled`] in every palette, at
+/// the strength the flash starts at; the view fades it out with [`fade`].
+pub fn agent_edit_flash() -> Rgba {
+    fade(agent_controlled(), 0.28)
+}
+
 /// The plan node that cost the most.
 pub fn db_plan_hot() -> Rgba {
     Theme::current().palette.status.db_plan_hot

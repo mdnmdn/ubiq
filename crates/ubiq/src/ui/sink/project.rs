@@ -1160,82 +1160,87 @@ fn kb(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -
                 let filter = app.kb_filter_inputs.get(&id);
                 let (word, colour) = state_line(&view.status.state);
                 let access = access_word(&view.status.source);
+                // Two lines: the name and the controls that act on it, then what is true of it.
+                // The name column never shrinks below `min_w`, so a narrow page wraps nothing
+                // into a letter a line; the controls beside it are `flex_none`.
                 div()
                     .flex()
-                    .items_center()
-                    .gap_2()
+                    .flex_col()
+                    .gap_1()
                     .py_1p5()
                     .border_b_1()
                     .border_color(theme::border())
                     .child(
                         div()
                             .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .gap_1()
-                            .child(elided(
-                                crate::ui::eid("project-kb-name", id),
-                                view.name().to_string(),
-                                theme::text(),
-                                theme::font(Family::Chrome, Role::Body),
-                            ))
-                            .child(
-                                mono(view.origin(), theme::text_faint())
-                                    .text_size(theme::font(Family::Chrome, Role::Meta)),
-                            ),
-                    )
-                    // What Ubiq may do to this source, visible without opening anything: a row
-                    // that does not say it is one the reader has to remember for.
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(theme::font(Family::Chrome, Role::Meta))
-                            .text_color(theme::text_faint())
-                            .child(SharedString::from(access)),
-                    )
-                    // Fixed when the wiki was made, so a marker and one action rather than a toggle.
-                    .children(view.is_protected().then(|| {
-                        div()
-                            .flex()
-                            .flex_none()
                             .items_center()
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(theme::font(Family::Chrome, Role::Meta))
-                                    .text_color(theme::text_faint())
-                                    .child("password protected"),
+                                    .flex()
+                                    .flex_col()
+                                    .flex_1()
+                                    .min_w(px(120.))
+                                    .gap_1()
+                                    .child(elided(
+                                        crate::ui::eid("project-kb-name", id),
+                                        view.name().to_string(),
+                                        theme::text(),
+                                        theme::font(Family::Chrome, Role::Body),
+                                    ))
+                                    .child(
+                                        mono(view.origin(), theme::text_faint())
+                                            .text_size(theme::font(Family::Chrome, Role::Meta)),
+                                    ),
                             )
-                            .child(ghost_button(
-                                crate::ui::eid("project-kb-password", id),
-                                None,
-                                "Change password",
-                                cx.listener(move |this, _, window, cx| {
-                                    this.open_kb_change_password(id, window, cx)
-                                }),
-                            ))
-                    }))
-                    .children(filter.map(|input| {
-                        framed_active(theme::border(), input_on(input, window, cx))
-                            .h(px(26.))
-                            .w(px(180.))
-                            .items_center()
-                            .child(Input::new(input).appearance(false))
-                    }))
-                    .children(word.map(|word| {
+                            .children(filter.map(|input| {
+                                framed_active(theme::border(), input_on(input, window, cx))
+                                    .flex_none()
+                                    .h(px(26.))
+                                    .w(px(180.))
+                                    .items_center()
+                                    .child(Input::new(input).appearance(false))
+                            }))
+                            .children(word.map(|word| {
+                                div()
+                                    .flex_none()
+                                    .text_size(theme::font(Family::Chrome, Role::Meta))
+                                    .text_color(colour)
+                                    .child(SharedString::from(word))
+                            }))
+                            .child(icon_button(
+                                crate::ui::eid("project-kb-remove", id),
+                                IconName::Close,
+                                false,
+                                cx.listener(move |this, _, _, cx| this.remove_kb_source(id, cx)),
+                            )),
+                    )
+                    // What Ubiq may do to this source, visible without opening anything: a row
+                    // that does not say it is one the reader has to remember for. Protection is
+                    // fixed when the wiki was made, so a marker and one action rather than a toggle.
+                    .child(
                         div()
-                            .flex_none()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap_2()
                             .text_size(theme::font(Family::Chrome, Role::Meta))
-                            .text_color(colour)
-                            .child(SharedString::from(word))
-                    }))
-                    .child(icon_button(
-                        crate::ui::eid("project-kb-remove", id),
-                        IconName::Close,
-                        false,
-                        cx.listener(move |this, _, _, cx| this.remove_kb_source(id, cx)),
-                    ))
+                            .text_color(theme::text_faint())
+                            .child(SharedString::from(access))
+                            .children(view.is_protected().then(|| {
+                                div().flex_none().child("\u{b7} password protected")
+                            }))
+                            .children(view.is_protected().then(|| {
+                                ghost_button(
+                                    crate::ui::eid("project-kb-password", id),
+                                    None,
+                                    "Change password",
+                                    cx.listener(move |this, _, window, cx| {
+                                        this.open_kb_change_password(id, window, cx)
+                                    }),
+                                )
+                            })),
+                    )
                     .into_any_element()
             })
             .collect(),
@@ -1479,26 +1484,21 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
         .into_any_element()
 }
 
-/// Which rail modes the active project shows: every mode as its own icon, lit when it is on screen.
+/// Which rail modes one scope switches: every mode as its own icon, lit when it is on screen.
 /// The last one lit cannot be turned off, so the rail is never empty.
 ///
-/// Two callers split the modes by availability: `common` is the `Always` modes, which every
-/// project has and which the Appearance page offers; the rest (`OptIn`, `When`) are the ones only
-/// some projects have, which project settings keeps. `common` is stored app-wide
-/// (`UiSettings::hidden_modes`); the rest is the project's own.
+/// Two callers split the modes by rail group (`RailMode::is_app`): `app` is the application's modes, which the
+/// Appearance page offers and which are stored app-wide (`UiSettings::hidden_modes`); the rest
+/// are project settings', stored in the open project's own view blob.
 /// `None` when this half has no modes to show.
 pub(crate) fn modes_block(
     app: &AppState,
-    common: bool,
+    app_scope: bool,
     cx: &mut Context<AppState>,
 ) -> Option<AnyElement> {
     let tiles: Vec<AnyElement> = RailMode::every()
         .filter(|mode| {
-            let always = matches!(
-                mode.spec().map(|spec| spec.availability),
-                Some(crate::ext::rail::Availability::Always)
-            );
-            always == common
+            mode.spec().is_some() && mode.is_app() == app_scope
         })
         .map(|mode| {
             let on = app.mode_enabled(mode, cx);
@@ -1553,12 +1553,12 @@ pub(crate) fn modes_block(
             .border_color(theme::border())
             .child(label_line(
                 "Modes",
-                if common {
-                    "Which destinations the rail shows for the open project. The last one on \
-                     cannot be turned off. Kept per project, so this edits the open one."
+                if app_scope {
+                    "Which of the application's destinations the rail shows, in every project and \
+                     window. The last one on cannot be turned off."
                 } else {
-                    "Which of the destinations only some projects have this project shows in the \
-                     rail."
+                    "Which destinations the rail shows for this project. Kept per project, so \
+                     this edits the open one; the last one on cannot be turned off."
                 },
             ))
             .child(div().flex().flex_wrap().gap_2().children(tiles))

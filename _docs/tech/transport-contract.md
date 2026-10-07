@@ -1145,18 +1145,25 @@ The names stayed `Plan*` because the records the family carries are (`PlanBlock`
 | `PlanDeleted` | host → UI | `doc` | — |
 | `PlanExported` | host → UI | `doc`, `rel_path` | — |
 | `PlanChanged` | host → UI | `doc`, `revision`, `origin` | — |
-| `ListPlanAnnotations` | UI → host | `doc` | `PlanAnnotations` or `PlanError` |
+| `ListPlanAnnotations` | UI → host | `doc`, `open` (defaulted; set when a surface opens the document — the host mints its lineage codes afresh, `D208`) | `PlanAnnotations` or `PlanError` |
 | `AnnotatePlan` | UI → host | `doc`, `block_id`, `quote?`, `text`, `marks`, `to?` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `DocMergeConflicts` | UI → host | `doc`, `conflicts` (`merge::Conflict`: `base`, `ours`, `theirs`) — a disk merge kept the user's words; each `theirs` still on disk is posted as a thread, authored by the last saver per provenance (`D208`) | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone) |
 | `ReplyToAnnotation` | UI → host | `doc`, `annotation_id`, `text`, `to?` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
 | `MarkAnnotation` | UI → host | `doc`, `annotation_id`, `mark`, `on` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
 | `SetBlockHighlight` | UI → host | `doc`, `block_ids`, `colour?` (absent clears) | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
 | `ResolveAnnotation` | UI → host | `doc`, `annotation_id`, `resolved` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
-| `PlanAnnotations` | host → UI | `doc`, `blocks`, `annotations`, `highlights` | — |
+| `EditAnnotationComment` | UI → host | `doc`, `annotation_id`, `comment_id`, `text` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` (an agent's comment is refused) |
+| `SetDocAgent` | UI → host | `doc`, `agent_id?` (absent unbinds) | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError`; `DocAgentQueue` (everyone) for an agent whose queued threads it dropped |
+| `SetDocAutoSend` | UI → host | `doc`, `auto_send` | `PlanAnnotations` (asker) and `PlanAnnotationsChanged` (everyone), or `PlanError` |
+| `AskDocAgent` | UI → host | `doc`, `annotation_ids` (empty: every open thread whose last comment is the user's) | `DocAgentQueue` (everyone), or `PlanError` when no agent is bound |
+| `PlanAnnotations` | host → UI | `doc`, `blocks`, `annotations`, `highlights`, `binding` | — |
 | `PlanAnnotationsChanged` | host → UI | `doc` | — |
 | `ListPlanChanges` | UI → host | `doc`, `since_revision?` | `PlanChanges` or `PlanError` |
 | `PlanChanges` | host → UI | `doc`, `regions`, `stats` | — |
 | `PlanConflict` | host → UI | `doc`, `revision`, `origin` | — |
 | `PlanError` | host → UI | `project_id`, `doc?`, `error` | — |
+| `DocAgentQueue` | host → UI | `project_id`, `agent_id`, `pending` (`DocThreadRef` list), `state` | — |
+| `DocOwnershipConflict` | host → UI | `doc`, `requester`, `requester_name`, `owner` | — |
 
 **A plan belongs to any task carrying a `level`, not to a fixed mission subtype.** The host refuses
 every variant here with `PlanError` for a task whose `level` is `None`, the work family's own
@@ -1224,12 +1231,34 @@ carrying nothing — to every other window.
 `Question` flags (absent on the wire when empty, so a sidecar written before they existed loads).
 `AnnotatePlan` may open a thread with marks already standing, and `to: Some(Agent)` — also available
 on `ReplyToAnnotation`, and stored on the `Comment` as `to` — addresses that comment to an agent and
-sets the `Agent` mark; `MarkAnnotation` sets or clears one mark. Delivering an addressed comment to
-an agent is not part of this contract yet. `SetBlockHighlight` colours blocks (`Yellow`, `Green`,
+sets the `Agent` mark; `MarkAnnotation` sets or clears one mark. `EditAnnotationComment` replaces a
+user-authored comment's text and stamps the `Comment`'s `edited_at` (absent on the wire when never
+edited); an agent's comment is refused. `SetBlockHighlight` colours blocks (`Yellow`, `Green`,
 `Blue`, `Red`, `Purple`) independently of any thread, or clears them with no colour; an id the plan
 does not have is refused. Highlights live in the sidecar and are returned as `highlights` on
 `PlanAnnotations`; a save that drops a block drops its highlight, and any save that changes the block
 index sends `PlanAnnotationsChanged`.
+
+**A document may be bound to an agent (`D207`).** `PlanAnnotations` carries `binding`, a
+`DocBinding` of `agent?` (an `AgentId`) and `auto_send`, both kept in the sidecar and defaulting to
+unbound and off. `SetDocAgent` binds, moves or unbinds; `SetDocAutoSend` flips the switch. A user's
+`AnnotatePlan` or `ReplyToAnnotation` on a bound document is queued for the bound agent only when
+`auto_send` is on, addressed or not; with it off the threads wait for `AskDocAgent`. On an unbound
+plan or mission document an
+addressed comment still goes to the mission's coordinator, else the task's assignee; an unbound file
+document's comment goes nowhere. `AskDocAgent` is the manual button. The queue holds **at most one
+pending prompt per agent**, merging threads into it, and `DocAgentQueue` reports it after every
+change. `pending` empty means nothing is waiting for the agent. `state` is `Delivered` (the agent
+can take a prompt and nothing is held back — a prompt just went out, or what was queued was
+resolved, deleted or unbound first), `Waiting` (the agent is mid-turn; the host delivers when the
+turn ends) or `NotRunning` (no live conversation that takes input, or a refused send backing off;
+the host delivers once it can). An `AskDocAgent` with nothing waiting sends nothing. The prompt is
+composed at delivery from the sidecars, so it carries comments as edited and skips threads resolved
+since. The queue is the host's memory and does not survive a restart. An agent writing,
+annotating, replying on or resolving a document bound to *another* agent through `ubiq-doc`,
+`ubiq-plan` or `ubiq-mission`'s `write_document` is refused, and every window hears `DocOwnershipConflict`
+— `requester` and its display `requester_name`, and the `owner` — so it can offer to reassign with
+`SetDocAgent`. It is sent only when the requester's key is an `AgentId` (a conversation, not a pane).
 
 **Edit provenance is a second sub-family, and it counts lines rather than blocks.** A plan carries
 a monotonic `revision` bumped on every save of its body, and every save records whether it was a

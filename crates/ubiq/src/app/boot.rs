@@ -126,8 +126,14 @@ impl AppState {
 
         // The plan annotation panel's one field — a fresh annotation on a block or a reply to a
         // thread, whichever the panel's own composer is answering.
-        let annotation_composer_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Write a comment\u{2026}"));
+        // The agent chat composer's own field and keys: a `TextareaState` that grows with its
+        // content, Enter sends, shift+Enter breaks the line.
+        let annotation_composer_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Write a comment\u{2026}")
+                .auto_grow(1, 8)
+                .submit_on_enter(true)
+        });
 
         // The annotated document's buffer: the file editor's own `EditorState`, built once for
         // the window and re-seeded each time a document is opened in it. `/` is a completion
@@ -1335,7 +1341,9 @@ impl AppState {
                         plan.composer_text = text;
                     }
                 }
-                InputEvent::PressEnter { shift: false, .. } => {
+                // The chat composer's keys: Enter sends, shift+Enter breaks the line, and
+                // cmd/ctrl+Enter sends whatever shift is doing.
+                InputEvent::PressEnter { secondary, shift } if !*shift || *secondary => {
                     this.submit_annotation_composer(window, cx)
                 }
                 _ => {}
@@ -1789,6 +1797,7 @@ impl AppState {
             pending_chat_attach: None,
             pending_chat_open: false,
             new_agent_project: None,
+            new_agent_for_doc: None,
             task_show_empty: false,
             sink,
             stats: StatsState::default(),

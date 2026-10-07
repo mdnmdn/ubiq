@@ -28,11 +28,11 @@ use crate::state::plan::{file_document, mission_doc_document, plan_document};
 use crate::state::workbench::FileDialog;
 use crate::ui::mdview::events::MdViewEvent;
 use crate::ui::mdview::view::MdView;
-use ubiq_proto::ids::{AnnotationId, BlockId, TaskId};
+use ubiq_proto::ids::{AnnotationId, BlockId, CommentId, TaskId};
 use ubiq_proto::plan::{
     AnnotationMark, HighlightColour, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
 };
-use ubiq_proto::work::Addressee;
+use ubiq_proto::work::{AgentId, Addressee, CommentAuthor};
 
 /// The wire, for any annotated document. The interface never invents a route: every method here
 /// is a message that already exists in `crates/ubiq-proto/src/messages.rs`, and the handle is the
@@ -70,7 +70,10 @@ impl DocumentWire for DocumentHandle {
     }
 
     fn list_annotations(&self) -> Message {
-        Message::ListPlanAnnotations { doc: self.clone() }
+        Message::ListPlanAnnotations {
+            doc: self.clone(),
+            open: false,
+        }
     }
 
     fn save(&self, body: String, expected: PlanRevision) -> Message {
@@ -213,7 +216,11 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         self.bus.send(doc.load());
-        self.bus.send(doc.list_annotations());
+        // Opening, not refreshing: the host mints the document's lineage codes afresh (`D208`).
+        self.bus.send(Message::ListPlanAnnotations {
+            doc: doc.clone(),
+            open: true,
+        });
         self.workbench.plan = Some(DocumentEditor::loading(doc, presentation, md, events));
         // A different document's rail starts at its own top.
         self.plan_thread_list.reset(0);
@@ -237,6 +244,94 @@ impl AppState {
             view.set_decor(Vec::new(), cx);
         });
         true
+    }
+
+    /// The annotation rail's *Agent* button: the New agent form, aimed at the chat dock beside the
+    /// document, opened with the collaboration servers ticked and an opening turn naming this
+    /// file. **The ordinary start path** — the user picks the harness or definition and presses
+    /// Start; nothing here chooses a harness. A plan or mission document has its own coordinator
+    /// and is left alone.
+    pub fn start_doc_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(rel_path) = self
+            .workbench
+            .plan
+            .as_ref()
+            .and_then(|doc| doc.doc.rel_path().map(str::to_string))
+        else {
+            return;
+        };
+        self.aim_start(NewAgentSurface::Chat, cx);
+        // After `aim_start`, which clears the aims: the start binds the new agent to this document.
+        self.new_agent_for_doc = self.workbench.plan.as_ref().map(|doc| doc.doc.clone());
+        self.open_new_agent(
+            crate::state::new_agent::NewAgentOpen {
+                initial_prompt: Some(crate::state::plan::doc_agent_prompt(&rel_path)),
+                mcps: crate::state::plan::DOC_AGENT_MCPS
+                    .iter()
+                    .map(|it| it.to_string())
+                    .collect(),
+                ..Default::default()
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// Bind the open document to `agent` — or unbind it with `None`. The host's answer
+    /// (`PlanAnnotations`) is what the surface reads back.
+    pub fn set_doc_agent(&mut self, agent_id: Option<AgentId>, cx: &mut Context<Self>) {
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        self.bus.send(Message::SetDocAgent {
+            doc: doc.doc.clone(),
+            agent_id,
+        });
+        self.close_menu(cx);
+    }
+
+    /// The header's auto-send switch.
+    pub fn toggle_doc_auto_send(&mut self, cx: &mut Context<Self>) {
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        self.bus.send(Message::SetDocAutoSend {
+            doc: doc.doc.clone(),
+            auto_send: !doc.binding.auto_send,
+        });
+        cx.notify();
+    }
+
+    /// The header's *Ask agent*: queue every open thread waiting on the agent.
+    pub fn ask_doc_agent(&mut self, cx: &mut Context<Self>) {
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        self.bus.send(Message::AskDocAgent {
+            doc: doc.doc.clone(),
+            annotation_ids: Vec::new(),
+        });
+        cx.notify();
+    }
+
+    /// The ownership question answered yes: the agent that asked takes the document.
+    pub fn confirm_doc_conflict(&mut self, cx: &mut Context<Self>) {
+        if let Some(conflict) = self.workbench.doc_conflict.take() {
+            self.bus.send(Message::SetDocAgent {
+                doc: conflict.doc,
+                agent_id: Some(conflict.requester),
+            });
+        }
+        cx.notify();
+    }
+
+    pub fn dismiss_doc_conflict(&mut self, cx: &mut Context<Self>) {
+        if let Some(conflict) = self.workbench.doc_conflict.take() {
+            self.workbench
+                .doc_conflict_refused
+                .push((conflict.doc, conflict.requester));
+        }
+        cx.notify();
     }
 
     /// Put away a document a tab opened, when the tab leaves annotation mode. The dialog's own
@@ -332,9 +427,17 @@ impl AppState {
         revision: PlanRevision,
         cx: &Context<Self>,
     ) {
-        let typed = self.plan_editor.read(cx).value().to_string();
         let Some(doc) = self.workbench.plan.as_mut() else {
             return;
+        };
+        // A markdown tab's document is over the tab's own buffer, which follows the file itself
+        // and merges whatever moved it (`D208`) — so the body is taken as stated, and the dialog's
+        // buffer (which is not this document's) is never read against it. Reading it was what
+        // put a stale banner over every agent write in annotation mode.
+        let typed = if doc.is_modal() {
+            self.plan_editor.read(cx).value().to_string()
+        } else {
+            body.clone()
         };
         doc.set_loaded(body, &typed, revision);
     }
@@ -587,7 +690,6 @@ impl AppState {
         };
         doc.composer = Some(ComposerTarget::Block(block_id));
         doc.composer_marks = marks;
-        doc.composer_to_agent = false;
         doc.composer_text.clear();
         doc.composer_needs_focus = true;
         doc.notice = None;
@@ -681,6 +783,34 @@ impl AppState {
         self.open_composer(ComposerTarget::Reply(annotation_id), window, cx);
     }
 
+    /// Edit one of the user's own comments in place: the composer opens on it, seeded with its
+    /// text, and sending answers `EditAnnotationComment`.
+    pub fn compose_edit(
+        &mut self,
+        annotation_id: AnnotationId,
+        comment_id: CommentId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(text) = self
+            .workbench
+            .plan
+            .as_ref()
+            .and_then(|doc| doc.annotation(annotation_id))
+            .and_then(|annotation| annotation.thread.iter().find(|c| c.id == comment_id))
+            .filter(|comment| comment.author == CommentAuthor::User)
+            .map(|comment| comment.text.clone())
+        else {
+            return;
+        };
+        self.open_composer(ComposerTarget::Edit(annotation_id, comment_id), window, cx);
+        if let Some(doc) = self.workbench.plan.as_mut() {
+            doc.composer_text = text.clone();
+        }
+        let input = self.annotation_composer_input.clone();
+        input.update(cx, |state, cx| state.set_value(text, window, cx));
+    }
+
     fn open_composer(
         &mut self,
         target: ComposerTarget,
@@ -692,7 +822,6 @@ impl AppState {
         };
         doc.composer = Some(target);
         doc.composer_text.clear();
-        doc.composer_to_agent = false;
         doc.notice = None;
         let input = self.annotation_composer_input.clone();
         input.update(cx, |state, cx| {
@@ -730,7 +859,6 @@ impl AppState {
         };
         doc.composer = None;
         doc.composer_marks.clear();
-        doc.composer_to_agent = false;
         doc.composer_text.clear();
         let input = self.annotation_composer_input.clone();
         input.update(cx, |state, cx| state.set_value("", window, cx));
@@ -747,12 +875,35 @@ impl AppState {
         let Some(target) = doc.composer else {
             return;
         };
+        // An edit keeps what was typed verbatim — no addressing, never queued for an agent — and
+        // sends nothing when it is empty or says what the comment already said.
+        if let ComposerTarget::Edit(annotation_id, comment_id) = target {
+            let typed = doc.composer_text.trim().to_string();
+            let unchanged = doc
+                .annotation(annotation_id)
+                .and_then(|a| a.thread.iter().find(|c| c.id == comment_id))
+                .is_none_or(|c| c.text.trim() == typed);
+            if typed.is_empty() {
+                return;
+            }
+            if !unchanged {
+                self.bus.send(Message::EditAnnotationComment {
+                    doc: doc.doc.clone(),
+                    annotation_id,
+                    comment_id,
+                    text: typed,
+                });
+            }
+            self.cancel_annotation_composer(window, cx);
+            return;
+        }
         let (to, text) = addressed(&doc.composer_text, doc.composer_to_agent);
         if text.is_empty() {
             return;
         }
         let handle = doc.doc.clone();
         let message = match target {
+            ComposerTarget::Edit(..) => return,
             ComposerTarget::Block(block_id) => {
                 handle.annotate(block_id, text, doc.composer_marks.clone(), to)
             }
@@ -774,6 +925,25 @@ impl AppState {
             return;
         };
         self.bus.send(doc.doc.resolve(annotation_id, resolved));
+        cx.notify();
+    }
+
+    /// The review's Reopen (`D208`): the agent's proposal is turned down — the thread is reopened
+    /// (which clears `review` on the host) and a reply addressed to the agent says why, which
+    /// queues it back through the doc queue (`D207`).
+    pub fn reopen_for_agent(&mut self, annotation_id: AnnotationId, cx: &mut Context<Self>) {
+        let Some(doc) = self.workbench.plan.as_ref() else {
+            return;
+        };
+        let handle = doc.doc.clone();
+        self.bus.send(handle.resolve(annotation_id, false));
+        // Said in the thread and addressed to the agent, so the doc queue delivers it with the
+        // user's latest comment before it — the reason travels with the thread, not beside it.
+        self.bus.send(handle.reply(
+            annotation_id,
+            "Reopened: this needs more work.".to_string(),
+            Some(Addressee::Agent),
+        ));
         cx.notify();
     }
 

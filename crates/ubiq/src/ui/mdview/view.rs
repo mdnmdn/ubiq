@@ -56,6 +56,9 @@ pub const REPARSE_DEBOUNCE: Duration = Duration::from_millis(200);
 /// have a height rather than popping.
 const OVERDRAW: f32 = 400.0;
 
+/// How long a row another writer changed stays tinted, fading out (`D208`).
+const FLASH: Duration = Duration::from_millis(1800);
+
 pub struct MdView {
     /// The document's text — the file tab's buffer, shared. The only thing a block commit writes.
     pub(super) buffer: Entity<EditorState>,
@@ -107,6 +110,9 @@ pub struct MdView {
     /// The debounce's generation: a timer whose value is no longer current was overtaken by a
     /// later keystroke and parses nothing. No timer to cancel, so none can outlive the view.
     reparse_at: Cell<u64>,
+    /// Rows another writer just changed, and when — each drawn under a tint that fades out over
+    /// [`FLASH`] (`D208`). Never the user's own edits: the host hands only the merge's other side.
+    flashes: Vec<(usize, std::time::Instant)>,
     _watch_source: Subscription,
     _watch_edits: Subscription,
 }
@@ -170,6 +176,7 @@ impl MdView {
             jump: Jump::default(),
             focus: cx.focus_handle(),
             reparse_at: Cell::new(0),
+            flashes: Vec::new(),
             _watch_source: watch_source,
             _watch_edits: watch_edits,
         }
@@ -589,6 +596,37 @@ impl MdView {
         .detach();
     }
 
+    /// Flash the rows holding `spans` — byte ranges of the current source another writer just
+    /// changed (`D208`). Called after [`Self::resync`], so the rows are the new text's.
+    pub fn flash(&mut self, spans: &[std::ops::Range<usize>], cx: &mut Context<Self>) {
+        let now = std::time::Instant::now();
+        for span in spans {
+            let first = self.doc.block_at_or_before_offset(span.start);
+            let last = self
+                .doc
+                .block_at_or_before_offset(span.end.saturating_sub(1).max(span.start));
+            let (Some(first), Some(last)) = (first, last) else {
+                continue;
+            };
+            for row in first..=last.max(first) {
+                self.flashes.retain(|(at, _)| *at != row);
+                self.flashes.push((row, now));
+            }
+        }
+        cx.notify();
+    }
+
+    /// How strongly row `ix` is flashing now, `0.0` once it has faded.
+    pub fn flash_alpha(&self, ix: usize) -> f32 {
+        self.flashes
+            .iter()
+            .find(|(row, _)| *row == ix)
+            .map_or(0.0, |(_, at)| {
+                1.0 - at.elapsed().as_secs_f32() / FLASH.as_secs_f32()
+            })
+            .max(0.0)
+    }
+
     /// Reparse now, without waiting out the debounce — for a host that wrote the buffer
     /// programmatically (`set_value` raises no `Change`) and wants the rows to follow.
     pub fn resync(&mut self, cx: &mut Context<Self>) {
@@ -675,6 +713,11 @@ impl MdView {
 
 impl Render for MdView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A fading flash needs the next frame until it is gone.
+        self.flashes.retain(|(_, at)| at.elapsed() < FLASH);
+        if !self.flashes.is_empty() {
+            window.request_animation_frame();
+        }
         // Last frame's width, or the window's on the first frame — a one-frame estimate.
         let pane = match self.width.get() {
             w if w > 0.0 => w,

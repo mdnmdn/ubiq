@@ -449,7 +449,7 @@ fn write_document(
             Some(_) => return Err("expected_revision must be a number".to_string()),
         };
 
-    let target = doc_target(project, mission, &name);
+    let target = super::plan::owned(doc_target(project, mission, &name), facts, plan_reach)?;
     let replies = {
         let mut plans = plan_reach.plans.lock();
         plans.save(&target, body, &Saver::agent(facts.key.clone()), expected)
@@ -1227,6 +1227,7 @@ mod tests {
             PlanReach {
                 plans,
                 everyone: host.mailbox(bus::To::Everyone),
+                agents: Default::default(),
             },
             dir,
             hub,

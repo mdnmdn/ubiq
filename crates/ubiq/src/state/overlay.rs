@@ -127,6 +127,8 @@ pub enum Layer {
     ClosePane,
     /// The chat tab's Close confirm.
     EndConversation,
+    /// The document-ownership question: reassign a bound document to the agent that asked?
+    DocConflict,
     /// The Git screen's destructive-write confirm — a forced checkout, a discard, a reset or
     /// deleting a ref (`T-270`). On the same footing as the pane's and the conversation's above
     /// it: Escape should be the easiest answer a destructive confirm can be given.

@@ -341,7 +341,7 @@ the window, in the order Escape peels them. **A question a screen owns keeps tha
 | `settings.assist.backend`, `.name-conversations`, `.providers`, `.providers.provider` | — | The prose backend and its providers | `ui/settings.rs`, `assist`, `assist_provider_choice`, `ai_providers`, `ai_provider_row` |
 | `settings.connectors.connect`, `.connection`, `.oauth-app`, `.trusted-cert` | — | The three list kinds and the way in | `ui/settings.rs`, `connectors`, `connection_row`, `oauth_row`, `cert_row` |
 | `project-settings`, `.nav`, `.nav.<section>` | `ProjectSettings` | The project page, one nav row per `ProjectNav` | `ui/sink/project.rs`, `overlay`, `nav` |
-| `project-settings.general` + `.name`, `.colour`, `.initials`, `.path`, `.modes`, `.index`, `.repositories`, `.search-excludes` | — | What a project is | `ui/sink/project.rs`, `general`, `modes_block`, `index_row`, `repos_row`, `search_excludes_row` |
+| `project-settings.general` + `.name`, `.colour`, `.initials`, `.path`, `.modes`, `.index`, `.repositories`, `.search-excludes` | — | What a project is | `ui/sink/project.rs`, `general`, `modes_block` (the project-group tiles; the app-group ones draw in Settings > Appearance), `index_row`, `repos_row`, `search_excludes_row` |
 | `project-settings.remote` + `.location`, `.profile`, `.folder`, `.lifetime` | — | Where its folder actually is | `ui/sink/project.rs`, `remote` |
 | `project-settings.tasks`, `.tasks.lane`; `.kb`, `.kb.source`, `.kb.add`; `.tools`; `.documentation`; `.integrations` | — | The five remaining sections | `ui/sink/project.rs`, same-named symbols |
 | `sink`, `sink.tabs`, `sink.tabs.<page>` | — | The bench, and one tab per `SinkSection` | `ui/sink/mod.rs`, `render` |

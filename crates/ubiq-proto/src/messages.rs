@@ -33,7 +33,7 @@ use crate::db::{
 };
 use crate::help::HelpCatalog;
 use crate::ids::{
-    AiProviderId, AnnotationId, AskId, BlockId, CloneId, ConnectId, ConnectionId, DbConnId,
+    AiProviderId, AnnotationId, AskId, BlockId, CloneId, CommentId, ConnectId, ConnectionId, DbConnId,
     DbExportId, DbProbeId, DbQueryId, DbSessionId, KbSourceId, NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
     SshProfileId, StepId, SuggestId, TaskId, TaskSrcQueryId, ToolId,
 };
@@ -46,7 +46,8 @@ use crate::notifications::{
     Level, MuteFor, MuteScope, Notification, NotificationRequest, Notifications,
 };
 use crate::plan::{
-    Annotation, AnnotationMark, BlockHighlight, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision,
+    Annotation, AnnotationMark, BlockHighlight, DocBinding, DocDelivery, DocThreadRef,
+    DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision,
     SaveOrigin,
 };
 use crate::projects::{
@@ -2436,6 +2437,10 @@ pub enum Message {
     /// resolved threads still has to be able to show them on a toggle without a second round trip.
     ListPlanAnnotations {
         doc: DocumentHandle,
+        /// The surface is opening the document rather than refreshing it: the host forgets the
+        /// document's lineage codes and mints them flat again (`D208`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        open: bool,
     },
     /// Open an annotation on one block of a task's plan.
     ///
@@ -2455,6 +2460,19 @@ pub enum Message {
         /// `Some(Agent)` addresses the opening comment to an agent, and sets the `Agent` mark.
         #[serde(default)]
         to: Option<Addressee>,
+    },
+    /// A window merged a file that moved on disk into a buffer holding an unsaved edit, and kept
+    /// the user's words where both sides changed the same ones (`D208`). Each conflict carries the
+    /// other side's version of the passage, and the host posts it as a thread on the passage's
+    /// block so nothing the other writer wrote is lost.
+    ///
+    /// **The host checks the claim against the disk rather than trusting it**: a conflict whose
+    /// `theirs` is not in the body as it now stands is dropped. The thread's author is the
+    /// document's last saver as provenance records it — `Agent` when an agent's write is what
+    /// moved it — so a window never stamps an agent's name on text of its own (`D121`).
+    DocMergeConflicts {
+        doc: DocumentHandle,
+        conflicts: Vec<crate::merge::Conflict>,
     },
     /// Append to an annotation's thread.
     ReplyToAnnotation {
@@ -2498,6 +2516,40 @@ pub enum Message {
     ListPlanChanges {
         doc: DocumentHandle,
         since_revision: Option<PlanRevision>,
+    },
+    /// Replace the text of one comment on an annotation's thread, and stamp its `edited_at`.
+    /// **Only a user-authored comment may be edited** — an agent's words are never rewritten by
+    /// the window — so the host refuses an agent's comment with [`Message::PlanError`]. Answered
+    /// like every mutation in the family. An edit is not a new comment and is never queued for an
+    /// agent.
+    EditAnnotationComment {
+        doc: DocumentHandle,
+        annotation_id: AnnotationId,
+        comment_id: CommentId,
+        text: String,
+    },
+    /// Bind the document to an agent, move it to another, or unbind it with `None` (`D207`). Kept
+    /// in the sidecar; answered like every mutation in the family, so the new
+    /// [`Message::PlanAnnotations::binding`] is what the window reads back. Unbinding drops that
+    /// document's threads from the old agent's doc queue.
+    SetDocAgent {
+        doc: DocumentHandle,
+        agent_id: Option<AgentId>,
+    },
+    /// Turn auto-send on or off for the document: with it on, every user annotation or reply is
+    /// queued for the bound agent, not only the ones addressed to it.
+    SetDocAutoSend {
+        doc: DocumentHandle,
+        auto_send: bool,
+    },
+    /// The manual "ask the agent" button: queue threads of the document for its bound agent now.
+    /// `annotation_ids` empty means every open thread whose last comment is the user's. Refused
+    /// with [`Message::PlanError`] for a document with no agent bound. The host answers with
+    /// [`Message::DocAgentQueue`].
+    AskDocAgent {
+        doc: DocumentHandle,
+        #[serde(default)]
+        annotation_ids: Vec<AnnotationId>,
     },
 
     // ── Plan family: host → UI ──────────────────────────────────────
@@ -2554,6 +2606,10 @@ pub enum Message {
         annotations: Vec<Annotation>,
         #[serde(default)]
         highlights: Vec<BlockHighlight>,
+        /// The agent the document is bound to and its auto-send switch, from the sidecar
+        /// (`D207`). Default — unbound, off — for a document nobody bound.
+        #[serde(default)]
+        binding: DocBinding,
     },
     /// A task's annotations changed by some route other than this window's own request — another
     /// window's comment, an agent's reply through `ubiq-plan`, or a [`Message::SavePlan`] whose
@@ -2606,6 +2662,26 @@ pub enum Message {
         project_id: ProjectId,
         doc: Option<DocumentHandle>,
         error: String,
+    },
+    /// Where one agent's doc queue stands (`D207`): the threads still waiting for it, and why.
+    /// Broadcast whenever the queue for that agent changes — a thread queued, the pending prompt
+    /// delivered (`pending` empty, `state` `Delivered`), or unbinding dropping threads. At most
+    /// one pending prompt exists per agent; `pending` is every thread it will carry.
+    DocAgentQueue {
+        project_id: ProjectId,
+        agent_id: AgentId,
+        pending: Vec<DocThreadRef>,
+        state: DocDelivery,
+    },
+    /// An agent tried to write, annotate, reply on or resolve a document bound to another agent,
+    /// through the MCP tools, and was refused (`D207`). Broadcast so a window can offer to
+    /// reassign the document to `requester` with [`Message::SetDocAgent`]. `requester_name` is
+    /// what the interface calls that agent, for the question.
+    DocOwnershipConflict {
+        doc: DocumentHandle,
+        requester: AgentId,
+        requester_name: String,
+        owner: AgentId,
     },
 
     // ── Mission family: UI → host ───────────────────────────────────
@@ -3593,6 +3669,7 @@ impl Message {
             | Message::AgentChanged { project_id, .. }
             | Message::WorkError { project_id, .. }
             | Message::PlanError { project_id, .. }
+            | Message::DocAgentQueue { project_id, .. }
             | Message::StartConversation { project_id, .. }
             | Message::ReviveConversation { project_id, .. }
             | Message::ConversationStarted { project_id, .. }
@@ -3608,13 +3685,19 @@ impl Message {
             | Message::SavePlan { doc, .. }
             | Message::DeletePlan { doc }
             | Message::ExportPlan { doc, .. }
-            | Message::ListPlanAnnotations { doc }
+            | Message::ListPlanAnnotations { doc, .. }
             | Message::AnnotatePlan { doc, .. }
+            | Message::DocMergeConflicts { doc, .. }
             | Message::ReplyToAnnotation { doc, .. }
             | Message::ResolveAnnotation { doc, .. }
             | Message::MarkAnnotation { doc, .. }
             | Message::SetBlockHighlight { doc, .. }
             | Message::ListPlanChanges { doc, .. }
+            | Message::EditAnnotationComment { doc, .. }
+            | Message::SetDocAgent { doc, .. }
+            | Message::SetDocAutoSend { doc, .. }
+            | Message::AskDocAgent { doc, .. }
+            | Message::DocOwnershipConflict { doc, .. }
             | Message::Plan { doc, .. }
             | Message::PlanAnnotations { doc, .. }
             | Message::PlanAnnotationsChanged { doc }
@@ -3987,9 +4070,12 @@ pub const TAG_COORDINATOR: &str = "coordinator";
 pub const TAG_PLANNER: &str = "planner";
 /// The tag a definition carries to run the worker side of a mission or a task.
 pub const TAG_WORKER: &str = "worker";
+/// The tag for a definition that works with the user on a markdown document through its
+/// annotation threads (`D207`) — offered first when an editor agent is started from annotation mode.
+pub const TAG_DOC: &str = "doc";
 /// The tags the definition editor offers as toggles, in the order it draws them. Any other tag is
 /// free text the user typed.
-pub const STANDARD_AGENT_TAGS: [&str; 3] = [TAG_COORDINATOR, TAG_PLANNER, TAG_WORKER];
+pub const STANDARD_AGENT_TAGS: [&str; 4] = [TAG_COORDINATOR, TAG_PLANNER, TAG_WORKER, TAG_DOC];
 
 impl AgentDefinition {
     /// Whether this definition carries `tag`.

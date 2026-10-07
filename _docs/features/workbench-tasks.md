@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
-updated: 2026-10-06
+updated: 2026-10-07
 verified: 2026-10-05
-code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
+code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/queue.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -477,9 +477,12 @@ current one while its row is still visible; clicking a collapsed thread, or a ro
 focuses it and scrolls its block into view. A resolved thread is always drawn collapsed, with
 Reopen. A fresh thread is written in the composer at the rail's foot, which names the block and
 carries its own mark chips and — like a reply — an **"@agent" toggle** that addresses the comment to
-the agent, as a leading `@agent` in the text does; the tag itself is not posted. Each comment shows
-who wrote it — an agent's on the agent's own ground, in its own ink — and a `→ agent` badge when it
-was addressed to one. Resolving or reopening is offered to anyone looking, not gated to whoever
+the agent, as a leading `@agent` in the text does; the tag itself is not posted. **The toggle is
+sticky** — it stays as the user left it across posts, cancels and new threads, per open document.
+Each comment shows who wrote it — an agent's on the agent's own ground, in its own ink — and a `→ agent` badge when it
+was addressed to one. **The user's own comments offer Edit**, which swaps the text for the composer
+field seeded with it and sends `EditAnnotationComment` (never queued for the agent; an `edited`
+marker shows, the timestamp does not). Resolving or reopening is offered to anyone looking, not gated to whoever
 opened the thread.
 **A thread that has lost its block is marked, never dropped**: an orphan banner says so, and the
 thread keeps its replies and its state exactly as they were, because a passage rewritten out of
@@ -487,12 +490,63 @@ existence is not the same fact as an answered question. An agent answers what th
 through the `ubiq-plan` MCP server's `list_annotations`, `reply_annotation` and
 `resolve_annotation`, and opens one with `annotate_plan` (anchored by a unique quote or a block id,
 optional marks, author Agent).
-**A comment addressed to `Agent` is delivered once it is saved** (T-303): on a plan or a mission
-document the coordinator sends the mission's coordinator — else the task's assignee, when that names
-an agent — a prompt from `Plans::agent_prompt` (annotation id, document, block excerpt, the comment,
-and the instruction to answer with `reply_annotation` / `resolve_annotation`) through the path a
-typed line takes. A file document, a refused mutation or nobody to tell delivers nothing, logged at
-debug; the comment and its Agent mark stand either way.
+**Any markdown file in the project is the same collaboration** (T-348): the `ubiq-doc` MCP server
+answers the same tools with the document named by a project-relative `path` instead of a
+`task_id` — `list_annotated_docs` (the files carrying open threads), `read_doc`, `write_doc`,
+`doc_changes`, `list_annotations`, `annotate_doc`, `reply_annotation`, `resolve_annotation`. An
+agent edits an annotated file through `write_doc`, so the threads re-anchor; an edit made outside it
+leaves the block index as it was until the next save.
+**An agent's write never clobbers the user's newer text** (`D208`). The host remembers the body each
+agent last read (`read_doc`, `read_plan`) or wrote, and a `write_doc`/`write_plan` over a document
+that moved since is a three-way merge (`Handle::agent_save`, `ubiq_proto::merge`): disjoint edits all
+land; where both changed the same words the user's text is kept and the agent's version becomes a
+thread on that block, authored by the agent, and the tool result says so (`conflicts.threads`); a
+result that is not what the agent sent carries `merged: true` and a note to read again. A tab save of
+an annotated markdown file is written by the coordinator under the same lock and stamped as the
+user's, so a window-side conflict is attributed by provenance. The
+merge is text only — a block the user split is just lines — and after any save a thread whose
+`quote` sits in another block (the other half of a split) follows it there, and an orphan whose
+quote survives is brought back — only when exactly one block holds the quote. Blocks also carry an
+in-memory **lineage code** minted by the host (`AAB`, and `AAB.AA`/`AAB.AB` once split, `D208`); a
+thread on a split block follows it into the part holding its quote, and `read_doc` and
+`list_annotations` show the codes. With nothing on record (a host restart), `expected_revision` guards
+the write as before. A markdown tab open in annotation mode follows the file live and saves itself
+([`workbench-ide.md`](./workbench-ide.md)); the stale banner is the plan dialog's alone.
+**Only the user resolves a thread** (`D208`). An agent's `resolve_annotation` proposes: the thread
+stays open with its `review` flag set ("awaiting your review" in the rail) and the agent's `note`
+as its comment, and is not queued for the agent again; the expanded thread offers **Accept**
+(resolves, clearing the flag) and **Reopen** (reopens, and a reply addressed to the agent says it
+needs more work, which queues it back). The user reaches a file's annotation mode from
+its tab's `Annotation` layout or the explorer's **Open in annotation mode** (offered on any `.md`
+row), and the rail's **Agent** button opens the agent menu, whose *New agent…* row opens the New agent form aimed at the chat dock, with
+`ubiq-doc` and `ubiq-ask` ticked and an opening turn naming the file — the user still picks the
+harness and presses Start.
+**A document may be bound to one agent** (T-354, `D207`); an agent may own many. The binding and
+an `auto_send` switch live in the document's sidecar and ride on every annotation snapshot. An agent
+finds its own with `ubiq-doc`'s `list_my_docs`; another agent's `write_doc`, `annotate_doc`,
+`reply_annotation` or `resolve_annotation` on a bound document (and the `ubiq-plan` twins on a bound
+plan, and `ubiq-mission`'s `write_document`) is refused with the owner named and an instruction to
+ask the user, and the windows are told so they can offer to reassign it. The check keeps
+cooperating agents apart; it is not a security boundary, since an agent's own file tools still
+reach the file. `list_annotations` shows each comment's `id` and `edited_at` — the
+user may edit their own comments, never an agent's.
+**What the user says is queued for the agent it goes to** (T-303, T-354): every user annotation or
+reply on a bound document with `auto_send` on. With it off nothing goes on its own, addressed to
+`Agent` or not: the threads wait on the document, and the header's **Ask agent (n)** — shown
+whenever a bound document has open threads ending on the user's comment and `auto_send` is off —
+sends them all in one prompt. On an unbound plan or mission document
+an addressed comment goes to the mission's coordinator, else the task's assignee. An unbound file
+document, a refused mutation or nobody to tell delivers nothing; the comment and its Agent mark
+stand either way. The host keeps **at most one pending prompt per agent**, merging every new thread
+into it, and delivers it the moment the agent is live, takes input and is between turns — at once
+for an idle agent, at the end of the turn for a busy one. One not running is started by the host,
+as its window's Resume would, and gets the prompt once it is up; one no window owns, or a one-shot
+harness, waits until it runs. Up to three threads are inlined with their
+annotation ids and comments; more are named by id with an instruction to fetch them with
+`list_annotations`. The document's path is left out when every thread is on the document the agent
+was last sent in its current conversation; several documents name each thread's own. The prompt is
+written from the document as it reads at delivery — an edited comment as edited, a thread resolved
+meanwhile left out — and is also written to the agent's thread row. The queue lives in the host's memory and is lost on restart.
 
 **The task panel reports one task whole, and edits it in place.** Where it has got to and how much
 it matters share the top line, the first written where a column is named and the second right up
@@ -1067,7 +1121,32 @@ sends `MarkAnnotation` on `mark_target()` or opens the composer with the mark pr
 `list_annotations` (with `marks`, per-comment `to` and a `mark` filter), `annotate_plan`,
 `reply_annotation` and `resolve_annotation` (`crates/ubiq-host/src/mcp/plan.rs`) over the same
 `Plans`; `annotate_plan` resolves its block through `Plans::block_for_quote` and refuses a quote
-that matches no block or several.
+that matches no block or several. Every handler in `mcp/plan.rs` takes a resolved `plan::Target`:
+`call()` resolves `task_id` to `Target::Plan` for `ubiq-plan`, `doc_call()` resolves `path` through
+`Target::resolve` on a `DocumentHandle::File` against `AgentFacts::project.path` for `ubiq-doc`
+(`mcp::catalogue::UBIQ_DOC`, in no default set), and each answer echoes `task_id` or `path`
+accordingly. `list_annotated_docs` walks the project with `ignore::WalkBuilder` for
+`*.md.annotation.json` sidecars, capped at 500; `list_my_docs` filters the same walk on
+`Plans::binding()`, and `mcp::plan::owned()` is the refusal in front of every write. The doc queue
+is `plan::queue::DocQueue` (`push`, `deliver`, `compose`, `INLINE_LIMIT`) of `QueuedRef`s,
+held by the coordinator with `deliver_to_agent()`, `deliver_doc_queue()` (backing off a refused
+send, `DOC_RETRY_FIRST` to `DOC_RETRY_MAX`) and `flush_doc_queue()` — the last polled every loop,
+reading `Conversation::busy()` over `conversation::Turns`, prompts counted against turn ends.
+`plan::queued_from()` reads the queued ref off a mutation's own reply, `Plans::awaiting_threads()`
+serves the manual ask, and `Plans::thread_view()` reads each ref back at delivery. **The agent strip** under the
+rail's header (`ui::document::agent_strip`) is the binding's face: the bound agent's status hexagon
+and name — or an *Agent* button — opening `MenuId::DocAgent` (*New agent…* for a file, then the
+project's agents idle-first with a status dot, then *Unbind*; a pick sends `SetDocAgent`), the
+agent's queue (`WorkbenchState::doc_agent_queues`, from `DocAgentQueue` — the count covers every document queued for that agent, not just this one), the robot-face toggle
+**Send automatically to agent** (`SetDocAutoSend`; `IconName::Bot`, the nearest icon) and, with auto-send
+off and open threads ending on the user's comment, **Ask agent** (`AskDocAgent`, no ids). The
+binding is read from `PlanAnnotations::binding` into `DocumentEditor::binding`. *New agent…* is
+`AppState::start_doc_agent()` (`app/plan.rs`) over `open_new_agent` with
+`state::plan::DOC_AGENT_MCPS` and `doc_agent_prompt()`; it sets `AppState::new_agent_for_doc`, which
+lists the `doc`-tagged definitions first and parks the document in `WorkbenchState::doc_binds`, so the
+`ConversationStarted` arm binds the new agent. The `doc` tag (`TAG_DOC`) implies `DOC_MCPS` in the
+form. A `DocOwnershipConflict` raises `Layer::DocConflict`'s confirm and, on yes, `SetDocAgent` to
+the requester.
 
 The new-mission dialog is three modules on the New agent form's own division: `state/new_mission.rs`'s
 `NewMissionForm` holds what was typed and `ready()`, plus `assistants()` — agent definitions filtered to

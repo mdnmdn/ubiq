@@ -1773,6 +1773,21 @@ impl AppState {
         let Some(open) = self.projects.get(&project) else {
             return;
         };
+        // In the knowledge base the documents are the screen: ⌘S writes every one with unsaved
+        // edits (`save_kb_doc` itself declines a clean, saving or read-only one).
+        if self.workbench.rail_mode == crate::state::RailMode::KB {
+            let dirty: Vec<String> = open
+                .kb
+                .docs
+                .iter()
+                .filter(|doc| doc.dirty())
+                .map(|doc| doc.key())
+                .collect();
+            for key in dirty {
+                self.save_kb_doc(&key, cx);
+            }
+            return;
+        }
         let Some(file) = open.editor.active_file() else {
             return;
         };
@@ -2171,6 +2186,17 @@ impl AppState {
             contents,
         } = arrival;
 
+        // A markdown tab following its file merges the fresh bytes into the buffer it has (`D208`).
+        if self
+            .projects
+            .get(&project)
+            .and_then(|open| open.editor.open.iter().find(|file| file.path == path))
+            .is_some_and(|file| file.follow && !file.is_loading())
+        {
+            self.merge_arrival(project, &path, contents, window, cx);
+            return;
+        }
+
         // A tab that already holds bytes is never overwritten: there is no reload action, and
         // whatever has been typed into it would go with them.
         let draws_bytes = self
@@ -2278,6 +2304,8 @@ impl AppState {
                 // The outline is one debounce behind the buffer, and is not rebuilt at all while
                 // its panel is put away.
                 this.schedule_outline(cx);
+                // A tab in annotation mode saves itself once the typing stops (`D208`).
+                this.schedule_autosave(project, &watched, cx);
                 cx.notify();
             },
         );
@@ -2321,6 +2349,164 @@ impl AppState {
         }
         // The bytes are here, so what this file's bookmarks now point at can be answered.
         self.mark_bookmarks(&tab_key(&path, Subject::File), cx);
+        cx.notify();
+    }
+
+    /// A followed markdown file's fresh bytes, merged into the buffer the tab already has
+    /// (`D208`) — no prompt, no rebuilt buffer. The caret keeps its line and column where the line
+    /// survived, the scroll stays where it was, and the rows the other writer changed flash. What
+    /// both sides changed keeps the user's words; the other side's are posted as threads by the
+    /// host. A save the host refused for the move goes again now, and so does the annotation-mode
+    /// autosave a merged edit is owed.
+    fn merge_arrival(
+        &mut self,
+        project: ProjectId,
+        path: &str,
+        contents: FileContents,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(file) = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.editor.find_mut(path))
+        else {
+            return;
+        };
+        // A file that stopped being whole text is no longer one a buffer can follow; the next
+        // ordinary change re-reads it the old way.
+        if contents.is_binary || contents.truncated {
+            file.follow = false;
+            file.resave = false;
+            return;
+        }
+        let Some(buffer) = file.buffer().cloned() else {
+            file.follow = false;
+            return;
+        };
+        // A write of ours is in flight: its acknowledgement rebases the baseline, and merging now
+        // would rebase it twice. Left for later — the watcher echoes our own write, and a followed
+        // tab re-reads that echo, so whatever else moved the file is merged then; a write refused
+        // for the move re-reads on its own (`AppState::file_failed`).
+        if file.is_saving() {
+            return;
+        }
+        let theirs = String::from_utf8_lossy(&contents.bytes).into_owned();
+        let (ours, selection, scroll) = {
+            let state = buffer.read(cx);
+            (
+                state.value().to_string(),
+                state.selected_range(),
+                state.scroll_offset(),
+            )
+        };
+        let merge = file.merge_disk(theirs, contents.version, &ours);
+        let resave = std::mem::take(&mut file.resave);
+        let autosave = file.layout.is_annotation() && file.dirty();
+        let md = file.md.clone();
+        let key = file.key();
+        if let Some(text) = &merge.text {
+            let start = ubiq_proto::merge::map_offset(&ours, text, selection.start);
+            let end = ubiq_proto::merge::map_offset(&ours, text, selection.end).max(start);
+            buffer.update(cx, |state, cx| {
+                state.set_value(text, window, cx);
+                state.set_selected_range(start..end, cx);
+                state.set_scroll_offset(scroll, cx);
+            });
+            // `set_value` raises no change event: the view is told to follow at once, and is
+            // handed the other writer's spans to flash.
+            if let Some(md) = md {
+                let spans = merge.flash.clone();
+                md.update(cx, |view, cx| {
+                    view.resync(cx);
+                    view.flash(&spans, cx);
+                });
+            }
+        }
+        if !merge.conflicts.is_empty() {
+            self.report_disk_conflicts(project, path, merge.conflicts);
+        }
+        // A refused save goes again now; otherwise a tab in annotation mode still holding an
+        // unsaved edit after the merge is owed its autosave, re-armed rather than fired, so a merge
+        // landing mid-typing does not write half a word.
+        if resave {
+            self.save_quietly(project, &key, cx);
+        } else if autosave {
+            self.schedule_autosave(project, path, cx);
+        }
+        self.schedule_outline(cx);
+        cx.notify();
+    }
+
+    /// Hand the host the passages a disk merge kept as the user's, with the other side's version
+    /// of each, so they become threads (`D208`). Only for a file the annotation family can name.
+    fn report_disk_conflicts(
+        &mut self,
+        project: ProjectId,
+        path: &str,
+        conflicts: Vec<ubiq_proto::merge::Conflict>,
+    ) {
+        self.bus.send(Message::DocMergeConflicts {
+            doc: crate::state::plan::file_document(project, path),
+            conflicts,
+        });
+    }
+
+    /// Arm the annotation-mode autosave for one tab: a quiet [`AUTOSAVE_DEBOUNCE`] after the last
+    /// keystroke, the buffer is written — so an agent reading the document reads what the user
+    /// sees (`D208`). Only a tab in [`ViewLayout::Annotation`] that follows its file.
+    pub(super) fn schedule_autosave(
+        &mut self,
+        project: ProjectId,
+        path: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(file) = self
+            .projects
+            .get_mut(&project)
+            .and_then(|open| open.editor.find_mut(path))
+            .filter(|file| file.layout.is_annotation() && file.follows_disk())
+        else {
+            return;
+        };
+        let token = file.bump_autosave();
+        let path = path.to_string();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(AUTOSAVE_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| {
+                let current = this
+                    .projects
+                    .get(&project)
+                    .and_then(|open| open.editor.open.iter().find(|file| file.path == path))
+                    .is_some_and(|file| file.autosave_gen == token);
+                if current {
+                    this.save_quietly(project, &tab_key(&path, Subject::File), cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Write a followed markdown tab without asking anything — the autosave, and the retry after a
+    /// merge. Nothing is sent for a tab that is clean, already saving, or cannot be saved honestly;
+    /// a write the host refuses for a move comes back through the merge (`AppState::file_failed`).
+    fn save_quietly(&mut self, project: ProjectId, key: &str, cx: &mut Context<Self>) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        let Some(at) = index_of_key(&open.editor, key) else {
+            return;
+        };
+        let file = &mut open.editor.open[at];
+        if !file.follows_disk() || !file.dirty() || file.is_saving() || file.follow {
+            return;
+        }
+        let Some(text) = file.buffer().map(|buffer| buffer.read(cx).value().to_string()) else {
+            return;
+        };
+        let (path, expected) = (file.path.clone(), file.version());
+        file.mark_saving(text.clone());
+        self.send_file_write(project, false, path, text.into_bytes(), expected);
         cx.notify();
     }
 

@@ -118,7 +118,11 @@ row whose read failed retries it. The settings mutators — `confirm_kb_source`,
 `set_kb_source_filter` — all read the configured list back out of `KbState`, edit it in memory and
 funnel through the one sender to `SetKbSources`; the host's `KbSourcesListed` answer is what actually
 moves `KbState`, on `KbState::accept`'s own merge, which keeps an already-open source's tree across a
-rename, drops only what a filter edit invalidates, and closes any tab whose source is gone.
+rename, drops only what a filter edit invalidates, and closes any tab whose source is gone. A
+`KbSourceChanged` to Ready (sync, unlock, clone) keeps the tree and re-lists the root and every open
+folder (`KbState::source_changed`); a project reopened in KB mode asks for the sources in
+`enter_project`, since it never passes the mode's `on_enter`. `⌘S` (`SaveFile`) in KB mode writes
+every dirty document through `save_kb_doc`.
 `KbState::presence(source, path)` is a second, read-only use of that same tree: the task board's
 `kb:{source}:{path}` attachments call it to tell a live document from a dead one without the host
 resolving anything (`T-84`) — `Dead` only once `KbState::loaded` is true and no source answers to the
@@ -277,7 +281,7 @@ confidentiality — it keeps a rename cheap); and a remembered password is only 
 secure store — on macOS any same-user process, an agent's harness included, can read it with the
 `security` command. The interface half —
 `ui/kb/password.rs` and `app/kb.rs`. The Add source form shows a *Password protected* box for a
-wiki only (fixed once saved; a settings row then shows "password protected" and *Change password*).
+wiki only (fixed once saved; a settings row, on its second line beside the access word, then shows "password protected" and *Change password*).
 A locked source's row says `locked`, and a press on it, or *Unlock* on its menu, raises one modal in
 three shapes (`KbPasswordMode`): **set** on first use (new + confirm, "if you forget this password
 the wiki cannot be recovered"), **unlock** (the password), **change** (old, new, confirm). All

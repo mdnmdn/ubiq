@@ -912,13 +912,19 @@ impl AppState {
                     .map(|buffer| buffer.read(cx).value().to_string())
                     .unwrap_or_default();
 
+                let mut owed = false;
                 if let Some(open) = self.projects.get_mut(&project_id) {
                     if let Some(file) = open.editor.find_mut(&rel_path) {
                         file.saved(version, &current);
+                        // Typed while the write was in flight: the autosave is owed another go.
+                        owed = file.dirty();
                     }
                     // The watcher will echo this write back as a `ProjectFilesChanged` shortly;
                     // that arrival is not a change to react to.
-                    open.just_saved.insert(rel_path);
+                    open.just_saved.insert(rel_path.clone());
+                }
+                if owed {
+                    self.schedule_autosave(project_id, &rel_path, cx);
                 }
                 self.request_git_refresh(project_id);
                 cx.notify();
@@ -1083,8 +1089,8 @@ impl AppState {
                 // A clean background tab shows what is on disk, so it is read again. A dirty one is
                 // left exactly as it is: what has been typed into it is not on disk anywhere. The
                 // tab on screen is left alone too — rebuilding its buffer reruns the highlighter,
-                // which is a visible flash for a file the user is looking at right now; later this
-                // is where "the file changed, keep mine or reload" will hook in instead of silence.
+                // which is a visible flash for a file the user is looking at right now. A markdown
+                // tab is the exception, merged in place below (`D208`).
                 // A path this window just wrote is the watcher echoing our own save, not a change
                 // to react to at all.
                 // Whatever is reread keeps its cursor and scroll — captured off the buffer here,
@@ -1105,10 +1111,23 @@ impl AppState {
                 } else {
                     changed.clone()
                 };
+                // A markdown tab follows its file live instead (`D208`): on screen or not, dirty
+                // or not, the fresh bytes are merged into the buffer it already has. Our own save's
+                // echo is re-read too — merging a body the buffer already holds changes nothing,
+                // and an agent's write landing inside the echo's window must not be swallowed.
+                let follow: Vec<String> = candidates
+                    .iter()
+                    .filter(|path| {
+                        open.editor
+                            .index_of(path)
+                            .is_some_and(|index| open.editor.open[index].follows_disk())
+                    })
+                    .cloned()
+                    .collect();
                 let reload: Vec<(String, Option<Restore>)> = candidates
                     .iter()
                     .filter_map(|path| {
-                        if open.just_saved.contains(path) {
+                        if open.just_saved.contains(path) || follow.contains(path) {
                             return None;
                         }
                         let file = open
@@ -1149,6 +1168,18 @@ impl AppState {
                             file.reload();
                         }
                     }
+                    for path in &follow {
+                        if let Some(file) = open.editor.find_mut(path) {
+                            file.follow = true;
+                        }
+                    }
+                }
+                for path in follow {
+                    self.bus.send(Message::ReadProjectFile {
+                        project_id,
+                        rel_path: path,
+                        max_bytes: Some(MAX_FILE_BYTES),
+                    });
                 }
                 for dir in dirs {
                     self.bus.send(Message::ProjectTree {
@@ -1500,20 +1531,13 @@ impl AppState {
                 state,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
-                let became_ready = open
-                    .kb
-                    .source(source)
-                    .is_some_and(|view| !view.status.state.is_ready())
-                    && state.is_ready();
-                open.kb.source_changed(source, state);
-                // A source that just finished cloning was listed against an empty folder, if it
-                // was listed at all — `source_changed` already forgot that listing, so the tree
-                // it now has to draw is asked for again rather than left blank.
-                if became_ready {
+                // Ready again means synced, unlocked or cloned: the root and every open folder
+                // are asked for again, merged over the tree the user has open.
+                for rel_path in open.kb.source_changed(source, state) {
                     self.bus.send(Message::KbTree {
                         project_id,
                         source,
-                        rel_path: String::new(),
+                        rel_path,
                         depth: 1,
                     });
                 }
@@ -2021,6 +2045,7 @@ impl AppState {
                 blocks,
                 annotations,
                 highlights,
+                binding,
             } => {
                 // Kept for a file document independent of whether the surface stays the one open
                 // below — `AppState::has_annotations()`'s own read once it does not
@@ -2039,6 +2064,14 @@ impl AppState {
                 if let Some(plan) = self.workbench.plan.as_mut()
                     && plan.doc == doc
                 {
+                    plan.binding = binding;
+                    // The question is answered by the binding it asked for, from any window.
+                    if let Some(conflict) = &self.workbench.doc_conflict
+                        && conflict.doc == doc
+                        && plan.binding.agent == Some(conflict.requester)
+                    {
+                        self.workbench.doc_conflict = None;
+                    }
                     plan.set_annotations(crate::state::document::AnnotationsBody::Loaded {
                         blocks,
                         annotations,
@@ -2046,6 +2079,49 @@ impl AppState {
                     });
                     // The margin follows the threads at once, not on the next frame.
                     self.refresh_document_decor(cx);
+                }
+                cx.notify();
+            }
+
+            // Where one agent's doc queue stands (`D207`) — kept per agent for the annotation
+            // header's label.
+            Message::DocAgentQueue {
+                agent_id,
+                pending,
+                state,
+                ..
+            } => {
+                if pending.is_empty() {
+                    self.workbench.doc_agent_queues.remove(&agent_id);
+                } else {
+                    self.workbench
+                        .doc_agent_queues
+                        .insert(agent_id, (pending, state));
+                }
+                cx.notify();
+            }
+
+            // An agent was refused a document another owns: ask whether to reassign it.
+            Message::DocOwnershipConflict {
+                doc,
+                requester,
+                requester_name,
+                owner,
+            } => {
+                // Only a window holding the document's project asks, and not again for a pair
+                // the user already refused this session — an MCP retry would otherwise re-raise it.
+                let refused = self
+                    .workbench
+                    .doc_conflict_refused
+                    .iter()
+                    .any(|(d, a)| *d == doc && *a == requester);
+                if self.projects.contains_key(&doc.project_id()) && !refused {
+                    self.workbench.doc_conflict = Some(crate::state::workbench::DocConflict {
+                        doc,
+                        requester,
+                        requester_name,
+                        owner,
+                    });
                 }
                 cx.notify();
             }
@@ -2217,6 +2293,14 @@ impl AppState {
                         project_id: project,
                         agent_id: id,
                         task_id: Some(task),
+                    });
+                }
+                // Annotation mode's *New agent…*: the agent exists now, so the document can be
+                // bound to it. Spent once.
+                if let Some(doc) = self.workbench.doc_binds.remove(&id) {
+                    self.bus.send(Message::SetDocAgent {
+                        doc,
+                        agent_id: Some(id),
                     });
                 }
                 // A task assignment's name — the task's key. Before the initial prompt: a
@@ -3464,6 +3548,8 @@ impl AppState {
 
         let mut question = None;
         let mut cache_freed = false;
+        let mut reread = false;
+        let mut continue_failure = true;
         if let Some(open) = self.projects.get_mut(&project) {
             open.explorer.set_loading(&rel_path, false);
             cache_freed = open.explorer.cache_answered(&rel_path);
@@ -3475,9 +3561,18 @@ impl AppState {
                     // A write failed against a buffer the user still has: it is untouched, and
                     // still dirty.
                     false => {
-                        // Only a write this tab actually had in flight is worth a modal: a
-                        // refused read or diff on the same path is not the user's ⌘S.
-                        if file.is_saving() {
+                        // A markdown tab's save over a file that moved is no question at all
+                        // (`D208`): the file is read again, merged into the buffer, and the save
+                        // goes again from there.
+                        file.follow = false;
+                        if file.is_saving()
+                            && matches!(error, FileError::Conflict)
+                            && file.follows_disk()
+                        {
+                            file.retry_after_merge();
+                            reread = true;
+                            continue_failure = false;
+                        } else if file.is_saving() {
                             let key = file.key();
                             // No version to name means the write was a creation, so a conflict
                             // means the path is taken — the one refusal with a question in it.
@@ -3489,10 +3584,19 @@ impl AppState {
                                 },
                             });
                         }
-                        file.save_failed(reason.clone());
+                        if continue_failure {
+                            file.save_failed(reason.clone());
+                        }
                     }
                 }
             }
+        }
+        if reread {
+            self.bus.send(Message::ReadProjectFile {
+                project_id: project,
+                rel_path: rel_path.clone(),
+                max_bytes: Some(MAX_FILE_BYTES),
+            });
         }
         if let Some(dialog) = question {
             self.workbench.file_dialog = Some(dialog);

@@ -570,19 +570,26 @@ impl KbState {
 
     /// One source's state moved on its own — a clone started, got somewhere, finished or failed.
     ///
-    /// A source that has just become ready drops what it had listed: it was listed against an
-    /// empty folder, and the clone has since filled it.
-    pub fn source_changed(&mut self, source: KbSourceId, state: KbSourceState) {
+    /// A source that is ready drops its `listed` marks, keeping the tree: what it held may predate
+    /// the sync, and answers the folders the caller must list again (the root and the open ones).
+    pub fn source_changed(&mut self, source: KbSourceId, state: KbSourceState) -> Vec<String> {
         let Some(view) = self.source_mut(source) else {
-            return;
+            return Vec::new();
         };
-        let became_ready = !view.status.state.is_ready() && state.is_ready();
+        let ready = state.is_ready();
         view.status.state = state;
-        if became_ready {
-            view.children = Arc::new(Vec::new());
-            view.listed = false;
-            view.loading = false;
+        if !ready {
+            return Vec::new();
         }
+        // A source that is ready again has just been synced, unlocked or finished cloning: what the
+        // tree holds may be stale (or listed against an empty folder). The tree is kept, so what
+        // the user had open stays open, and merged over by the re-listing — the root and every
+        // open folder are named for the caller to ask for again.
+        view.listed = false;
+        view.loading = false;
+        let mut paths = vec![String::new()];
+        open_dirs(&view.children, &mut paths);
+        paths
     }
 
     /// The host answered the password question. An error keeps the dialog up for another try; an
@@ -861,6 +868,22 @@ fn node_mut<'a>(nodes: &'a mut Vec<FileNode>, path: &str) -> Option<&'a mut File
 
 /// Merge one level, matching by name: what is still there keeps its subtree and its open flag,
 /// what has gone goes with its subtree, what is new arrives shut and unlisted.
+/// The path of every folder that is open and was listed, depth first.
+fn open_dirs(nodes: &[FileNode], into: &mut Vec<String>) {
+    for node in nodes {
+        if let NodeKind::Dir {
+            children,
+            expanded: true,
+            listed: true,
+            ..
+        } = &node.kind
+        {
+            into.push(node.path.clone());
+            open_dirs(children, into);
+        }
+    }
+}
+
 fn merge_children(into: &mut Vec<FileNode>, entries: Vec<ubiq_proto::files::DirEntry>) {
     let held = std::mem::take(into);
     for entry in entries {

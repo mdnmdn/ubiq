@@ -436,7 +436,7 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let palette = app.workbench.theme_id;
     let view = cx.entity();
     let algo = app.workbench.settings.ui.teams_algo;
-    // The rail's common modes: app-wide, so drawn whether or not a project is open.
+    // The application-scoped modes: app-wide, so drawn whether or not a project is open.
     let modes = crate::ui::sink::project::modes_block(app, true, cx);
 
     let mut rows = vec![
@@ -2361,6 +2361,7 @@ fn definition_marks(definition: &AgentDefinition) -> Vec<AnyElement> {
         let colour = match tag.as_str() {
             ubiq_proto::messages::TAG_COORDINATOR => theme::accent(),
             ubiq_proto::messages::TAG_WORKER => theme::info(),
+            ubiq_proto::messages::TAG_DOC => theme::agent_controlled(),
             _ => theme::text_muted(),
         };
         marks.push(badge(tag, colour).into_any_element());
