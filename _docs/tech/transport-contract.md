@@ -2671,6 +2671,16 @@ only records how that drone was started. `HOST_SETTINGS_SCHEMA` is 20 for the va
 build cannot parse the new `kind`, so the whole record would fail to load and be moved aside as
 corrupt; the bump makes it refuse the file and leave it intact instead.
 
+**An embedder reaches a saved remote without the modal.** `AppState::upsert_saved_remote(saved, cx)`
+inserts or updates a `SavedRemoteHost` by id (an empty id mints one; a `Unix` entry's `address` is
+set to its path) and persists it through `SetSettings`; `connect_saved_remote(id, cx)` dials it now
+through the reconnect loop, which re-reads the entry on every try, so an edited path takes effect on
+the next dial, and is a no-op only while the entry is attached — otherwise it restarts the loop
+(a pending backoff timer is voided) and dials at once;
+`forget_saved_remote(id, cx)` detaches it, in the calling window only, and deletes the entry; `saved_remote_attached(id)` says
+whether it is attached. It is the path for a saved remote created programmatically, for example by a
+local socket a helper process binds.
+
 **`bundled` on `Connections` says which providers this build ships an application for.** It is a
 compile-time fact of the host — every built-in client id is an `option_env!` — and the interface's
 only way to know it, so the connect flow offers a "Default" exactly where one can be honoured. An

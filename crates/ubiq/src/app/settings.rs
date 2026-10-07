@@ -92,52 +92,87 @@ impl AppState {
         carrier: RemoteCarrier,
         cx: &mut Context<Self>,
     ) -> String {
-        let hosts = &mut self.workbench.settings.host.remote_hosts;
-        // The id is stable; the address is not — an edit moves the entry, and a legacy entry
-        // with no id yet is matched by the address it was first reached at, then given one.
-        let id = if save_id.is_empty() {
-            if let Some(existing) = hosts.iter_mut().find(|host| host.address == address) {
-                existing.name = name;
-                existing.scheme = scheme;
-                existing.trust_insecure = trust_insecure;
-                existing.carrier = carrier;
-                if existing.id.is_empty() {
-                    existing.id = ubiq_proto::ids::HostSaveId::generate().to_string();
-                }
-                existing.id.clone()
-            } else {
-                let id = ubiq_proto::ids::HostSaveId::generate().to_string();
-                hosts.push(SavedRemoteHost {
-                    id: id.clone(),
-                    name,
-                    address,
-                    scheme,
-                    trust_insecure,
-                    carrier,
-                });
-                id
-            }
-        } else if let Some(existing) = hosts.iter_mut().find(|host| host.id == save_id) {
-            existing.name = name;
-            existing.address = address;
-            existing.scheme = scheme;
-            existing.trust_insecure = trust_insecure;
-            existing.carrier = carrier;
-            existing.id.clone()
-        } else {
-            hosts.push(SavedRemoteHost {
-                id: save_id.clone(),
+        let id = crate::state::remote::upsert_host(
+            &mut self.workbench.settings.host.remote_hosts,
+            SavedRemoteHost {
+                id: save_id,
                 name,
                 address,
                 scheme,
                 trust_insecure,
                 carrier,
-            });
-            save_id
-        };
+            },
+        );
         self.remember_host_settings();
         cx.notify();
         id
+    }
+
+    /// Create or update a saved remote host without the connect modal — what an embedder or a
+    /// helper process that binds a local socket needs. Matched by `saved.id`; an empty id mints
+    /// one. A `Unix` carrier's `address` is set to its path, as the modal files it. Persists
+    /// through the same settings path as every other saved host and answers with the id. Does not
+    /// dial: see [`Self::connect_saved_remote`].
+    pub fn upsert_saved_remote(
+        &mut self,
+        mut saved: SavedRemoteHost,
+        cx: &mut Context<Self>,
+    ) -> String {
+        if let RemoteCarrier::Unix { path, .. } = &saved.carrier {
+            saved.address = path.clone();
+        }
+        let id = crate::state::remote::upsert_host(
+            &mut self.workbench.settings.host.remote_hosts,
+            saved,
+        );
+        self.remember_host_settings();
+        cx.notify();
+        id
+    }
+
+    /// Whether a live connection to the saved remote `id` is attached to this window.
+    pub fn saved_remote_attached(&self, id: &str) -> bool {
+        self.bus.remote_conns().iter().any(|conn| conn.save_id == id)
+    }
+
+    /// Dial a saved remote now, with no modal. A no-op only when it is already attached; otherwise
+    /// (re)starts the loop ([`Self::start_reconnect`]), which voids a pending backoff timer and
+    /// dials at once, re-reads the entry on every try — so an edited path takes effect on the
+    /// dial — and keeps retrying with backoff until the far end answers.
+    pub fn connect_saved_remote(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(saved) = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find(|host| host.id == id)
+        else {
+            return;
+        };
+        let key = host_secrets::key_for(&saved.id, &saved.address);
+        if self.saved_remote_attached(id) {
+            return;
+        }
+        // Not attached: always dial now. `start_reconnect` bumps the generation, which voids a
+        // pending backoff timer, so a changed entry is not left waiting out the old delay.
+        self.start_reconnect(&key, cx);
+    }
+
+    /// Detach a saved remote if it is attached (closing its panes, stopping its reconnect loop)
+    /// and delete the entry — [`Self::forget_remote_host`] after a disconnect.
+    pub fn forget_saved_remote(&mut self, id: &str, cx: &mut Context<Self>) {
+        let attached: Vec<_> = self
+            .bus
+            .remote_conns()
+            .iter()
+            .filter(|conn| conn.save_id == id)
+            .map(|conn| conn.id)
+            .collect();
+        for host in attached {
+            self.disconnect_host(host, cx);
+        }
+        self.forget_remote_host(id.to_string(), cx);
     }
 
     /// Rename a saved host. The id, address, scheme and keychain token are untouched — a name is

@@ -10,7 +10,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ubiq_proto::ids::SshProfileId;
-use ubiq_proto::settings::{DronePreset, RemoteScheme};
+use ubiq_proto::settings::{DronePreset, RemoteScheme, SavedRemoteHost};
 
 use crate::app::ssh_connect::DeployStep;
 
@@ -228,5 +228,92 @@ pub fn with_default_port(address: &str) -> String {
         address.to_string()
     } else {
         format!("{address}:{DEFAULT_PORT}")
+    }
+}
+
+/// Insert or update one saved remote in `hosts`, and answer with its id.
+///
+/// The id is stable; the address is not. A non-empty `saved.id` is matched by id (updated, or
+/// pushed as-is when unknown). An empty one is matched by address — a legacy entry with no id yet
+/// — and otherwise minted. Pure, so the persistence rule is pinned down with no window.
+pub fn upsert_host(hosts: &mut Vec<SavedRemoteHost>, mut saved: SavedRemoteHost) -> String {
+    let existing = if saved.id.is_empty() {
+        hosts.iter_mut().find(|host| host.address == saved.address)
+    } else {
+        hosts.iter_mut().find(|host| host.id == saved.id)
+    };
+    match existing {
+        Some(existing) => {
+            // A legacy match keeps the address it was first reached at; an id match moves it.
+            if !saved.id.is_empty() {
+                existing.address = saved.address;
+            }
+            existing.name = saved.name;
+            existing.scheme = saved.scheme;
+            existing.trust_insecure = saved.trust_insecure;
+            existing.carrier = saved.carrier;
+            if existing.id.is_empty() {
+                existing.id = ubiq_proto::ids::HostSaveId::generate().to_string();
+            }
+            existing.id.clone()
+        }
+        None => {
+            if saved.id.is_empty() {
+                saved.id = ubiq_proto::ids::HostSaveId::generate().to_string();
+            }
+            let id = saved.id.clone();
+            hosts.push(saved);
+            id
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ubiq_proto::settings::RemoteCarrier;
+
+    fn unix(id: &str, path: &str) -> SavedRemoteHost {
+        SavedRemoteHost {
+            id: id.into(),
+            name: "helper".into(),
+            address: path.into(),
+            scheme: RemoteScheme::Http,
+            trust_insecure: false,
+            carrier: RemoteCarrier::Unix {
+                path: path.into(),
+                preset: DronePreset::Attached,
+            },
+        }
+    }
+
+    #[test]
+    fn an_empty_id_is_minted_and_a_second_upsert_by_that_id_updates() {
+        let mut hosts = Vec::new();
+        let id = upsert_host(&mut hosts, unix("", "/tmp/a.sock"));
+        assert!(!id.is_empty());
+        assert_eq!(hosts.len(), 1);
+        let again = upsert_host(&mut hosts, unix(&id, "/tmp/b.sock"));
+        assert_eq!(again, id);
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].address, "/tmp/b.sock");
+        assert!(matches!(
+            &hosts[0].carrier,
+            RemoteCarrier::Unix { path, .. } if path == "/tmp/b.sock"
+        ));
+    }
+
+    #[test]
+    fn an_unknown_caller_chosen_id_is_kept() {
+        let mut hosts = Vec::new();
+        assert_eq!(upsert_host(&mut hosts, unix("mine", "/tmp/a.sock")), "mine");
+        assert_eq!(hosts[0].id, "mine");
+    }
+
+    #[test]
+    fn an_empty_id_on_a_known_address_reuses_the_entry() {
+        let mut hosts = vec![unix("kept", "/tmp/a.sock")];
+        assert_eq!(upsert_host(&mut hosts, unix("", "/tmp/a.sock")), "kept");
+        assert_eq!(hosts.len(), 1);
     }
 }
