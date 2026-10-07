@@ -161,8 +161,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-native-certs = "0.8"
 webpki-roots = "0.26"
 # Remote-host bearer tokens, one entry per saved host. The settings file carries the
-# address and never the secret; this is where the secret lives.
-keyring = "3"
+# address and never the secret; this is where the secret lives. keyring 3 with no platform
+# feature is an in-memory mock, so each store is named: nothing would survive a restart otherwise.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 # Local read-only doc/source viewer server (web_export module)
 tiny_http = "0.12"
