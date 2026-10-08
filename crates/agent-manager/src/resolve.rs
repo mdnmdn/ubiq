@@ -188,6 +188,17 @@ pub fn effective_profile(
     }
 }
 
+/// Whether `profile` is pinned to a harness other than `harness`. Unpinned is never foreign.
+fn profile_pins_other(profile: &Profile, harness: &str) -> bool {
+    let Some(pin) = profile.harness.as_deref() else {
+        return false;
+    };
+    let id_of = |name: &str| {
+        crate::harness::resolve(name).map_or_else(|| name.to_string(), |h| h.id().to_string())
+    };
+    id_of(pin) != id_of(harness)
+}
+
 /// Resolve `flags` + `settings` + `registry` + `accounts` into a fully-resolved [`RunSpec`].
 pub fn resolve(
     flags: &RunFlags,
@@ -209,6 +220,12 @@ pub fn resolve(
         None => None,
     };
     let profile_defaults = profile.as_ref().map(|p| &p.defaults);
+    // A profile pinned to another harness is still a valid base for MCPs, skills and prompt, but
+    // what it says about *this harness's* identity and vocabulary is not: its account is signed in
+    // under the other harness's home, and its model and mode ids are that harness's words.
+    let pin_foreign = profile
+        .as_ref()
+        .is_some_and(|p| profile_pins_other(p, &flags.harness));
 
     // Config-overlay bases across the `extends` chain (root -> leaf), for
     // provision to materialize on top of the harness-generated config. Each is
@@ -237,7 +254,12 @@ pub fn resolve(
     let account_id: Option<String> = flags
         .account
         .clone()
-        .or_else(|| profile.as_ref().and_then(|p| p.account.clone()))
+        .or_else(|| {
+            profile
+                .as_ref()
+                .filter(|_| !pin_foreign)
+                .and_then(|p| p.account.clone())
+        })
         .or_else(|| per_harness.and_then(|h| h.account.clone()))
         .or_else(|| settings.defaults.account.clone());
     let hook_ids: Vec<String> = pick(
@@ -442,6 +464,7 @@ pub fn resolve(
         .or_else(|| {
             profile
                 .as_ref()
+                .filter(|_| !pin_foreign)
                 .and_then(|p| p.mode.clone().map(|m| (m, format!("profile '{}'", p.id))))
         });
     if let Some((mode, source)) = chosen_mode {
@@ -490,10 +513,11 @@ pub fn resolve(
     // free nor reliable at resolve time — and a list that failed to load would silently drop a
     // model that works. Passing an unknown model through lets the harness say so, which is the
     // better failure. See the module doc.
-    spec.model = flags
-        .model
-        .clone()
-        .or_else(|| profile_defaults.and_then(|d| d.model.clone()));
+    spec.model = flags.model.clone().or_else(|| {
+        profile_defaults
+            .filter(|_| !pin_foreign)
+            .and_then(|d| d.model.clone())
+    });
     spec.problems = problems;
     spec.thinking = flags.thinking.clone();
     spec.passthrough_args = flags.passthrough_args.clone();
@@ -1650,6 +1674,37 @@ mod tests {
         let reg = test_registry();
         let spec = resolve(&f, &settings, &reg, &accounts, &profiles).expect("resolve");
         assert_eq!(spec.account.expect("account").id, "personal");
+    }
+
+    #[test]
+    fn profile_pinned_to_another_harness_lends_no_account_model_or_mode() {
+        let mut f = flags("codex");
+        f.profile = Some("work".to_string());
+
+        let mut work = prof("work");
+        work.harness = Some("claude-code".to_string());
+        work.account = Some("workacct".to_string());
+        work.mode = Some("plan".to_string());
+        work.defaults.model = Some("sonnet".to_string());
+        work.defaults.mcps = Some(vec!["figma".to_string()]);
+        let profiles = TestProfileStore {
+            profiles: vec![work],
+        };
+        let accounts = TestAccountStore {
+            accounts: vec![Account {
+                id: "workacct".to_string(),
+                ..Default::default()
+            }],
+        };
+
+        let settings = Settings::default();
+        let reg = test_registry();
+        let spec = resolve(&f, &settings, &reg, &accounts, &profiles).expect("resolve");
+        assert!(spec.account.is_none());
+        assert!(spec.model.is_none());
+        assert!(spec.problems.is_empty(), "{:?}", spec.problems);
+        let ids: Vec<&str> = spec.mcps.iter().map(mcp_ref_id).collect();
+        assert_eq!(ids, vec!["figma"]);
     }
 
     #[test]

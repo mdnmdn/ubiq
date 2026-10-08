@@ -783,6 +783,10 @@ inside `outputTokens`, with `totalTokens = inputTokens + outputTokens`. The same
 emits `account/rateLimits/updated { rateLimits: { primary, secondary: { usedPercent,
 windowDurationMins, resetsAt }, planType, rateLimitReachedType, … } }`.
 
+The handshake also reads `account/rateLimits/read` once after `thread/start` (best-effort; an API-key or
+signed-out home refuses it) and maps it through the same merge as the push, so the quota ring shows before the
+first push.
+
 How `CodexBridge` maps all of this onto `AgentEvent` is stated once, in `src/io/codex.rs`.
 
 ### Model & reasoning at launch

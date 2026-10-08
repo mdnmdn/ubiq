@@ -2341,7 +2341,9 @@ the moment the question gets asked. The harness is a field on the snapshot rathe
 key's meaning, because one account can serve several harnesses and each states its own limits. The
 account is the one a run's definition names, empty for none; the host reads the login from that
 account's own home for the harness, or the harness's default home when the account has none
-(`D194`, `G380`).
+(`D194`, `G380`). **The empty account is a key of its own** — the user's own home — probed by
+`QueryQuota` and filed by a running conversation's pushes like a named account's; the interface asks for it
+when the first conversation on the default account arrives.
 
 **`email` is who the provider says the home is signed in as** — Codex's `account/read` answers it;
 Claude's `/usage` does not, and it stays `None` rather than guessed. The host's cache keeps the

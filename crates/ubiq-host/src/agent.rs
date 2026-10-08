@@ -2084,9 +2084,11 @@ pub fn quota_of(
 ) -> Result<ubiq_proto::quota::QuotaSnapshot> {
     let harness =
         harness::resolve(agent_type).ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+    // The default account (empty id) is the user's own home: `None`, which the library reads as
+    // the harness's own default config.
     let home = HomeStore::new(root.join("harness-homes"))
         .home(account, &harness.id())
-        .filter(|home| home.is_dir());
+        .filter(|home| !account.is_empty() && home.is_dir());
     let snapshot = harness
         .quota(account, home.as_deref())
         .with_context(|| format!("asking {agent_type} what '{account}' has left"))?;

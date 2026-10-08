@@ -2351,6 +2351,21 @@ impl AppState {
                 accepts_input,
             } => {
                 self.workbench.work_error = None;
+                // The default account (no id) has no accounts-page row to ask for its plan, so the
+                // first conversation on it does — from the host's cache unless nothing is held.
+                if agent.account.is_empty()
+                    && self
+                        .workbench
+                        .agent_type(&agent.harness)
+                        .is_some_and(|info| info.quota.probeable())
+                    && self.workbench.settings.quota(&agent.harness, "").is_none()
+                {
+                    self.bus.send(Message::QueryQuota {
+                        account: String::new(),
+                        harness: agent.harness.clone(),
+                        fresh: false,
+                    });
+                }
                 let open = self.projects.get_mut(&project_id)?;
                 let id = agent.id;
                 let harness = agent.harness.clone();

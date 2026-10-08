@@ -4252,18 +4252,13 @@ impl Coordinator {
             harness: pending.agent_type.clone(),
             account: pending.account.clone().unwrap_or_default(),
         });
-        // Where a reading this harness pushes mid-turn is filed. Only for a run with an identity
-        // behind it: what is left belongs to an account, and a run as the harness's own default
-        // identity has none to key one by.
-        let quota = pending
-            .account
-            .clone()
-            .filter(|account| !account.is_empty())
-            .map(|account| crate::conversation::QuotaVoice {
-                voice: self.host.voice(),
-                harness: pending.agent_type.clone(),
-                account,
-            });
+        // Where a reading this harness pushes mid-turn is filed: under the run's account, or
+        // under the empty id for the default identity (the user's own home) — a first-class key.
+        let quota = Some(crate::conversation::QuotaVoice {
+            voice: self.host.voice(),
+            harness: pending.agent_type.clone(),
+            account: pending.account.clone().unwrap_or_default(),
+        });
         // A one-shot harness's process exits at the end of every turn, so its pump must not
         // announce that as the conversation ending — `finish_one_shot_turn` decides what it
         // means, and says `ConversationUnloaded` instead.

@@ -214,6 +214,8 @@ pub struct CodexBridge {
     wire: Wire,
     /// The model the thread was opened with, for the reader to put on every usage report.
     model: Arc<OnceLock<String>>,
+    /// The mapper's rate-limit reading, shared so the handshake can seed it before any push.
+    limits: Arc<Mutex<Limits>>,
 }
 
 /// The detached input side of a [`CodexBridge`], for a caller pumping events
@@ -280,6 +282,7 @@ impl CodexBridge {
             Arc::clone(&wire.turn_id),
         );
         let mut mapper = mapper;
+        let limits = Arc::clone(&mapper.limits);
         mapper.replayed = !matches!(open, ThreadOpen::Start);
         let reader_wire = wire.clone();
         let reader = std::thread::spawn(move || read_loop(stdout, reader_wire, tx, mapper));
@@ -290,6 +293,7 @@ impl CodexBridge {
             reader: Some(reader),
             wire,
             model,
+            limits,
         };
 
         bridge.handshake(cwd, open)?;
@@ -396,6 +400,28 @@ impl CodexBridge {
                 }
             }
             Err(error) => tracing::debug!(%error, "codex model/list unanswered; no pickers"),
+        }
+
+        // The plan's windows, read once so the ring shows before the first push. Best-effort: an
+        // API-key or signed-out home refuses it, and then there is simply no plan to draw.
+        match self.request("account/rateLimits/read", json!({})) {
+            Ok(read) => {
+                let snapshot = read
+                    .pointer("/rateLimitsByLimitId/codex")
+                    .filter(|s| !s.is_null())
+                    .or_else(|| read.get("rateLimits"));
+                if let (Some(snapshot), Ok(mut limits)) = (snapshot, self.limits.lock()) {
+                    if matches!(
+                        snapshot.get("limitId").and_then(Value::as_str),
+                        None | Some("codex")
+                    ) {
+                        for event in rate_limit_event(&mut limits, snapshot) {
+                            self.wire.emit(event);
+                        }
+                    }
+                }
+            }
+            Err(error) => tracing::debug!(%error, "codex account/rateLimits/read refused"),
         }
 
         Ok(())
@@ -552,7 +578,10 @@ fn config_options(picks: &Picks) -> Vec<super::ConfigOption> {
 fn mode_overrides(mode: &str) -> Option<(Value, &'static str)> {
     // Every field `SandboxPolicy` declares (`codex app-server generate-ts`, 0.161.0) is sent.
     Some(match mode {
-        "read-only" => (json!({"type": "readOnly", "networkAccess": false}), "on-request"),
+        "read-only" => (
+            json!({"type": "readOnly", "networkAccess": false}),
+            "on-request",
+        ),
         "workspace-write" => (
             json!({
                 "type": "workspaceWrite",
@@ -1313,7 +1342,7 @@ pub(crate) struct Mapper {
     /// Every subagent thread seen, by thread id.
     children: HashMap<String, Delegate>,
     /// The last `codex` rate-limit reading, merged from sparse pushes.
-    limits: Limits,
+    limits: Arc<Mutex<Limits>>,
     /// The live turn's id, cleared when the conversation's own turn completes — so a prompt
     /// after it opens a turn rather than steering one that is over.
     turn: TurnSlot,
@@ -1347,7 +1376,7 @@ impl Mapper {
             ring: (0, 0),
             replayed: false,
             children: HashMap::new(),
-            limits: Limits::default(),
+            limits: Arc::default(),
             turn,
         }
     }
@@ -1882,38 +1911,48 @@ impl Mapper {
             None | Some("codex") => {}
             Some(_) => return Vec::new(),
         }
-        for key in ["primary", "secondary"] {
-            let Some(window) = snapshot.get(key).filter(|w| !w.is_null()) else {
-                continue;
-            };
-            let Some((minutes, reading)) = rate_window(window) else {
-                continue;
-            };
-            match minutes {
-                FIVE_HOURS_MINS => self.limits.five_hour = Some(reading),
-                WEEK_MINS => self.limits.seven_day = Some(reading),
-                _ => {}
-            }
-        }
-        if let Some(reached) = snapshot.get("rateLimitReachedType") {
-            self.limits.reached = reached.as_str().map(str::to_string);
-        }
-        if self.limits.five_hour.is_none() && self.limits.seven_day.is_none() {
+        let Ok(mut limits) = self.limits.lock() else {
             return Vec::new();
-        }
-        vec![AgentEvent::RateLimitUpdate {
-            five_hour: self.limits.five_hour.clone(),
-            seven_day: self.limits.seven_day.clone(),
-            status: self
-                .limits
-                .reached
-                .clone()
-                .unwrap_or_else(|| "allowed".to_string()),
-            overage_status: None,
-            overage_reason: None,
-        }]
+        };
+        rate_limit_event(&mut limits, snapshot)
     }
+}
 
+/// Merge one `codex` snapshot into `limits` and say the whole reading, shared by the pushed
+/// notification and the handshake's seed so both fill the one gauge.
+fn rate_limit_event(limits: &mut Limits, snapshot: &Value) -> Vec<AgentEvent> {
+    for key in ["primary", "secondary"] {
+        let Some(window) = snapshot.get(key).filter(|w| !w.is_null()) else {
+            continue;
+        };
+        let Some((minutes, reading)) = rate_window(window) else {
+            continue;
+        };
+        match minutes {
+            FIVE_HOURS_MINS => limits.five_hour = Some(reading),
+            WEEK_MINS => limits.seven_day = Some(reading),
+            _ => {}
+        }
+    }
+    if let Some(reached) = snapshot.get("rateLimitReachedType") {
+        limits.reached = reached.as_str().map(str::to_string);
+    }
+    if limits.five_hour.is_none() && limits.seven_day.is_none() {
+        return Vec::new();
+    }
+    vec![AgentEvent::RateLimitUpdate {
+        five_hour: limits.five_hour.clone(),
+        seven_day: limits.seven_day.clone(),
+        status: limits
+            .reached
+            .clone()
+            .unwrap_or_else(|| "allowed".to_string()),
+        overage_status: None,
+        overage_reason: None,
+    }]
+}
+
+impl Mapper {
     /// `model/rerouted`: later usage is the new model's, and the reader is told why.
     fn map_rerouted(&mut self, params: &Value) -> Vec<AgentEvent> {
         let Some(to) = params.get("toModel").and_then(Value::as_str) else {
@@ -2611,7 +2650,11 @@ mod tests {
         if let Some(model) = model {
             model_lock.set(model.to_string()).unwrap();
         }
-        let mut mapper = Mapper::new(root_lock, model_lock, Arc::new(Mutex::new(TurnState::default())));
+        let mut mapper = Mapper::new(
+            root_lock,
+            model_lock,
+            Arc::new(Mutex::new(TurnState::default())),
+        );
         fixture
             .lines()
             .filter(|line| !line.trim().is_empty())
@@ -2873,6 +2916,31 @@ mod tests {
         assert_eq!(spend.total(), 110);
     }
 
+    /// The handshake's seed and a later sparse push fill one gauge: the push that names only the
+    /// short window keeps the week the seed read.
+    #[test]
+    fn a_seeded_reading_survives_a_sparse_push() {
+        let window = |pct: f64, mins: u64, at: i64| {
+            json!({"usedPercent": pct, "windowDurationMins": mins, "resetsAt": at})
+        };
+        let mut limits = Limits::default();
+        let seed = json!({"limitId": "codex", "primary": window(10.0, 300, 100),
+            "secondary": window(20.0, 10_080, 200)});
+        assert_eq!(rate_limit_event(&mut limits, &seed).len(), 1);
+        let push = json!({"primary": window(55.0, 300, 150), "secondary": null});
+        match rate_limit_event(&mut limits, &push).remove(0) {
+            AgentEvent::RateLimitUpdate {
+                five_hour,
+                seven_day,
+                ..
+            } => {
+                assert_eq!(five_hour.map(|w| w.utilization_pct), Some(55));
+                assert_eq!(seven_day.map(|w| w.utilization_pct), Some(20));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn map_notification_unknown_method_is_ignored() {
         let v: Value =
@@ -3056,7 +3124,10 @@ mod tests {
         }
         let ends = mapper.map(&completed("turn-1"));
         assert_eq!(ends.len(), 3, "{ends:?}");
-        assert!(ends.iter().all(|e| matches!(e, AgentEvent::TurnEnded { .. })));
+        assert!(
+            ends.iter()
+                .all(|e| matches!(e, AgentEvent::TurnEnded { .. }))
+        );
         let slot = turn.lock().unwrap();
         assert_eq!((slot.id.clone(), slot.merged), (None, 0));
     }

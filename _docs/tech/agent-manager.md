@@ -120,6 +120,13 @@ that has configured nothing. The library's own settings file is deliberately **n
 settings are the settings surface, and a second file answering the same question is a second
 answer — which leaves `resolve`'s precedence as flags, then the agent definition.
 
+**A definition pinned to another harness lends no account, mode or model.** Run on a different
+harness than its `harness` pin (a claude-code definition customised to codex), the definition still
+contributes its MCPs, skills and prompt, but `resolve` ignores its `account`, `mode` and
+`defaults.model`: the account is signed in under the other harness's home, so keeping it launched the
+run unauthenticated, and the model and mode ids are that harness's words. `start_conversation` in
+`coordinator.rs` drops the same three, and the thinking level, when seeding the picks.
+
 **A configured harness entry is a library `Profile`.** The pair a user thinks of as "Claude Code, work
 account" is `agent_manager::profile::Profile` with its `harness` and `account` set, and the agent
 layer that comes later is the same type with `defaults.instructions` filled. That record is what an
