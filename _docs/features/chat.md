@@ -249,12 +249,11 @@ that, and after an `AskEnded` for a timeout or gone conversation, the dialog reo
 and what was chosen). No marker beside an option's label: the card's fill and edge are the pick
 (`kit::card`'s `selected`). The strip stays put while only the question scrolls.
 
-**A question arrives in one of two ways, and the dialog is the same.** `ask_user_question` parks its tool
-call and raises the dialog mid-turn. `register_question` waits for nothing: the dialog is raised when the
-agent's **turn ends**, and answering opens the next turn with the answer's prose as the prompt (the
+**A question arrives one way** (`D210`): the agent's one ask tool, `ask_user_question`, waits for nothing —
+the dialog is raised when the agent's **turn ends**, and answering opens the next turn with the answer's prose as the prompt (the
 transcript shows the dialog and answer, not the prose). Typing into the composer instead closes the dialog —
-one or the other, once. A turn that fails after registering raises nothing. The transport contract states
-both modes; `D175` is the choice.
+one or the other, once. A turn that fails after asking raises nothing. The transport contract states
+the mechanism; `D175` and `D210` are the choice.
 
 **Dialogs registered in one turn are answered as a set** (`D192`). All go up together at turn end, each
 answered on its own in any order, and **nothing reaches the agent until all are answered**; one prompt then

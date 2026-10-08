@@ -36,13 +36,12 @@
 //!   its `ops` on the same shape
 //! - `help`: the `ubiq-help` server, reaching Ubiq's own documentation through [`crate::help`] —
 //!   an agent's read of the same manual a person opens with the `?` in the titlebar
-//! - `ask`: the `ubiq-ask` server, the two tools that do not answer themselves —
-//!   `ask_user_question` parks on [`crate::ask::Asks`] until a person answers, on a thread of its
-//!   own so the listener stays free (`D138`); `register_question` files a dialog in
-//!   [`crate::armed::Armed`] and returns at once, to be raised when the turn ends (`D175`)
+//! - `ask`: the `ubiq-ask` server, one tool, `ask_user_question`, which files a dialog in
+//!   [`crate::armed::Armed`] and returns at once, to be raised when the turn ends (`D175`, `D210`);
+//!   the parked mode on [`crate::ask::Asks`] (`D138`) is retired but kept in the source
 //! - `sql`: the `ubiq-sql-read` / `ubiq-sql-write` pair, reaching a project's database connections
 //!   through [`crate::db::agent::AgentDb`] and answering in TOON — each call on a thread of its own,
-//!   at most eight at once, like `ask_user_question` (`D202`)
+//!   at most eight at once, like the other threaded calls (`D202`)
 //!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
@@ -184,9 +183,9 @@ pub struct ArchifyReach {
 /// for the reason [`KbReach`]'s is: the coordinator answers into the same tables the serving
 /// thread parked in, and two copies would be two different waits.
 ///
-/// The two are the two ask modes and never the same row. [`crate::ask::Asks`] holds
-/// `ask_user_question`'s parked call; [`crate::armed::Armed`] holds `register_question`'s
-/// registration, which parks nothing and is raised when the turn ends (`D175`).
+/// [`crate::armed::Armed`] holds `ask_user_question`'s registration, which parks nothing and is
+/// raised when the turn ends (`D175`). [`crate::ask::Asks`] held the retired parked mode's call
+/// (`D210`) and is still reached by a handed-over row.
 pub struct AskReach {
     pub asks: Arc<crate::ask::Asks>,
     pub armed: Arc<crate::armed::Armed>,

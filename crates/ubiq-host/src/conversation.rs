@@ -100,7 +100,7 @@ pub struct QuotaVoice {
 
 /// How the dialogs an agent registered during a turn reach the user when that turn ends.
 ///
-/// **The turn boundary is the whole mechanism** (`D175`). `register_question` files a row in
+/// **The turn boundary is the whole mechanism** (`D175`). `ask_user_question` files a row in
 /// [`crate::armed::Armed`] and returns on the listener's own thread, so nothing is waiting and
 /// nothing on the harness's side knows a question was asked; the pump is the one place that sees
 /// the turn end, so it is the one place that can raise what was armed. The question goes out on a

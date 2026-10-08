@@ -1,8 +1,8 @@
 //! The armed dialogs: questions an agent registered during a turn, to be raised when it ends.
 //!
-//! **The other ask mode, beside [`crate::ask`].** `ask_user_question` parks the tool call while a
-//! person is asked, which is the only shape that can pause an agent mid-sequence — and the only
-//! shape a harness's own tool timeout can reach. `register_question` does not wait at all: the
+//! **The one live ask mode** (`D210`). The retired parked mode in [`crate::ask`] held the tool call
+//! while a person was asked, the only shape a harness's own tool timeout can reach.
+//! `ask_user_question` does not wait at all: the
 //! call mints an [`AskId`], files it here as *armed* against the calling conversation, and returns
 //! on the listener's own thread. Nothing parks, so there is no timer to fight (`D175`).
 //!
@@ -17,7 +17,7 @@
 //! whole difference between the two modes: what the outcome is delivered into.
 //!
 //! **Everything raised together is answered together, and submitted once** (`G362`). An agent may
-//! call `register_question` more than once in a turn, and the turn boundary raises every row it
+//! call `ask_user_question` more than once in a turn, and the turn boundary raises every row it
 //! armed. Submitting each answer as it arrives would open a turn on the first while the second
 //! dialog was still on screen, and the second answer would then prompt a conversation that is
 //! already working. So the rows raised by one [`Armed::fire`] share a [`Batch`]: each is answered
@@ -41,9 +41,9 @@ use ubiq_proto::work::AgentId;
 /// How a row got here, which is the only thing the answer's prose reads off it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arming {
-    /// `register_question` filed it, to be raised when the turn ends.
+    /// `ask_user_question` filed it, to be raised when the turn ends.
     Registered,
-    /// A parked `ask_user_question` gave up on its own tool result and handed the still-open
+    /// A (retired) parked ask gave up on its own tool result and handed the still-open
     /// dialog over (`D191`). The row arrives already raised — the modal has been on screen since
     /// the call parked — and the agent has already been told, in the tool result, that the answer
     /// would arrive this way.

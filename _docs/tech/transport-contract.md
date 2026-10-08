@@ -1839,16 +1839,16 @@ what the library asks of a caller that gives up on a question it raised.
 
 **`AskUser` is the other loop a harness blocks on, and it is not the harness's own.** A permission
 request comes up through the agent's protocol; an ask comes from a tool the agent chose to call —
-`ask_user_question` on the `ubiq-ask` MCP server — so the host mints the `AskId`, parks the tool
-call, and pushes `AskUser` unsolicited to the one window that owns the conversation. The payload is
+`ask_user_question` on the `ubiq-ask` MCP server — so the host mints the `AskId`, arms the dialog
+for the turn boundary, and pushes `AskUser` unsolicited to the one window that owns the conversation. The payload is
 `crates/ubiq-proto/src/ask.rs`'s vocabulary, which is Claude Code's `AskUserQuestion` schema
 deliberately: one to four questions, each with a header short enough to be a tab, two to four
 labelled options, single- or multi-select, previews on single-select only. The host checks all of
-that **before** it parks anything — a malformed ask is answered as a tool error and no user ever
+that **before** it arms anything — a malformed ask is answered as a tool error and no user ever
 sees it.
 
-**There are two ask modes and one message set.** `ask_user_question` parks the tool call, as above.
-`register_question` parks nothing: the host validates the same `questions`, mints the `AskId`, files
+**There is one ask tool, and it parks nothing** (`D210`; the parked mode is retired but kept in the
+source). `ask_user_question`: the host validates the same `questions`, mints the `AskId`, files
 it as *armed* against the calling conversation in `crates/ubiq-host/src/armed.rs`, and answers the
 call on the listener's own thread with `{"registered": "<ask id>"}`. The dialog is raised when that
 conversation's **turn ends** — `crates/ubiq-host/src/conversation.rs` sees `TurnEnded` and says the
@@ -1856,11 +1856,10 @@ same `AskUser` — and what the user answers is submitted as the next turn's pro
 tool result. A turn that ends `Failed`, `Cancelled` or `Refusal`, or carries an error, drops what it
 armed instead of raising a dialog over a broken turn. Nothing survives into the next turn: a prompt
 from the window closes whatever the mode has on screen with `AskEnded{Gone}`, so the same turn is
-never both answered and spoken to. `AskUser`, `AnswerAsk`, `AskEnded` and the dialog are the same in
-both modes; the window cannot tell them apart and does not need to (`D175`).
+never both answered and spoken to. `AskUser`, `AnswerAsk` and `AskEnded` are what the window sees (`D175`).
 
 **Everything one turn registered is raised together, answered separately, and submitted once.** An
-agent may call `register_question` more than once in a turn, and the turn boundary raises every row
+agent may call `ask_user_question` more than once in a turn, and the turn boundary raises every row
 it armed; submitting each answer as it arrived would open a turn on the first while the second
 dialog was still on screen, and the second answer would then prompt a conversation that is already
 working. So the rows one `Armed::fire` raises share a *batch*: each `AskUser` carries `batch_at` and
@@ -1868,8 +1867,8 @@ working. So the rows one `Armed::fire` raises share a *batch*: each `AskUser` ca
 each answer as it lands, and the answer that settles the last row of the set is the one that becomes
 a prompt, carrying all of them in the order they were raised. The dialog draws `batch_at`/`batch_of`
 so the user is told that confirming one sends nothing on its own. `0`/`0` means no set, which is
-every parked ask: `ask_user_question` raises its dialog alone, mid-turn, and a dialog handed over to
-the armed table when a parked call gives up (`D191`) is a batch of one for the same reason. Every
+every parked ask — the retired mode raised its dialog alone, mid-turn, and a dialog handed over to
+the armed table when a parked call gave up (`D191`) was a batch of one for the same reason. Every
 row of a batch has the same three exits, so none of them can wedge the rest: answered, given up on
 by the window (`AskEnded`, which settles the row with nothing to say and lets the batch finish
 without it), or forgotten wholesale when the conversation stops being reachable — and a batch nobody
@@ -1912,7 +1911,7 @@ directions apart by the sender: only the window that owns the conversation can b
 `ubiq-ask` thread's own voice owns no conversation at all.
 
 **One MCP response may be an event stream, and it is this one.** `crates/ubiq-host/src/mcp/
-server.rs` answers a parked `ask_user_question` as `text/event-stream` when — and only when — the
+server.rs` answered a parked `ask_user_question` (retired, `D210`; the arm is kept behind a constant that is off) as `text/event-stream` when — and only when — the
 request carries a `_meta.progressToken` and an `Accept` that admits it: a `notifications/progress`
 every ten seconds while the wait runs, then the JSON-RPC response as the last event, then the
 stream closes. That is the transport's own framing for one long `POST`, not a session: no session

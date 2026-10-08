@@ -1,31 +1,16 @@
-//! The `ubiq-ask` server: two ways to put a question to the person watching.
+//! The `ubiq-ask` server: one tool, `ask_user_question`, which arms a dialog and fires it at the
+//! turn boundary (`D175`, `D210`).
 //!
-//! Every other built-in tool answers from a fact the host already holds. These two do not.
+//! It files the questions in [`crate::armed::Armed`] and returns the minted id on the listener's
+//! own thread; the dialog is raised when the agent's turn ends, and the user's answer arrives as
+//! the next turn rather than as this call's result. Nothing waits, so no harness's own tool
+//! timeout can reach it. The cost is that the agent must stop after asking — the tool's
+//! description says so, because the dialog is only raised at the turn boundary.
 //!
-//! **`ask_user_question` parks.** It puts a question on screen and waits until the person answers
-//! it, says they would rather talk, or the wait's bound passes — [`crate::ask::Asks`] holds the
-//! call meanwhile, and `D138` is why that table exists at all. **It never runs on the listener's
-//! thread**: [`super::server::handle`] moves the request onto a thread of its own before calling
-//! in here, because every other agent's tool calls come through that one listener and a parked
-//! call would hold all of them up.
-//!
-//! **The bound is short, and giving up is a result rather than a failure** (`D191`, `G360`).
-//! Every harness in front of this call keeps a tool timeout of its own and every one of them is
-//! shorter than an hour, so a call that waits an hour loses that race and the model reads an
-//! opaque harness failure while the user is still deciding. So a silent call waits
-//! [`ubiq_proto::ask::ASK_PARK_SECS`] — under the shortest tool timeout this tree knows of — and
-//! returns `timedOut` as an ordinary result the model can act on, while the dialog stays on
-//! screen and its row is handed to [`crate::armed::Armed`] so the answer still arrives, as the
-//! next turn. A call whose client asked for MCP progress notifications gets the patient
-//! [`ubiq_proto::ask::ASK_TIMEOUT_SECS`] instead, because its timer is being reset while it waits;
-//! that arm lives in [`super::server`] and degrades to this one on any client that does not ask.
-//!
-//! **`register_question` does not.** It files the same questions in [`crate::armed::Armed`] and
-//! returns the minted id on the listener's own thread; the dialog is raised when the agent's turn
-//! ends, and the user's answer arrives as the next turn rather than as this call's result. Nothing
-//! waits, so no harness's own tool timeout can reach it (`D175`). The cost is that the agent must
-//! stop after registering — the tool's description says so, because the dialog is only raised at
-//! the turn boundary.
+//! **RETIRED, kept for reference: the parked mode.** The earlier `ask_user_question` parked the
+//! tool call on [`crate::ask::Asks`] (`D138`) with a short bound and SSE progress streaming
+//! (`D191`, `G360`). It is no longer advertised and no tool name reaches it (`D210`); [`ask`],
+//! [`raise`], [`settle`] and `server::park` stay in the tree, compiling, for a future mid-turn ask.
 //!
 //! **The wire shape is Claude Code's `AskUserQuestion`.** A harness that already knows how to ask
 //! a structured question does not have to learn a second form of it, so the arguments below are
@@ -43,7 +28,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
-use ubiq_proto::ask::{ASK_PARK_SECS, AskAnswer, AskClosed, AskOption, AskOutcome, AskQuestion};
+use ubiq_proto::ask::{AskAnswer, AskClosed, AskOption, AskOutcome, AskQuestion};
 use ubiq_proto::bus::Voice;
 use ubiq_proto::ids::AskId;
 use ubiq_proto::messages::Message;
@@ -86,20 +71,13 @@ pub fn call(
     tool: &str,
     arguments: &Value,
     facts: &AgentFacts,
-    voice: &Voice,
+    _voice: &Voice,
     reach: &AskReach,
 ) -> Result<Value, String> {
     match tool {
-        // The silent bound. The streaming arm does not come through here: it calls [`raise`] and
-        // [`settle`] itself, with the patient bound, because it can say it is still alive.
-        "ask_user_question" => ask(
-            arguments,
-            facts,
-            voice,
-            reach,
-            Duration::from_secs(ASK_PARK_SECS),
-        ),
-        "register_question" => register(arguments, facts, reach),
+        // The retired parked mode (`D175`, `D191`, `D210`) is not routed: `ask` below stays for
+        // reference only.
+        "ask_user_question" => arm(arguments, facts, reach),
         _ => Err(format!(
             "unknown tool: {}/{tool}",
             super::catalogue::UBIQ_ASK
@@ -134,15 +112,15 @@ fn reading(
     Ok((agent_id, questions))
 }
 
-/// Register a dialog for the end of this turn and return at once.
+/// Arm a dialog for the end of this turn and return at once.
 ///
 /// **The whole of the call.** No thread is spawned and nothing waits: the row goes into
 /// [`crate::armed::Armed`], the conversation's pump raises it as `Message::AskUser` when the turn
 /// ends, and what the user says comes back as the next turn's prompt. The handle returned exists
 /// so the model can name its own registration; it is not an id it has to remember, because a
 /// registration lives for one turn.
-fn register(arguments: &Value, facts: &AgentFacts, reach: &AskReach) -> Result<Value, String> {
-    let (agent_id, questions) = reading("register_question", arguments, facts)?;
+fn arm(arguments: &Value, facts: &AgentFacts, reach: &AskReach) -> Result<Value, String> {
+    let (agent_id, questions) = reading("ask_user_question", arguments, facts)?;
     let ask_id = reach.armed.arm(agent_id, questions);
     Ok(json!({
         "registered": ask_id.to_string(),
@@ -150,11 +128,14 @@ fn register(arguments: &Value, facts: &AgentFacts, reach: &AskReach) -> Result<V
     }))
 }
 
+/// RETIRED (`D210`): the parked ask, no longer reachable from any tool name; kept for reference.
+///
 /// Raise the question, wait for the answer, and turn whatever ended it into a tool result.
 ///
 /// The whole of the blocking arm: [`raise`] puts the dialog up, the table is waited on for
 /// `bound`, and [`settle`] turns whatever ended it into a result. The streaming arm in
 /// [`super::server`] is the same three steps with its own clock between the first and the last.
+#[allow(dead_code)] // retired parked mode, kept for reference (`D210`); only tests drive it
 fn ask(
     arguments: &Value,
     facts: &AgentFacts,
@@ -319,6 +300,7 @@ mod tests {
     use crate::ask::Asks;
     use std::sync::Arc;
     use std::time::Duration;
+    use ubiq_proto::ask::ASK_PARK_SECS;
     use ubiq_proto::bus;
 
     /// The parked table under test, with an armed table nothing in these reaches.
@@ -336,6 +318,22 @@ mod tests {
             harness: "Claude Code".to_string(),
             ..Default::default()
         }
+    }
+
+    /// The retired parked call, driven directly: nothing routes a tool name to it any more.
+    fn parked(
+        arguments: &Value,
+        facts: &AgentFacts,
+        voice: &Voice,
+        reach: &AskReach,
+    ) -> Result<Value, String> {
+        ask(
+            arguments,
+            facts,
+            voice,
+            reach,
+            Duration::from_secs(ASK_PARK_SECS),
+        )
     }
 
     fn picked() -> AskOutcome {
@@ -371,21 +369,13 @@ mod tests {
             "header": "Direction",
             "options": [{"label": "Left"}],
         }]});
-        let refusal = call(
-            "ask_user_question",
-            &one_option,
-            &facts(&agent),
-            &voice,
-            &reach,
-        )
-        .unwrap_err();
+        let refusal = parked(&one_option, &facts(&agent), &voice, &reach).unwrap_err();
         assert!(refusal.contains("cannot be drawn"), "{refusal}");
         assert!(asks.is_empty());
 
         // The same for arguments that are not an ask at all.
         assert!(
-            call(
-                "ask_user_question",
+            parked(
                 &json!({"question": "Which way?"}),
                 &facts(&agent),
                 &voice,
@@ -403,8 +393,7 @@ mod tests {
         let asks = Arc::new(Asks::with_timeout(Duration::from_millis(20)));
         let (hub, host) = bus::hub();
         let reach = reaching(Arc::clone(&asks));
-        let refused = call(
-            "ask_user_question",
+        let refused = parked(
             &well_formed(),
             &facts("not-a-ulid"),
             &host.voice(),
@@ -428,13 +417,7 @@ mod tests {
 
         let waiting = Arc::clone(&asks);
         let calling = std::thread::spawn(move || {
-            call(
-                "ask_user_question",
-                &well_formed(),
-                &facts(&agent),
-                &voice,
-                &reaching(waiting),
-            )
+            parked(&well_formed(), &facts(&agent), &voice, &reaching(waiting))
         });
 
         // The ask reaches the host as `AskUser`, which is what the coordinator addresses.
@@ -584,13 +567,7 @@ mod tests {
 
         let waiting = Arc::clone(&asks);
         let calling = std::thread::spawn(move || {
-            call(
-                "ask_user_question",
-                &well_formed(),
-                &facts(&agent),
-                &voice,
-                &reaching(waiting),
-            )
+            parked(&well_formed(), &facts(&agent), &voice, &reaching(waiting))
         });
 
         let ask_id = loop {
@@ -626,13 +603,7 @@ mod tests {
 
         let waiting = Arc::clone(&asks);
         let calling = std::thread::spawn(move || {
-            call(
-                "ask_user_question",
-                &well_formed(),
-                &facts(&agent),
-                &voice,
-                &reaching(waiting),
-            )
+            parked(&well_formed(), &facts(&agent), &voice, &reaching(waiting))
         });
 
         let ask_id = loop {
@@ -670,7 +641,7 @@ mod tests {
         let agent_id = AgentId::generate();
 
         let result = call(
-            "register_question",
+            "ask_user_question",
             &well_formed(),
             &facts(&agent_id.to_string()),
             &host.voice(),
@@ -717,7 +688,7 @@ mod tests {
             "options": [{"label": "Left"}],
         }]});
         let refusal = call(
-            "register_question",
+            "ask_user_question",
             &one_option,
             &facts(&agent),
             &host.voice(),
@@ -727,7 +698,7 @@ mod tests {
         assert!(refusal.contains("cannot be drawn"), "{refusal}");
 
         let refused = call(
-            "register_question",
+            "ask_user_question",
             &well_formed(),
             &facts("not-a-ulid"),
             &host.voice(),

@@ -3966,6 +3966,10 @@ impl Coordinator {
                 .into_iter()
                 .find(|record| record.id == name)
         });
+        // A definition run on another harness than the one it names lends no model, level or mode:
+        // those ids are the pinned harness's words, and the library's `resolve` drops its account
+        // for the same reason.
+        let record = record.filter(|record| record.agent_type == agent_type);
         // An explicit pick outranks the definition's, the way a pick always does: a flag was the
         // user overriding what the definition set, and the definition's own record is only the
         // fallback when there was no pick.
@@ -9250,7 +9254,7 @@ mod tests {
 
     // ── the registered dialogs (`D175`) ─────────────────────────────
 
-    /// One well-formed question, as `register_question` would have filed it.
+    /// One well-formed question, as `ask_user_question` would have filed it.
     fn armed_question() -> ubiq_proto::ask::AskQuestion {
         ubiq_proto::ask::AskQuestion {
             question: "Which way?".to_string(),

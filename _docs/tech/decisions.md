@@ -6,7 +6,7 @@ status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
 updated: 2026-10-08
-verified: 2026-09-29
+verified: 2026-10-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -5296,6 +5296,21 @@ watches it). A non-unattended Codex column now blocks on a person where it used 
 token-field overlap (cached and cache-written inside input, reasoning inside output) is read from
 Codex's source, not yet from an authenticated capture. A free-text `requestUserInput` cannot be put
 to a person through a permission prompt and is answered empty.
+
+### D210 — `ubiq-ask` has one tool, `ask_user_question`, and it arms and fires
+
+`D175` added arm-and-fire beside the parked tool and `D191` kept both alive by bounding the park. The
+parked tool still cost a thread, a timeout race and an SSE path for a pause no agent we run needs
+mid-sequence, and two tools asked the model to choose between them. `ubiq-ask` advertises **one**
+tool, named `ask_user_question` (the name harness prompts know): it validates, arms the dialog
+against the calling conversation, returns `{"registered": …}` at once, and the dialog is raised when
+the turn ends — its answer is the next prompt. Its description keeps the hard requirement to end the
+turn immediately. The old `register_question` name is gone.
+
+**The parked mode is retired, not deleted.** `mcp/ask.rs`'s `ask`, `raise` and `settle`, `server::park`
+with its SSE stream and `crate::ask::Asks` stay in the source for a future mid-turn ask; no tool name
+reaches them (`PARKED_ASK` in `mcp/server.rs` is `false`), and the tests drive `ask` directly. This
+supersedes the two-tool choice of `D175` and the bounded park of `D191`; `G360` is moot.
 
 ## Related docs
 

@@ -790,7 +790,7 @@ fn the_capture_writes_the_conversation_to_a_file() {
 
 // ── the registered dialogs (`D175`) ─────────────────────────────────
 
-/// One well-formed question, as `register_question` files it.
+/// One well-formed question, as `ask_user_question` files it.
 fn armed_question() -> ubiq_proto::ask::AskQuestion {
     ubiq_proto::ask::AskQuestion {
         question: "Which way?".to_string(),

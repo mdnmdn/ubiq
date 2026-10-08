@@ -526,7 +526,7 @@ keeps the listener's lifetime, its identity model and its stateless-by-URL routi
 The catalogue is `test`, `project-info`, `manage-ubiq-tasks`, `use-task`, `ubiq-kb` and `ubiq-ask`.
 The middle three share the host's `Work` and `Kb` through handles, so an agent reaches what a window
 does (`D120`). `ubiq-ask` shares neither: its one tool, `ask_user_question`, answers no fact the host
-already holds, so it mints an `AskId`, parks the call on a thread of its own and pushes
+already holds, so it mints an `AskId`, arms the dialog for the end of the turn (`D210`) and pushes
 `Message::AskUser` to the window that owns the conversation instead — the pending-call pattern
 `D138` states for a drone tool call, generalised to a call that waits on a person rather than a
 remote host (`D155`). It is the first built-in tool that round-trips through the interface at all,

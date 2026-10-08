@@ -18,7 +18,7 @@
 //! every call, and the harness was handed that URL by the run Ubiq composed.
 //!
 //! **One response may be an event stream, and that costs none of the above.** A parked
-//! `ask_user_question` whose client asked for progress notifications is answered as `text/event-
+//! `ask_user_question` (retired, `D210`) whose client asked for progress notifications was answered as `text/event-
 //! stream`: the notifications and then the response, on the stream that one `POST` opened, closed
 //! when the call returns (`D191`). That is the transport's own framing for a long call, not a
 //! session — nothing survives the request, and a client that did not ask gets plain JSON. The
@@ -255,12 +255,13 @@ fn handle(
     // to reading (`D138`). Only `tools/call` is moved: `initialize` and `tools/list` on the same
     // server answer instantly and belong here.
     //
-    // **And only the parking tool of the two.** `register_question` files a row and returns
-    // (`D175`), so it is an ordinary request and a thread for it would be a thread to do nothing
-    // on.
-    if spec.name == catalogue::UBIQ_ASK
+    // **Retired (`D210`).** `ask_user_question` now arms a row and returns (`D175`), so it is an
+    // ordinary request and takes the immediate path. The parked arm below is kept for reference
+    // behind `PARKED_ASK`, which no tool name turns on.
+    if PARKED_ASK
+        && spec.name == catalogue::UBIQ_ASK
         && method == "tools/call"
-        && params.get("name").and_then(Value::as_str) == Some("ask_user_question")
+        && params.get("name").and_then(Value::as_str) == Some("ask_user_question_parked")
         && let Some(reach) = ask
     {
         // **Whether this client can be told the call is still alive.** MCP's progress
@@ -493,11 +494,15 @@ fn json_response(body: &Value) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> 
 
 // ── the parking arm ───────────────────────────────────────────────────────────────────────────
 //
-// `ask_user_question` is the one call this listener does not answer from a fact it holds, and the
-// two shapes below are the two ways of surviving the harness's own tool timeout while it waits
+// RETIRED (`D210`): the parked ask was the one call this listener did not answer from a fact it
+// holds, and the two shapes below are the two ways of surviving the harness's own tool timeout while it waits
 // (`D191`, `G360`). The silent one bounds the wait under that timeout and gives up legibly; the
 // streaming one keeps saying the call is alive, on the stream the request was made on, so a client
 // that honours progress notifications never starts counting.
+
+/// The parked ask is retired (`D210`): this stays `false`, and the arm it guards compiles but never
+/// runs. Flip it only together with a tool that advertises the parked mode.
+const PARKED_ASK: bool = false;
 
 /// How often a streaming park writes a progress notification. Well under every tool timeout this
 /// tree knows of, so a client resetting its timer on each one never gets close.
@@ -2262,10 +2267,11 @@ mod tests {
         );
     }
 
-    /// The parking tool, end to end — and the thing `D138` is actually about: while one agent's
-    /// ask is waiting for a person, another agent's ordinary tool call is answered as usual.
+    /// The ask tool, end to end: it takes the immediate path (`D210`) — the HTTP call returns the
+    /// registration at once, a dialog is armed for the turn boundary, and nothing is parked or
+    /// raised.
     #[test]
-    fn an_ask_parks_without_holding_up_the_listener() {
+    fn an_ask_arms_and_returns_at_once() {
         let (hub, host) = bus::hub();
         let asking = ubiq_proto::work::AgentId::generate();
         let registry = Registry::new();
@@ -2273,8 +2279,8 @@ mod tests {
             key: asking.to_string(),
             ..facts()
         });
-        registry.register(facts());
         let asks = Arc::new(crate::ask::Asks::new());
+        let armed = Arc::new(crate::armed::Armed::new());
         let serving = start(
             registry,
             host.voice(),
@@ -2285,63 +2291,28 @@ mod tests {
             None,
             Some(crate::mcp::AskReach {
                 asks: Arc::clone(&asks),
-                armed: Arc::new(crate::armed::Armed::new()),
+                armed: Arc::clone(&armed),
             }),
             None,
             None,
         )
         .expect("the listener binds");
 
-        let asked = url(&serving, &asking.to_string(), "ubiq-ask");
-        let calling = std::thread::spawn(move || {
-            call(
-                &asked,
-                "ask_user_question",
-                json!({"questions": [{
-                    "question": "Which way?",
-                    "header": "Direction",
-                    "options": [{"label": "Left"}, {"label": "Right"}],
-                    "multiSelect": false,
-                }]}),
-            )
-        });
-
-        // The ask reaches the host, which is where the coordinator addresses it from.
-        let ask_id = loop {
-            match host.recv_timeout(TIMEOUT).expect("the ask is raised") {
-                bus::FromClient::Said {
-                    message:
-                        Message::AskUser {
-                            ask_id, agent_id, ..
-                        },
-                    ..
-                } => {
-                    assert_eq!(agent_id, asking);
-                    break ask_id;
-                }
-                _ => continue,
-            }
-        };
-
-        // The call is parked, and the listener is free: another agent's tool answers now.
-        assert_eq!(asks.len(), 1);
-        let meanwhile = call(&url(&serving, KEY, "project-info"), "whoami", json!({}));
-        assert_eq!(meanwhile["result"]["isError"], false);
-
-        assert!(asks.answer(
-            ask_id,
-            ubiq_proto::ask::AskOutcome::Answered(vec![ubiq_proto::ask::AskAnswer {
-                question: 0,
-                chosen: vec!["Right".to_string()],
-                other: None,
-                notes: None,
-            }])
-        ));
-        let response = calling.join().expect("the calling thread");
+        let response = call(
+            &url(&serving, &asking.to_string(), "ubiq-ask"),
+            "ask_user_question",
+            json!({"questions": [{
+                "question": "Which way?",
+                "header": "Direction",
+                "options": [{"label": "Left"}, {"label": "Right"}],
+                "multiSelect": false,
+            }]}),
+        );
         assert_eq!(response["result"]["isError"], false);
-        let result = answered(&response);
-        assert_eq!(result["answered"][0]["chosen"][0], "Right");
-        assert_eq!(result["summary"], "Direction: Right");
+        assert!(answered(&response)["registered"].is_string());
+        assert_eq!(armed.len(), 1);
+        assert!(asks.is_empty());
+        assert!(host.recv_timeout(Duration::from_millis(50)).is_err());
         drop(hub);
     }
 

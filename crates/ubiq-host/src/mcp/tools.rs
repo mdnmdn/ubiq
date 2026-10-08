@@ -12,10 +12,9 @@
 //! does for a window, and a harness waiting on a round trip through that thread would be a
 //! harness a busy coordinator can stall.
 //!
-//! **`ubiq-ask` is the one tool that waits.** `ask_user_question` parks until a person answers
-//! it, so it is never called on the listener's thread: [`super::server::handle`] moves the whole
-//! request onto a thread of its own and calls in here from there (`D138`). Everything else in
-//! this file still answers where it always did.
+//! **`ubiq-ask` waits for nothing.** `ask_user_question` arms a dialog for the end of the turn and
+//! returns (`D175`, `D210`); the retired parked mode that needed a thread of its own (`D138`) is
+//! kept in [`super::server`] for reference only.
 //!
 //! An `Err` here is not a JSON-RPC error: the caller turns it into MCP's in-band `isError`, which
 //! is what a model can read and correct. See [`super::server::dispatch`].

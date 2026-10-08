@@ -1,7 +1,8 @@
 //! The parked calls: every question an agent has asked the user and not yet had an answer to.
 //!
-//! One tool in Ubiq does not answer itself. `ubiq-ask`'s `ask_user_question` raises a question at
-//! the person watching and the harness waits for them, so the call has to be *held* somewhere
+//! **Retired (`D210`): no tool reaches this table any more; kept for reference.** `ubiq-ask`'s
+//! parked `ask_user_question` raised a question at
+//! the person watching and the harness waited for them, so the call had to be *held* somewhere
 //! between the listener taking it and the dialog answering it — a row per call, keyed by the
 //! [`AskId`] the listener minted, and this is that table (`D138`).
 //!

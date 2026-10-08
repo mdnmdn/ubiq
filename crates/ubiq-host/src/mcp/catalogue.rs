@@ -57,8 +57,8 @@ pub const UBIQ_KB: &str = "ubiq-kb";
 pub const UBIQ_HELP: &str = "ubiq-help";
 
 /// The slug of the server that asks the user a question. The one server here whose tools do not
-/// answer from a fact the host holds: `ask_user_question` parks until a person answers (`D138`),
-/// `register_question` arms a dialog for the end of the turn (`D175`) — see [`super::ask`].
+/// answer from a fact the host holds: `ask_user_question` arms a dialog for the end of the turn
+/// (`D175`, `D210`) — see [`super::ask`].
 pub const UBIQ_ASK: &str = "ubiq-ask";
 
 /// The slug of the diagram server: validate, lay out, render and create Archify diagrams under the
@@ -1547,16 +1547,11 @@ pub const SERVERS: &[ServerSpec] = &[
     ServerSpec {
         name: UBIQ_ASK,
         title: "Ask the user",
-        description: "Ask the person watching a structured question. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. Prefer register_question: it returns instantly and cannot time out, and the dialog is shown the moment your turn ends. Use ask_user_question only when you cannot stop — when the answer is needed in the middle of a sequence you are holding open — because that call blocks until they answer.",
+        description: "Ask the person watching a structured question. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. The call returns instantly and cannot time out; the dialog is shown the moment your turn ends and their answer arrives as your next turn.",
         tools: &[
             ToolSpec {
-                name: "register_question",
-                description: "Register one to four multiple-choice questions to put to the user, and return immediately. HARD REQUIREMENT: after this call you MUST end your turn at once. Do not call another tool, do not read another file, do not keep working. The dialog is only shown to the user when your turn ends, and their answer arrives as your next turn — so anything you do after registering delays the question and is thrown-away work. Register last, say in one short message what you are waiting on, and stop. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The registration is for this turn only: it is raised when the turn ends, and dropped if the turn fails. You are given the id it was filed under; you do not need to remember it.",
-                schema: ASK_QUESTIONS_SCHEMA,
-            },
-            ToolSpec {
                 name: "ask_user_question",
-                description: "Put one to four multiple-choice questions to the user and wait for their reply. This call blocks for as long as the user takes, so use it only when you cannot stop and come back — otherwise register_question, which cannot time out. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The answer names the options the user picked by their labels, plus anything they typed. If the user would rather talk it through, the result says so and they will say the rest in the chat — carry on from the conversation, do not ask again.",
+                description: "Register one to four multiple-choice questions to put to the user, and return immediately. HARD REQUIREMENT: after this call you MUST end your turn at once. Do not call another tool, do not read another file, do not keep working. The dialog is only shown to the user when your turn ends, and their answer arrives as your next turn — so anything you do after registering delays the question and is thrown-away work. Register last, say in one short message what you are waiting on, and stop. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The registration is for this turn only: it is raised when the turn ends, and dropped if the turn fails. You are given the id it was filed under; you do not need to remember it.",
                 schema: ASK_QUESTIONS_SCHEMA,
             },
         ],
