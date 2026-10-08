@@ -160,7 +160,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
     // nobody can finish without the user. A count of zero is drawn as zero, for the reason the
     // agents screen's is.
     if app.workbench.rail_mode == RailMode::TASKS
-        && let (Some(work), Some(board)) = (app.work(cx), app.board(cx))
+        && let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx))
     {
         let (done, total) = board.steps(work);
         let blocked = board.blocked(work);

@@ -1199,3 +1199,37 @@ fn placing_a_card_splices_it_in_front_of_the_named_neighbour() {
         "a drop onto itself stays put rather than falling to the end"
     );
 }
+
+fn info(id: &str, name: &str, enabled: bool) -> ubiq_proto::work::BoardInfo {
+    ubiq_proto::work::BoardInfo {
+        id: ubiq_proto::work::BoardId(id.to_string()),
+        name: name.to_string(),
+        enabled,
+        task_count: 0,
+    }
+}
+
+#[test]
+fn board_tabs_follow_the_list_and_fall_back_to_the_default_board() {
+    use ubiq_proto::work::BoardId;
+    let mut board = BoardState::default();
+    board.boards.apply(vec![
+        info("", "Default", true),
+        info("ideas", "Ideas", true),
+        info("later", "Later", false),
+    ]);
+    let tabs: Vec<_> = board.boards.tabs().iter().map(|b| b.name.clone()).collect();
+    assert_eq!(tabs, ["Default", "Ideas"], "a disabled board has no tab");
+    assert!(board.boards.work().is_none(), "the default board is the project's own work");
+
+    board.switch_board(BoardId("ideas".to_string()));
+    assert!(board.boards.work().is_some());
+
+    // Disabling the board on screen sends the view home.
+    let moved = board.boards.apply(vec![
+        info("", "Default", true),
+        info("ideas", "Ideas", false),
+    ]);
+    assert!(moved);
+    assert!(board.boards.active.is_default());
+}

@@ -1874,6 +1874,165 @@ fn tasks(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form
                 ),
         )
         .children(mission_term_row(app, project, window, cx))
+        .child(boards_section(app, project, window, cx))
+        .into_any_element()
+}
+
+/// The project's boards (`T-360`): the default one, which is always there, then every named board
+/// with its task count, a switch that shows or hides its tab, and a delete that is offered only
+/// while the board holds no task. Under them, a field and a button that add one.
+fn boards_section(
+    app: &AppState,
+    project: ProjectId,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let head = div()
+        .pt_4()
+        .child(heading(
+            "Boards",
+            "The default board keeps missions, agents and sync. A named board is a plain kanban \
+             in a file of its own, and gets a tab over the tasks view while it is shown.",
+        ));
+    let Some(boards) = app.project_boards(project) else {
+        return div()
+            .child(head)
+            .child(
+                div()
+                    .text_size(theme::font(Family::Chrome, Role::Label))
+                    .text_color(theme::text_faint())
+                    .child("Open the project to manage its boards."),
+            )
+            .into_any_element();
+    };
+
+    let rows: Vec<AnyElement> = boards
+        .list
+        .iter()
+        .enumerate()
+        .map(|(ix, info)| {
+            let named = !info.id.is_default();
+            // The projection is fresher than the list: a task added since the list was sent counts.
+            let count = boards
+                .named
+                .get(&info.id)
+                .filter(|work| work.loaded)
+                .map_or(info.task_count, |work| work.tasks.len());
+            let id = info.id.clone();
+            let toggle_id = info.id.clone();
+            let enabled = info.enabled;
+            let mut actions = div().flex().flex_none().items_center().gap_1p5();
+            if named {
+                actions = actions
+                    .child(toggle_pill(
+                        ("project-board-shown", ix),
+                        "Shown",
+                        theme::accent(),
+                        enabled,
+                        cx.listener(move |this, _, _, cx| {
+                            this.set_board_enabled(project, toggle_id.clone(), !enabled, cx)
+                        }),
+                    ))
+                    .child(if count == 0 {
+                        ghost_button(
+                            ("project-board-delete", ix),
+                            Some(IconName::Delete),
+                            "Delete",
+                            cx.listener(move |this, _, _, cx| {
+                                this.delete_board(project, id.clone(), cx)
+                            }),
+                        )
+                        .into_any_element()
+                    } else {
+                        div()
+                            .id(("project-board-delete", ix))
+                            .h(px(26.))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .text_size(theme::font(Family::Chrome, Role::Body))
+                            .text_color(theme::text_faint())
+                            .child("Delete")
+                            .tooltip(|window, cx| {
+                                gpui_component::tooltip::Tooltip::new(
+                                    "A board that holds tasks cannot be deleted",
+                                )
+                                .build(window, cx)
+                            })
+                            .into_any_element()
+                    });
+            }
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_6()
+                .py_2p5()
+                .border_b_1()
+                .border_color(theme::border())
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .child(
+                            div()
+                                .text_size(theme::font(Family::Chrome, Role::Body))
+                                .text_color(if enabled {
+                                    theme::text()
+                                } else {
+                                    theme::text_faint()
+                                })
+                                .child(SharedString::from(info.name.clone())),
+                        )
+                        .child(mono(
+                            if named {
+                                format!("{count} tasks")
+                            } else {
+                                "always shown".to_string()
+                            },
+                            theme::text_faint(),
+                        )),
+                )
+                .child(actions)
+                .into_any_element()
+        })
+        .collect();
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(head)
+        .children(rows)
+        // A refusal — a delete of a board whose archive still holds tasks, a name taken.
+        .children(crate::ui::board::form::refusal(app))
+        .child(
+            div()
+                .pt_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    framed_active(
+                        theme::border(),
+                        input_on(&app.board_name_input, window, cx),
+                    )
+                    .h(px(30.))
+                    .w(px(220.))
+                    .items_center()
+                    .px_2()
+                    .child(Input::new(&app.board_name_input).appearance(false)),
+                )
+                .child(primary_button(
+                    "project-board-create",
+                    Some(IconName::Plus),
+                    "New board",
+                    cx.listener(move |this, _, window, cx| this.create_board(project, window, cx)),
+                )),
+        )
         .into_any_element()
 }
 
@@ -1948,7 +2107,8 @@ fn agent_definitions(
         .child(setting_row(
             "Use the global agents",
             "Every definition written under the application's own settings, and nothing else. \
-             Untick it to give this project a list of its own \u{2014} the globals stay on it.",
+             Untick it to choose which globals this project inherits; its own agents can be \
+             written either way.",
             check_box(
                 ElementId::Name(format!("{prefix}-definitions-use-global").into()),
                 use_global,
@@ -1956,15 +2116,11 @@ fn agent_definitions(
             )
             .into_any_element(),
         ))
-        .children(
-            (!use_global)
-                .then(|| project_definitions(app, form, window, cx))
-                .flatten(),
-        )
+        .children(project_definitions(app, form, window, cx))
         // The fixture has no project behind it, so there is no list to draw: the page shows the
         // question, and the live dialog is where the answer has rows.
         .children(
-            (!use_global && form_project(app, form, cx).is_none()).then(|| {
+            form_project(app, form, cx).is_none().then(|| {
                 div()
                     .text_size(theme::font(Family::Chrome, Role::Meta))
                     .text_color(theme::text_faint())
@@ -2065,7 +2221,7 @@ fn project_definitions(
         .map(|definition| {
             let shadowed = own.iter().any(|it| it.id == definition.id);
             let inherited = scope.use_global || scope.allowed.iter().any(|it| it == &definition.id);
-            inherited_row(app, definition, project, shadowed, inherited, cx)
+            inherited_row(app, definition, project, shadowed, inherited, scope.use_global, cx)
         })
         .collect();
 
@@ -2130,13 +2286,15 @@ fn project_definitions(
 ///
 /// A row is struck through in words when this project has written a setup of the same id, which
 /// shadows it inside this project only, or when the global itself is switched off. Neither is
-/// something the tick can fix, so both rows are drawn faint and their tick is not offered.
+/// something the tick can fix, so both rows are drawn faint and their tick is not offered. While
+/// the project uses the globals wholesale every tick is shown ticked and read-only (`locked`).
 fn inherited_row(
     app: &AppState,
     definition: &AgentDefinition,
     project: ProjectId,
     shadowed: bool,
     inherited: bool,
+    locked: bool,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let harness = app
@@ -2155,7 +2313,7 @@ fn inherited_row(
     let muted = shadowed || definition.disabled || !inherited;
     // A shadowed or switched-off global is not on offer here whatever this project says, so the
     // tick has nothing to decide and toggling it would write an answer with no effect.
-    let settled = shadowed || definition.disabled;
+    let settled = shadowed || definition.disabled || locked;
     let toggle_id = definition.id.clone();
     let clone_id = definition.id.clone();
 
@@ -2166,7 +2324,7 @@ fn inherited_row(
         .py_1()
         .child(check_box(
             ElementId::Name(format!("project-definition-global-{}", definition.id).into()),
-            inherited && !settled,
+            inherited && !(shadowed || definition.disabled),
             cx.listener(move |this, _, _, cx| {
                 if settled {
                     return;

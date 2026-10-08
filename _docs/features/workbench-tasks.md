@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
-updated: 2026-10-07
-verified: 2026-10-05
+updated: 2026-10-08
+verified: 2026-10-08
 code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/queue.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -57,6 +57,32 @@ showing them. What leaves the board lands in the project's own paged archive und
 wire — there is no browse, search or restore yet (`G353`). A reference, a prerequisite or a parent
 naming a card that just left is dropped from whatever still holds it, reported as an ordinary
 `TaskChanged`, the same cleanup a load already gives a hand-edited file.
+
+**A project has a default board and any number of named ones (`T-360`).** The default board is
+`tasks/tasks.toml` and everything above — missions, plans, agents, the MCP task tools, task sync —
+lives on it and only on it. A named board is a plain task list in a file of its own,
+`tasks/boards/<slug>/tasks.toml` with its own `archive/`, registered in `tasks/boards.toml` with a
+name and an enabled flag. The host opens one more `Work` per board slug over the same task store
+(`TaskStore::board`), so a named board edits, moves, archives and counts its `T-<n>` keys exactly
+as the default one does, with a key counter of its own; task ids are ULIDs and never collide. A
+board's task edits travel in `OnBoard` and come back in it; a level is refused there, since a level
+makes a mission. A named board can be created, disabled and — once it holds no task, live or
+archived — deleted with its directory; the default board can be neither disabled nor deleted. The
+registry is re-read on every disk sync, broadcasting `Boards` when it moved, and again before each
+change, so a row another Ubiq or a pull added is kept; a row whose id is not a slug (`a-z`, `0-9`,
+`-`, non-empty), or repeats one, is ignored, since `boards.toml` travels with a project-managed
+project and an id becomes a directory name. The window draws them in two places. **A tab strip over the toolbar**, one tab per enabled board with the
+default first, appears once a named board is shown; its tabs never close, and picking one swaps the
+view's projection (`BoardState::boards`, `AppState::board_work`) and clears what was open, filtered
+or mid-drag on the old one. A named board's tasks live in their own projection keyed by board id and
+are fed by the wrapped `WorkList`, `TaskCreated`, `TaskChanged`, `TaskDeleted` and `WorkError`;
+every board edit leaves through `AppState::send_board`, bare on the default board and in `OnBoard`
+on a named one. On a named board the window draws no mission filter, no `New agent`, no `New
+mission`, no level, no shape or session and no agent offer in the footer — the host would refuse
+them. **Settings → Tasks ends with a Boards list**: the default board (always shown), then each
+named board with its task count, a *Shown* switch and a *Delete* that is live only at zero tasks,
+and a field and button that create one. The list reads the window's own held project, so a project
+this window has not opened shows a note instead.
 
 **A card is filed, and filed in a place.** Unlike the graph's canvas, the column *is* the drop
 target: a label follows the pointer while the card stays where it is, the column under the pointer
@@ -818,7 +844,8 @@ belongs to [`../inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.
 `CreateTask`, `UpdateTask`, `SetTaskField`, `MoveTask`, `AssignTask`, `DeleteTask`, `AddStep`, `RenameStep`,
 `RemoveStep`, `MoveStep`, `ToggleStep`, `AddComment`, `AssignAgent` and `SendToAgent`. Coming back: `WorkList`,
 `TaskCreated`, `TaskChanged`, `TaskDeleted`, `AgentChanged` and `WorkError`. A project is open in one
-window at a time, so each answer reaches only the window that asked, except a `WorkList` the host
+window at a time, so each answer reaches only the window that asked, except `Boards` — the board
+registry's answer to `ListBoards`, `CreateBoard`, `SetBoardEnabled` and `DeleteBoard` — and a `WorkList` the host
 pushes when a loaded `tasks.toml` has changed on disk, which every window hears. The three screens
 over the work draw from the same projection of it. What no message carries is the arrangement over
 the records — which column an agent's conversation is drawn in, and where a card sits. The full

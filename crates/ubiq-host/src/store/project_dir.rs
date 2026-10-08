@@ -383,6 +383,22 @@ impl ProjectData {
         self.dir.join(TASKS).join("archive")
     }
 
+    /// The registry of the project's named boards (`T-360`), beside the default list.
+    pub fn boards(&self) -> PathBuf {
+        self.dir.join(TASKS).join("boards.toml")
+    }
+
+    /// One named board's directory: its own `tasks.toml` and `archive/`, the default board's
+    /// shape one level down — so it travels under [`TASKS`] with everything else.
+    ///
+    /// The id is re-slugged here, so whatever reaches this — a validated registry row or not —
+    /// names one directory directly under `tasks/boards/` and never the default board's.
+    pub fn board(&self, board: &ubiq_proto::work::BoardId) -> PathBuf {
+        let slug = ubiq_proto::work::BoardId::from_name(board.as_str());
+        debug_assert_eq!(&slug, board, "a board id that is not a slug reached a path");
+        self.dir.join(TASKS).join("boards").join(slug.as_str())
+    }
+
     /// The knowledge base's roots — the user's list, not the clones it names.
     pub fn kb_sources(&self) -> PathBuf {
         self.dir.join("kb.toml")

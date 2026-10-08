@@ -53,7 +53,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // saving that definition back over itself.
     let savable = matches!(form.target, Some(Target::Harness { .. }));
 
-    let mut actions = div().flex().items_center().gap_2();
+    let mut actions = div().flex().flex_wrap().items_center().justify_end().gap_2();
     if savable {
         actions = actions.child(ghost_button(
             "new-agent-save-definition",
@@ -166,11 +166,13 @@ pub fn confirmable(element: gpui::Div, cx: &mut Context<AppState>) -> gpui::Div 
 ///
 /// `Custom policies` opens the extra-folders dialog and is live only while the host isolates
 /// agents; otherwise it is drawn faint with a tooltip saying why. `MCPs` beside it opens the
-/// checklist of servers Ubiq can inject.
+/// checklist of servers Ubiq can inject. Both groups wrap, so a narrow dialog stacks them instead
+/// of pushing the right-hand buttons past its edge.
 pub fn footer_row(app: &AppState, actions: AnyElement, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .flex()
         .flex_1()
+        .flex_wrap()
         .min_w(px(0.))
         .items_center()
         .justify_between()
@@ -178,6 +180,7 @@ pub fn footer_row(app: &AppState, actions: AnyElement, cx: &mut Context<AppState
         .child(
             div()
                 .flex()
+                .flex_wrap()
                 .items_center()
                 .gap_1()
                 .child(policies_button(app, cx))

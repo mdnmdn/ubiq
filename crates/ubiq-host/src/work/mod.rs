@@ -16,12 +16,12 @@ use chrono::Utc;
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId};
 use ubiq_proto::messages::{Message, TaskField};
 use ubiq_proto::work::{
-    AgentId, Attachment, Comment, CommentAuthor, Label, Priority, Speaker, Status, Step, StepState,
-    TaskRecord, Turn, WorkAgent, WorkSession,
+    AgentId, Attachment, BoardId, BoardInfo, Comment, CommentAuthor, Label, Priority, Speaker,
+    Status, Step, StepState, TaskRecord, Turn, WorkAgent, WorkSession,
 };
 
 use crate::reply::Reply;
-use crate::store::{StoreError, TaskStore};
+use crate::store::{BoardRecord, StoreError, TaskStore};
 
 /// One project's invented half. No store, no trait and no file — which is what "sessions are
 /// still mocks" means in code rather than in prose.
@@ -56,6 +56,12 @@ pub struct Work {
     /// nobody has put on a card is remembered until the host restarts, because a label has no
     /// registry of its own (`D113`).
     extra_labels: HashMap<ProjectId, Vec<Label>>,
+    /// The named boards' own `Work`s (`T-360`), one per board id across every project, opened on
+    /// the first ask over [`TaskStore::board`]. Each is this same type, unchanged: a named board is
+    /// a task list and nothing more, so its agents, sessions and boards stay empty.
+    boards: HashMap<BoardId, Work>,
+    /// Each project's named-board registry, once read.
+    registry: HashMap<ProjectId, Vec<BoardRecord>>,
 }
 
 /// A cloneable handle to [`Work`] so another thread can take one operation at a time.
@@ -99,6 +105,8 @@ impl Work {
             warned: HashSet::new(),
             sealed: HashSet::new(),
             extra_labels: HashMap::new(),
+            boards: HashMap::new(),
+            registry: HashMap::new(),
         }
     }
 
@@ -112,6 +120,10 @@ impl Work {
         self.warned.remove(&project);
         self.sealed.remove(&project);
         self.extra_labels.remove(&project);
+        self.registry.remove(&project);
+        for board in self.boards.values_mut() {
+            board.forget(project);
+        }
     }
 
     // ── loading, seeding and keeping ─────────────────────────────────
@@ -378,6 +390,25 @@ impl Work {
             self.loaded.insert(project, list);
             self.mock(project);
             replies.push(Reply::Everyone(self.work_list(project)));
+        }
+        for (board, work) in &mut self.boards {
+            let synced = work.sync_from_disk();
+            replies.extend(synced.into_iter().map(|reply| on_board(board, reply)));
+        }
+        // The board registry moves on disk the same way, and every window draws its tabs.
+        let known: Vec<ProjectId> = self.registry.keys().copied().collect();
+        for project in known {
+            let Ok(fresh) = self.load_registry(project) else {
+                continue;
+            };
+            if self.registry.get(&project) != Some(&fresh) {
+                self.registry.insert(project, fresh);
+                replies.extend(
+                    self.list_boards(project)
+                        .into_iter()
+                        .filter(Reply::is_broadcast),
+                );
+            }
         }
         replies
     }
@@ -1230,6 +1261,253 @@ impl Work {
             return Some("that would make the prerequisites a cycle".to_string());
         }
         None
+    }
+}
+
+// ── named boards (`T-360`) ──────────────────────────────────────────────
+impl Work {
+    /// Run one work operation against `board`: this `Work` itself for the default board, the named
+    /// board's own `Work` otherwise, with every reply wrapped in [`Message::OnBoard`] so the window
+    /// knows which board it is about. A board the project does not have is refused, wrapped too.
+    pub fn on_board(
+        &mut self,
+        project: ProjectId,
+        board: &BoardId,
+        change: impl FnOnce(&mut Work) -> Vec<Reply>,
+    ) -> Vec<Reply> {
+        if board.is_default() {
+            return change(self);
+        }
+        let replies = match self.registry(project) {
+            Err(error) => vec![Reply::Asker(work_error(project, None, error))],
+            Ok(list) if !list.iter().any(|held| &held.id == board) => {
+                vec![Reply::Asker(work_error(project, None, "no such board"))]
+            }
+            Ok(_) => change(self.board_work(board)),
+        };
+        replies
+            .into_iter()
+            .map(|reply| on_board(board, reply))
+            .collect()
+    }
+
+    /// The project's boards, the default one first — [`Message::Boards`], to every window.
+    pub fn list_boards(&mut self, project: ProjectId) -> Vec<Reply> {
+        let (mut replies, tasks) = self.tasks(project);
+        let mut boards = vec![BoardInfo {
+            id: BoardId::DEFAULT,
+            name: "Default".to_string(),
+            enabled: true,
+            task_count: tasks.len(),
+        }];
+        let records = match self.registry(project) {
+            Ok(list) => list.clone(),
+            Err(error) => {
+                replies.push(Reply::Asker(work_error(project, None, error)));
+                Vec::new()
+            }
+        };
+        for record in records {
+            let (more, tasks) = self.board_work(&record.id).tasks(project);
+            replies.extend(more.into_iter().map(|reply| on_board(&record.id, reply)));
+            boards.push(BoardInfo {
+                id: record.id,
+                name: record.name,
+                enabled: record.enabled,
+                task_count: tasks.len(),
+            });
+        }
+        replies.push(Reply::Everyone(Message::Boards {
+            project_id: project,
+            boards,
+        }));
+        replies
+    }
+
+    /// Add a named board, enabled and empty, under a slug of `name` no other board of the project
+    /// has.
+    pub fn create_board(&mut self, project: ProjectId, name: String) -> Vec<Reply> {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return vec![Reply::Asker(work_error(
+                project,
+                None,
+                "a board needs a name",
+            ))];
+        }
+        let base = BoardId::from_name(&name);
+        let result = self.change_registry(project, |list| {
+            let mut id = base.clone();
+            let mut n = 2;
+            while list.iter().any(|held| held.id == id) {
+                id = BoardId(format!("{}-{n}", base.as_str()));
+                n += 1;
+            }
+            list.push(BoardRecord {
+                id,
+                name,
+                enabled: true,
+            });
+            Ok(())
+        });
+        self.after_registry(project, result)
+    }
+
+    pub fn set_board_enabled(
+        &mut self,
+        project: ProjectId,
+        board: &BoardId,
+        enabled: bool,
+    ) -> Vec<Reply> {
+        if board.is_default() {
+            return vec![Reply::Asker(work_error(
+                project,
+                None,
+                "the default board cannot be disabled",
+            ))];
+        }
+        let result = self.change_registry(project, |list| {
+            let record = list
+                .iter_mut()
+                .find(|held| &held.id == board)
+                .ok_or("no such board")?;
+            record.enabled = enabled;
+            Ok(())
+        });
+        self.after_registry(project, result)
+    }
+
+    /// Remove a named board and its directory — only once it holds no task, live or archived.
+    pub fn delete_board(&mut self, project: ProjectId, board: &BoardId) -> Vec<Reply> {
+        if board.is_default() {
+            return vec![Reply::Asker(work_error(
+                project,
+                None,
+                "the default board cannot be deleted",
+            ))];
+        }
+        match self.registry(project) {
+            Err(error) => return vec![Reply::Asker(work_error(project, None, error))],
+            Ok(list) if !list.iter().any(|held| &held.id == board) => {
+                return vec![Reply::Asker(work_error(project, None, "no such board"))];
+            }
+            Ok(_) => {}
+        }
+        let work = self.board_work(board);
+        // Both what this session holds and what the file says now: a task written to the board's
+        // file since the last sync is a task, and memory that failed to save is one too.
+        let (_, held) = work.tasks(project);
+        let on_disk = match work.tasks.load(project) {
+            Ok(list) => list.map_or(0, |list| list.len()),
+            Err(error) => return vec![Reply::Asker(work_error(project, None, error.to_string()))],
+        };
+        let count = held.len().max(on_disk);
+        if count > 0 {
+            return vec![Reply::Asker(work_error(
+                project,
+                None,
+                format!("the board still has {count} tasks"),
+            ))];
+        }
+        if work.tasks.has_archive(project) {
+            return vec![Reply::Asker(work_error(
+                project,
+                None,
+                "the board still has archived tasks",
+            ))];
+        }
+        work.forget(project);
+        if let Err(error) = work.tasks.clear(project) {
+            return vec![Reply::Asker(work_error(project, None, error.to_string()))];
+        }
+        let result = self.change_registry(project, |list| {
+            list.retain(|held| &held.id != board);
+            Ok(())
+        });
+        self.after_registry(project, result)
+    }
+
+    /// The project's registry, read on the first ask. A failed read is not kept, so the next ask
+    /// tries again rather than writing an empty registry over one that could not be read.
+    fn registry(&mut self, project: ProjectId) -> Result<&mut Vec<BoardRecord>, String> {
+        if !self.registry.contains_key(&project) {
+            let list = self.load_registry(project)?;
+            self.registry.insert(project, list);
+        }
+        Ok(self.registry.entry(project).or_default())
+    }
+
+    /// The registry as the store has it, with every row whose id is not a slug dropped.
+    ///
+    /// `boards.toml` is committed with a project-managed project, so an id is whatever a clone's
+    /// author wrote: `../..` or an absolute path would aim the board's file — and `DeleteBoard`'s
+    /// directory removal — outside `tasks/boards/`, and an empty one would alias the default
+    /// board's `tasks.toml`. A duplicate id is dropped too, so two rows never share one file.
+    fn load_registry(&self, project: ProjectId) -> Result<Vec<BoardRecord>, String> {
+        let mut list = self
+            .tasks
+            .load_boards(project)
+            .map_err(|error| error.to_string())?;
+        let mut seen = HashSet::new();
+        list.retain(|record| {
+            let keep = record.id.is_slug() && seen.insert(record.id.clone());
+            if !keep {
+                tracing::warn!(
+                    "{project}'s boards.toml: ignoring a board with id {:?}",
+                    record.id.as_str()
+                );
+            }
+            keep
+        });
+        Ok(list)
+    }
+
+    /// Change the registry and write it down; a refusal or a failed write leaves it as it was.
+    ///
+    /// Re-read first, so a row another Ubiq or a pull added since the last look is kept rather
+    /// than written over.
+    fn change_registry(
+        &mut self,
+        project: ProjectId,
+        change: impl FnOnce(&mut Vec<BoardRecord>) -> Result<(), &'static str>,
+    ) -> Result<(), String> {
+        let fresh = self.load_registry(project)?;
+        self.registry.insert(project, fresh);
+        let list = self.registry(project)?;
+        let before = list.clone();
+        change(list)?;
+        let after = list.clone();
+        if let Err(error) = self.tasks.save_boards(project, &after) {
+            self.registry.insert(project, before);
+            return Err(error.to_string());
+        }
+        Ok(())
+    }
+
+    fn after_registry(&mut self, project: ProjectId, result: Result<(), String>) -> Vec<Reply> {
+        match result {
+            Ok(()) => self.list_boards(project),
+            Err(error) => vec![Reply::Asker(work_error(project, None, error))],
+        }
+    }
+
+    fn board_work(&mut self, board: &BoardId) -> &mut Work {
+        let tasks = &self.tasks;
+        self.boards
+            .entry(board.clone())
+            .or_insert_with(|| Work::open(tasks.board(board)))
+    }
+}
+
+/// One reply from a named board's `Work`, in the envelope that says which board it is about.
+fn on_board(board: &BoardId, reply: Reply) -> Reply {
+    let wrap = |message| Message::OnBoard {
+        board: board.clone(),
+        message: Box::new(message),
+    };
+    match reply {
+        Reply::Asker(message) => Reply::Asker(wrap(message)),
+        Reply::Everyone(message) => Reply::Everyone(wrap(message)),
     }
 }
 

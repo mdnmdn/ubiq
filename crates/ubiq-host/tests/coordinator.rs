@@ -2500,3 +2500,85 @@ fn a_catalog_change_reaches_every_window_and_a_refusal_only_the_asker() {
     };
     assert_eq!((servers.len(), error), (1, None));
 }
+
+// ── named boards (`T-360`) ──────────────────────────────────────────
+
+/// The next message `pick` accepts, skipping the rest.
+fn expect<T>(ui: &Client, mut pick: impl FnMut(Message) -> Option<T>) -> T {
+    loop {
+        match ui.from_host().recv_timeout(PATIENCE) {
+            Ok(message) => {
+                if let Some(found) = pick(message) {
+                    return found;
+                }
+            }
+            Err(_) => panic!("the host said nothing that was expected"),
+        }
+    }
+}
+
+#[test]
+fn a_named_board_is_announced_to_every_window_and_its_task_edits_come_back_in_its_envelope() {
+    let (hub, ui) = coordinator();
+    let other = hub.connect();
+    let (project_id, _path) = a_project(&ui);
+
+    ui.send(Message::CreateBoard {
+        project_id,
+        name: "Ops".to_string(),
+    });
+    let pick_boards = |message| match message {
+        Message::Boards { boards, .. } => Some(boards),
+        _ => None,
+    };
+    let boards = expect(&ui, pick_boards);
+    assert_eq!(boards.len(), 2);
+    assert_eq!(expect(&other, pick_boards), boards, "every window hears it");
+    let board = boards[1].id.clone();
+
+    ui.send(Message::OnBoard {
+        board: board.clone(),
+        message: Box::new(Message::CreateTask {
+            project_id,
+            title: "rotate keys".to_string(),
+            session: None,
+        }),
+    });
+    let task = expect(&ui, |message| match message {
+        Message::OnBoard {
+            board: said,
+            message,
+        } if said == board => match *message {
+            Message::TaskCreated { task, .. } => Some(task),
+            other => panic!("expected the created task, got {other:?}"),
+        },
+        Message::TaskCreated { .. } => panic!("a named board's task reached the default board"),
+        _ => None,
+    });
+
+    // A level makes a mission, and missions are the default board's alone.
+    ui.send(Message::OnBoard {
+        board: board.clone(),
+        message: Box::new(Message::SetTaskField {
+            project_id,
+            task_id: task.id,
+            field: TaskField::Level(Some(ubiq_proto::work::Level::Mission)),
+        }),
+    });
+    let refused = expect(&ui, |message| match message {
+        Message::OnBoard { message, .. } => match *message {
+            Message::WorkError { error, .. } => Some(error),
+            _ => None,
+        },
+        _ => None,
+    });
+    assert!(refused.contains("level"), "said {refused:?}");
+
+    // And the board holding a task cannot be deleted.
+    ui.send(Message::DeleteBoard {
+        project_id,
+        board: board.clone(),
+    });
+    let (_, error) = expect_work_error(&ui);
+    assert!(error.contains("still has"), "said {error:?}");
+}

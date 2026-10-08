@@ -14,7 +14,7 @@ use ubiq_proto::projects::{ProjectRecord, Scope};
 use ubiq_proto::settings::SettingsLayer;
 use ubiq_proto::work::TaskRecord;
 
-use super::{PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
+use super::{BoardRecord, PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
 
 #[derive(Default)]
 pub struct MemoryProjectStore {
@@ -106,6 +106,8 @@ pub struct MemoryTaskStore {
     /// What [`TaskStore::archive`] has been given, per project, in the order it arrived — no
     /// paging here, since nothing in-memory needs the file store's page-size ceiling.
     archived: RwLock<BTreeMap<ProjectId, Vec<TaskRecord>>>,
+    /// The named-board registry, per project (`T-360`).
+    boards: RwLock<BTreeMap<ProjectId, Vec<BoardRecord>>>,
     fail_writes: AtomicBool,
     fail_load: AtomicBool,
     writes: AtomicUsize,
@@ -202,6 +204,40 @@ impl TaskStore for MemoryTaskStore {
             .entry(project)
             .or_default()
             .extend_from_slice(tasks);
+        Ok(())
+    }
+
+    fn has_archive(&self, project: ProjectId) -> bool {
+        self.archived
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&project)
+            .is_some_and(|tasks| !tasks.is_empty())
+    }
+
+    /// A store of its own, empty: the board's `Work` is opened once and holds it for the process.
+    fn board(&self, _board: &ubiq_proto::work::BoardId) -> Box<dyn TaskStore> {
+        Box::new(MemoryTaskStore::new())
+    }
+
+    fn load_boards(&self, project: ProjectId) -> Result<Vec<BoardRecord>, StoreError> {
+        Ok(self
+            .boards
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&project)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn save_boards(&self, project: ProjectId, boards: &[BoardRecord]) -> Result<(), StoreError> {
+        self.boards
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(project, boards.to_vec());
+        if self.fail_writes.load(Ordering::Relaxed) {
+            return Err(StoreError::NotDurable);
+        }
         Ok(())
     }
 }

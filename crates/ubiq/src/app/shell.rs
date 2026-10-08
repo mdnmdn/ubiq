@@ -64,6 +64,8 @@ impl AppState {
             // answers. Once per newly held project: the reply is the whole of it, and it is the
             // frame the agents screen lays its columns out on.
             self.bus.send(Message::ListWork { project_id: id });
+            // The project's boards: the tabs over the tasks view and the settings list (`T-360`).
+            self.bus.send(Message::ListBoards { project_id: id });
             // And the missions over that work, on the same footing: one ask per newly held
             // project, answered with the whole set. It also creates the records for missions that
             // predate them, which is what makes a promoted task's panel have something to draw.
@@ -400,6 +402,45 @@ impl AppState {
         self.open_project(cx).map(|open| &open.work)
     }
 
+    /// The work the board draws: the active board's — the project's own for the default board, a
+    /// named board's projection otherwise (`T-360`). Only the board's code asks for this; every
+    /// other screen reads [`Self::work`], which is the default board's.
+    pub fn board_work(&self, cx: &App) -> Option<&WorkProjection> {
+        self.open_project(cx)
+            .map(|open| open.board.boards.work().unwrap_or(&open.work))
+    }
+
+    /// The boards of one project the window holds, for the settings page. `None` for a project
+    /// this window has not opened.
+    pub fn project_boards(&self, project: ProjectId) -> Option<&crate::state::board::Boards> {
+        self.projects.get(&project).map(|open| &open.board.boards)
+    }
+
+    /// Whether the tasks view is on a named board (`T-360`) — a plain kanban, where everything
+    /// that needs an agent or a mission is not offered.
+    pub fn board_is_named(&self, cx: &App) -> bool {
+        self.open_project(cx)
+            .is_some_and(|open| !open.board.boards.active.is_default())
+    }
+
+    /// Send a work message for the board on screen: bare for the default board, wrapped in
+    /// [`Message::OnBoard`] for a named one.
+    pub fn send_board(&self, project_id: ProjectId, message: Message) {
+        let board = self
+            .projects
+            .get(&project_id)
+            .map(|open| open.board.boards.active.clone())
+            .unwrap_or_default();
+        self.bus.send(if board.is_default() {
+            message
+        } else {
+            Message::OnBoard {
+                board,
+                message: Box::new(message),
+            }
+        });
+    }
+
     /// The agents screen's view of that work: the columns and the bench.
     pub fn agents(&self, cx: &App) -> Option<&AgentsView> {
         self.open_project(cx).map(|open| &open.agents)
@@ -597,6 +638,19 @@ impl AppState {
             .filter_map(|id| self.projects.get(id))
             .flat_map(|open| open.work.tasks.iter().cloned())
             .collect()
+    }
+
+    /// [`Self::board_work`], to be written into — the optimistic update of a drag on the board on
+    /// screen.
+    pub fn board_work_mut(&mut self, cx: &App) -> Option<&mut WorkProjection> {
+        let id = self.project(cx)?;
+        let open = self.projects.get_mut(&id)?;
+        let board = &mut open.board.boards;
+        if board.active.is_default() {
+            Some(&mut open.work)
+        } else {
+            Some(board.named.entry(board.active.clone()).or_insert_with(WorkProjection::empty))
+        }
     }
 
     pub fn work_mut(&mut self, cx: &App) -> Option<&mut WorkProjection> {

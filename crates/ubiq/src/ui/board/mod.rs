@@ -52,7 +52,7 @@ use crate::ui::eid;
 use crate::ui::empty;
 use crate::ui::kit::{
     MultiPicker, Picker, PickerStyle, UbiqIcon, card, field, ghost_button, icon_button, meter,
-    mono, pill, primary_button, section_label, tag, toggle_pill,
+    Tab, mono, pill, primary_button, section_label, tab_strip, tag, toggle_pill,
 };
 use crate::ui::work::{activity_colour, bucket_colour};
 use crate::ui::{handler, indexed};
@@ -97,7 +97,7 @@ pub fn status_colour(status: Status) -> Rgba {
 pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
     // The board is a view of one project's work, and the shell keeps a window with no project off
     // it entirely — so there is nothing here to draw rather than an empty board to explain.
-    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+    let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
 
@@ -120,6 +120,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .min_w(px(0.))
         .min_h(px(0.))
         .bg(theme::app_bg())
+        .children(board_tabs(app, cx))
         .child(toolbar(app, window, cx))
         .child(body);
 
@@ -149,7 +150,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
 /// on, both draw as a modal over the columns ([`render`]) and this panel says where they went
 /// rather than emptying, so the toggle back is always in reach.
 pub fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
-    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+    let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
 
@@ -175,6 +176,39 @@ pub fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Any
         )
         .into_any_element(),
     }
+}
+
+/// The strip of boards over the toolbar (`T-360`): the default board first, then every enabled
+/// named one. Not drawn while the project has only the default board, and its tabs are never
+/// closable — a board is hidden or deleted from the project's settings, not from here.
+fn board_tabs(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    let boards = &app.board(cx)?.boards;
+    let tabs = boards.tabs();
+    if tabs.len() < 2 {
+        return None;
+    }
+    let ids: Vec<_> = tabs.iter().map(|info| info.id.clone()).collect();
+    let active = ids.iter().position(|id| *id == boards.active).unwrap_or(0);
+    let labels: Vec<Tab> = tabs
+        .iter()
+        .map(|info| Tab::new(info.name.clone()))
+        .collect();
+    let view = cx.entity();
+    Some(
+        tab_strip(
+            "board-tabs",
+            labels,
+            active,
+            indexed(&view, move |this, index, _, cx| {
+                if let Some(id) = ids.get(index) {
+                    this.select_board(id.clone(), cx);
+                }
+            }),
+            None,
+            None,
+        )
+        .into_any_element(),
+    )
 }
 
 /// One row of the board toolbar's mission filter (M27).
@@ -259,9 +293,12 @@ fn mission_phase_colour(phase: Phase) -> Rgba {
 /// whole row at once. It is drawn only while something is being hidden: a reset with nothing to
 /// reset is a button that lies.
 fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl IntoElement {
-    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+    let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
+
+    // A named board is a plain kanban (`T-360`): no mission filter, no agent or mission to start.
+    let named = !board.boards.active.is_default();
 
     // The tags filter: several labels on at once, and a card has to carry every one that is lit —
     // the same set shape Teams' states filter is, so it is the same `kit::MultiPicker` rather than
@@ -292,7 +329,7 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
         // menu in this window follows.
         .on_pick(indexed(&view, |this, index, _, cx| {
             let name = this
-                .work(cx)
+                .board_work(cx)
                 .and_then(|work| work.labels().get(index).map(|label| label.name.clone()));
             if let Some(name) = name {
                 this.toggle_board_label(&name, cx);
@@ -359,7 +396,7 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
                 return;
             }
             let query = this.picker_search.read(cx).value().trim().to_lowercase();
-            let id = this.work(cx).and_then(|work| {
+            let id = this.board_work(cx).and_then(|work| {
                 board_mission_rows(this, work, &query, cx)
                     .get(index - 1)
                     .map(|row| row.id)
@@ -392,7 +429,7 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
                 .items_center()
                 .gap_2()
                 .child(tags)
-                .child(mission_picker),
+                .children((!named).then_some(mission_picker)),
         )
         .child(toggle_pill(
             "board-ready-only",
@@ -432,21 +469,25 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
         // offers conversations to attach to a surface, and this board draws no agent to attach one
         // to. The aim is `NewAgentSurface::Chat` (`T-109`): what it starts opens as a chat tab in
         // the right dock, beside this board, rather than jumping the window to the agents screen.
-        .child(ghost_button(
-            "board-new-agent",
-            Some(IconName::Plus),
-            "New agent",
-            cx.listener(|this, _, window, cx| this.open_new_agent_direct(window, cx)),
-        ))
+        .children((!named).then(|| {
+            ghost_button(
+                "board-new-agent",
+                Some(IconName::Plus),
+                "New agent",
+                cx.listener(|this, _, window, cx| this.open_new_agent_direct(window, cx)),
+            )
+        }))
         // The mission dialog's own entry point, beside the ordinary ways a task is made — labelled
         // with the project's own word for a mission, the same reading `ui::board::detail` already
         // gives the level chip.
-        .child(ghost_button(
-            "board-new-mission",
-            Some(IconName::Plus),
-            format!("New {}", app.mission_term(cx).to_lowercase()),
-            cx.listener(|this, _, window, cx| this.open_new_mission(window, cx)),
-        ))
+        .children((!named).then(|| {
+            ghost_button(
+                "board-new-mission",
+                Some(IconName::Plus),
+                format!("New {}", app.mission_term(cx).to_lowercase()),
+                cx.listener(|this, _, window, cx| this.open_new_mission(window, cx)),
+            )
+        }))
         .child(primary_button(
             "board-new-task",
             Some(IconName::Plus),
@@ -501,7 +542,7 @@ fn columns(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 }
 
 fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElement {
-    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+    let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
     let tasks = board.column(work, status);
@@ -741,7 +782,7 @@ fn render_row(
         Row::Tail => column_tail(status, view, window),
         Row::Card(id, next) => {
             let app = view.read(cx);
-            let Some(work) = app.work(cx) else {
+            let Some(work) = app.board_work(cx) else {
                 return div().into_any_element();
             };
             match work.task(id) {
@@ -848,7 +889,7 @@ fn task_card(
     window: &Window,
     cx: &App,
 ) -> AnyElement {
-    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+    let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
     let id = task.id;
@@ -1047,7 +1088,7 @@ fn shape_line(
     cx: &App,
 ) -> Option<AnyElement> {
     let session = app
-        .work(cx)
+        .board_work(cx)
         .and_then(|work| task.session.and_then(|id| work.session(id)))
         .map(|session| session.name.clone());
     let link = task.link.clone();
@@ -1212,7 +1253,7 @@ fn now_line(
     window: &Window,
     cx: &App,
 ) -> AnyElement {
-    let Some(agent) = app.work(cx).and_then(|work| work.now(task)) else {
+    let Some(agent) = app.board_work(cx).and_then(|work| work.now(task)) else {
         let total = task.steps.len();
         let text = if total == 0 {
             "no sub-tasks yet".to_string()

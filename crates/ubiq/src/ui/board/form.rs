@@ -582,7 +582,7 @@ fn locked_labels(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
 /// Drawn under the row rather than floating over it. A menu that covered the panel would hide the
 /// tags the user is adding to, and the list is as short as the project's own vocabulary.
 fn label_picker(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
-    let (Some(work), Some(board)) = (app.work(cx), app.board(cx)) else {
+    let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
 
@@ -711,7 +711,7 @@ pub fn colour(task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
 /// The session the work belongs to. A picker rather than a pill row: the list is as long as the
 /// project has sessions, and it grows.
 pub fn session(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
     let view = cx.entity().clone();
@@ -757,7 +757,7 @@ pub fn session(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) ->
 /// already somebody else's child, or any choice at all once the open task already has children of
 /// its own.
 pub fn parent(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
     let view = cx.entity().clone();
@@ -804,7 +804,7 @@ pub fn references(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
     let open = app.workbench.open_menu == Some(MenuId::TaskReferences);
@@ -899,7 +899,7 @@ fn reference_picker(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
     let needle = app
@@ -1024,7 +1024,7 @@ pub fn prerequisites(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
     let open = app.workbench.open_menu == Some(MenuId::TaskPrerequisites);
@@ -1091,7 +1091,7 @@ fn prerequisite_picker(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
     let needle = app
@@ -1185,7 +1185,7 @@ fn prerequisite_picker(
 /// never stored**: a scan of the project's own task list rather than a field on this one, per
 /// M19. Read-only, so its chips carry no `+` and no dismiss, `tag` rather than `removable_tag`.
 pub fn blocks(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
     let chips: Vec<AnyElement> = work

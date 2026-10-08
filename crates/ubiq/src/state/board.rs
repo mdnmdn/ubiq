@@ -11,7 +11,7 @@ use std::cell::RefCell;
 
 use gpui::{ListAlignment, ListState, px};
 use ubiq_proto::ids::{SessionId, StepId, TaskId};
-use ubiq_proto::work::{Status, TaskRecord};
+use ubiq_proto::work::{BoardId, BoardInfo, Status, TaskRecord};
 
 /// What a needle has to start with to be read as one field rather than as free text.
 const KEY_PREFIX: &str = "key:";
@@ -214,11 +214,73 @@ pub struct BoardState {
     /// — puts it back to `false`, which is what "an isolated clean click" means here.
     pub suppress_popup: bool,
     pub form: TaskForm,
+    /// The project's boards and which one the view is on (`T-360`).
+    pub boards: Boards,
     /// One virtualized list per lane, lazily created and kept across renders — see
     /// [`BoardState::lane_list`]. `RefCell`, not a plain field, because a card is drawn from `&
     /// BoardState`: rebuilding a `gpui::ListState` on every frame would throw away the row-height
     /// cache that makes drawing only the visible cards worth doing at all.
     lane_lists: RefCell<Vec<(Status, ListState)>>,
+}
+
+/// A project's boards as the host last listed them, the one the view is on, and the named boards'
+/// own work. The default board's work stays in [`super::work::WorkProjection`] on the project, so
+/// everything that reads it is untouched; a named board's projection lives here, keyed by id.
+pub struct Boards {
+    /// The host's list, default first. Empty until the first `Boards` answer.
+    pub list: Vec<BoardInfo>,
+    /// The board on screen. [`BoardId::DEFAULT`] until a named tab is picked.
+    pub active: BoardId,
+    pub named: std::collections::HashMap<BoardId, WorkProjection>,
+    /// What a named board that has not answered yet draws.
+    pub blank: WorkProjection,
+}
+
+impl Default for Boards {
+    fn default() -> Self {
+        Self {
+            list: Vec::new(),
+            active: BoardId::DEFAULT,
+            named: std::collections::HashMap::new(),
+            blank: WorkProjection::empty(),
+        }
+    }
+}
+
+impl Boards {
+    /// Take the host's list. A board that vanished or was disabled while it was on screen sends the
+    /// view back to the default one; its projection is dropped with it. Answers whether the active
+    /// board changed.
+    pub fn apply(&mut self, list: Vec<BoardInfo>) -> bool {
+        self.named.retain(|id, _| list.iter().any(|b| b.id == *id));
+        for info in list.iter().filter(|b| !b.id.is_default()) {
+            self.named.entry(info.id.clone()).or_insert_with(WorkProjection::empty);
+        }
+        self.list = list;
+        let gone = !self.active.is_default()
+            && !self.list.iter().any(|b| b.id == self.active && b.enabled);
+        if gone {
+            self.active = BoardId::DEFAULT;
+        }
+        gone
+    }
+
+    /// The tabs: the default board, then every enabled named one.
+    pub fn tabs(&self) -> Vec<&BoardInfo> {
+        self.list
+            .iter()
+            .filter(|b| b.id.is_default() || b.enabled)
+            .collect()
+    }
+
+    /// The named board's projection; `None` for the default board, whose work is the project's.
+    pub fn work(&self) -> Option<&WorkProjection> {
+        if self.active.is_default() {
+            None
+        } else {
+            Some(self.named.get(&self.active).unwrap_or(&self.blank))
+        }
+    }
 }
 
 impl Default for BoardState {
@@ -246,6 +308,7 @@ impl Default for BoardState {
             popup: false,
             suppress_popup: false,
             form: TaskForm::default(),
+            boards: Boards::default(),
             lane_lists: RefCell::new(Vec::new()),
         }
     }
@@ -584,6 +647,22 @@ impl BoardState {
 
     /// Point the panel at a task. Picking a card always opens the panel: a selection nothing
     /// reports on is not a selection.
+    /// Move the view to another board: what was open on the old one means nothing on the new one.
+    pub fn switch_board(&mut self, board: BoardId) {
+        self.boards.active = board;
+        self.selected = None;
+        self.draft = false;
+        self.carry = None;
+        self.moving = None;
+        self.mission = None;
+        self.session = None;
+        self.labels.clear();
+        self.pending = None;
+        self.awaiting_new = false;
+        self.confirm_delete = false;
+        self.stop_editing();
+    }
+
     pub fn select(&mut self, task: TaskId) {
         self.selected = Some(task);
         self.show_detail = true;

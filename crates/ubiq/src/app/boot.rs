@@ -71,6 +71,8 @@ impl AppState {
 
         let task_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter tasks\u{2026}"));
+        let board_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("New board name\u{2026}"));
 
         let task_title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Task title"));
 
@@ -841,6 +843,25 @@ impl AppState {
                         picker.set_filter(filter);
                     }
                     cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
+            &board_name_input,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                // The project the settings page shows, which is not always the active one.
+                let shown = match this.workbench.project_settings.as_ref().map(|s| &s.mode) {
+                    Some(crate::state::workbench::ProjectSettingsMode::Edit { project }) => {
+                        Some(*project)
+                    }
+                    _ => None,
+                };
+                if matches!(event, InputEvent::PressEnter { .. })
+                    && let Some(project) = shown
+                {
+                    this.create_board(project, window, cx);
                 }
             },
         ));
@@ -1843,6 +1864,7 @@ impl AppState {
             git_change_query,
             picker_filter,
             task_filter,
+            board_name_input,
             task_title_input,
             mission_feedback_input,
             mission_feedback_tab_input,

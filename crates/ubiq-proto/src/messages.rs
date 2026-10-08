@@ -64,7 +64,8 @@ use crate::tasksrc::{
 };
 use crate::tools::{ListedTool, ToolDef};
 use crate::work::{
-    Addressee, AgentId, Complexity, Kind, Label, Priority, Shape, Status, TaskRecord, WorkAgent, WorkSession,
+    Addressee, AgentId, BoardId, BoardInfo, Complexity, Kind, Label, Priority, Shape, Status,
+    TaskRecord, WorkAgent, WorkSession,
 };
 
 /// Everything either half may say. The variant name travels in `type`, the body in `payload`.
@@ -2319,8 +2320,52 @@ pub enum Message {
         agent_id: AgentId,
         text: String,
     },
+    /// One work message, aimed at a named board instead of the project's default one (`T-360`).
+    /// **Both directions**: the host answers a board's work in the same envelope, so a
+    /// [`Message::WorkList`], `TaskCreated`, `TaskChanged`, `TaskDeleted` or `WorkError` that
+    /// arrives inside one is about `board` and never about the default board.
+    ///
+    /// An envelope rather than a `board` field on every work variant, so the default board's wire
+    /// and every existing sender stay exactly as they were. The host accepts inside it only the
+    /// task-editing variants — `ListWork`, `CreateTask`, `UpdateTask`, `SetTaskField` (never a
+    /// `Level`), `MoveTask`, `AssignTask`, `DeleteTask`, `ArchiveTasks`, the step variants and
+    /// `AddComment` — and refuses the rest with a wrapped `WorkError`: missions, agents, plans and
+    /// task sync are the default board's alone. A [`BoardId::DEFAULT`] envelope is the bare message.
+    OnBoard {
+        board: BoardId,
+        message: Box<Message>,
+    },
+    /// A project's boards. Answered with [`Message::Boards`].
+    ListBoards {
+        project_id: ProjectId,
+    },
+    /// Add a named board, enabled and empty. Its id is a slug of `name`, made unique in the
+    /// project. Answered with [`Message::Boards`].
+    CreateBoard {
+        project_id: ProjectId,
+        name: String,
+    },
+    /// Show or hide a named board. The default board cannot be disabled. A disabled board keeps its
+    /// tasks and still answers an [`Message::OnBoard`]; hiding it is the interface's to do.
+    SetBoardEnabled {
+        project_id: ProjectId,
+        board: BoardId,
+        enabled: bool,
+    },
+    /// Remove a named board and its file. Refused with [`Message::WorkError`] while the board holds
+    /// any task, live or archived, and always for the default board.
+    DeleteBoard {
+        project_id: ProjectId,
+        board: BoardId,
+    },
 
     // ── Work family: host → UI ──────────────────────────────────────
+    /// A project's boards, the default one first. Sent to every window — after `ListBoards` and
+    /// after every change to the list — because every window showing the project draws its tabs.
+    Boards {
+        project_id: ProjectId,
+        boards: Vec<BoardInfo>,
+    },
     /// One project's work, whole. The graph needs all three lists in the same frame.
     WorkList {
         project_id: ProjectId,
@@ -3662,6 +3707,11 @@ impl Message {
             | Message::AddComment { project_id, .. }
             | Message::AssignAgent { project_id, .. }
             | Message::SendToAgent { project_id, .. }
+            | Message::ListBoards { project_id, .. }
+            | Message::CreateBoard { project_id, .. }
+            | Message::SetBoardEnabled { project_id, .. }
+            | Message::DeleteBoard { project_id, .. }
+            | Message::Boards { project_id, .. }
             | Message::WorkList { project_id, .. }
             | Message::TaskCreated { project_id, .. }
             | Message::TaskChanged { project_id, .. }
@@ -3730,6 +3780,8 @@ impl Message {
                     | SuggestSubject::TaskTitle { project_id, .. },
                 ..
             } => Some(*project_id),
+            // A board's envelope is about whatever project the message inside it is.
+            Message::OnBoard { message, .. } => message.project_id(),
             // The catalog family names a layer, not a project: `None` is the application's own.
             Message::ListCatalog { scope }
             | Message::AddSkill { scope, .. }

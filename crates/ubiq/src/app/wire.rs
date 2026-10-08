@@ -1,5 +1,6 @@
 use super::*;
 use crate::state::settings::ShellIntegration;
+use crate::state::work::WorkProjection;
 // A pane's write half is an `io::Write`; the key handler's image paste is the one caller here.
 use std::io::Write as _;
 
@@ -1692,7 +1693,7 @@ impl AppState {
     /// Answers with the message when it belongs to another family.
     fn receive_work(
         &mut self,
-        _host: HostRef,
+        host: HostRef,
         message: Message,
         cx: &mut Context<Self>,
     ) -> Option<Message> {
@@ -2183,6 +2184,118 @@ impl AppState {
                     } else {
                         plan.notice = Some(crate::state::document::Notice::Err(error));
                     }
+                }
+                cx.notify();
+            }
+
+            // The project's boards, whole (`T-360`). A board seen for the first time is asked for
+            // its tasks, disabled ones included — the settings list counts them.
+            Message::Boards { project_id, boards } => {
+                let open = self.projects.get_mut(&project_id)?;
+                let fresh: Vec<_> = boards
+                    .iter()
+                    .filter(|b| !b.id.is_default() && !open.board.boards.named.contains_key(&b.id))
+                    .map(|b| b.id.clone())
+                    .collect();
+                if open.board.boards.apply(boards) {
+                    open.board.switch_board(ubiq_proto::work::BoardId::DEFAULT);
+                }
+                for board in fresh {
+                    self.bus.send(Message::OnBoard {
+                        board,
+                        message: Box::new(Message::ListWork { project_id }),
+                    });
+                }
+                cx.notify();
+            }
+
+            // A named board's work, into its own projection. The default board's envelope is the
+            // bare message.
+            Message::OnBoard { board, message } => {
+                if board.is_default() {
+                    return self.receive_work(host, *message, cx);
+                }
+                match *message {
+                    Message::WorkList {
+                        project_id, tasks, ..
+                    } => {
+                        self.workbench.work_error = None;
+                        let open = self.projects.get_mut(&project_id)?;
+                        let work = open.board.boards.named.entry(board).or_insert_with(WorkProjection::empty);
+                        work.replace_all(Vec::new(), Vec::new(), tasks);
+                    }
+                    Message::TaskCreated { project_id, task } => {
+                        self.workbench.work_error = None;
+                        let open = self.projects.get_mut(&project_id)?;
+                        let id = task.id;
+                        let on_screen = open.board.boards.active == board;
+                        open.board
+                            .boards
+                            .named
+                            .entry(board)
+                            .or_insert_with(WorkProjection::empty)
+                            .apply_task(task);
+                        if on_screen && open.board.awaiting_new {
+                            open.board.awaiting_new = false;
+                            open.board.select(id);
+                            if let Some(pending) = open.board.pending.take() {
+                                self.settle_new_task(project_id, id, pending);
+                            }
+                        }
+                    }
+                    Message::TaskChanged { project_id, task } => {
+                        self.workbench.work_error = None;
+                        let open = self.projects.get_mut(&project_id)?;
+                        if open.board.is_moving(task.id) {
+                            open.board.moving = None;
+                        }
+                        let refill = open.board.selected == Some(task.id)
+                            && open.board.editing.is_none();
+                        open.board
+                            .boards
+                            .named
+                            .entry(board)
+                            .or_insert_with(WorkProjection::empty)
+                            .apply_task(task);
+                        if refill {
+                            self.form_filled = None;
+                        }
+                    }
+                    Message::TaskDeleted {
+                        project_id,
+                        task_id,
+                    } => {
+                        self.workbench.work_error = None;
+                        let open = self.projects.get_mut(&project_id)?;
+                        if let Some(work) = open.board.boards.named.get_mut(&board) {
+                            work.forget_task(task_id);
+                        }
+                        if open.board.selected == Some(task_id) {
+                            open.board.selected = None;
+                            open.board.stop_editing();
+                            open.board.confirm_delete = false;
+                        }
+                        if open.board.is_moving(task_id) {
+                            open.board.moving = None;
+                        }
+                    }
+                    Message::WorkError {
+                        project_id,
+                        task_id,
+                        error,
+                    } => {
+                        tracing::error!("work {project_id} {board} {task_id:?}: {error}");
+                        self.workbench.work_error = Some(error);
+                        if let Some(state) = self.board_mut(cx) {
+                            state.stop_editing();
+                            state.moving = None;
+                            state.awaiting_new = false;
+                            state.pending = None;
+                            state.confirm_delete = false;
+                        }
+                        self.form_filled = None;
+                    }
+                    _ => {}
                 }
                 cx.notify();
             }

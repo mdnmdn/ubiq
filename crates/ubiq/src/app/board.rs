@@ -9,6 +9,59 @@ use ubiq_proto::projects::LanePref;
 use ubiq_proto::work::{Attachment, Complexity, Kind, Label, Level};
 
 impl AppState {
+    /// Put the tasks view on another board (`T-360`).
+    pub fn select_board(&mut self, board: ubiq_proto::work::BoardId, cx: &mut Context<Self>) {
+        if let Some(state) = self.board_mut(cx) {
+            if state.boards.active != board {
+                state.switch_board(board);
+            }
+        }
+        self.form_filled = None;
+        cx.notify();
+    }
+
+    /// Ask for a new named board, named by what is typed on the settings page. The host answers
+    /// with the whole list, or a `WorkError` for a name it refuses.
+    pub fn create_board(
+        &mut self,
+        project_id: ProjectId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = self.board_name_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        self.bus.send(Message::CreateBoard { project_id, name });
+        self.board_name_input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub fn set_board_enabled(
+        &mut self,
+        project_id: ProjectId,
+        board: ubiq_proto::work::BoardId,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.bus.send(Message::SetBoardEnabled {
+            project_id,
+            board,
+            enabled,
+        });
+        cx.notify();
+    }
+
+    pub fn delete_board(
+        &mut self,
+        project_id: ProjectId,
+        board: ubiq_proto::work::BoardId,
+        _cx: &mut Context<Self>,
+    ) {
+        self.bus.send(Message::DeleteBoard { project_id, board });
+    }
+
     /// Open one of the panel's fields.
     pub fn begin_task_edit(&mut self, field: Field, window: &mut Window, cx: &mut Context<Self>) {
         // A synced field of a pull-only task never opens. The panel draws no way in, so this is
@@ -21,7 +74,7 @@ impl AppState {
         if let Field::Step(step_id) = field {
             let title = self
                 .open_task_form(cx)
-                .and_then(|(_, task_id, _)| self.work(cx)?.task(task_id))
+                .and_then(|(_, task_id, _)| self.board_work(cx)?.task(task_id))
                 .and_then(|task| task.step(step_id))
                 .map(|step| step.title.clone())
                 .unwrap_or_default();
@@ -146,7 +199,7 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.bus.send(Message::UpdateTask {
+        self.send_board(project_id, Message::UpdateTask {
             project_id,
             task_id,
             title,
@@ -186,7 +239,7 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.bus.send(Message::SetTaskField {
+        self.send_board(project_id, Message::SetTaskField {
             project_id,
             task_id,
             field,
@@ -214,7 +267,7 @@ impl AppState {
         // An empty title is a slip rather than an intention, so it is refused here and never sent —
         // the same posture as Send reading as disabled on an empty draft.
         let unchanged = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .is_some_and(|task| task.title == typed);
         if typed.is_empty() || unchanged {
@@ -234,7 +287,7 @@ impl AppState {
         };
         let typed = board.form.description.clone();
         let unchanged = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .is_some_and(|task| task.description == typed);
         if unchanged {
@@ -255,7 +308,7 @@ impl AppState {
         };
         let typed = board.form.key.trim().to_string();
         let unchanged = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .is_some_and(|task| task.key.as_deref().unwrap_or_default() == typed);
         if unchanged {
@@ -278,7 +331,7 @@ impl AppState {
         };
         let typed = board.form.link.trim().to_string();
         let unchanged = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .is_some_and(|task| task.link.as_deref().unwrap_or_default() == typed);
         if unchanged {
@@ -299,7 +352,7 @@ impl AppState {
         };
         let typed = board.form.assigned_to.trim().to_string();
         let unchanged = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .is_some_and(|task| task.assigned_to.as_deref().unwrap_or_default() == typed);
         if unchanged {
@@ -367,7 +420,7 @@ impl AppState {
             return;
         }
         let Some(mut labels) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .map(|task| task.labels.clone())
         else {
@@ -389,7 +442,7 @@ impl AppState {
             return;
         };
         let Some(labels) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .map(|task| task.labels.clone())
         else {
@@ -413,7 +466,7 @@ impl AppState {
             return;
         };
         self.close_menu(cx);
-        self.bus.send(Message::AssignTask {
+        self.send_board(project_id, Message::AssignTask {
             project_id,
             task_id,
             session,
@@ -455,7 +508,7 @@ impl AppState {
             return;
         };
         let Some(mut references) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(current))
             .map(|task| task.references.clone())
         else {
@@ -475,7 +528,7 @@ impl AppState {
             return;
         };
         let Some(references) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(current))
             .map(|task| task.references.clone())
         else {
@@ -512,7 +565,7 @@ impl AppState {
             return;
         };
         let Some(mut prerequisites) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(current))
             .map(|task| task.prerequisites.clone())
         else {
@@ -532,7 +585,7 @@ impl AppState {
             return;
         };
         let Some(prerequisites) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(current))
             .map(|task| task.prerequisites.clone())
         else {
@@ -570,7 +623,7 @@ impl AppState {
             return;
         };
         let Some(mut attachments) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .map(|task| task.attachments.clone())
         else {
@@ -587,7 +640,7 @@ impl AppState {
         if attachments.len() == before {
             return;
         }
-        self.bus.send(Message::SetTaskField {
+        self.send_board(project_id, Message::SetTaskField {
             project_id,
             task_id,
             field: TaskField::Attachments(attachments),
@@ -654,7 +707,7 @@ impl AppState {
             return;
         };
         let Some(attachments) = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(current))
             .map(|task| task.attachments.clone())
         else {
@@ -682,7 +735,7 @@ impl AppState {
         if title.is_empty() {
             return;
         }
-        self.bus.send(Message::AddStep {
+        self.send_board(project_id, Message::AddStep {
             project_id,
             task_id,
             title,
@@ -707,7 +760,7 @@ impl AppState {
         if text.is_empty() {
             return;
         }
-        self.bus.send(Message::AddComment {
+        self.send_board(project_id, Message::AddComment {
             project_id,
             task_id,
             text,
@@ -732,7 +785,7 @@ impl AppState {
         };
         let title = board.form.step_title.trim().to_string();
         let unchanged = self
-            .work(cx)
+            .board_work(cx)
             .and_then(|work| work.task(task_id))
             .and_then(|task| task.step(step_id))
             .is_some_and(|step| step.title == title);
@@ -743,7 +796,7 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.bus.send(Message::RenameStep {
+        self.send_board(project_id, Message::RenameStep {
             project_id,
             task_id,
             step_id,
@@ -761,7 +814,7 @@ impl AppState {
         let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
             return;
         };
-        self.bus.send(Message::RemoveStep {
+        self.send_board(project_id, Message::RemoveStep {
             project_id,
             task_id,
             step_id,
@@ -787,7 +840,7 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.bus.send(Message::DeleteTask {
+        self.send_board(project_id, Message::DeleteTask {
             project_id,
             task_id,
         });
@@ -834,7 +887,7 @@ impl AppState {
         }
         let selected = board.selected;
         let (title, description, key, link, assigned_to) = selected
-            .and_then(|id| self.work(cx).and_then(|work| work.task(id)))
+            .and_then(|id| self.board_work(cx).and_then(|work| work.task(id)))
             .map(|task| {
                 (
                     task.title.clone(),
@@ -978,7 +1031,7 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        self.bus.send(Message::ArchiveTasks { project_id });
+        self.send_board(project_id, Message::ArchiveTasks { project_id });
     }
 
     /// Open the form for a new task, seeded by whatever is in the filter field.
@@ -1061,7 +1114,7 @@ impl AppState {
             typed
         };
 
-        self.bus.send(Message::CreateTask {
+        self.send_board(project_id, Message::CreateTask {
             project_id,
             title,
             session,
@@ -1103,7 +1156,7 @@ impl AppState {
         pending: PendingTask,
     ) {
         if !pending.description.trim().is_empty() {
-            self.bus.send(Message::UpdateTask {
+            self.send_board(project_id, Message::UpdateTask {
                 project_id,
                 task_id,
                 title: None,
@@ -1149,7 +1202,7 @@ impl AppState {
             .map(ubiq_proto::assist::plain_text)
             .find(|line| !line.is_empty());
         if let Some(title) = title {
-            self.bus.send(Message::UpdateTask {
+            self.send_board(project_id, Message::UpdateTask {
                 project_id,
                 task_id,
                 title: Some(title),
@@ -1193,7 +1246,7 @@ impl AppState {
 
     /// The count one lane draws, which is what decides whether an empty lane shuts itself.
     fn lane_count(&self, status: Status, cx: &App) -> usize {
-        match (self.work(cx), self.board(cx)) {
+        match (self.board_work(cx), self.board(cx)) {
             (Some(work), Some(board)) => board.column(work, status).len(),
             _ => 0,
         }
@@ -1296,7 +1349,7 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        self.bus.send(Message::ToggleStep {
+        self.send_board(project_id, Message::ToggleStep {
             project_id,
             task_id,
             step_id,
@@ -1372,10 +1425,10 @@ impl AppState {
             landed
         };
         if let Some((task_id, status, before)) = landed {
-            if let Some(work) = self.work_mut(cx) {
+            if let Some(work) = self.board_work_mut(cx) {
                 work.place(task_id, status, before);
             }
-            self.bus.send(Message::MoveTask {
+            self.send_board(project_id, Message::MoveTask {
                 project_id,
                 task_id,
                 status,
@@ -1402,7 +1455,7 @@ impl AppState {
         task_id: TaskId,
         cx: &App,
     ) -> Option<(AgentId, AgentStatus, Reach)> {
-        let work = self.work(cx)?;
+        let work = self.board_work(cx)?;
         let agent = work.now(work.task(task_id)?)?;
         let conversation = self.conversation(agent.id, cx);
         let status = crate::state::status::agent_status(agent, conversation);
@@ -1418,7 +1471,7 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(task) = self.work(cx).and_then(|work| work.task(task_id)) else {
+        let Some(task) = self.board_work(cx).and_then(|work| work.task(task_id)) else {
             return;
         };
         let label = task.key.clone().unwrap_or_else(|| task_id.to_string());
@@ -1441,7 +1494,7 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(task) = self.work(cx).and_then(|work| work.task(task_id)) else {
+        let Some(task) = self.board_work(cx).and_then(|work| work.task(task_id)) else {
             return;
         };
         let label = task.key.clone().unwrap_or_else(|| task_id.to_string());
@@ -1484,10 +1537,10 @@ impl AppState {
         if let Some(board) = self.board_mut(cx) {
             board.moving = Some((task_id, Status::Done));
         }
-        if let Some(work) = self.work_mut(cx) {
+        if let Some(work) = self.board_work_mut(cx) {
             work.place(task_id, Status::Done, None);
         }
-        self.bus.send(Message::MoveTask {
+        self.send_board(project_id, Message::MoveTask {
             project_id,
             task_id,
             status: Status::Done,

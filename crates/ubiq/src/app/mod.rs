@@ -991,6 +991,8 @@ pub struct AppState {
     pub picker_filter: Entity<InputState>,
     /// The board's one field: what filters the cards, and what names the next one.
     pub task_filter: Entity<InputState>,
+    /// The name of the next named board, typed on the project settings Tasks page (`T-360`).
+    pub board_name_input: Entity<InputState>,
     /// The task panel's typed fields. They belong to the window because there is one of each per
     /// window, and what is typed into them belongs to the project — see `BoardState::form`.
     ///

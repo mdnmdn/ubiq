@@ -399,8 +399,9 @@ message and the answer is the layer: the form closes when the `Catalog` for its 
 definition form.
 
 **Agent definitions is the project's own nav item, and it opens on `Use the global agents`.**
-Ticked is the default and means every global is on offer at a start aimed here. Unticking it
-enables the list below — this project's own setups, each with `Clone`, `Edit` (the same definition
+Ticked is the default and means every global is on offer at a start aimed here. The list below
+is drawn either way — while ticked the globals show ticked and read-only, and unticking lets each
+be ticked on its own. This project's own setups, each with `Clone`, `Edit` (the same definition
 form the application's own section opens, saving back into the project), `Disable`/`Enable` (a
 save with only the off switch flipped) and `Delete` (behind a confirm, `DeleteAgentDefinition`),
 any refusal the host sends drawn as a banner above them, `Add agent`

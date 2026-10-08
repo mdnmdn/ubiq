@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-10-06
-verified: 2026-09-27
+updated: 2026-10-08
+verified: 2026-10-08
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -80,7 +80,9 @@ project's own folder — `D30` — with one exception the person creating a proj
     └── <project ulid>/            a project's data directory
         ├── tasks/
         │   ├── tasks.toml         that project's tasks, the user's data
-        │   └── archive/           the archive pages, a hundred tasks each
+        │   ├── archive/           the archive pages, a hundred tasks each
+        │   ├── boards.toml        the named boards: `[[board]]` id, name, enabled (T-360)
+        │   └── boards/<slug>/     one named board: its own tasks.toml and archive/
         ├── kb.toml                that project's knowledge-base roots, the user's data
         ├── db.toml                that project's database connections — never a password
         ├── plans/                 one markdown plan per task that carries a level, and its sidecar

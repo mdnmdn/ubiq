@@ -7,18 +7,18 @@
 //! which is a different store behind a different trait.
 
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectRecord, Scope};
 use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
-use ubiq_proto::work::TaskRecord;
+use ubiq_proto::work::{BoardId, TaskRecord};
 
 use super::project_dir::ProjectDirs;
-use super::{PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
+use super::{BoardRecord, PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
 use crate::atomic::{preserve_aside, write_atomic};
 
 /// The catalogue format this Ubiq writes and understands.
@@ -331,13 +331,17 @@ pub struct FileTaskStore {
     /// Where each project's data directory is. Tasks are the user's own data and are shared with
     /// whoever clones a project-managed one, so this is the store that has to ask rather than
     /// composing a path under the config root — see [`crate::store::project_dir`].
-    dirs: ProjectDirs,
+    dirs: Arc<ProjectDirs>,
+    /// The named board this store reads and writes (`T-360`), or the default board's
+    /// `tasks/tasks.toml` when `None`. Shares `dirs` with the store it came from.
+    board: Option<BoardId>,
 }
 
 impl FileTaskStore {
     pub fn new(root: PathBuf) -> Self {
         Self {
-            dirs: ProjectDirs::new(root),
+            dirs: Arc::new(ProjectDirs::new(root)),
+            board: None,
         }
     }
 
@@ -346,13 +350,24 @@ impl FileTaskStore {
     /// and the orphan collector already cover a Ubiq-managed project's copy and a project-managed
     /// one lands where the project itself can carry it.
     pub fn path(&self, project: ProjectId) -> PathBuf {
-        self.dirs.data(project).tasks()
+        match &self.board {
+            Some(board) => self.dirs.data(project).board(board).join("tasks.toml"),
+            None => self.dirs.data(project).tasks(),
+        }
+    }
+
+    /// Where a project's named-board registry lives (`T-360`).
+    pub fn boards_path(&self, project: ProjectId) -> PathBuf {
+        self.dirs.data(project).boards()
     }
 
     /// Where a project's archived tasks live — beside the live file under the same `tasks/`, so
     /// Forget and the orphan collector cover this the same way they already cover that file.
     fn archive_dir(&self, project: ProjectId) -> PathBuf {
-        self.dirs.data(project).tasks_archive()
+        match &self.board {
+            Some(board) => self.dirs.data(project).board(board).join("archive"),
+            None => self.dirs.data(project).tasks_archive(),
+        }
     }
 
     /// Every archive page already on disk, oldest first, named by the page number that decides the
@@ -451,6 +466,15 @@ impl TaskStore for FileTaskStore {
     }
 
     fn clear(&self, project: ProjectId) -> Result<(), StoreError> {
+        // A named board is its whole directory — the list and its archive go together.
+        if let Some(board) = &self.board {
+            let path = self.dirs.data(project).board(board);
+            return match std::fs::remove_dir_all(&path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(source) => Err(StoreError::Io { path, source }),
+            };
+        }
         let path = self.path(project);
         match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
@@ -503,6 +527,74 @@ impl TaskStore for FileTaskStore {
         }
         Ok(())
     }
+
+    fn has_archive(&self, project: ProjectId) -> bool {
+        !self.archive_pages(project).is_empty()
+    }
+
+    fn board(&self, board: &BoardId) -> Box<dyn TaskStore> {
+        Box::new(FileTaskStore {
+            dirs: Arc::clone(&self.dirs),
+            board: (!board.is_default()).then(|| board.clone()),
+        })
+    }
+
+    fn load_boards(&self, project: ProjectId) -> Result<Vec<BoardRecord>, StoreError> {
+        self.boards_file(project)
+    }
+
+    fn save_boards(&self, project: ProjectId, boards: &[BoardRecord]) -> Result<(), StoreError> {
+        let path = self.boards_path(project);
+        let body = toml::to_string_pretty(&BoardsFile {
+            version: BOARDS_VERSION,
+            boards: boards.to_vec(),
+        })
+        .map_err(|error| StoreError::Parse {
+            path: path.clone(),
+            preserved_as: None,
+            message: error.to_string(),
+        })?;
+        write_atomic(&path, body.as_bytes()).map_err(|source| StoreError::Io { path, source })
+    }
+}
+
+impl FileTaskStore {
+    /// The board half of [`TaskStore`], kept apart so the list's own methods read as before.
+    fn boards_file(&self, project: ProjectId) -> Result<Vec<BoardRecord>, StoreError> {
+        let path = self.boards_path(project);
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(source) => return Err(StoreError::Io { path, source }),
+        };
+        if let Some(version) = version_of(&raw)
+            && version > BOARDS_VERSION
+        {
+            return Err(StoreError::UnknownVersion {
+                path,
+                found: version,
+                supported: BOARDS_VERSION,
+            });
+        }
+        toml::from_str::<BoardsFile>(&raw)
+            .map(|file| file.boards)
+            .map_err(|error| StoreError::Parse {
+                preserved_as: preserve_aside(&path, Utc::now()).ok(),
+                path,
+                message: error.message().to_string(),
+            })
+    }
+}
+
+/// The named-board registry format this Ubiq writes and understands (`T-360`).
+pub const BOARDS_VERSION: u32 = 1;
+
+/// `tasks/boards.toml`: `version`, then one `[[board]]` row per named board.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct BoardsFile {
+    version: u32,
+    #[serde(default, rename = "board", skip_serializing_if = "Vec::is_empty")]
+    boards: Vec<BoardRecord>,
 }
 
 /// Write one archive page whole — every page is small enough that a partial rewrite buys nothing

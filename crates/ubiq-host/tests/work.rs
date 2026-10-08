@@ -456,6 +456,29 @@ impl TaskStore for Shared {
     fn archive(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError> {
         self.0.archive(project, tasks)
     }
+
+    fn has_archive(&self, project: ProjectId) -> bool {
+        self.0.has_archive(project)
+    }
+
+    fn board(&self, board: &ubiq_proto::work::BoardId) -> Box<dyn TaskStore> {
+        self.0.board(board)
+    }
+
+    fn load_boards(
+        &self,
+        project: ProjectId,
+    ) -> Result<Vec<ubiq_host::store::BoardRecord>, StoreError> {
+        self.0.load_boards(project)
+    }
+
+    fn save_boards(
+        &self,
+        project: ProjectId,
+        boards: &[ubiq_host::store::BoardRecord],
+    ) -> Result<(), StoreError> {
+        self.0.save_boards(project, boards)
+    }
 }
 
 /// A service over a store the test keeps a handle on.
@@ -1845,4 +1868,300 @@ fn deleting_a_task_scrubs_it_from_prerequisite_lists() {
     let all = board(&mut work, project);
     let this = all.iter().find(|t| t.id == task.id).unwrap();
     assert!(this.prerequisites.is_empty());
+}
+
+// ── named boards (`T-360`) ──────────────────────────────────────────
+
+use ubiq_proto::work::{BoardId, BoardInfo};
+
+/// The `Boards` listing among some replies — always broadcast.
+fn boards(replies: &[Reply]) -> Vec<BoardInfo> {
+    for reply in replies {
+        if let Message::Boards { boards, .. } = reply.message() {
+            assert!(reply.is_broadcast(), "every window draws the board tabs");
+            return boards.clone();
+        }
+    }
+    panic!("no boards among {replies:?}");
+}
+
+/// What a named board said, unwrapped from its envelope, asserting the envelope names `board`.
+fn unwrap_board(board: &BoardId, replies: &[Reply]) -> Vec<Message> {
+    replies
+        .iter()
+        .map(|reply| match reply.message() {
+            Message::OnBoard {
+                board: said,
+                message,
+            } => {
+                assert_eq!(said, board);
+                (**message).clone()
+            }
+            other => panic!("a named board answered outside its envelope: {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_named_board_is_created_listed_disabled_and_lives_in_its_own_file() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let mut work = Work::open(Box::new(file_store(&dir)));
+
+    // The default board alone, first, before anything is named.
+    let listed = boards(&work.list_boards(project));
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].id.is_default() && listed[0].enabled);
+
+    let listed = boards(&work.create_board(project, "  Release Prep! ".to_string()));
+    let board = listed[1].id.clone();
+    assert_eq!(board, BoardId("release-prep".to_string()));
+    assert_eq!(listed[1].name, "Release Prep!");
+    assert!(listed[1].enabled);
+
+    // A second board of the same name gets a slug of its own.
+    let listed = boards(&work.create_board(project, "release prep".to_string()));
+    assert_eq!(listed[2].id, BoardId("release-prep-2".to_string()));
+
+    // Tasks on the board land in its own file and never in `tasks.toml`.
+    let default_before = store.load(project).unwrap();
+    let said = unwrap_board(
+        &board,
+        &work.on_board(project, &board, |w| {
+            w.create(project, "ship it".to_string(), None)
+        }),
+    );
+    let Some(Message::TaskCreated { task, .. }) = said.first() else {
+        panic!("expected the created task, got {said:?}");
+    };
+    assert_eq!(
+        task.key.as_deref(),
+        Some("T-1"),
+        "a board counts its own keys"
+    );
+    let board_store = store.board(&board);
+    assert_eq!(
+        titles(&board_store.load(project).unwrap().unwrap()),
+        ["ship it"]
+    );
+    assert_eq!(store.load(project).unwrap(), default_before);
+    assert!(
+        store
+            .path(project)
+            .parent()
+            .unwrap()
+            .join("boards/release-prep/tasks.toml")
+            .is_file()
+    );
+
+    // An edit and a listing on the board answer from the board.
+    let task_id = task.id;
+    let said = unwrap_board(
+        &board,
+        &work.on_board(project, &board, |w| {
+            w.move_task(project, task_id, Status::InProgress, None)
+        }),
+    );
+    assert!(
+        matches!(&said[0], Message::TaskChanged { task, .. } if task.status == Status::InProgress)
+    );
+    let said = unwrap_board(&board, &work.on_board(project, &board, |w| w.list(project)));
+    let Some(Message::WorkList { tasks, .. }) = said.first() else {
+        panic!("expected a listing, got {said:?}");
+    };
+    assert_eq!(titles(tasks), ["ship it"]);
+
+    // Disabled is remembered, and survives a fresh `Work`.
+    work.set_board_enabled(project, &board, false);
+    let mut reopened = Work::open(Box::new(file_store(&dir)));
+    let listed = boards(&reopened.list_boards(project));
+    assert_eq!(listed.len(), 3);
+    assert!(!listed[1].enabled);
+    assert_eq!(listed[1].task_count, 1);
+}
+
+#[test]
+fn a_board_with_tasks_cannot_be_deleted_and_an_empty_one_can() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let mut work = Work::open(Box::new(file_store(&dir)));
+    let board = boards(&work.create_board(project, "Ideas".to_string()))[1]
+        .id
+        .clone();
+
+    let said = unwrap_board(
+        &board,
+        &work.on_board(project, &board, |w| {
+            w.create(project, "one".to_string(), None)
+        }),
+    );
+    let Some(Message::TaskCreated { task, .. }) = said.first() else {
+        panic!("expected the created task, got {said:?}");
+    };
+    let task_id = task.id;
+
+    let refused = refusals(&work.delete_board(project, &board));
+    assert_eq!(refused.len(), 1, "a board holding a task is refused");
+    assert_eq!(boards(&work.list_boards(project)).len(), 2);
+
+    // Finished and archived still counts as holding a task.
+    work.on_board(project, &board, |w| {
+        w.move_task(project, task_id, Status::Done, None)
+    });
+    work.on_board(project, &board, |w| w.archive(project));
+    assert_eq!(refusals(&work.delete_board(project, &board)).len(), 1);
+
+    // An empty one goes, directory and all.
+    let empty = boards(&work.create_board(project, "Scratch".to_string()))[2]
+        .id
+        .clone();
+    work.on_board(project, &empty, |w| w.list(project));
+    let board_dir = store.path(project).parent().unwrap().join("boards/scratch");
+    assert!(board_dir.is_dir());
+    let listed = boards(&work.delete_board(project, &empty));
+    assert_eq!(listed.len(), 2);
+    assert!(!board_dir.exists());
+}
+
+#[test]
+fn the_default_board_cannot_be_disabled_or_deleted_and_an_unknown_board_is_refused() {
+    let (_store, mut work, project) = unseeded();
+    assert_eq!(
+        refusals(&work.set_board_enabled(project, &BoardId::DEFAULT, false)).len(),
+        1
+    );
+    assert_eq!(
+        refusals(&work.delete_board(project, &BoardId::DEFAULT)).len(),
+        1
+    );
+    assert_eq!(
+        refusals(&work.create_board(project, "   ".to_string())).len(),
+        1
+    );
+
+    let nowhere = BoardId("nowhere".to_string());
+    let said = unwrap_board(
+        &nowhere,
+        &work.on_board(project, &nowhere, |w| w.list(project)),
+    );
+    assert!(
+        matches!(&said[0], Message::WorkError { error, .. } if error.contains("no such board"))
+    );
+
+    // The default board's envelope is the default board, unwrapped.
+    let replies = work.on_board(project, &BoardId::DEFAULT, |w| w.list(project));
+    listing(&replies);
+}
+
+#[test]
+fn a_board_slug_is_never_empty() {
+    assert_eq!(BoardId::from_name("!!!"), BoardId("board".to_string()));
+    assert_eq!(
+        BoardId::from_name("Q3 / Roadmap"),
+        BoardId("q3-roadmap".to_string())
+    );
+    assert!(!BoardId::from_name("").is_default());
+}
+
+#[test]
+fn a_board_id_from_disk_that_is_not_a_slug_is_ignored_and_never_reaches_a_path() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let tasks_dir = store.path(project).parent().unwrap().to_path_buf();
+    fs::create_dir_all(&tasks_dir).unwrap();
+    let outside = dir.path().join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(
+        tasks_dir.join("boards.toml"),
+        format!(
+            "version = 1\n\
+             [[board]]\nid = \"../../..\"\nname = \"up\"\n\
+             [[board]]\nid = \"{}\"\nname = \"absolute\"\n\
+             [[board]]\nid = \"\"\nname = \"aliasing the default\"\n\
+             [[board]]\nid = \"Bad Case\"\nname = \"case\"\n\
+             [[board]]\nid = \"ok\"\nname = \"fine\"\n\
+             [[board]]\nid = \"ok\"\nname = \"duplicate\"\n",
+            outside.display()
+        ),
+    )
+    .unwrap();
+    let mut work = Work::open(Box::new(file_store(&dir)));
+
+    let listed = boards(&work.list_boards(project));
+    let ids: Vec<&str> = listed.iter().map(|b| b.id.as_str()).collect();
+    assert_eq!(ids, ["", "ok"], "only the default and the one real slug");
+
+    for bad in ["../../..", outside.to_str().unwrap(), ""] {
+        let replies = work.delete_board(project, &BoardId(bad.to_string()));
+        assert_eq!(refusals(&replies).len(), 1, "{bad:?} is refused");
+    }
+    assert!(
+        outside.is_dir(),
+        "nothing outside tasks/boards/ was removed"
+    );
+    assert!(store.path(project).is_file(), "the default board is intact");
+}
+
+#[test]
+fn the_board_registry_follows_the_disk_and_a_change_keeps_rows_added_elsewhere() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let mut work = Work::open(Box::new(file_store(&dir)));
+    work.create_board(project, "Mine".to_string());
+
+    // Another Ubiq, or a pull, adds a board.
+    let mut rows = store.load_boards(project).unwrap();
+    rows.push(ubiq_host::store::BoardRecord {
+        id: BoardId("theirs".to_string()),
+        name: "Theirs".to_string(),
+        enabled: true,
+    });
+    store.save_boards(project, &rows).unwrap();
+
+    let listed = boards(&work.sync_from_disk());
+    assert_eq!(listed.len(), 3, "the sync broadcasts the new list");
+    assert!(work.sync_from_disk().is_empty(), "and only once");
+
+    // A change made after a third row lands keeps it too.
+    rows.push(ubiq_host::store::BoardRecord {
+        id: BoardId("later".to_string()),
+        name: "Later".to_string(),
+        enabled: true,
+    });
+    store.save_boards(project, &rows).unwrap();
+    work.set_board_enabled(project, &BoardId("mine".to_string()), false);
+    let ids: Vec<String> = store
+        .load_boards(project)
+        .unwrap()
+        .into_iter()
+        .map(|b| b.id.0)
+        .collect();
+    assert_eq!(ids, ["mine", "theirs", "later"]);
+}
+
+#[test]
+fn a_task_written_to_a_boards_file_since_the_last_look_stops_the_delete() {
+    let dir = TempDir::new().unwrap();
+    let store = file_store(&dir);
+    let project = ProjectId::generate();
+    let mut work = Work::open(Box::new(file_store(&dir)));
+    let board = boards(&work.create_board(project, "Shared".to_string()))[1]
+        .id
+        .clone();
+    work.on_board(project, &board, |w| w.list(project));
+
+    store
+        .board(&board)
+        .save(project, &[record("written elsewhere")])
+        .unwrap();
+
+    assert_eq!(refusals(&work.delete_board(project, &board)).len(), 1);
+    assert_eq!(
+        titles(&store.board(&board).load(project).unwrap().unwrap()),
+        ["written elsewhere"]
+    );
 }

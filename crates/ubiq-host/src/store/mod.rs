@@ -32,10 +32,11 @@ pub mod usage;
 
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{ProjectRecord, Scope};
 use ubiq_proto::settings::SettingsLayer;
-use ubiq_proto::work::TaskRecord;
+use ubiq_proto::work::{BoardId, TaskRecord};
 
 /// What can go wrong reaching a store.
 #[derive(Debug, thiserror::Error)]
@@ -97,6 +98,31 @@ pub trait TaskStore: Send + Sync {
     /// already dropped these from the live list; this is only where they land next. Nothing on
     /// this trait reads the archive back — there is no browse or restore yet (`backlog.md`).
     fn archive(&self, project: ProjectId, tasks: &[TaskRecord]) -> Result<(), StoreError>;
+    /// Whether anything was ever archived for the project — what refuses deleting a board whose
+    /// archive still holds tasks (`T-360`).
+    fn has_archive(&self, project: ProjectId) -> bool;
+
+    // ── named boards (`T-360`) ──
+    /// The same store, aimed at a named board instead of the default one: every method above then
+    /// reads and writes that board's own file and archive. Only ever called on the default store.
+    fn board(&self, board: &BoardId) -> Box<dyn TaskStore>;
+    /// A project's named boards, in the user's order. An absent registry is no named boards.
+    fn load_boards(&self, project: ProjectId) -> Result<Vec<BoardRecord>, StoreError>;
+    fn save_boards(&self, project: ProjectId, boards: &[BoardRecord]) -> Result<(), StoreError>;
+}
+
+/// One named board as the registry keeps it (`T-360`). The default board has no row: it always
+/// exists and is always enabled.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardRecord {
+    pub id: BoardId,
+    pub name: String,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 /// The interface's view state, which the host holds and never reads.

@@ -40,7 +40,7 @@ pub fn render(
     cx: &mut Context<AppState>,
 ) -> impl IntoElement {
     let colour = app
-        .work(cx)
+        .board_work(cx)
         .map(|work| bucket_colour(work.pulse(task)))
         .unwrap_or_else(theme::text_faint);
 
@@ -82,7 +82,7 @@ pub fn popup(
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let colour = app
-        .work(cx)
+        .board_work(cx)
         .map(|work| bucket_colour(work.pulse(task)))
         .unwrap_or_else(theme::text_faint);
     let title = task.title.clone();
@@ -136,9 +136,10 @@ fn body(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let Some(work) = app.work(cx) else {
+    let Some(work) = app.board_work(cx) else {
         return div().into_any_element();
     };
+    let named = app.board_is_named(cx);
     let colour = bucket_colour(work.pulse(task));
     let done = task.done();
     let total = task.steps.len();
@@ -305,10 +306,14 @@ fn body(
                         fact("Link", form::link(app, task, window, cx)).into_any_element()
                     }),
                 )
-                .child(fact(
-                    "Level",
-                    form::level_pill(task, &app.mission_term(cx), cx),
-                ))
+                // A level makes a mission, which only the default board has.
+                .children((!named).then(|| {
+                    fact(
+                        "Level",
+                        form::level_pill(task, &app.mission_term(cx), cx),
+                    )
+                    .into_any_element()
+                }))
                 // The task panel keeps working for a mission's anchor task and gains exactly one
                 // row: the way into the mission's own surface (`mission-proposal.md` §6.1). Drawn
                 // only on a task that *is* a mission, because on any other it opens nothing.
@@ -432,8 +437,9 @@ fn body(
         // How the work will be done, and who has it — under the work itself, because both are
         // claims about a task that is already described. The note says what the shape means: the
         // word alone says how the agents are arranged only to somebody who already knows, and
-        // there is nothing to say for a task nobody has shaped.
-        .child(
+        // there is nothing to say for a task nobody has shaped. A named board has no agents, so
+        // no shape and no session either (`T-360`).
+        .children((!named).then(|| {
             div()
                 .flex()
                 .flex_col()
@@ -459,8 +465,9 @@ fn body(
                             mono("(worktree)", theme::text_faint())
                                 .text_size(theme::font(Family::Chrome, Role::Meta))
                         })),
-                ),
-        )
+                )
+                .into_any_element()
+        }))
         .into_any_element()
 }
 
@@ -559,16 +566,19 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
         .task_agent_link(task_id, cx)
         .map(|(agent, status, reach)| {
             let name = app
-                .work(cx)
+                .board_work(cx)
                 .and_then(|work| work.agent(agent))
                 .map(|record| app.agent_label(record).title)
                 .unwrap_or_else(|| "an agent".into());
             (agent, status, reach, name)
         });
     let reach = link.as_ref().map(|(_, _, reach, _)| *reach);
+    let named = app.board_is_named(cx);
 
     let mut actions: Vec<AnyElement> = Vec::new();
     match task.status {
+        // No agent works a named board's tasks, so nothing here offers one.
+        Status::Backlog | Status::Ready | Status::InProgress if named => {}
         Status::Backlog | Status::Ready | Status::InProgress => match reach {
             Some(Reach::Live) => {}
             // A linked agent that is not running: carried on where it can be relaunched, a new
@@ -608,17 +618,19 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
                 )
                 .into_any_element(),
             );
-            actions.push(
-                ghost_button(
-                    "board-feedback-agent",
-                    Some(IconName::Undo),
-                    "Feedback to an agent",
-                    cx.listener(move |this, _, window, cx| {
-                        this.feedback_task_to_agent(task_id, window, cx)
-                    }),
-                )
-                .into_any_element(),
-            );
+            if !named {
+                actions.push(
+                    ghost_button(
+                        "board-feedback-agent",
+                        Some(IconName::Undo),
+                        "Feedback to an agent",
+                        cx.listener(move |this, _, window, cx| {
+                            this.feedback_task_to_agent(task_id, window, cx)
+                        }),
+                    )
+                    .into_any_element(),
+                );
+            }
         }
         Status::Blocked | Status::Done | Status::Abandoned => {}
     }

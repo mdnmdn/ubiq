@@ -3069,6 +3069,30 @@ impl Coordinator {
                     work.send_to_agent(project_id, agent_id, text)
                 });
             }
+            // Named boards (`T-360`): the registry, and the envelope a board's task edits travel in.
+            Message::OnBoard { board, message } => self.board_job(client, board, *message),
+            Message::ListBoards { project_id } => {
+                self.work_job(client, project_id, |work| work.list_boards(project_id));
+            }
+            Message::CreateBoard { project_id, name } => {
+                self.work_job(client, project_id, |work| {
+                    work.create_board(project_id, name)
+                });
+            }
+            Message::SetBoardEnabled {
+                project_id,
+                board,
+                enabled,
+            } => {
+                self.work_job(client, project_id, |work| {
+                    work.set_board_enabled(project_id, &board, enabled)
+                });
+            }
+            Message::DeleteBoard { project_id, board } => {
+                self.work_job(client, project_id, |work| {
+                    work.delete_board(project_id, &board)
+                });
+            }
 
             // ── the annotated-document family ───────────────────────
             // Every arm here names a `DocumentHandle` and nothing else. What this decides is only
@@ -5317,6 +5341,119 @@ impl Coordinator {
             return;
         }
         let replies = change(&mut self.work.lock());
+        self.answer(client, replies);
+    }
+
+    /// One work message aimed at a named board (`T-360`). The default board's envelope is the bare
+    /// message. Only the task-editing variants are a board's; everything else — missions, agents,
+    /// plans, task sync — is the default board's alone, and is refused here, in the envelope, so
+    /// the window hears which board said no.
+    fn board_job(&mut self, client: ClientId, board: ubiq_proto::work::BoardId, message: Message) {
+        if board.is_default() {
+            self.dispatch(client, message);
+            return;
+        }
+        let Some(project_id) = message.project_id() else {
+            tracing::warn!("a board envelope around a message naming no project: {message:?}");
+            return;
+        };
+        let refuse = |error: &str| Message::OnBoard {
+            board: board.clone(),
+            message: Box::new(Message::WorkError {
+                project_id,
+                task_id: None,
+                error: error.to_string(),
+            }),
+        };
+        if self.projects.record(project_id).is_none() {
+            self.host
+                .send(To::Client(client), refuse("no such project"));
+            return;
+        }
+        type Run = Box<dyn FnOnce(&mut Work) -> Vec<Reply>>;
+        let run: Run = match message {
+            Message::ListWork { .. } => Box::new(move |work| work.list(project_id)),
+            Message::CreateTask { title, session, .. } => {
+                Box::new(move |work| work.create(project_id, title, session))
+            }
+            Message::UpdateTask {
+                task_id,
+                title,
+                description,
+                priority,
+                ..
+            } => {
+                Box::new(move |work| work.update(project_id, task_id, title, description, priority))
+            }
+            // A level is what makes a task a mission, and missions live on the default board.
+            Message::SetTaskField {
+                field: TaskField::Level(Some(_)),
+                ..
+            } => {
+                self.host.send(
+                    To::Client(client),
+                    refuse("a task on a named board cannot be given a level"),
+                );
+                return;
+            }
+            Message::SetTaskField { task_id, field, .. } => {
+                Box::new(move |work| work.set_field(project_id, task_id, field))
+            }
+            Message::MoveTask {
+                task_id,
+                status,
+                before,
+                ..
+            } => Box::new(move |work| work.move_task(project_id, task_id, status, before)),
+            Message::AssignTask {
+                task_id, session, ..
+            } => Box::new(move |work| work.assign(project_id, task_id, session)),
+            Message::DeleteTask { task_id, .. } => {
+                Box::new(move |work| work.delete(project_id, task_id))
+            }
+            Message::ArchiveTasks { .. } => Box::new(move |work| work.archive(project_id)),
+            Message::AddStep { task_id, title, .. } => {
+                Box::new(move |work| work.add_step(project_id, task_id, title))
+            }
+            Message::RenameStep {
+                task_id,
+                step_id,
+                title,
+                ..
+            } => Box::new(move |work| work.rename_step(project_id, task_id, step_id, title)),
+            Message::RemoveStep {
+                task_id, step_id, ..
+            } => Box::new(move |work| work.remove_step(project_id, task_id, step_id)),
+            Message::MoveStep {
+                task_id,
+                step_id,
+                to,
+                ..
+            } => Box::new(move |work| work.move_step(project_id, task_id, step_id, to)),
+            Message::ToggleStep {
+                task_id, step_id, ..
+            } => Box::new(move |work| work.toggle_step(project_id, task_id, step_id)),
+            Message::AddComment { task_id, text, .. } => Box::new(move |work| {
+                work.add_comment(
+                    project_id,
+                    task_id,
+                    ubiq_proto::work::CommentAuthor::User,
+                    text,
+                )
+            }),
+            other => {
+                tracing::warn!("refused on board {board}: {other:?}");
+                self.host.send(
+                    To::Client(client),
+                    refuse("only the default board takes that"),
+                );
+                return;
+            }
+        };
+        let replies = self
+            .work
+            .lock()
+            .on_board(project_id, &board, |work| run(work));
         self.answer(client, replies);
     }
 

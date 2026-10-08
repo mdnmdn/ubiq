@@ -804,3 +804,77 @@ impl WorkAgent {
         self.title.as_deref().unwrap_or(&self.name)
     }
 }
+
+/// Which of a project's task boards a list is (`T-360`).
+///
+/// A slug, minted by the host from the name the user gave the board. **The default board is the
+/// empty slug**, [`BoardId::DEFAULT`]: it is the project's `tasks.toml` and everything that existed
+/// before named boards did — missions, the MCP task tools, agent assignment, plans and task sync
+/// all live on it and only on it. A named board is a plain list of tasks in a file of its own.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BoardId(pub String);
+
+impl BoardId {
+    /// The project's own board — `tasks.toml`.
+    pub const DEFAULT: BoardId = BoardId(String::new());
+
+    pub fn is_default(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether this is a named board's slug as [`Self::from_name`] makes one — non-empty, `a-z`,
+    /// `0-9` and inner `-` only. What a registry read from disk is checked against, since an id
+    /// becomes a directory name.
+    pub fn is_slug(&self) -> bool {
+        !self.is_default() && Self::from_name(&self.0) == *self
+    }
+
+    /// The slug a board named `name` gets: ASCII letters and digits lowercased, every other run of
+    /// characters one `-`, at most 40 long, and `board` when nothing is left. Never empty, so a
+    /// named board can never be mistaken for the default one.
+    pub fn from_name(name: &str) -> BoardId {
+        let mut slug = String::new();
+        for c in name.chars() {
+            if c.is_ascii_alphanumeric() {
+                slug.push(c.to_ascii_lowercase());
+            } else if !slug.is_empty() && !slug.ends_with('-') {
+                slug.push('-');
+            }
+            if slug.len() >= 40 {
+                break;
+            }
+        }
+        let slug = slug.trim_end_matches('-');
+        BoardId(if slug.is_empty() {
+            "board".to_string()
+        } else {
+            slug.to_string()
+        })
+    }
+}
+
+impl std::fmt::Display for BoardId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_default() {
+            f.write_str("default")
+        } else {
+            f.write_str(&self.0)
+        }
+    }
+}
+
+/// One board as the settings page and the board's tabs draw it. The default board is always the
+/// first of a [`crate::messages::Message::Boards`] list, always enabled.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardInfo {
+    pub id: BoardId,
+    pub name: String,
+    pub enabled: bool,
+    /// Live tasks on the board — the archive is not counted.
+    pub task_count: usize,
+}
