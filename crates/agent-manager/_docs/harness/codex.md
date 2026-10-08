@@ -833,9 +833,11 @@ A request the app-server withdraws when its turn ends is announced as `serverReq
 
 **Steering and per-turn settings.** A prompt sent while a turn is live is `turn/steer { threadId,
 input, expectedTurnId }`, falling back to `turn/start` if the turn has ended. A prompt merged into the live turn (a steer, or a `turn/start` the server answers with the live turn's id) is counted by the host as a turn of its own, and Codex ends the merged turn once — so at `turn/completed` the reader emits one extra `TurnEnded` per merged prompt. `turn/start` takes
-`model` and `effort` overrides that hold "for this turn and subsequent turns"; `model/list` (each
+`model`, `effort`, `sandboxPolicy` and `approvalPolicy` overrides that hold "for this turn and subsequent turns" (the bridge sends the picked sandbox mode as the last two); `model/list` (each
 model's `supportedReasoningEfforts`, `defaultReasoningEffort`, `isDefault`, `hidden`) is the
-catalogue the pickers are drawn from.
+catalogue the pickers are drawn from. The bridge's `ConfigOptionUpdate` is always the whole set —
+`model`, `thinking`, `mode`, the ids the host's pre-launch set uses — because the composer replaces
+its pickers with each update; a partial set drops the missing selectors.
 
 **Resume and fork.** `thread/resume { threadId }` carries a thread on; `thread/fork { threadId }`
 opens a new thread with a copy of its history. Both answer like `thread/start`. The bridge opens

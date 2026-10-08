@@ -142,6 +142,11 @@ struct Picks {
     models: Vec<Value>,
     model: Option<String>,
     effort: Option<String>,
+    /// The sandbox mode (`read-only` …), the thread's own or the one picked since.
+    mode: Option<String>,
+    /// Whether `mode` was picked since the thread started — only then does a turn override the
+    /// thread's own sandbox (which may carry writable roots or network access a bare policy lacks).
+    mode_picked: bool,
 }
 
 /// How a bridge opens its thread.
@@ -354,6 +359,7 @@ impl CodexBridge {
             .and_then(Value::as_str)
             .map(str::to_string);
         // Codex names no tool or subagent list up front, so those stay empty rather than guessed.
+        let mode_name = mode.clone();
         self.wire.emit(AgentEvent::SessionStarted {
             session_id: Some(thread_id),
             model: model.clone(),
@@ -382,6 +388,7 @@ impl CodexBridge {
                         .unwrap_or_default();
                     picks.model = model;
                     picks.effort = effort;
+                    picks.mode = mode_name;
                     config_options(&picks)
                 };
                 if !options.is_empty() {
@@ -408,8 +415,10 @@ impl CodexBridge {
 }
 
 /// The model and reasoning-effort pickers, from the catalogue and what is current: one `model`
-/// select over every listed model, one `reasoning_effort` select over what the current model
-/// supports. Empty where `model/list` gave nothing.
+/// select over every listed model, one `thinking` select over what the current model supports,
+/// and the `mode` (sandbox) select. The set is always whole, ids matching the host's pre-launch
+/// set, because the composer replaces its pickers with whatever arrives. Empty where `model/list`
+/// gave nothing.
 fn config_options(picks: &Picks) -> Vec<super::ConfigOption> {
     use super::{ConfigCategory, ConfigChoice, ConfigOption, ConfigValue};
     let slug = |m: &Value| {
@@ -500,8 +509,8 @@ fn config_options(picks: &Picks) -> Vec<super::ConfigOption> {
         });
     if let (false, Some(effort)) = (efforts.is_empty(), effort) {
         options.push(ConfigOption {
-            id: "reasoning_effort".to_string(),
-            name: "Reasoning".to_string(),
+            id: "thinking".to_string(),
+            name: "Thinking".to_string(),
             description: None,
             category: Some(ConfigCategory::ThoughtLevel),
             value: ConfigValue::Select {
@@ -510,7 +519,53 @@ fn config_options(picks: &Picks) -> Vec<super::ConfigOption> {
             },
         });
     }
+    // Re-sent whole replaces the host's pre-launch set, so the mode picker has to ride along or
+    // the footer loses it. Ids match the host's (`model`, `thinking`, `mode`), which the composer
+    // lays out by name.
+    if let Some(modes) = crate::harness::resolve("codex").map(|h| h.modes())
+        && !modes.is_empty()
+    {
+        options.push(ConfigOption {
+            id: "mode".to_string(),
+            name: "Mode".to_string(),
+            description: None,
+            category: Some(ConfigCategory::Mode),
+            value: ConfigValue::Select {
+                current_value: picks.mode.clone().unwrap_or_default(),
+                options: modes
+                    .into_iter()
+                    .map(|m| ConfigChoice {
+                        value: m.id,
+                        name: m.label,
+                        description: m.description,
+                        group: None,
+                    })
+                    .collect(),
+            },
+        });
+    }
     options
+}
+
+/// The `turn/start` overrides a sandbox mode stands for: its `sandboxPolicy` and the
+/// `approvalPolicy` it runs under (the unattended mode asks nothing).
+fn mode_overrides(mode: &str) -> Option<(Value, &'static str)> {
+    // Every field `SandboxPolicy` declares (`codex app-server generate-ts`, 0.161.0) is sent.
+    Some(match mode {
+        "read-only" => (json!({"type": "readOnly", "networkAccess": false}), "on-request"),
+        "workspace-write" => (
+            json!({
+                "type": "workspaceWrite",
+                "writableRoots": [],
+                "networkAccess": false,
+                "excludeTmpdirEnvVar": false,
+                "excludeSlashTmp": false,
+            }),
+            "on-request",
+        ),
+        "danger-full-access" => (json!({"type": "dangerFullAccess"}), "never"),
+        _ => return None,
+    })
 }
 
 impl IoBridge for CodexBridge {
@@ -704,6 +759,13 @@ fn write_input(wire: &Wire, input: AgentInput) -> crate::Result<()> {
                 if let Some(effort) = &picks.effort {
                     params["effort"] = json!(effort);
                 }
+                if let (true, Some((policy, approval))) = (
+                    picks.mode_picked,
+                    picks.mode.as_deref().and_then(mode_overrides),
+                ) {
+                    params["sandboxPolicy"] = policy;
+                    params["approvalPolicy"] = json!(approval);
+                }
             }
             // Block only on `turn/start`'s ack (which carries `turn.id`), NOT on turn completion
             // — that arrives later as `turn/completed`, read back via `next_event`.
@@ -814,13 +876,17 @@ fn write_input(wire: &Wire, input: AgentInput) -> crate::Result<()> {
                     // A new model keeps the effort only where the new model supports it;
                     // `config_options` falls back to the model's own default otherwise.
                     "model" => picks.model = Some(value),
-                    "reasoning_effort" => picks.effort = Some(value),
+                    "thinking" => picks.effort = Some(value),
+                    "mode" => {
+                        picks.mode = Some(value);
+                        picks.mode_picked = true;
+                    }
                     other => anyhow::bail!("codex has no '{other}' to change"),
                 }
                 config_options(&picks)
             };
             // Re-sent whole, so a picker drawn from the old model's efforts is replaced.
-            if let Some(effort) = options.iter().find(|o| o.id == "reasoning_effort")
+            if let Some(effort) = options.iter().find(|o| o.id == "thinking")
                 && let super::ConfigValue::Select { current_value, .. } = &effort.value
                 && let Ok(mut picks) = wire.picks.lock()
             {
@@ -2928,9 +2994,12 @@ mod tests {
             ],
             model: Some("b".to_string()),
             effort: Some("high".to_string()),
+            mode: Some("read-only".to_string()),
+            mode_picked: false,
         };
         let options = config_options(&picks);
-        assert_eq!(options.len(), 2);
+        let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["model", "thinking", "mode"]);
         let super::super::ConfigValue::Select {
             current_value,
             options: efforts,
@@ -2942,6 +3011,24 @@ mod tests {
         assert_eq!(current_value, "medium");
         assert_eq!(efforts.len(), 1);
     }
+
+    #[test]
+    fn mode_overrides_carry_the_sandbox_and_its_approval_policy() {
+        let (policy, approval) = mode_overrides("workspace-write").unwrap();
+        assert_eq!(policy["type"], "workspaceWrite");
+        assert_eq!(policy["writableRoots"], json!([]));
+        assert_eq!(policy["networkAccess"], false);
+        assert_eq!(policy["excludeTmpdirEnvVar"], false);
+        assert_eq!(policy["excludeSlashTmp"], false);
+        assert_eq!(approval, "on-request");
+
+        let (policy, approval) = mode_overrides("danger-full-access").unwrap();
+        assert_eq!(policy["type"], "dangerFullAccess");
+        assert_eq!(approval, "never");
+
+        assert!(mode_overrides("bogus").is_none());
+    }
+
     /// A mapper on root thread `t-1` with a shared turn slot, for the turn-bookkeeping tests.
     fn mapper_with_turn(open_replayed: bool) -> (Mapper, TurnSlot) {
         let root = Arc::new(OnceLock::new());
