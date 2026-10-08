@@ -27,6 +27,7 @@ pub fn empty_page(
         .items_center()
         .justify_center()
         .gap_3()
+        .px_4()
         .bg(theme::app_bg())
         .child(
             Icon::new(icon)
@@ -42,6 +43,7 @@ pub fn empty_page(
         .child(
             div()
                 .max_w(px(320.))
+                .text_center()
                 .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(theme::text_muted())
                 .child(SharedString::from(note.to_string())),
@@ -67,6 +69,7 @@ pub fn empty_panel(note: &str) -> impl IntoElement {
         .justify_center()
         .child(
             div()
+                .text_center()
                 .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
                 .text_color(theme::text_faint())
                 .child(SharedString::from(note.to_string())),

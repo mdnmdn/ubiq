@@ -226,7 +226,8 @@ pub fn focus_modal(
         .h(viewport.height * theme::CHAT_FOCUS_RATIO)
         .flex()
         .flex_col()
-        .bg(theme::surface_raised())
+        // The docked panel's ground, not a raised one: the balloons are drawn for it.
+        .bg(theme::app_bg())
         .border_l(px(theme::accent_edge()))
         .border_color(theme::accent())
         .shadow_lg()

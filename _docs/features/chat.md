@@ -6,7 +6,7 @@ status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
 updated: 2026-10-06
-verified: 2026-10-05
+verified: 2026-10-08
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -128,7 +128,7 @@ page. The column keeps its tab strip, `+` menu and identity line outside the pan
 button beside the change-agent chevron (a column has no chevron), and `⌘⇧⏎` / `⌃⇧⏎` does the same for the
 chat whose composer holds the keyboard, else the only candidate; the candidates are the attached chat tabs
 plus, while Agents mode shows, its columns. The conversation is drawn as a modal at `CHAT_FOCUS_RATIO` (94%)
-of the window each way, titled with the agent's title; the panel behind it reads `Focused`. The modal
+of the window each way, titled with the agent's title, on the docked panel's ground (`app_bg`, not a raised surface); the panel behind it reads `Focused`. The modal
 draws the same conversation over the same composer slot, so the draft, the attachments and the
 transcript's scroll carry over in both directions. One chat is focused at a time —
 `WorkbenchState::chat_focus`; focusing another replaces it. Escape, the button (now Minimize), the
