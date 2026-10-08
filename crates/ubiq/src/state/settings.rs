@@ -1194,15 +1194,26 @@ pub fn snapshot_from_rate_limit(
     as_of: i64,
 ) -> Option<QuotaSnapshot> {
     let gauges: Vec<QuotaGauge> = [
-        ("5 hours", record.five_hour_pct, record.five_hour_resets_at),
-        ("Week", record.seven_day_pct, record.seven_day_resets_at),
+        (
+            "5 hours",
+            5 * 3_600,
+            record.five_hour_pct,
+            record.five_hour_resets_at,
+        ),
+        (
+            "Week",
+            7 * 86_400,
+            record.seven_day_pct,
+            record.seven_day_resets_at,
+        ),
     ]
     .into_iter()
-    .filter_map(|(label, pct, resets_at)| {
+    .filter_map(|(label, secs, pct, resets_at)| {
         pct.map(|used_pct| QuotaGauge {
             label: label.to_string(),
             reading: QuotaReading::Window { used_pct },
             resets_at,
+            window_secs: Some(secs),
             detail: None,
         })
     })
@@ -1271,7 +1282,12 @@ pub fn describe_status(status: &LoginStatus, now_ms: i64) -> String {
 /// Every window the provider stated is named, in the order it named them, because the ring draws
 /// them all: a mark with two bands whose tooltip explains one leaves the other unreadable.
 pub fn quota_tip(snapshot: &QuotaSnapshot, now_ms: i64) -> String {
-    let mut tip = format!("{} \u{b7} {}", snapshot.harness, snapshot.account);
+    let who = if snapshot.account.is_empty() {
+        "default account"
+    } else {
+        &snapshot.account
+    };
+    let mut tip = format!("{} \u{b7} {who}", snapshot.harness);
 
     let windows = snapshot.windows();
     if windows.is_empty() {
@@ -1306,8 +1322,134 @@ pub fn quota_tip(snapshot: &QuotaSnapshot, now_ms: i64) -> String {
             " \u{b7} read {} ago",
             magnitude(now_ms - snapshot.as_of * 1000)
         ));
+    }
+    tip
+}
+
+/// Where a window stands against an even burn: the credit used against the share of the window
+/// that has gone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pace {
+    /// Credit used, percent.
+    pub used: f32,
+    /// Share of the window elapsed, percent. Where the pace tick sits.
+    pub elapsed: f32,
+    /// Seconds to the reset.
+    pub remaining_secs: i64,
+    /// Seconds until the credit runs out at the average burn so far — only when that is before
+    /// the reset, so only when over-consuming.
+    pub runs_out_in_secs: Option<i64>,
+}
+
+impl Pace {
+    /// Percent of credit still to spend over the rest of the window to end at exactly 100.
+    pub fn left(&self) -> f32 {
+        (100.0 - self.used).max(0.0)
+    }
+
+    /// Points the used share is ahead of the elapsed share; negative is behind.
+    pub fn ahead(&self) -> f32 {
+        self.used - self.elapsed
+    }
+}
+
+/// The pace of one window at `now_ms`. `None` when the reset or the length is not known, or the
+/// window has already reset (the reading is stale and says nothing about the next one).
+pub fn pace(
+    used_pct: u8,
+    resets_at: Option<i64>,
+    window_secs: Option<i64>,
+    now_ms: i64,
+) -> Option<Pace> {
+    let window = window_secs.filter(|secs| *secs > 0)? as f64;
+    let remaining = (resets_at? * 1000 - now_ms) as f64 / 1000.0;
+    if remaining <= 0.0 {
+        return None;
+    }
+    let elapsed_secs = (window - remaining).clamp(0.0, window);
+    let elapsed = (elapsed_secs / window * 100.0) as f32;
+    let used = f32::from(used_pct.min(100));
+
+    // Average burn so far is used / elapsed time; credit hits 100 after (100 - used) more of it.
+    let runs_out_in_secs = (used > elapsed && used > 0.0 && used < 100.0 && elapsed_secs > 0.0)
+        .then(|| (100.0 - f64::from(used)) / (f64::from(used) / elapsed_secs))
+        .filter(|secs| *secs < remaining)
+        .map(|secs| secs.round() as i64);
+
+    Some(Pace {
+        used,
+        elapsed,
+        remaining_secs: remaining.round() as i64,
+        runs_out_in_secs,
+    })
+}
+
+/// A span of seconds as the pace sentences say it: `45 min`, `2 h 10 min`, `3 days`.
+pub fn span(secs: i64) -> String {
+    let minutes = (secs.max(0) + 30) / 60;
+    if minutes < 60 {
+        format!("{} min", minutes.max(1))
+    } else if minutes < 48 * 60 {
+        match minutes % 60 {
+            0 => format!("{} h", minutes / 60),
+            rest => format!("{} h {rest} min", minutes / 60),
+        }
     } else {
-        tip.push_str(" \u{b7}");
+        format!("{} days", minutes / (24 * 60))
+    }
+}
+
+/// The pace of every window the ring draws, for a snapshot at `now_ms`, in the ring's order.
+pub fn window_paces(snapshot: &QuotaSnapshot, now_ms: i64) -> Vec<Option<Pace>> {
+    snapshot
+        .windows()
+        .into_iter()
+        .take(2)
+        .map(|gauge| {
+            pace(
+                gauge.reading.used_pct()?,
+                gauge.resets_at,
+                gauge.window_secs.map(|secs| secs as i64),
+                now_ms,
+            )
+        })
+        .collect()
+}
+
+/// [`quota_tip`] plus one pace line per window that has one: used, elapsed, what is left to spend
+/// and whether the burn is ahead of or behind an even one — and, when it is ahead, when the
+/// credit would run out at the rate so far, if that comes before the reset.
+pub fn quota_ring_tip(snapshot: &QuotaSnapshot, now_ms: i64) -> String {
+    let mut tip = quota_tip(snapshot, now_ms);
+    for (gauge, pace) in snapshot
+        .windows()
+        .into_iter()
+        .take(2)
+        .zip(window_paces(snapshot, now_ms))
+    {
+        let Some(pace) = pace else { continue };
+        let ahead = pace.ahead();
+        let stance = if ahead.abs() < 0.5 {
+            "on pace".to_string()
+        } else if ahead > 0.0 {
+            format!("{:.0} points ahead of pace", ahead)
+        } else {
+            format!("{:.0} points behind pace", -ahead)
+        };
+        tip.push_str(&format!(
+            "\n{}: {:.0}% used, {:.0}% of the window elapsed \u{b7} {:.0}% left to spend by the \
+             reset \u{b7} {stance}",
+            gauge.label,
+            pace.used,
+            pace.elapsed,
+            pace.left()
+        ));
+        if let Some(secs) = pace.runs_out_in_secs {
+            tip.push_str(&format!(
+                "\nAt this rate the credits run out in {}",
+                span(secs)
+            ));
+        }
     }
     tip
 }
@@ -1395,6 +1537,74 @@ mod tests {
     const HOUR: i64 = 3_600_000;
     const DAY: i64 = 24 * HOUR;
     const MINUTE: i64 = 60_000;
+
+    /// A 5h window, `elapsed_h` hours in, at `now` = 0 ms with the reset in the future.
+    fn five_hour(used: u8, elapsed_h: f64) -> Option<Pace> {
+        let resets_at = ((5.0 - elapsed_h) * 3600.0) as i64;
+        pace(used, Some(resets_at), Some(18_000), 0)
+    }
+
+    #[test]
+    fn on_pace_the_tick_sits_on_the_arc_edge() {
+        let pace = five_hour(40, 2.0).expect("known window");
+        assert!((pace.elapsed - 40.0).abs() < 0.01);
+        assert!(pace.ahead().abs() < 0.01);
+        assert_eq!(pace.left(), 60.0);
+        assert_eq!(pace.runs_out_in_secs, None);
+    }
+
+    #[test]
+    fn under_pace_has_room_and_no_projection() {
+        let pace = five_hour(10, 2.5).expect("known window");
+        assert!(pace.ahead() < 0.0);
+        assert_eq!(pace.runs_out_in_secs, None);
+    }
+
+    #[test]
+    fn over_pace_projects_the_run_out_before_the_reset() {
+        // 1h in (20% elapsed) with 50% used: 50% per hour, so 1h more to 100.
+        let pace = five_hour(50, 1.0).expect("known window");
+        assert!((pace.ahead() - 30.0).abs() < 0.01);
+        assert_eq!(pace.runs_out_in_secs, Some(3_600));
+        assert!(pace.runs_out_in_secs.unwrap() < pace.remaining_secs);
+    }
+
+    #[test]
+    fn missing_or_stale_data_is_no_pace() {
+        assert!(pace(40, None, Some(18_000), 0).is_none());
+        assert!(pace(40, Some(100), None, 0).is_none());
+        assert!(pace(40, Some(100), Some(18_000), 200_000).is_none());
+    }
+
+    #[test]
+    fn spans_read_sensibly() {
+        assert_eq!(span(17 * 60), "17 min");
+        assert_eq!(span(2 * 3600 + 600), "2 h 10 min");
+        assert_eq!(span(3 * 86_400), "3 days");
+    }
+
+    #[test]
+    fn the_ring_tip_carries_the_pace_and_the_projection() {
+        let snapshot = QuotaSnapshot {
+            account: "work".to_string(),
+            harness: "claude-code".to_string(),
+            plan: None,
+            email: None,
+            gauges: vec![QuotaGauge {
+                label: "5 hours".to_string(),
+                reading: QuotaReading::Window { used_pct: 50 },
+                resets_at: Some(4 * 3_600),
+                window_secs: Some(5 * 3_600),
+                detail: None,
+            }],
+            as_of: 0,
+        };
+        let tip = quota_ring_tip(&snapshot, 3_600_000 - 3_600_000);
+        assert!(tip.contains("5 hours: 50% used, 20% of the window elapsed"));
+        assert!(tip.contains("50% left to spend"));
+        assert!(tip.contains("30 points ahead of pace"));
+        assert!(tip.contains("At this rate the credits run out in 1 h"));
+    }
 
     #[test]
     fn magnitude_days_plural_and_singular() {
@@ -1533,6 +1743,7 @@ mod tests {
                 label: "Week".to_string(),
                 reading: QuotaReading::Window { used_pct: 88 },
                 resets_at: Some(3 * 3_600),
+                window_secs: None,
                 detail: None,
             }],
             as_of: 3_600,
@@ -1554,7 +1765,7 @@ mod tests {
         assert_eq!(
             quota_tip(&snapshot, HOUR),
             "claude-code \u{b7} work \u{2014} 5 hours: 7% used \u{b7} resets in 1 hour; \
-             Week: 88% used \u{b7}"
+             Week: 88% used"
         );
     }
 
@@ -1572,7 +1783,7 @@ mod tests {
         };
         assert_eq!(
             quota_tip(&snapshot, 0),
-            "codex \u{b7} work \u{2014} no limit stated \u{b7}"
+            "codex \u{b7} work \u{2014} no limit stated"
         );
     }
 
@@ -1590,7 +1801,7 @@ mod tests {
         };
         assert_eq!(
             quota_tip(&snapshot, 0),
-            "claude-code \u{b7} work \u{2014} no limit stated \u{b7}"
+            "claude-code \u{b7} work \u{2014} no limit stated"
         );
     }
 }

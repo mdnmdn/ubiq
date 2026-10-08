@@ -2182,6 +2182,7 @@ fn quota_gauge(gauge: agent_manager::quota::QuotaGauge) -> ubiq_proto::quota::Qu
         label: gauge.label,
         reading: quota_reading(gauge.reading),
         resets_at: gauge.resets_at,
+        window_secs: gauge.window_secs,
         detail: gauge.detail,
     }
 }

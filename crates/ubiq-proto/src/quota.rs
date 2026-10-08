@@ -124,6 +124,9 @@ pub struct QuotaGauge {
     /// When it resets, unix seconds. `None` where the provider states no reset.
     #[serde(default)]
     pub resets_at: Option<i64>,
+    /// How long the window lasts, in seconds, where the host knows it. `None` draws no pace.
+    #[serde(default)]
+    pub window_secs: Option<u64>,
     /// One line under the gauge, verbatim from the provider where it gives one.
     #[serde(default)]
     pub detail: Option<String>,
@@ -201,6 +204,7 @@ mod tests {
             label: label.to_string(),
             reading: QuotaReading::Window { used_pct },
             resets_at: None,
+            window_secs: None,
             detail: None,
         }
     }
@@ -267,6 +271,7 @@ mod tests {
                 label: "Premium requests".to_string(),
                 reading: uncapped,
                 resets_at: None,
+                window_secs: None,
                 detail: None,
             }])
             .worst_pct(),

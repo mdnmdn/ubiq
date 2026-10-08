@@ -46,11 +46,13 @@ pub mod menu;
 pub mod overlay;
 pub mod panel;
 pub mod popover;
+pub mod quota;
 mod ribbon;
 pub mod settings;
 pub mod slider;
 
 pub use colour::{HsvAction, colour_picker};
+pub use quota::quota_ring;
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
     hex_mark, icon_button, icon_button_tip, meter, mono, pill, primary_button, progress_ring,

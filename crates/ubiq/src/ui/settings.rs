@@ -41,8 +41,8 @@ use crate::theme::{Family, Role};
 use crate::ui::kit::{
     UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
     ghost_button, heading, icon_button, label_block, menu::Picker, meter, modal, modal_note,
-    modal_sized, mono, nav_item, primary_button, prompt_modal, removable_tag, section_label,
-    setting_row, settings_split, slab, state_chip, status_dot,
+    modal_sized, mono, nav_item, primary_button, prompt_modal, quota_ring as kit_quota_ring,
+    removable_tag, section_label, setting_row, settings_split, slab, state_chip, status_dot,
 };
 use crate::ui::sink::project::Form;
 use crate::ui::size;
@@ -2708,11 +2708,43 @@ fn harness_quota(
 
     match snapshot {
         Some(snapshot) if !snapshot.gauges.is_empty() => {
-            block = block.children(
-                snapshot
-                    .gauges
-                    .iter()
-                    .map(|gauge| quota_gauge_row(gauge, now_ms)),
+            // The double ring is the meter: both windows, each with its pace tick, and the
+            // tooltip the footer's ring carries. The rows beside it keep the words.
+            let ring = kit_quota_ring(
+                ElementId::Name(
+                    format!(
+                        "app-settings-{}-{account}-{agent_type}-quota-ring",
+                        scope.tag()
+                    )
+                    .into(),
+                ),
+                snapshot,
+                28.,
+                now_ms,
+            );
+            let mut drawn = 0;
+            let rows = div()
+                .flex_1()
+                .min_w(px(0.))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .children(snapshot.gauges.iter().map(|gauge| {
+                    // The ring draws the first two windows that state a percentage; any further
+                    // one keeps the linear meter, so it is not left with no graphic at all.
+                    let ringed = gauge.reading.used_pct().is_some() && {
+                        drawn += 1;
+                        drawn <= 2
+                    };
+                    quota_gauge_row(gauge, now_ms, ringed)
+                }));
+            block = block.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .children(ring)
+                    .child(rows),
             );
         }
         // Asked, and the provider named nothing. A different fact from never having asked, and
@@ -2827,9 +2859,9 @@ fn capabilities_button(
 /// One window the provider states: what it calls it, how full it is, the reading in words, and
 /// when it comes back.
 ///
-/// A reading with no denominator draws no bar — a meter without one somebody stated is the exact
+/// A window the ring draws has no bar here (`ringed`); a reading with no denominator draws none — a meter without one somebody stated is the exact
 /// thing the stats screen refuses to draw — and a reset nobody named is an em dash, never a zero.
-fn quota_gauge_row(gauge: &ubiq_proto::quota::QuotaGauge, now_ms: i64) -> AnyElement {
+fn quota_gauge_row(gauge: &ubiq_proto::quota::QuotaGauge, now_ms: i64, ringed: bool) -> AnyElement {
     let pct = gauge.reading.used_pct();
     let reset = match gauge.resets_at {
         Some(resets_at) if resets_at * 1000 >= now_ms => {
@@ -2852,10 +2884,10 @@ fn quota_gauge_row(gauge: &ubiq_proto::quota::QuotaGauge, now_ms: i64) -> AnyEle
                 .child(SharedString::from(gauge.label.clone())),
         )
         .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .children(pct.map(|pct| meter(pct as f32 / 100.0, theme::usage_tone(pct)))),
+            div().flex_1().min_w(px(0.)).children(
+                pct.filter(|_| !ringed)
+                    .map(|pct| meter(pct as f32 / 100.0, theme::usage_tone(pct))),
+            ),
         )
         .child(
             div()

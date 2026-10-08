@@ -48,7 +48,7 @@ use crate::state::conversation::{
     TranscriptScroll, short_model_label,
 };
 use crate::state::file_picker::{SizeReading, size_label, size_reading};
-use crate::state::settings::{quota_tip, snapshot_from_rate_limit};
+use crate::state::settings::snapshot_from_rate_limit;
 use crate::state::work::format_tokens;
 use crate::state::{AttachmentPreview, MenuId};
 use crate::theme;
@@ -56,7 +56,7 @@ use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
     self, ContextItem, Picker, PickerStyle, UbiqIcon, context_menu, ghost_button, harness_icon,
     icon_button, mono, pill, popover, primary_button, progress_ring, progress_ring_in,
-    progress_ring_pair, removable_tag, status_dot, tag as kit_tag,
+    removable_tag, status_dot, tag as kit_tag,
 };
 use crate::ui::{handler, indexed};
 
@@ -2849,8 +2849,8 @@ fn footer(
     // How much of the account's plan is left. An account fact, not a conversation one — two
     // agents signed in here read the same window — so it is preferred from what the host cached
     // for the account, and falls back to the reading Claude's bridge pushed into this
-    // conversation, which is all a window holds before the host has been asked. No account means
-    // there is no plan to have a window in, and a provider that named no limit draws nothing
+    // conversation, which is all a window holds before the host has been asked. The default
+    // identity (empty account) has a plan too; a provider that named no limit draws nothing
     // rather than a zero ring. Only on the conversation's own transcript, for the reason the
     // context ring beside it is: a window belongs to the account, not to a delegate.
     let pushed = conversation
@@ -2865,43 +2865,16 @@ fn footer(
     // that stops the next turn — and the long one inside it, each in its own severity tone. A
     // provider that stated one window keeps the single band, and the tooltip names every window it
     // drew, because which band is which is not readable off the glyph.
-    if let Some(snapshot) = quota
-        .or(pushed.as_ref())
-        .filter(|_| !conversation.account.is_empty() && delegate.is_none())
-    {
-        let bands: Vec<u8> = snapshot
-            .windows()
-            .iter()
-            .filter_map(|gauge| gauge.reading.used_pct())
-            .take(2)
-            .collect();
-        let mark = match bands.as_slice() {
-            [outer, inner] => Some(
-                progress_ring_pair(
-                    (*outer, theme::usage_tone(*outer)),
-                    (*inner, theme::usage_tone(*inner)),
-                    12.,
-                )
-                .into_any_element(),
-            ),
-            [only] => {
-                Some(progress_ring_in(*only, 12., theme::usage_tone(*only)).into_any_element())
-            }
-            _ => None,
-        };
-        if let Some(mark) = mark {
-            let tip = quota_tip(snapshot, chrono::Utc::now().timestamp_millis());
-            row = row.child(
-                div()
-                    .id(view.eid("quota-ring"))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .child(mark)
-                    .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
-                    }),
-            );
+    // The default identity (empty account) is a key of its own in the host's cache: the user's
+    // own home, probed and pushed into like a named account's.
+    if let Some(snapshot) = quota.or(pushed.as_ref()).filter(|_| delegate.is_none()) {
+        if let Some(ring) = kit::quota_ring(
+            view.eid("quota-ring"),
+            snapshot,
+            12.,
+            chrono::Utc::now().timestamp_millis(),
+        ) {
+            row = row.child(ring);
             has_content = true;
         }
     }

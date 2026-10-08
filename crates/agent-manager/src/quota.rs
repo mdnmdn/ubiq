@@ -92,6 +92,9 @@ pub struct QuotaGauge {
     /// When it resets, unix seconds. `None` where the provider states no reset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resets_at: Option<i64>,
+    /// How long the window lasts, in seconds, where the provider or the kind states it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_secs: Option<u64>,
     /// One line under the gauge, verbatim from the provider where it gives one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -263,10 +266,10 @@ fn codex_gauge(window: &serde_json::Value) -> Option<QuotaGauge> {
         .get("usedPercent")
         .and_then(serde_json::Value::as_f64)
         .map(|pct| pct.round().clamp(0.0, 100.0) as u8)?;
-    let label = match window
+    let mins = window
         .get("windowDurationMins")
-        .and_then(serde_json::Value::as_u64)
-    {
+        .and_then(serde_json::Value::as_u64);
+    let label = match mins {
         Some(300) => "5 hours".to_string(),
         Some(10_080) => "Week".to_string(),
         Some(mins) if mins % 1_440 == 0 => format!("{} days", mins / 1_440),
@@ -278,6 +281,7 @@ fn codex_gauge(window: &serde_json::Value) -> Option<QuotaGauge> {
         label,
         reading: QuotaReading::Window { used_pct },
         resets_at: window.get("resetsAt").and_then(serde_json::Value::as_i64),
+        window_secs: mins.filter(|mins| *mins > 0).map(|mins| mins * 60),
         detail: None,
     })
 }
@@ -313,7 +317,8 @@ fn claude_gauge(limit: &serde_json::Value) -> Option<QuotaGauge> {
     // models)", "Current week (Fable)" — shortened to what fits beside a bar, and a scoped
     // window carries the model it is scoped to because that is the only thing telling two
     // weekly gauges apart.
-    let label = match limit.get("kind").and_then(serde_json::Value::as_str)? {
+    let kind = limit.get("kind").and_then(serde_json::Value::as_str)?;
+    let label = match kind {
         "session" => "Session".to_string(),
         "weekly_all" => "Week".to_string(),
         "weekly_scoped" => match limit
@@ -332,6 +337,11 @@ fn claude_gauge(limit: &serde_json::Value) -> Option<QuotaGauge> {
             .get("resets_at")
             .and_then(serde_json::Value::as_str)
             .and_then(unix_seconds),
+        window_secs: match kind {
+            "session" => Some(5 * 3_600),
+            "weekly_all" | "weekly_scoped" => Some(7 * 86_400),
+            _ => None,
+        },
         detail: None,
     })
 }
@@ -355,6 +365,7 @@ fn claude_extra_usage(extra: Option<&serde_json::Value>) -> Option<QuotaGauge> {
         label: "Extra usage".to_string(),
         reading: QuotaReading::Window { used_pct },
         resets_at: None,
+        window_secs: None,
         detail: None,
     })
 }
@@ -556,12 +567,14 @@ mod tests {
                     label: "5 hours".to_string(),
                     reading: QuotaReading::Window { used_pct: 7 },
                     resets_at: None,
+                    window_secs: None,
                     detail: None,
                 },
                 QuotaGauge {
                     label: "Week".to_string(),
                     reading: QuotaReading::Window { used_pct: 88 },
                     resets_at: None,
+                    window_secs: None,
                     detail: None,
                 },
             ],

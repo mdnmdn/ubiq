@@ -297,7 +297,7 @@ pub fn progress_ring(pct: u8, diameter: f32) -> impl IntoElement {
 /// The same donut in a colour of the caller's choosing, for the rings that sit beside the context
 /// one: two accent rings in a row read as one fact drawn twice, which is exactly what they are not.
 pub fn progress_ring_in(pct: u8, diameter: f32, fill: Rgba) -> impl IntoElement {
-    progress_rings(vec![(pct, fill)], diameter)
+    progress_rings(vec![Band::new(pct, fill)], diameter)
 }
 
 /// Two concentric donuts in one glyph, outermost band first — for the one place a single mark has
@@ -307,11 +307,34 @@ pub fn progress_ring_in(pct: u8, diameter: f32, fill: Rgba) -> impl IntoElement 
 /// without either band reading as a blob. Which window is which is not inferable from the drawing,
 /// so the caller's tooltip says it.
 pub fn progress_ring_pair(outer: (u8, Rgba), inner: (u8, Rgba), diameter: f32) -> impl IntoElement {
-    progress_rings(vec![outer, inner], diameter)
+    progress_rings(
+        vec![Band::new(outer.0, outer.1), Band::new(inner.0, inner.1)],
+        diameter,
+    )
 }
 
-/// The donut painter both forms share: one arc per band, outermost first, each over its own track.
-fn progress_rings(bands: Vec<(u8, Rgba)>, diameter: f32) -> impl IntoElement {
+/// One band of a ring: how full, in what colour, and optionally a radial tick across the stroke at
+/// a fraction (0 to 1) of the way round — the quota ring's pace marker.
+#[derive(Clone, Copy)]
+pub struct Band {
+    pub pct: u8,
+    pub fill: Rgba,
+    pub tick: Option<(f32, Rgba)>,
+}
+
+impl Band {
+    pub fn new(pct: u8, fill: Rgba) -> Self {
+        Self {
+            pct,
+            fill,
+            tick: None,
+        }
+    }
+}
+
+/// The donut painter every form shares: one arc per band, outermost first, each over its own
+/// track, and its tick, if it has one, on top.
+pub fn progress_rings(bands: Vec<Band>, diameter: f32) -> impl IntoElement {
     let track = theme::text_faint();
 
     div().size(px(diameter)).flex_none().child(canvas(
@@ -326,7 +349,7 @@ fn progress_rings(bands: Vec<(u8, Rgba)>, diameter: f32) -> impl IntoElement {
             let gap = (stroke * 0.5).max(1.0);
             let centre = bounds.origin + point(px(diameter / 2.0), px(diameter / 2.0));
 
-            let mut arc = |radius: f32, from: f32, to: f32, colour: Rgba| {
+            let arc = |window: &mut Window, radius: f32, from: f32, to: f32, colour: Rgba| {
                 if (to - from).abs() < f32::EPSILON || radius <= 0.0 {
                     return;
                 }
@@ -348,10 +371,32 @@ fn progress_rings(bands: Vec<(u8, Rgba)>, diameter: f32) -> impl IntoElement {
                 }
             };
 
-            for (band, (pct, fill)) in bands.iter().enumerate() {
-                let radius = (diameter - stroke) / 2.0 - band as f32 * (stroke + gap);
-                arc(radius, 0.0, 1.0, track);
-                arc(radius, 0.0, (*pct as f32 / 100.0).clamp(0.0, 1.0), *fill);
+            for (index, band) in bands.iter().enumerate() {
+                let radius = (diameter - stroke) / 2.0 - index as f32 * (stroke + gap);
+                arc(window, radius, 0.0, 1.0, track);
+                arc(
+                    window,
+                    radius,
+                    0.0,
+                    (band.pct as f32 / 100.0).clamp(0.0, 1.0),
+                    band.fill,
+                );
+                if let Some((at, colour)) = band.tick {
+                    let angle =
+                        at.clamp(0.0, 1.0) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                    let (cos, sin) = (angle.cos(), angle.sin());
+                    let reach = stroke / 2.0 + 0.5;
+                    let mut path = PathBuilder::stroke(px(1.5));
+                    path.move_to(
+                        centre + point(px(cos * (radius - reach)), px(sin * (radius - reach))),
+                    );
+                    path.line_to(
+                        centre + point(px(cos * (radius + reach)), px(sin * (radius + reach))),
+                    );
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, colour);
+                    }
+                }
             }
         },
     ))

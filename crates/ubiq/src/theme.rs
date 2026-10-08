@@ -2102,6 +2102,16 @@ pub fn usage_tone(pct: u8) -> Rgba {
     }
 }
 
+/// The pace tick on a quota ring. `ahead` is how many points the used share is ahead of the
+/// elapsed share: on or under pace the tick is the neutral foreground, and over it blends toward
+/// the danger status — visibly red at once, fully red from 25 points ahead.
+pub fn pace_tick(ahead: f32) -> Rgba {
+    if ahead <= 0.0 {
+        return text();
+    }
+    mix(text(), danger(), 0.4 + 0.6 * (ahead / 25.0).min(1.0))
+}
+
 pub fn ribbon_alpha() -> Rgba {
     Theme::current().palette.status.ribbon_alpha
 }

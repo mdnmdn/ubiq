@@ -33,7 +33,7 @@ use crate::ui::kit::{
     ContextItem, MultiPicker, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card,
     check_box, choice_pill, colour_picker, context_panel, disclosure, file_row, filter_bar,
     ghost_button, hint_row, icon_button, kind_icon, label_hint, meter, mono, panel_header, pill,
-    primary_button, progress_ring, progress_ring_pair, removable_tag, ribbon, row_font,
+    primary_button, progress_ring, progress_ring_pair, quota_ring, removable_tag, ribbon, row_font,
     section_label, slab, state_chip, status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
 };
 use crate::ui::kit::{Slider, UbiqIcon};
@@ -727,6 +727,31 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             )
             .into_any_element(),
         ),
+        labelled("quota_ring", {
+            // Five hours, an hour in (20% elapsed): the outer band runs ahead of its tick, the
+            // inner one (a week, 3 days in) is under pace.
+            let now = chrono::Utc::now().timestamp();
+            let gauge = |label: &str, used_pct: u8, resets_in: i64| ubiq_proto::quota::QuotaGauge {
+                label: label.to_string(),
+                reading: ubiq_proto::quota::QuotaReading::Window { used_pct },
+                resets_at: Some(now + resets_in),
+                window_secs: None,
+                detail: None,
+            };
+            let snapshot = ubiq_proto::quota::QuotaSnapshot {
+                account: "sample".to_string(),
+                harness: "claude-code".to_string(),
+                plan: None,
+                email: None,
+                gauges: vec![
+                    gauge("5 hours", 50, 4 * 3_600),
+                    gauge("Week", 20, 4 * 86_400),
+                ],
+                as_of: now,
+            };
+            quota_ring("sink-quota-ring", &snapshot, 28.0, now * 1000)
+                .unwrap_or_else(|| div().into_any_element())
+        }),
     ]);
 
     group(

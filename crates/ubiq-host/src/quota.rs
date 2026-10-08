@@ -221,6 +221,7 @@ mod tests {
                 label: "5 hours".to_string(),
                 reading: QuotaReading::Window { used_pct },
                 resets_at: Some(1_788_474_600),
+                window_secs: None,
                 detail: None,
             }],
             as_of,

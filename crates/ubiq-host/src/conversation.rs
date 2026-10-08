@@ -1040,12 +1040,13 @@ fn rate_limit_snapshot(
 ) -> ubiq_proto::quota::QuotaSnapshot {
     use ubiq_proto::quota::{QuotaGauge, QuotaReading};
 
-    let gauge = |label: &str, window: &agent_manager::io::RateLimitWindow| QuotaGauge {
+    let gauge = |label: &str, secs: u64, window: &agent_manager::io::RateLimitWindow| QuotaGauge {
         label: label.to_string(),
         reading: QuotaReading::Window {
             used_pct: window.utilization_pct,
         },
         resets_at: Some(window.resets_at),
+        window_secs: Some(secs),
         detail: None,
     };
 
@@ -1055,8 +1056,8 @@ fn rate_limit_snapshot(
         plan: None,
         email: None,
         gauges: [
-            five_hour.map(|window| gauge("5 hours", window)),
-            seven_day.map(|window| gauge("Week", window)),
+            five_hour.map(|window| gauge("5 hours", 5 * 3_600, window)),
+            seven_day.map(|window| gauge("Week", 7 * 86_400, window)),
         ]
         .into_iter()
         .flatten()

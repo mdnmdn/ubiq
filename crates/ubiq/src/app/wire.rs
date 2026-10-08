@@ -2960,7 +2960,10 @@ impl AppState {
                     .settings
                     .quotas
                     .retain(|(agent_type, account), _| {
-                        accounts.iter().any(|info| {
+                        // The default identity (empty account) is no catalogue entry, and
+                        // survives every answer.
+                        account.is_empty()
+                            || accounts.iter().any(|info| {
                             info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
                         })
                     });
@@ -2968,7 +2971,10 @@ impl AppState {
                     .settings
                     .quota_errors
                     .retain(|(agent_type, account), _| {
-                        accounts.iter().any(|info| {
+                        // The default identity (empty account) is no catalogue entry, and
+                        // survives every answer.
+                        account.is_empty()
+                            || accounts.iter().any(|info| {
                             info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
                         })
                     });

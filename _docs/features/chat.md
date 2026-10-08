@@ -6,7 +6,7 @@ status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
 updated: 2026-10-06
-verified: 2026-10-08
+verified: 2026-10-09
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -404,13 +404,25 @@ asked for (a cost reading, not a how-is-this-turn-going one); the setting is
 [`workbench.md`](./workbench.md)'s. It is not drawn for a total of zero or no cached figure.
 
 **The third ring is the account's plan, one band per rolling window the provider stated.** It is an account
-fact (two agents with one identity read one window), drawn from the host's cache for the account and falling
-back to the harness's pushed reading. Two windows draw two concentric bands, the shorter outermost (it stops
+fact (two agents with one identity read one window), drawn from the host's cache for the account — the default
+identity (empty account, the user's own home) is a key of its own, asked for when its first conversation
+arrives — and falling back to the harness's pushed reading. Two windows draw two concentric bands, the shorter outermost (it stops
 the next turn first); one draws a single ring. Each band takes its colour from the usage thresholds, not the
 accent, to make "nearly out" visible without a hover and because two accent rings read as one fact. The
 figure, window name, reset, plan and the reading's age are in the tooltip for every window; the bare `5h N%`
-readout belongs to the chrome (`D111`). No account, no named limit, or a delegate's transcript draws no
+readout belongs to the chrome (`D111`). No named limit, or a delegate's transcript draws no
 ring.
+
+**Each band carries a pace tick**: a thin radial line across the stroke at the share of the window that has
+elapsed (`1 - time to reset / window length`) — where usage would sit if credit burned evenly to 100% at the
+reset. On or under pace the tick is the neutral foreground and sits ahead of the arc's edge; over pace the arc
+runs past it and the tick blends toward `danger` (`theme::pace_tick`), fully red from 25 points ahead. The
+window length rides the gauge (`QuotaGauge::window_secs`, additive and optional: Claude `session` 5h, `weekly_*` 7d,
+Codex `windowDurationMins`, the pushed windows 5h/7d); a window with no length or no reset draws no tick and its tooltip no pace line. The tooltip adds
+per window: used, elapsed, the credit left to spend by the reset, ahead of or behind pace by N points, and —
+only when over pace and the average burn so far would exhaust it before the reset — `At this rate the credits
+run out in 17 min`. The maths is `state::settings::pace`; the ring and its tooltip are one component,
+`kit::quota_ring`, shared with the harness settings.
 
 **The footer reports whoever is being read.** With a delegate up, `tot` and the cache ring are that
 delegate's (`Conversation::delegate_tokens`). **A delegate's spend is that delegate's**:
@@ -551,9 +563,9 @@ interior-mutable (`render` holds `&AppState`). Folds: `Conversation::open_groups
 
 **Footer.** Each child `footer()` appends is guarded; with none fired it returns an empty element. The
 account snapshot comes from `SettingsState::quota` (`state/settings.rs`), else `snapshot_from_rate_limit`
-over `Conversation::rate_limit`; `quota_tip` words the tooltip and `theme::usage_tone` colours bands (shared
-with the settings meters). `QuotaSnapshot::windows()` feeds `progress_ring_pair` (`ui/kit/controls.rs`),
-else `progress_ring_in`. The cache ring reads `show_cache_ring` and `cached_tokens()`/`total_tokens()`
+over `Conversation::rate_limit`; `kit::quota_ring` (`ui/kit/quota.rs`, shared with the harness settings) draws
+the bands from `QuotaSnapshot::windows()` and the pace ticks from `window_paces`; `quota_ring_tip` (over
+`quota_tip`) words the tooltip, `theme::usage_tone` colours bands and `theme::pace_tick` the ticks. The cache ring reads `show_cache_ring` and `cached_tokens()`/`total_tokens()`
 (delegate: `Conversation::delegate_tokens()`, `delegate_spend_tip()`). `stop_button()` is on
 `AppState::cancel_turn`, beside the shared `action_button()`.
 
@@ -582,7 +594,7 @@ The control is `ui/kit/menu.rs`'s `Picker`: `disabled`, `separators` and `search
 | A saved arrangement names a chat id this window never minted | The leaf is dropped and the tree normalises around the gap |
 | An attached file is deleted or moved before send | The mention goes out and the harness answers for it; the interface reads no disk |
 | The attached conversation is deleted, in this project or another | Every tab on it closes, dock leaf and slot with it — the one host event that ends a view |
-| The conversation has no account, or its provider names no limit | No quota ring; a zero ring would claim an empty window |
+| The provider names no limit | No quota ring; a zero ring would claim an empty window |
 | An `AskUser` arrives while its conversation is off screen or a dialog is up | A notification is raised; the transcript's "Ask for feedback" entry is the way back; drafts wait |
 | The conversation ends, unloads or its harness dies while an ask waits | `AskEnded` closes it as `Gone`; no control that would send into nothing |
 | Two dialogs were registered and the user answers the first | Held, not sent; the prompt carrying both opens when the second is answered (`D192`) |
