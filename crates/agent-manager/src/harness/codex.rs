@@ -102,9 +102,9 @@ impl Codex {
         args.extend(spec.passthrough_args.iter().cloned());
 
         // Resume: codex has no CLI resume flag. Resuming a prior codex
-        // session is an app-server `thread/resume` JSON-RPC call (a bridge
-        // concern), not something expressible in launch argv — so
-        // `spec.resume` is a documented no-op here. Do NOT invent a flag.
+        // session is an app-server `thread/resume` JSON-RPC call, which
+        // `structured_bridge` makes from `Provisioned::resume` — nothing in
+        // argv. Do NOT invent a flag.
 
         // Append prompt as trailing positional argument, passthrough mode
         // only — structured mode's bridge sends it via `turn/start`.
@@ -169,10 +169,13 @@ impl Harness for Codex {
             structured: true,
             multi_turn: true,
             acp: self.acp,
-            // `codex app-server` answers `account/rateLimits/read`, so this becomes
-            // `QuotaSource::Bridge` when that request is wired. It needs a live app-server, and
-            // nothing spawns one just to ask.
-            quota: super::QuotaSource::None,
+            // The native bridge sends a prompt into a live turn as `turn/steer`; `codex-acp` has
+            // no such call.
+            steer: !self.acp,
+            // A short-lived `codex app-server` answers `account/rateLimits/read` with no thread
+            // and no model call (`Self::quota`), and a running native bridge also pushes
+            // `account/rateLimits/updated` — so the answer needs no conversation.
+            quota: super::QuotaSource::Probe,
         }
     }
 
@@ -390,6 +393,15 @@ impl Harness for Codex {
         })
     }
 
+    /// Both variants: they share the home and the login, and the sign-in is the app-server's.
+    fn device_login(&self) -> bool {
+        true
+    }
+
+    fn begin_device_login(&self, home: &Path) -> Result<DeviceLogin> {
+        begin_device_login(home)
+    }
+
     /// Codex keeps its login in `auth.json` at the root of `CODEX_HOME` — the home itself.
     /// On macOS a harness may keep the login in the OS keychain instead, so an absent file is
     /// not proof of no login.
@@ -413,7 +425,32 @@ impl Harness for Codex {
                 &provisioned.mcp_servers,
             )?));
         }
-        Ok(Box::new(crate::io::codex::CodexBridge::new(child, cwd)?))
+        // A resume is a `thread/resume` over the wire — Codex has no resume flag — so the id
+        // provisioning carried rides into the handshake. A fork is a `thread/fork` for the same
+        // reason: the thread lives in `CODEX_HOME`, which an account's runs share, so copying the
+        // run directory forks nothing — resuming the id there would put two conversations on one
+        // thread.
+        let open = thread_open(provisioned);
+        Ok(Box::new(crate::io::codex::CodexBridge::open(
+            child, cwd, open,
+        )?))
+    }
+
+    /// The `codex` limit's five-hour and weekly windows, read by [`crate::quota::codex`] from a
+    /// short-lived app-server on the account's home. The same answer for both variants: they
+    /// share the home and the login.
+    fn quota(&self, account: &str, home: Option<&Path>) -> Result<crate::quota::QuotaSnapshot> {
+        crate::quota::codex(account, &self.id(), home)
+    }
+}
+
+/// How the native bridge opens its thread for a provisioned run: fresh, resumed, or forked.
+fn thread_open(provisioned: &crate::provision::Provisioned) -> crate::io::codex::ThreadOpen {
+    use crate::io::codex::ThreadOpen;
+    match provisioned.resume.as_deref() {
+        Some(id) if provisioned.fork => ThreadOpen::Fork(id.to_string()),
+        Some(id) => ThreadOpen::Resume(id.to_string()),
+        None => ThreadOpen::Start,
     }
 }
 
@@ -458,6 +495,285 @@ fn bundled_models() -> Result<serde_json::Value> {
         );
     }
     serde_json::from_slice(&output.stdout).context("parsing `codex debug models --bundled` JSON")
+}
+
+/// How long the account probe waits for `codex app-server` to answer, start to finish. A cold
+/// start answers `initialize` in well under a second (0.161.0, observed); the reads behind it
+/// go to the network, hence the margin.
+const ACCOUNT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// What a Codex home says about its login, read from a short-lived app-server.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AccountProbe {
+    /// `account/read`'s `account`: `{ type: "chatgpt", email, planType }`, `{ type: "apiKey" }`,
+    /// or `Null` when the home is signed out.
+    pub account: serde_json::Value,
+    /// `account/rateLimits/read`'s result, or the sentence the app-server refused it with —
+    /// "codex account authentication required to read rate limits" for an API-key or signed-out
+    /// home.
+    pub rate_limits: std::result::Result<serde_json::Value, String>,
+}
+
+/// Ask a Codex home who it is signed in as and how much of the plan is left, by running the
+/// app-server the IDE extension uses against it: `initialize`, `initialized`, `account/read`,
+/// `account/rateLimits/read`, then close. No thread is started and no model is called.
+///
+/// `home` is the account's `CODEX_HOME`, or the user's own default when `None`. The login stays
+/// where Codex keeps it; nothing here opens `auth.json` or the keychain.
+pub(crate) fn account_via_app_server(home: Option<&Path>) -> Result<AccountProbe> {
+    account_probe("codex", home, &[], &super::shared::probe_cwd())
+}
+
+/// [`account_via_app_server`] against any program speaking the app-server's stdio protocol, with
+/// extra environment and a working directory, so a test can stand in a fake.
+fn account_probe(
+    program: &str,
+    home: Option<&Path>,
+    envs: &[(&str, &str)],
+    cwd: &Path,
+) -> Result<AccountProbe> {
+    let deadline = std::time::Instant::now() + ACCOUNT_PROBE_TIMEOUT;
+    let mut server = AppServer::spawn(program, home, envs, cwd, deadline)?;
+    let account = server.call("account/read", serde_json::json!({}), deadline)?;
+    if let Some(error) = account.get("error") {
+        bail!("codex could not read the account: {}", rpc_message(error));
+    }
+    let limits = server.call(
+        "account/rateLimits/read",
+        serde_json::json!({"excludeResetCreditDetails": true}),
+        deadline,
+    )?;
+    Ok(AccountProbe {
+        account: account
+            .pointer("/result/account")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        rate_limits: match limits.get("error") {
+            Some(error) => Err(rpc_message(error)),
+            None => Ok(limits
+                .get("result")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null)),
+        },
+    })
+}
+
+/// A short-lived `codex app-server` for one-off account work — the probe, a device-code sign-in.
+/// Initialized on spawn; killed (and its reader joined) on drop. Every wait is bounded by the
+/// caller's deadline.
+struct AppServer {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    rx: std::sync::mpsc::Receiver<serde_json::Value>,
+    reader: Option<std::thread::JoinHandle<()>>,
+    next_id: i64,
+}
+
+impl AppServer {
+    fn spawn(
+        program: &str,
+        home: Option<&Path>,
+        envs: &[(&str, &str)],
+        cwd: &Path,
+        deadline: std::time::Instant,
+    ) -> Result<Self> {
+        use std::io::BufRead;
+        use std::process::{Command, Stdio};
+
+        let mut cmd = Command::new(program);
+        cmd.args(["app-server", "--listen", "stdio://"])
+            .envs(envs.iter().copied())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        if let Some(home) = home {
+            cmd.env("CODEX_HOME", home);
+        }
+        cmd.current_dir(cwd);
+        #[cfg(windows)]
+        super::shared::no_window(&mut cmd);
+        let mut child = cmd
+            .spawn()
+            .context("spawning `codex app-server` (is codex on PATH?)")?;
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let (Some(stdin), Some(stdout)) = (stdin, stdout) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("codex app-server's pipes were not opened");
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line)
+                    && tx.send(value).is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let mut server = Self {
+            child,
+            stdin,
+            rx,
+            reader: Some(reader),
+            next_id: 1,
+        };
+        let init = server.call(
+            "initialize",
+            serde_json::json!({
+                "clientInfo": {"name": "agent-manager", "version": env!("CARGO_PKG_VERSION")},
+                "capabilities": {"experimentalApi": true},
+            }),
+            deadline,
+        )?;
+        if let Some(error) = init.get("error") {
+            bail!(
+                "codex app-server refused initialize: {}",
+                rpc_message(error)
+            );
+        }
+        server
+            .write(&serde_json::json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}))?;
+        Ok(server)
+    }
+
+    fn write(&mut self, value: &serde_json::Value) -> Result<()> {
+        use std::io::Write;
+        writeln!(self.stdin, "{value}").context("writing to codex app-server")?;
+        self.stdin.flush().context("writing to codex app-server")
+    }
+
+    /// Send a request and wait for its response — the whole response, `error` included.
+    fn call(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+        deadline: std::time::Instant,
+    ) -> Result<serde_json::Value> {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.write(
+            &serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
+        )?;
+        self.wait_for(deadline, |v| {
+            v.get("method").is_none() && v.get("id").and_then(|i| i.as_i64()) == Some(id)
+        })
+        .with_context(|| format!("waiting for codex to answer `{method}`"))
+    }
+
+    /// Wait for the first frame `wanted` accepts; everything before it is dropped.
+    fn wait_for(
+        &mut self,
+        deadline: std::time::Instant,
+        wanted: impl Fn(&serde_json::Value) -> bool,
+    ) -> Result<serde_json::Value> {
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let value = self
+                .rx
+                .recv_timeout(left)
+                .map_err(|_| anyhow::anyhow!("codex app-server went quiet"))?;
+            if wanted(&value) {
+                return Ok(value);
+            }
+        }
+    }
+}
+
+impl Drop for AppServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
+
+/// How long a device-code sign-in may wait for the person to finish it.
+const DEVICE_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// A device-code sign-in under way: the page to open and the code to type there. Started by
+/// [`begin_device_login`]; [`DeviceLogin::wait`] blocks until Codex says it finished.
+pub struct DeviceLogin {
+    server: AppServer,
+    login_id: String,
+    /// Where the person signs in.
+    pub verification_url: String,
+    /// The one-time code they type there.
+    pub user_code: String,
+}
+
+impl DeviceLogin {
+    /// Block until the sign-in completes (`account/login/completed` for this login), fails, or
+    /// [`DEVICE_LOGIN_TIMEOUT`] passes. On success the login is in the home Codex keeps it in.
+    pub fn wait(mut self) -> Result<()> {
+        let deadline = std::time::Instant::now() + DEVICE_LOGIN_TIMEOUT;
+        let login_id = self.login_id.clone();
+        let done = self.server.wait_for(deadline, |v| {
+            v.get("method").and_then(|m| m.as_str()) == Some("account/login/completed")
+                && v.pointer("/params/loginId").and_then(|l| l.as_str()) == Some(&login_id)
+        })?;
+        if done.pointer("/params/success").and_then(|s| s.as_bool()) == Some(true) {
+            return Ok(());
+        }
+        bail!(
+            "codex sign-in failed: {}",
+            done.pointer("/params/error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("no reason given")
+        )
+    }
+}
+
+/// Sign `home` (an account's `CODEX_HOME`) in with ChatGPT by device code, through the
+/// app-server's `account/login/start { type: "chatgptDeviceCode" }` — no terminal, no browser
+/// callback: the caller shows [`DeviceLogin::verification_url`] and [`DeviceLogin::user_code`]
+/// and then waits. The pane path (`Codex::login_home`, `codex login`) is unchanged.
+pub fn begin_device_login(home: &Path) -> Result<DeviceLogin> {
+    device_login("codex", home, &[], &super::shared::probe_cwd())
+}
+
+fn device_login(
+    program: &str,
+    home: &Path,
+    envs: &[(&str, &str)],
+    cwd: &Path,
+) -> Result<DeviceLogin> {
+    let deadline = std::time::Instant::now() + ACCOUNT_PROBE_TIMEOUT;
+    let mut server = AppServer::spawn(program, Some(home), envs, cwd, deadline)?;
+    let started = server.call(
+        "account/login/start",
+        serde_json::json!({"type": "chatgptDeviceCode"}),
+        deadline,
+    )?;
+    if let Some(error) = started.get("error") {
+        bail!("codex refused the sign-in: {}", rpc_message(error));
+    }
+    let field = |key: &str| {
+        started
+            .pointer(&format!("/result/{key}"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("codex's sign-in answer has no {key}"))
+    };
+    Ok(DeviceLogin {
+        login_id: field("loginId")?,
+        verification_url: field("verificationUrl")?,
+        user_code: field("userCode")?,
+        server,
+    })
+}
+
+/// A JSON-RPC error's `message`, or the whole error where it has none.
+fn rpc_message(error: &serde_json::Value) -> String {
+    error
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| error.to_string())
 }
 
 /// Parse `default_reasoning_level` / `supported_reasoning_levels` out of a
@@ -602,6 +918,17 @@ fn map_sandbox_mode(mode: &str) -> Option<&'static str> {
     }
 }
 
+/// The `approval_policy` a sandbox mode runs under: the unattended mode asks nothing (`never`),
+/// every other mode asks when it needs to (`on-request`), and the question reaches a person —
+/// the native bridge parks it as a permission request, a terminal pane shows Codex's own prompt.
+fn approval_policy(sandbox_mode: &str) -> &'static str {
+    if sandbox_mode == "danger-full-access" {
+        "never"
+    } else {
+        "on-request"
+    }
+}
+
 /// One `hooks.json` entry: `{"command": …, "matcher": …}`. `matcher` is
 /// omitted (not just `null`) when the hook carries none.
 ///
@@ -666,9 +993,7 @@ fn build_config_toml(spec: &RunSpec) -> Result<String> {
             Some(sandbox_mode) => {
                 let permissions = PermissionToml {
                     sandbox_mode: Some(sandbox_mode.to_string()),
-                    // Unattended run: never block on an interactive approval
-                    // prompt (still respects the sandbox above).
-                    approval_policy: Some("never".to_string()),
+                    approval_policy: Some(approval_policy(sandbox_mode).to_string()),
                 };
                 out.push_str(&toml::to_string(&permissions).context("serializing permissions")?);
             }
@@ -759,11 +1084,10 @@ fn config_overrides(spec: &RunSpec, mcp_by_flag: bool) -> Result<Vec<String>> {
             "sandbox_mode",
             toml::Value::String(sandbox_mode.to_string()),
         );
-        // Unattended run: never block on an interactive approval prompt.
         push_override(
             &mut args,
             "approval_policy",
-            toml::Value::String("never".to_string()),
+            toml::Value::String(approval_policy(sandbox_mode).to_string()),
         );
     }
     if let Some(instructions) = spec.initial.as_ref().and_then(|i| i.instructions.as_ref()) {
@@ -964,7 +1288,10 @@ mod tests {
 
         let content = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
         assert!(content.contains("sandbox_mode = \"read-only\""));
-        assert!(content.contains("approval_policy = \"never\""));
+        // Only the unattended mode asks nothing; a read-only run asks a person.
+        assert!(content.contains("approval_policy = \"on-request\""));
+        assert_eq!(approval_policy("danger-full-access"), "never");
+        assert_eq!(approval_policy("workspace-write"), "on-request");
     }
 
     #[test]
@@ -1104,6 +1431,41 @@ mod tests {
         let launch_with_resume = codex.provision(&resumed_spec, config_dir2.path()).unwrap();
 
         assert_eq!(launch_without_resume.args, launch_with_resume.args);
+    }
+
+    /// A fork of a thread on a shared `CODEX_HOME` is `thread/fork`, never a resume of the same id.
+    #[test]
+    fn a_forked_resume_opens_a_fork() {
+        use crate::io::codex::ThreadOpen;
+        let mut provisioned = crate::provision::Provisioned {
+            dir: PathBuf::from("."),
+            launch: crate::harness::Launch {
+                program: "codex".to_string(),
+                args: vec![],
+                env: vec![],
+                env_remove: vec![],
+                env_clear: false,
+            },
+            ephemeral: false,
+            home: None,
+            resume: None,
+            fork: true,
+            model: None,
+            mcp_servers: Vec::new(),
+            #[cfg(feature = "inproc-mcp")]
+            inproc_servers: Vec::new(),
+        };
+        assert_eq!(super::thread_open(&provisioned), ThreadOpen::Start);
+        provisioned.resume = Some("t1".to_string());
+        assert_eq!(
+            super::thread_open(&provisioned),
+            ThreadOpen::Fork("t1".to_string())
+        );
+        provisioned.fork = false;
+        assert_eq!(
+            super::thread_open(&provisioned),
+            ThreadOpen::Resume("t1".to_string())
+        );
     }
 
     #[test]
@@ -1337,7 +1699,7 @@ mod tests {
         assert_eq!(doc["model"].as_str(), Some("gpt-5.5"));
         assert_eq!(doc["model_reasoning_effort"].as_str(), Some("high"));
         assert_eq!(doc["sandbox_mode"].as_str(), Some("read-only"));
-        assert_eq!(doc["approval_policy"].as_str(), Some("never"));
+        assert_eq!(doc["approval_policy"].as_str(), Some("on-request"));
         assert_eq!(
             doc["developer_instructions"].as_str(),
             Some("REMEMBER \"ME\"\nline two")
@@ -1490,5 +1852,57 @@ mod tests {
             vec![("CODEX_HOME".to_string(), home.path().display().to_string())]
         );
         assert!(std::fs::read_dir(home.path()).unwrap().next().is_none());
+    }
+
+    fn fake_appserver() -> String {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake-codex-appserver.sh").to_string()
+    }
+
+    #[test]
+    fn account_probe_reads_who_and_the_limits_and_exits() {
+        let cwd = tempfile::TempDir::new().unwrap();
+        let probe = account_probe(&fake_appserver(), None, &[], cwd.path()).unwrap();
+        assert_eq!(probe.account["email"], "dev@example.com");
+        assert_eq!(probe.account["planType"], "pro");
+        let limits = probe.rate_limits.unwrap();
+        assert_eq!(limits["rateLimits"]["primary"]["windowDurationMins"], 300);
+    }
+
+    #[test]
+    fn account_probe_carries_the_refusal_as_a_sentence() {
+        let cwd = tempfile::TempDir::new().unwrap();
+        let probe = account_probe(
+            &fake_appserver(),
+            None,
+            &[("AM_FAKE_CODEX_SIGNED_OUT", "1")],
+            cwd.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            probe.rate_limits,
+            Err("codex account authentication required to read rate limits".to_string())
+        );
+    }
+
+    #[test]
+    fn device_login_states_the_code_then_completes() {
+        let cwd = tempfile::TempDir::new().unwrap();
+        let home = tempfile::TempDir::new().unwrap();
+        let login = device_login(&fake_appserver(), home.path(), &[], cwd.path()).unwrap();
+        assert_eq!(login.verification_url, "https://auth.example/device");
+        assert_eq!(login.user_code, "ABCD-1234");
+        login.wait().unwrap();
+    }
+
+    #[test]
+    fn codex_states_its_limits_by_probe() {
+        assert_eq!(
+            Codex::new().io_support().quota,
+            crate::quota::QuotaSource::Probe
+        );
+        assert_eq!(
+            Codex::new_acp().io_support().quota,
+            crate::quota::QuotaSource::Probe
+        );
     }
 }

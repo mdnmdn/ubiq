@@ -216,6 +216,10 @@ pub struct ConverseOptions {
     /// The harness's own session id, to continue a conversation whose last process has exited.
     /// Which flag that becomes is the library's answer, never Ubiq's.
     pub resume: Option<String>,
+    /// Fork `resume` rather than continue it. The library's `RunSpec::fork`: a harness whose store
+    /// is the run directory ignores it (the caller forked by copying that directory), and one whose
+    /// conversations live in a shared home forks over its own wire.
+    pub fork: bool,
     /// The MCP servers Ubiq should inject into this run, by their slug in
     /// [`ubiq_proto::mcp::McpInfo::name`]. Each becomes an inline http server pointed at this
     /// host's own listener; a name this build does not offer is dropped with a warning rather
@@ -440,6 +444,8 @@ impl Agents {
                     keeps_sessions: !harness.config_anchor().levers.is_empty(),
                     quota: quota_source(harness.io_support().quota),
                     shares_home: harness.shares_home(),
+                    steers: harness.io_support().multi_turn && harness.io_support().steer,
+                    device_login: harness.shares_home() && harness.device_login(),
                 }
             })
             .collect()
@@ -1160,6 +1166,32 @@ impl Agents {
         })
     }
 
+    /// The home a **device-code** sign-in of `account` into `agent_type` lands in, made ready —
+    /// the same checks and the same `prepare_home` as [`Self::begin_home_login`], for a harness
+    /// whose library says it has such a sign-in (`Harness::device_login`). The sign-in itself is
+    /// the library's `begin_device_login` on this home, which the caller runs off this thread.
+    ///
+    /// Not confined: like the quota probe, it is the harness's own app-server answering a
+    /// handful of account calls, and nothing it runs is the user's work.
+    pub fn device_login_home(&self, agent_type: &str, account: &str) -> Result<PathBuf> {
+        let harness = harness::resolve(agent_type)
+            .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        if !harness.shares_home() || !harness.device_login() {
+            bail!("{} has no sign-in by code", harness.display_name());
+        }
+        if account.trim().is_empty() {
+            bail!("a sign-in needs an account name: the home is keyed by it");
+        }
+        let home = self
+            .home_store()
+            .home(account, &harness.id())
+            .ok_or_else(|| anyhow!("'{account}' is not a name a config home can be keyed by"))?;
+        let templates = harness::FsTemplateStore::new(self.root.join("harness-templates"));
+        provision::prepare_home(harness.as_ref(), &home, &templates)
+            .with_context(|| format!("preparing the {agent_type} home of '{account}'"))?;
+        Ok(home)
+    }
+
     /// Compose the run for `pane`: provision the harness's configuration into a
     /// directory named by that pane, and resolve the policy it runs under.
     ///
@@ -1380,6 +1412,7 @@ impl Agents {
             // provisioner spells out its own flag for them — Ubiq names neither.
             prompt: options.prompt,
             resume: options.resume,
+            fork: options.fork,
             ..Default::default()
         };
         // Two definition stores, read as one: this project's own over the global root. Which of the
@@ -2135,6 +2168,7 @@ fn quota_snapshot(
         account: snapshot.account,
         harness: snapshot.harness,
         plan: snapshot.plan,
+        email: snapshot.email,
         gauges: snapshot.gauges.into_iter().map(quota_gauge).collect(),
         as_of: snapshot.as_of,
     }

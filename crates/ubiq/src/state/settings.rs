@@ -361,6 +361,14 @@ pub enum LoginStep {
     /// the abort button does and is always safe — an unfinished sign-in leaves the account's
     /// home without a login, and nothing else.
     Running { pane: PaneId },
+    /// A device-code sign-in (`BeginDeviceLogin`) is waiting on the person: open this page and
+    /// type this code. No pane — the host waits on the harness, and the outcome moves this to
+    /// `Done` the way a pane's exit does. Leaving only stops drawing it.
+    DeviceCode {
+        agent_type: String,
+        verification_url: String,
+        user_code: String,
+    },
     /// It ended. `signed_in` is whether the account's home came out of it signed in; `message`
     /// says which harness, or why not.
     Done { signed_in: bool, message: String },
@@ -1204,6 +1212,7 @@ pub fn snapshot_from_rate_limit(
         account: account.to_string(),
         harness: agent_type.to_string(),
         plan: None,
+        email: None,
         gauges,
         as_of,
     })
@@ -1519,6 +1528,7 @@ mod tests {
             account: "work".to_string(),
             harness: "claude-code".to_string(),
             plan: Some("max".to_string()),
+            email: None,
             gauges: vec![QuotaGauge {
                 label: "Week".to_string(),
                 reading: QuotaReading::Window { used_pct: 88 },
@@ -1556,6 +1566,7 @@ mod tests {
             account: "work".to_string(),
             harness: "codex".to_string(),
             plan: None,
+            email: None,
             gauges: Vec::new(),
             as_of: 0,
         };
@@ -1573,6 +1584,7 @@ mod tests {
             account: "work".to_string(),
             harness: "claude-code".to_string(),
             plan: None,
+            email: None,
             gauges: Vec::new(),
             as_of: 0,
         };

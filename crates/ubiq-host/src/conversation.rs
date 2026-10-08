@@ -1053,6 +1053,7 @@ fn rate_limit_snapshot(
         account: account.to_string(),
         harness: harness.to_string(),
         plan: None,
+        email: None,
         gauges: [
             five_hour.map(|window| gauge("5 hours", window)),
             seven_day.map(|window| gauge("Week", window)),

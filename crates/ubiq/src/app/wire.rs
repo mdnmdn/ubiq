@@ -3083,6 +3083,14 @@ impl AppState {
             Message::HarnessLoginLink { pane_id, url } => {
                 self.login_link(pane_id, url, cx);
             }
+            Message::HarnessDeviceCode {
+                agent_type,
+                account,
+                verification_url,
+                user_code,
+            } => {
+                self.login_device_code(agent_type, account, verification_url, user_code, cx);
+            }
             Message::HarnessLoginStatus {
                 agent_type,
                 account,

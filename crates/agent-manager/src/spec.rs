@@ -242,6 +242,12 @@ pub struct RunSpec {
     /// `--resume <id>`, opencode's `--session <id>`). `None` (the default)
     /// leaves resumeless runs byte-identical to before this field existed.
     pub resume: Option<String>,
+    /// Whether [`Self::resume`] names a conversation to **fork** — a new one holding a copy of its
+    /// history — rather than to continue. A harness whose store is the run directory forks by the
+    /// caller copying that directory and ignores this; one whose conversations live in a shared
+    /// home (Codex on an account home) forks over the wire instead (`thread/fork`). False by
+    /// default, and meaningless without `resume`.
+    pub fork: bool,
     /// Profile config-overlay bases to materialize into the ephemeral config
     /// dir, ordered **root → leaf** across the profile `extends` chain. Each is
     /// the content of a `<profiles-root>/<name>/base/<harness>` overlay
@@ -282,6 +288,7 @@ impl RunSpec {
             passthrough_args: Vec::new(),
             cwd,
             resume: None,
+            fork: false,
             config_bases: Vec::new(),
             problems: Vec::new(),
         }

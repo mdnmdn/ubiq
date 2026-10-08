@@ -68,6 +68,10 @@ pub struct QuotaSnapshot {
     /// say, which is never drawn as a guess.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    /// Who the provider says the home is signed in as — Codex's `account/read` `email`. `None`
+    /// where it does not say (Claude's `/usage`, an API-key login).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
     /// One entry per window the provider states. Empty is a legitimate answer: the account is
     /// known and the provider named no limit.
     pub gauges: Vec<QuotaGauge>,
@@ -174,8 +178,107 @@ pub fn claude(account: &str, harness: &str, home: Option<&Path>) -> Result<Quota
         // `/usage` names no plan — it says "your subscription" and nothing more. `None` is what
         // a surface draws as nothing, which is the honest answer rather than a guessed tier.
         plan: None,
+        email: None,
         gauges: claude_gauges(&report),
         as_of: now(),
+    })
+}
+
+/// Ask Codex what is left for `account`, through a short-lived `codex app-server` on the login
+/// kept in `home` — the account's `CODEX_HOME`, or the user's default when `None`.
+///
+/// The same harness-is-the-source rule as [`claude`]: the app-server holds the login and asks
+/// the provider; `account/rateLimits/read` answers percentages and reset times. Only the `codex`
+/// limit is drawn (other metered limits are ignored for now), as a `"5 hours"` and a `"Week"`
+/// gauge — placed by `windowDurationMins` (300 and 10080), the labels the host gives the same
+/// windows when a running conversation pushes them, so a probed and a pushed reading draw alike.
+/// The plan is the provider's own `planType`. An API-key or signed-out home is refused by the
+/// app-server, and its sentence is the error.
+pub fn codex(account: &str, harness: &str, home: Option<&Path>) -> Result<QuotaSnapshot> {
+    let probe = crate::harness::codex::account_via_app_server(home)?;
+    let limits = probe
+        .rate_limits
+        .map_err(|message| anyhow::anyhow!(message))?;
+    Ok(codex_snapshot(
+        account,
+        harness,
+        &probe.account,
+        &limits,
+        now(),
+    ))
+}
+
+/// [`codex`]'s reading of `account/read`'s account and `account/rateLimits/read`'s result.
+fn codex_snapshot(
+    account: &str,
+    harness: &str,
+    who: &serde_json::Value,
+    limits: &serde_json::Value,
+    as_of: i64,
+) -> QuotaSnapshot {
+    let bucket = limits
+        .pointer("/rateLimitsByLimitId/codex")
+        .filter(|b| !b.is_null())
+        .or_else(|| {
+            // The single-bucket fallback, only when it is the `codex` limit (or names none).
+            limits.get("rateLimits").filter(|b| {
+                b.get("limitId")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|id| id == "codex")
+            })
+        })
+        .unwrap_or(&serde_json::Value::Null);
+    let mut gauges: Vec<QuotaGauge> = ["primary", "secondary"]
+        .into_iter()
+        .filter_map(|key| bucket.get(key))
+        .filter_map(codex_gauge)
+        .collect();
+    // The shorter window first, as Claude's `/usage` lists them.
+    gauges.sort_by_key(|g| if g.label == "Week" { 1 } else { 0 });
+    let plan = who
+        .get("planType")
+        .or_else(|| bucket.get("planType"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|p| *p != "unknown")
+        .map(str::to_string);
+    let email = who
+        .get("email")
+        .and_then(serde_json::Value::as_str)
+        .filter(|e| !e.is_empty())
+        .map(str::to_string);
+    QuotaSnapshot {
+        account: account.to_string(),
+        harness: harness.to_string(),
+        plan,
+        email,
+        gauges,
+        as_of,
+    }
+}
+
+/// One Codex `RateLimitWindow { usedPercent, windowDurationMins, resetsAt }`. A window of any
+/// length but five hours or a week keeps a label of its own rather than being forced into one.
+fn codex_gauge(window: &serde_json::Value) -> Option<QuotaGauge> {
+    let used_pct = window
+        .get("usedPercent")
+        .and_then(serde_json::Value::as_f64)
+        .map(|pct| pct.round().clamp(0.0, 100.0) as u8)?;
+    let label = match window
+        .get("windowDurationMins")
+        .and_then(serde_json::Value::as_u64)
+    {
+        Some(300) => "5 hours".to_string(),
+        Some(10_080) => "Week".to_string(),
+        Some(mins) if mins % 1_440 == 0 => format!("{} days", mins / 1_440),
+        Some(mins) if mins % 60 == 0 => format!("{} hours", mins / 60),
+        Some(mins) => format!("{mins} minutes"),
+        None => "Window".to_string(),
+    };
+    Some(QuotaGauge {
+        label,
+        reading: QuotaReading::Window { used_pct },
+        resets_at: window.get("resetsAt").and_then(serde_json::Value::as_i64),
+        detail: None,
     })
 }
 
@@ -447,6 +550,7 @@ mod tests {
             account: "work".to_string(),
             harness: "claude-code".to_string(),
             plan: Some("pro".to_string()),
+            email: None,
             gauges: vec![
                 QuotaGauge {
                     label: "5 hours".to_string(),
@@ -472,9 +576,56 @@ mod tests {
             account: "work".to_string(),
             harness: "copilot".to_string(),
             plan: None,
+            email: None,
             gauges: Vec::new(),
             as_of: 0,
         };
         assert_eq!(snapshot.worst_pct(), None, "an em dash, never a zero");
+    }
+
+    /// Codex's windows are placed by length, not by position, and only the `codex` limit draws.
+    #[test]
+    fn codex_snapshot_reads_the_codex_limit_by_window_length() {
+        let who = serde_json::json!({"type": "chatgpt", "email": "a@b.c", "planType": "plus"});
+        let limits = serde_json::json!({
+            "rateLimits": {"limitId": "other", "primary": {"usedPercent": 99.0,
+                "windowDurationMins": 300, "resetsAt": 1}},
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "limitId": "codex",
+                    "primary": {"usedPercent": 13.4, "windowDurationMins": 10080, "resetsAt": 200},
+                    "secondary": {"usedPercent": 41.6, "windowDurationMins": 300, "resetsAt": 100}
+                },
+                "codex_other": {"primary": {"usedPercent": 100.0, "windowDurationMins": 300,
+                    "resetsAt": 5}}
+            }
+        });
+        let snapshot = codex_snapshot("work", "codex", &who, &limits, 7);
+        assert_eq!(snapshot.plan.as_deref(), Some("plus"));
+        assert_eq!(snapshot.email.as_deref(), Some("a@b.c"));
+        assert_eq!(snapshot.as_of, 7);
+        let read: Vec<_> = snapshot
+            .gauges
+            .iter()
+            .map(|g| (g.label.as_str(), g.reading.used_pct(), g.resets_at))
+            .collect();
+        assert_eq!(
+            read,
+            vec![
+                ("5 hours", Some(42), Some(100)),
+                ("Week", Some(13), Some(200))
+            ]
+        );
+    }
+
+    /// With no per-limit view the single-bucket one is read; an unknown plan is no plan.
+    #[test]
+    fn codex_snapshot_falls_back_to_the_single_bucket() {
+        let limits = serde_json::json!({"rateLimits": {"primary": {"usedPercent": 5,
+            "windowDurationMins": 300, "resetsAt": 1}, "secondary": null, "planType": "unknown"}});
+        let snapshot = codex_snapshot("a", "codex", &serde_json::Value::Null, &limits, 0);
+        assert_eq!(snapshot.plan, None);
+        assert_eq!(snapshot.gauges.len(), 1);
+        assert_eq!(snapshot.gauges[0].label, "5 hours");
     }
 }

@@ -97,6 +97,8 @@ pub struct RunFlags {
     /// `--resume <id>`, if given: a raw harness-native session id to resume
     /// (no catalog/store lookup — passed straight through to `spec.resume`).
     pub resume: Option<String>,
+    /// Fork `resume` rather than continue it — passed straight through to `spec.fork`.
+    pub fork: bool,
     /// `--mcp-as-skill a,b`, if given: additionally expose these mcp ids as
     /// a latent skill pointer for this run (see [`crate::spec::McpAsSkill`]).
     /// Merged (union, deduped) with any catalog entries already marked
@@ -545,6 +547,7 @@ pub fn resolve(
 
     // --- --resume <id>: a raw harness-native id, no lookup needed ---
     spec.resume = flags.resume.clone();
+    spec.fork = flags.fork;
 
     // --- profile config-overlay bases (materialized by provision) ---
     spec.config_bases = config_bases;

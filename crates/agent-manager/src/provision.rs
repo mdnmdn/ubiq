@@ -43,6 +43,10 @@ pub struct Provisioned {
     /// never read this; an ACP harness resumes over the wire (`session/load`), so
     /// its bridge needs the id after provisioning has already happened.
     pub resume: Option<String>,
+    /// Whether [`Self::resume`] is to be **forked** rather than continued — copied from
+    /// [`crate::spec::RunSpec::fork`]. Read only by a bridge that opens its conversation over the
+    /// wire and can fork one there (Codex's `thread/fork`).
+    pub fork: bool,
     /// The model this run asked for, when one was named — copied from
     /// [`crate::spec::RunSpec::model`]. Most harnesses put the model in argv and
     /// never read this; an ACP harness sets the model over the wire after
@@ -72,6 +76,7 @@ impl Clone for Provisioned {
             ephemeral: self.ephemeral,
             home: self.home.clone(),
             resume: self.resume.clone(),
+            fork: self.fork,
             model: self.model.clone(),
             mcp_servers: self.mcp_servers.clone(),
         }
@@ -150,6 +155,7 @@ pub fn provision(
             ephemeral,
             home: None,
             resume: spec.resume.clone(),
+            fork: spec.fork,
             model: spec.model.clone(),
             mcp_servers: Vec::new(),
             inproc_servers,
@@ -168,6 +174,7 @@ pub fn provision(
             ephemeral,
             home: None,
             resume: spec.resume.clone(),
+            fork: spec.fork,
             model: spec.model.clone(),
             mcp_servers: Vec::new(),
         })
@@ -257,6 +264,7 @@ fn provision_shared_home(
         ephemeral: false,
         home: home.map(Path::to_path_buf),
         resume: spec.resume.clone(),
+        fork: spec.fork,
         model: spec.model.clone(),
         // An `InProcess` left here (the feature off) was already refused by any harness that
         // sends MCP over the wire.
@@ -575,6 +583,7 @@ mod tests {
                 structured: false,
                 multi_turn: false,
                 acp: false,
+                steer: false,
                 quota: Default::default(),
             }
         }

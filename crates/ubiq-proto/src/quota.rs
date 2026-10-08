@@ -64,6 +64,10 @@ pub struct QuotaSnapshot {
     /// and never guessed.
     #[serde(default)]
     pub plan: Option<String>,
+    /// Who the provider says the account's home is signed in as — an email. `None` where it does
+    /// not say, and never guessed.
+    #[serde(default)]
+    pub email: Option<String>,
     /// One entry per window the provider states. **Empty is an answer**: the provider was asked
     /// and named no limit, which is not the same as not having been asked.
     pub gauges: Vec<QuotaGauge>,
@@ -206,6 +210,7 @@ mod tests {
             account: "work".to_string(),
             harness: "claude-code".to_string(),
             plan: None,
+            email: None,
             gauges,
             as_of: 0,
         }

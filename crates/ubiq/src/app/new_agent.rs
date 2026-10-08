@@ -599,6 +599,15 @@ impl AppState {
         cx.notify();
     }
 
+    /// Flip whether the conversation this start makes is kept across restarts. Drawn live only for
+    /// a start on a harness that `keeps_sessions` — see `ui::new_agent::body`'s persistent row.
+    pub fn toggle_new_agent_persistent(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.persistent = !form.persistent;
+        }
+        cx.notify();
+    }
+
     /// Flip whether this setup is fit to run as a planning assistant. Drawn only under
     /// `Purpose::AgentDefinition` — see `ui::new_agent::body`'s mission-assistant row.
     pub fn toggle_new_agent_mission_assistant(&mut self, cx: &mut Context<Self>) {
@@ -850,6 +859,22 @@ impl AppState {
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,
         });
+        // The *Persistent* tick is the three-dots *Make persistent*, said up front: the same
+        // message, right behind the start, which the host handles in order — so the row it marks
+        // is the one `StartConversation` has just written. The host refuses it for a harness that
+        // keeps its sessions elsewhere, which the form already drew dead.
+        if form.persistent
+            && self
+                .workbench
+                .agent_types
+                .iter()
+                .any(|info| info.id == form.agent_type && info.keeps_sessions)
+        {
+            self.bus.send(Message::SetConversationPersistent {
+                agent_id,
+                persistent: true,
+            });
+        }
         // **No turn goes out here.** The ceiling and the agent prompt are held, and the send path
         // folds them into the first thing the user actually says — a transcript that opens on a
         // directive the user never wrote reads as the conversation beginning with someone else's

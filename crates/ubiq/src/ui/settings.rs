@@ -2752,10 +2752,17 @@ fn harness_quota(
             .text_size(theme::font(Family::Chrome, Role::Meta))
             .text_color(theme::text_faint())
             .child(SharedString::from(match snapshot {
+                // Who the provider says the home is signed in as, where it says (Codex): the one
+                // way to tell two identities signed in to the same provider account apart.
                 Some(snapshot) => format!(
-                    "{}plan {} \u{b7} read {} ago",
+                    "{}plan {}{} \u{b7} read {} ago",
                     scope.whose(account),
                     snapshot.plan.as_deref().unwrap_or("\u{2014}"),
+                    snapshot
+                        .email
+                        .as_deref()
+                        .map(|email| format!(" \u{b7} {email}"))
+                        .unwrap_or_default(),
                     magnitude(now_ms - snapshot.as_of * 1000)
                 ),
                 None => format!("{}plan \u{2014}", scope.whose(account)),
@@ -3094,7 +3101,39 @@ pub fn login(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) ->
                 "Add harness"
             },
             choosing(app, agent_type.as_deref(), login.command_only, window, cx),
-            choosing_footer(agent_type.is_some(), login.command_only, cx),
+            choosing_footer(
+                agent_type.is_some(),
+                login.command_only,
+                // A harness that can sign in by code offers that beside its own pane sign-in.
+                agent_type.as_deref().is_some_and(|id| {
+                    app.workbench
+                        .agent_types
+                        .iter()
+                        .any(|info| info.id == id && info.device_login)
+                }),
+                cx,
+            ),
+        ),
+        // The connector flow's own device-code body: the same thing asked the same way. The
+        // window it is good for is the host's wait, fifteen minutes.
+        LoginStep::DeviceCode {
+            verification_url,
+            user_code,
+            ..
+        } => (
+            "Signing in",
+            device_code(user_code, verification_url, 15 * 60, cx),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-settings-login-cancel-code",
+                    None,
+                    "Cancel",
+                    cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
+                ))
+                .into_any_element(),
         ),
         LoginStep::Starting { agent_type } => (
             "Signing in",
@@ -3357,7 +3396,12 @@ fn login_command(app: &AppState, window: &mut Window, cx: &mut Context<AppState>
 /// Step one's footer: `Sign in`, or `Save` when the modal is only editing a command. Either is
 /// dead until a harness is picked, because the other half of what `Sign in` needs — the name —
 /// is in a field this function cannot read without a window.
-fn choosing_footer(picked: bool, command_only: bool, cx: &mut Context<AppState>) -> AnyElement {
+fn choosing_footer(
+    picked: bool,
+    command_only: bool,
+    by_code: bool,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let action = if command_only {
         primary_button(
             "app-settings-login-save",
@@ -3383,6 +3427,14 @@ fn choosing_footer(picked: bool, command_only: bool, cx: &mut Context<AppState>)
             "Cancel",
             cx.listener(|this, _, _, cx| this.close_harness_login(cx)),
         ))
+        .when(by_code && !command_only, |row| {
+            row.child(ghost_button(
+                "app-settings-login-start-code",
+                None,
+                "Sign in with a code",
+                cx.listener(|this, _, _, cx| this.start_device_login(cx)),
+            ))
+        })
         .child(action.when(!picked, |button| button.opacity(0.5)))
         .into_any_element()
 }

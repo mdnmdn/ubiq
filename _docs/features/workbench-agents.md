@@ -6,7 +6,7 @@ status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
 updated: 2026-10-06
-verified: 2026-10-06
+verified: 2026-10-08
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -350,7 +350,11 @@ has reported no path for is drawn dead rather than dropped.
 **Three toggles sit between Fork and the closing pair, and they are Ubiq's own rather than the
 harness's.**
 The persistence row (`SetConversationPersistent`) marks the conversation as one that outlives the
-window, reading *Make persistent* or *Stop persisting* by which way it goes. The accept-all row
+window, reading *Make persistent* or *Stop persisting* by which way it goes. The New agent dialog's
+*Persistent* tick is the same mark asked up front: live for a start on a harness that
+`keeps_sessions` (Claude Code, Codex — a Codex thread comes back through `thread/resume`), it sends
+`SetConversationPersistent` right behind the `StartConversation`; a definition form draws it dead
+and saves nothing. The accept-all row
 (`SetConversationAcceptAll`) reads *Accept all* or *Stop accepting all*, and while it is on the host
 answers every permission the harness asks for and the window is never shown the ask — the chat
 document holds what that does to the transcript. The dump row
@@ -436,7 +440,9 @@ typed is a key that loses work.
 `prompt_agent` always has. A turn already running with the draft empty offers Stop, which cancels
 it. A turn already running with something typed offers Enqueue instead of writing into a harness
 mid-turn: the draft is held on the conversation's own `queued` list and the composer clears, the
-same way a send clears it. `AppState::send_or_enqueue` is the one function behind all three — the
+same way a send clears it — unless the harness **steers** (`AgentTypeInfo::steers`, native Codex):
+then the button reads *Steer* and the prompt goes out at once, folded into the running turn by the
+bridge's `turn/steer` (`WorkbenchState::steers` is the one answer both read). `AppState::send_or_enqueue` is the one function behind all three — the
 button's click and the Enter key both call it — and it is what a queued row's turn ending drains:
 `Message::ConversationUpdate`'s handler pops the front of the queue and sends it as a plain
 `PromptAgent` the instant `apply` leaves the conversation `Idle`. A queued prompt is drawn as its own

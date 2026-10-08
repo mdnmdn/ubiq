@@ -1339,6 +1339,15 @@ impl WorkbenchState {
         self.agent_types.iter().find(|info| info.label == label)
     }
 
+    /// Whether a prompt sent into a running turn of this harness (by display label, what a
+    /// `Conversation` carries) steers that turn — `AgentTypeInfo::steers`. False when the harness
+    /// is not found: queueing behind the turn is the behaviour that is right for every harness.
+    /// The composer and its send path both read this one answer, so the button and Enter agree.
+    pub fn steers(&self, harness_label: &str) -> bool {
+        self.agent_type_by_label(harness_label)
+            .is_some_and(|info| info.steers)
+    }
+
     /// Whether the explorer and the chat are on screen at all. They are IDE furniture and leave
     /// together — every other panel outlives a rail-mode switch, and the centre panel is what the
     /// mode actually selects between.
@@ -1365,7 +1374,20 @@ mod tests {
             keeps_sessions: true,
             quota: QuotaSource::default(),
             shares_home: false,
+            steers: false,
+            device_login: false,
         }
+    }
+
+    #[test]
+    fn steering_is_the_harnesss_word_and_an_unknown_one_queues() {
+        let mut workbench = WorkbenchState::default();
+        let mut codex = harness("codex", true);
+        codex.steers = true;
+        workbench.agent_types = vec![codex, harness("claude-code", true)];
+        assert!(workbench.steers("codex"));
+        assert!(!workbench.steers("claude-code"));
+        assert!(!workbench.steers("nobody"));
     }
 
     fn account(id: &str, logged_in: &[&str]) -> AccountInfo {

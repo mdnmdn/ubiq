@@ -67,6 +67,7 @@ macro_rules! harness_identity {
                 structured: $structured,
                 multi_turn: $multi_turn,
                 acp: $acp,
+                steer: false,
                 // Every harness that identifies itself through this macro — Copilot, opencode,
                 // Grok — has a provider that publishes a plan ceiling as prose and nothing
                 // queryable behind it. The macro grows a parameter when one of them gains a

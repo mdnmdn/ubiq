@@ -304,6 +304,7 @@ impl Harness for Claude {
             structured: true,
             multi_turn: true,
             acp: self.acp,
+            steer: false,
             // One headless `/usage` run, so the answer needs no *conversation* — which is
             // exactly the case that matters, since the question is asked *before* a long run.
             // The live bridge's own `RateLimitUpdate` is a fresher reading of the same fact,

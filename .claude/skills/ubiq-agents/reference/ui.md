@@ -243,7 +243,8 @@ is sent is the moment a reader most wants it back, so a control that appears onl
 is empty vanishes exactly when it is needed. It sends `CancelTurn`: the turn ends, the conversation
 and harness stay, the next message goes to the same agent — which is why it is a square and not a
 cross, a cross reading as *close this*. With something typed during a running turn, Enqueue sits
-beside Stop; an idle conversation keeps the one Send. All three are what Enter answers through
+beside Stop — or *Steer*, which sends at once, for a harness whose `AgentTypeInfo::steers` is true
+(native Codex; `WorkbenchState::steers`); an idle conversation keeps the one Send. All three are what Enter answers through
 `AppState::send_or_enqueue`, so the buttons and the key never disagree.
 
 ## The composer pool

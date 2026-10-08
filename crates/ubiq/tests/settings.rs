@@ -1370,6 +1370,8 @@ fn a_shared_home_harness(id: &str, label: &str) -> ubiq_proto::messages::AgentTy
         keeps_sessions: true,
         quota: Default::default(),
         shares_home: true,
+        steers: false,
+        device_login: false,
     }
 }
 
@@ -1456,6 +1458,78 @@ fn a_sign_in_that_ends_cleanly_leaves_the_account_listed(cx: &mut TestAppContext
             "work",
             "the account exists from that moment, and can start the harness it signed in to"
         );
+    });
+}
+
+/// A sign-in by code: the send is `BeginDeviceLogin`, the page and code the host answers with are
+/// what the modal draws, and the outcome ends it the way a pane sign-in's does.
+#[gpui::test]
+fn a_sign_in_by_code_draws_the_code_then_the_outcome(cx: &mut TestAppContext) {
+    use ubiq::state::settings::LoginStep;
+    let fixture = Fixture::open(cx);
+    let mut codex = a_shared_home_harness("codex", "Codex");
+    codex.device_login = true;
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![codex],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_harness_login(window, cx);
+        state
+            .login_account_input
+            .update(cx, |field, cx| field.set_value("work", window, cx));
+        state.pick_login_harness("codex".to_string(), window, cx);
+        state.start_device_login(cx);
+    });
+    assert!(
+        fixture.said().into_iter().any(|message| matches!(
+            message,
+            Message::BeginDeviceLogin { ref agent_type, ref account }
+                if agent_type == "codex" && account == "work"
+        )),
+        "the sign-in by code was sent"
+    );
+
+    fixture.host.send(
+        To::Everyone,
+        Message::HarnessDeviceCode {
+            agent_type: "codex".to_string(),
+            account: "work".to_string(),
+            verification_url: "https://auth.example/device".to_string(),
+            user_code: "ABCD-1234".to_string(),
+        },
+    );
+    cx.run_until_parked();
+    fixture.state.read_with(cx, |state, _| {
+        let step = &state.workbench.settings.login.as_ref().unwrap().step;
+        assert!(
+            matches!(step, LoginStep::DeviceCode { user_code, .. } if user_code == "ABCD-1234"),
+            "the code is drawn: {step:?}"
+        );
+    });
+
+    fixture.host.send(
+        To::Everyone,
+        Message::HarnessHomeSignedIn {
+            agent_type: "codex".to_string(),
+            account: "work".to_string(),
+        },
+    );
+    cx.run_until_parked();
+    fixture.state.read_with(cx, |state, _| {
+        let step = &state.workbench.settings.login.as_ref().unwrap().step;
+        assert!(matches!(
+            step,
+            LoginStep::Done {
+                signed_in: true,
+                ..
+            }
+        ));
     });
 }
 

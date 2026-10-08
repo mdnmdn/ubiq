@@ -66,9 +66,9 @@ hook, and no second executable ships); Linux still errors, and the seam that wou
 `refs/isol8-pty-seam-update.md`.
 
 Tool approval is the bridge's alone — it answers each request itself, because it holds its child's
-descriptors. **Today only the Claude bridge actually asks a human**: Codex auto-accepts every
-approval RPC, opencode runs `--dangerously-skip-permissions` and Copilot `--allow-all
---no-ask-user`, so an `AnswerPermission` naming one of those three is a documented no-op. `G92`.
+descriptors. The Claude bridge, `AcpBridge` and the native Codex bridge all park a request for a
+human; Codex asks at all only under a mode other than the unattended `danger-full-access`
+(`D209`). `G92`.
 
 ## `crates/ubiq-host/src/conversation.rs` — `Conversation`
 
@@ -143,7 +143,7 @@ Supporting types in `crates/ubiq-proto/src/conversation.rs`: `ConvContent`, `Too
 
 | Record | Fields, and the rule behind them |
 |---|---|
-| `AgentTypeInfo` | `id` (library harness id, e.g. `claude-code`), `label`, `command` (what the library *would* run — a placeholder a custom command is typed over, **never** something the interface composes a launch from), `available` (binary found, or a custom command configured — a row that cannot start says so before it is picked), `modes` (this harness's advertised permission modes; empty where it has no such axis, because a mode is not a universal concept) |
+| `AgentTypeInfo` | `id` (library harness id, e.g. `claude-code`), `label`, `command` (what the library *would* run — a placeholder a custom command is typed over, **never** something the interface composes a launch from), `available` (binary found, or a custom command configured — a row that cannot start says so before it is picked), `modes` (this harness's advertised permission modes; empty where it has no such axis, because a mode is not a universal concept), `steers` (a prompt mid-turn steers it — native Codex), `device_login` (an account home can sign in by code, `BeginDeviceLogin`) |
 | `AccountInfo` | `id`, and `logged_in` — the harness ids that have a config home under this account (`D194`), derived from the login files each harness declares, not recorded. An account is credential references; no credential, no path and no login ever appears here |
 | `ProfileInfo` | `id`, `agent_type`, `account`, `model`, `mode` — every field a *reference*, `None` meaning the profile does not mention that axis and a lower layer decides |
 | `WorkspaceInfo` | `id` (also its pane's), `session_id`, `agent_type` (what the coordinator actually started), `project_id`, `rel_path`, `cols`, `rows`, `running`. No process, no writer, no pseudo-terminal |

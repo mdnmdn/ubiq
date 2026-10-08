@@ -184,6 +184,10 @@ docs-drift:
 docs-touched *PATHS:
     uv run _tools/docs.py touched {{PATHS}}
 
+# The installed Codex app-server's method set against the snapshot `io/codex.rs` was written to
+codex-schema-diff *ARGS:
+    python3 _tools/codex_schema.py {{ARGS}}
+
 # The depends_on graph: roots, isolated documents, over-connected hubs
 docs-graph:
     uv run _tools/docs.py graph

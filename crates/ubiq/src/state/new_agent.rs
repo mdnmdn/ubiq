@@ -124,8 +124,9 @@ pub struct NewAgentForm {
     pub model: Option<String>,
     pub thinking: Option<String>,
     pub mode: Option<String>,
-    /// Always false, and the control is disabled: an agent that survives a restart is not built
-    /// yet, and a checkbox that lied about it would be worse than one that says "not yet".
+    /// Whether the conversation this start makes is kept across restarts — sent as
+    /// `SetConversationPersistent` right behind its `StartConversation`. Only a start on a harness
+    /// that `keeps_sessions` offers it; a definition form never does, and does not save it.
     pub persistent: bool,
     /// Whether this setup is fit to run as a planning assistant — [`AgentDefinition::mission_assistant`].
     /// Drawn only under [`Purpose::AgentDefinition`]: a bare start has nothing to save the flag onto, and
@@ -624,6 +625,8 @@ mod tests {
             keeps_sessions: true,
             quota: QuotaSource::Push,
             shares_home: false,
+            steers: false,
+            device_login: false,
         }
     }
 

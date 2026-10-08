@@ -1347,6 +1347,18 @@ impl AppState {
     /// the moment the flow starts, and a field the interface mirrors into its own state is a
     /// second copy that can disagree with the one on screen.
     pub fn start_harness_login(&mut self, cx: &mut Context<Self>) {
+        self.begin_login(false, cx);
+    }
+
+    /// [`Self::start_harness_login`], signing in **by device code** instead of in a pane
+    /// (`BeginDeviceLogin`): the host answers with a page and a code, drawn in the modal, and
+    /// the outcome ends the flow exactly as a pane sign-in's does. Offered only for a harness
+    /// whose `AgentTypeInfo::device_login` is true.
+    pub fn start_device_login(&mut self, cx: &mut Context<Self>) {
+        self.begin_login(true, cx);
+    }
+
+    fn begin_login(&mut self, by_code: bool, cx: &mut Context<Self>) {
         // The command field is committed here too: signing in is the other moment its content
         // stops being a draft, and the flow about to start is what will run it.
         self.commit_login_command(cx);
@@ -1371,10 +1383,44 @@ impl AppState {
         login.step = LoginStep::Starting {
             agent_type: agent_type.clone(),
         };
-        self.bus.send(Message::BeginHarnessLogin {
-            agent_type,
-            account,
+        self.bus.send(if by_code {
+            Message::BeginDeviceLogin {
+                agent_type,
+                account,
+            }
+        } else {
+            Message::BeginHarnessLogin {
+                agent_type,
+                account,
+            }
         });
+        cx.notify();
+    }
+
+    /// The page and the code a device-code sign-in is waiting on. Drawn only by the modal that
+    /// asked for it — a code for another account, or with no modal up, is nobody's to show; the
+    /// host still reports the outcome, which `login_ended` handles either way.
+    pub(super) fn login_device_code(
+        &mut self,
+        agent_type: String,
+        account: String,
+        verification_url: String,
+        user_code: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(login) = &mut self.workbench.settings.login else {
+            return;
+        };
+        if login.account != account
+            || !matches!(&login.step, LoginStep::Starting { agent_type: asked } if *asked == agent_type)
+        {
+            return;
+        }
+        login.step = LoginStep::DeviceCode {
+            agent_type,
+            verification_url,
+            user_code,
+        };
         cx.notify();
     }
 

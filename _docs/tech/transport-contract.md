@@ -1935,7 +1935,7 @@ Forty-seven records travel inside payloads.
 | `SessionInfo` | `id`, `name`, `home_folder`, `created_at` |
 | `WorkspaceInfo` | `id`, `session_id`, `project_id`, `rel_path?`, `agent_type`, `cols`, `rows`, `running`, `wait_on_exit`, `wait_on_error`, `tool?`, `handle?` |
 | `ShellInfo` | `label`, `program`, `is_default` |
-| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `acp`, `modes[]`, `unattended_mode?`, `keeps_sessions`, `quota`, `shares_home` |
+| `AgentTypeInfo` | `id`, `label`, `command`, `available`, `chat`, `acp`, `modes[]`, `unattended_mode?`, `keeps_sessions`, `quota`, `shares_home`, `steers`, `device_login` |
 | `AcpCapabilitiesRecord` | `protocol_version`, `agent?`, `groups[]`, `auth_methods[]`, `discovered_ms` |
 | `AcpImplementationRecord` | `name`, `title?`, `version?` |
 | `AcpCapabilityGroupRecord` | `label`, `entries[]` |
@@ -2257,6 +2257,8 @@ which exist, how one is made, and how an account's own config home is signed in 
 | `HarnessHomeSignedIn` | host → UI | `agent_type`, `account` | `Accounts` |
 | `HarnessLoginFailed` | host → UI | `agent_type`, `account`, `error` | — |
 | `HarnessLoginLink` | host → UI | `pane_id`, `url` | — |
+| `BeginDeviceLogin` | UI → host | `agent_type`, `account` | `HarnessDeviceCode`, then `HarnessHomeSignedIn` or `HarnessLoginFailed` |
+| `HarnessDeviceCode` | host → UI | `agent_type`, `account`, `verification_url`, `user_code` | — |
 | `CheckHarnessLogin` | UI → host | `agent_type`, `account` | `HarnessLoginStatus` |
 | `HarnessLoginStatus` | host → UI | `agent_type`, `account`, `status` | — |
 | `DeleteHarnessLogin` | UI → host | `agent_type`, `account` | `Accounts`, or `AccountError` |
@@ -2301,6 +2303,13 @@ with the reason and writes nothing. Re-authenticating is the same message again.
 does not remove it from the stream. The pane still shows the harness's real output, and the
 `HarnessLoginLink` button only saves the user selecting text in a terminal.
 
+**A sign-in by code has no pane.** For a harness whose `AgentTypeInfo::device_login` is true
+(Codex), `BeginDeviceLogin` asks the harness itself for a page and a one-time code, on a host
+thread; `HarnessDeviceCode` carries both to the window that asked, and the same two outcomes end
+it — `HarnessHomeSignedIn` plus `Accounts`, or `HarnessLoginFailed`. The thread reports through the
+host's voice, so the outcome is recorded on the coordinator's thread exactly as a pane's clean exit
+is. Closing the window's modal stops drawing it; the host waits out the harness's own timeout.
+
 ## The quota family
 
 The account family's counterpart: that one says which identities exist, this one says how much of
@@ -2314,7 +2323,7 @@ each identity's plan is left before the next long run.
 
 | Record | Fields |
 |---|---|
-| `QuotaSnapshot` | `account`, `harness`, `plan?`, `gauges`, `as_of` |
+| `QuotaSnapshot` | `account`, `harness`, `plan?`, `email?`, `gauges`, `as_of` |
 | `QuotaGauge` | `label`, `reading`, `resets_at?`, `detail?` |
 | `QuotaReading` | one of: `Window { used_pct }`, `Count { used, limit? }`, `Credit { remaining, currency }` |
 | `QuotaSource` | one of: `None`, `Push`, `Probe`, `Bridge` — rides `AgentTypeInfo` |
@@ -2334,6 +2343,10 @@ key's meaning, because one account can serve several harnesses and each states i
 account is the one a run's definition names, empty for none; the host reads the login from that
 account's own home for the harness, or the harness's default home when the account has none
 (`D194`, `G380`).
+
+**`email` is who the provider says the home is signed in as** — Codex's `account/read` answers it;
+Claude's `/usage` does not, and it stays `None` rather than guessed. The host's cache keeps the
+plan and the email already read when a later reading (a window pushed mid-turn) does not say them.
 
 **A snapshot is a list of gauges, not a struct of every provider's fields.** The providers do not
 agree on what a limit is, so a union struct would grow a field per provider and read absent on most

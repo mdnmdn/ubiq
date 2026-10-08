@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-10-05
-verified: 2026-10-05
+updated: 2026-10-08
+verified: 2026-10-08
 code_anchors: [crates/ubiq-host/src/catalog.rs, crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -573,7 +573,12 @@ to do with the answer; it never learns where the answer comes from.
 harness is the source: `quota::claude` runs Claude Code headless and sends it `/usage` —
 `harness::claude::usage_via_jsonl`, the same zero-token synthetic slash path the `/model` probe
 uses, under the account's home and killed after 60 seconds — and Claude Code asks the provider with
-the login it already holds (`D195`). Nothing here opens `.credentials.json` or the Keychain, and
+the login it already holds (`D195`). `quota::codex` is the same shape for Codex:
+`harness::codex::account_via_app_server` starts a short-lived `codex app-server` on the account's
+`CODEX_HOME`, asks `account/read` and `account/rateLimits/read` — no thread, no model call — and
+reads only the `codex` limit, its windows placed by `windowDurationMins` (300 → `5 hours`, 10080 →
+`Week`); a running native conversation pushes the same windows as `RateLimitUpdate` from
+`account/rateLimits/updated`. Nothing here opens `.credentials.json`, `auth.json` or the Keychain, and
 `ureq` is a dev-dependency. The snapshot that crosses the boundary is percentages, a reset
 timestamp and a window name. This is stronger than the account invariant, and it means a change to
 how a harness stores or renews a login is not a change here.

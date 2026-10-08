@@ -78,6 +78,7 @@ pub(super) fn run_harness(harness: &dyn Harness, args: &[String]) -> Result<()> 
         cwd: cwd.clone(),
         isolate: run_args.isolate.clone(),
         resume: run_args.resume.clone(),
+        fork: false,
         mcp_as_skill: clean_ids(run_args.mcp_as_skill.clone()),
         profile: run_args.profile.clone(),
     };
@@ -403,12 +404,18 @@ fn unattended_answer(ev: &crate::io::AgentEvent) -> Option<crate::io::AgentInput
     let option = options
         .iter()
         .find(|o| o.kind == crate::io::PermissionKind::AllowOnce)
-        .or_else(|| options.iter().find(|o| o.kind.allows()))?;
-    Some(crate::io::AgentInput::AnswerPermission {
-        request_id: request_id.clone(),
-        outcome: crate::io::PermissionOutcome::Selected {
+        .or_else(|| options.iter().find(|o| o.kind.allows()));
+    // No allowing option means the ask is a question (Codex's `requestUserInput` offers its answers
+    // as non-allowing options): nobody is there to answer it, so it is cancelled, never guessed.
+    let outcome = match option {
+        Some(option) => crate::io::PermissionOutcome::Selected {
             option_id: option.option_id.clone(),
         },
+        None => crate::io::PermissionOutcome::Cancelled,
+    };
+    Some(crate::io::AgentInput::AnswerPermission {
+        request_id: request_id.clone(),
+        outcome,
         updated_input: None,
     })
 }

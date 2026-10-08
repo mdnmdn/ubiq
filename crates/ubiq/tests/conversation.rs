@@ -460,6 +460,8 @@ fn the_plus_menu_offers_the_form_and_the_attach_list(cx: &mut TestAppContext) {
                 keeps_sessions: true,
                 quota: Default::default(),
                 shares_home: false,
+                steers: false,
+                device_login: false,
             }],
         },
     );
@@ -2422,6 +2424,8 @@ fn an_acp_harness(id: &str, label: &str, acp: bool) -> AgentTypeInfo {
         keeps_sessions: true,
         quota: Default::default(),
         shares_home: false,
+        steers: false,
+        device_login: false,
     }
 }
 
@@ -2446,6 +2450,8 @@ fn the_dialog_start_sends_a_start_conversation_and_closes_the_form(cx: &mut Test
                 keeps_sessions: true,
                 quota: Default::default(),
                 shares_home: false,
+                steers: false,
+                device_login: false,
             }],
         },
     );
@@ -2489,6 +2495,61 @@ fn the_dialog_start_sends_a_start_conversation_and_closes_the_form(cx: &mut Test
     assert!(started, "Start must put a `StartConversation` on the bus");
 }
 
+/// The dialog's *Persistent* tick, on a harness that keeps its sessions, is the three-dots *Make
+/// persistent* said up front: `SetConversationPersistent` right behind the `StartConversation`.
+#[gpui::test]
+fn a_persistent_start_marks_the_conversation_persistent(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AgentTypes {
+            agent_types: vec![an_acp_harness("codex", "Codex", false)],
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_new_agent(Default::default(), window, cx);
+                state.pick_new_agent_target(
+                    ubiq::state::new_agent::Target::Harness {
+                        agent_type: "codex".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.toggle_new_agent_persistent(cx);
+            })
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let agent_id = fixture
+        .state
+        .update(cx, |state, cx| state.start_new_agent(cx))
+        .expect("Start answered with the id it minted");
+    cx.run_until_parked();
+
+    let said = fixture.said();
+    let start = said.iter().position(|message| {
+        matches!(message, Message::StartConversation { agent_id: id, .. } if *id == agent_id)
+    });
+    let keep = said.iter().position(|message| {
+        matches!(
+            message,
+            Message::SetConversationPersistent { agent_id: id, persistent: true } if *id == agent_id
+        )
+    });
+    assert!(
+        matches!((start, keep), (Some(start), Some(keep)) if start < keep),
+        "the start, then the mark: {said:?}"
+    );
+}
+
 /// The dialog's initial prompt is the first user turn: nothing goes out with the start, and the
 /// moment the conversation exists it is sent — the held preamble folded in front of it — so the
 /// agent begins working without the user typing anything else.
@@ -2510,6 +2571,8 @@ fn an_initial_prompt_is_sent_once_the_conversation_exists(cx: &mut TestAppContex
                 keeps_sessions: true,
                 quota: Default::default(),
                 shares_home: false,
+                steers: false,
+                device_login: false,
             }],
         },
     );

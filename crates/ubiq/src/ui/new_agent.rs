@@ -845,18 +845,36 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         rows = rows.child(engine);
     }
 
-    // 5 ─ the one control here with nothing behind it. Drawn, faint, and taking no click.
+    // 5 ─ whether the conversation outlives a restart: the three-dots *Make persistent*, asked up
+    // front. Live only for a start (a definition has nowhere to keep the answer) and only on a
+    // harness that keeps its sessions where Ubiq can keep them — the same `keeps_sessions` that
+    // draws that menu row dead.
+    let can_persist = live
+        && matches!(form.purpose, Purpose::Start)
+        && harness.is_some_and(|info| info.keeps_sessions);
     rows = rows.child(
-        div().opacity(0.5).child(hint_row(
+        div().when(!can_persist, |this| this.opacity(0.5)).child(hint_row(
             "new-agent-persistent-hint",
             "Persistent",
-            "Persists across Ubiq restarts \u{2014} not yet built.",
+            if harness.is_some_and(|info| !info.keeps_sessions) {
+                "This harness keeps its sessions outside Ubiq, so a restart cannot bring it back."
+            } else {
+                "Kept across Ubiq restarts, and resumed where it left off."
+            },
             div()
                 .flex()
                 .flex_none()
                 .justify_end()
                 .w(px(CONTROL_WIDTH))
-                .child(check_box("new-agent-persistent", false, |_, _, _| {}))
+                .child(check_box(
+                    "new-agent-persistent",
+                    can_persist && form.persistent,
+                    cx.listener(move |this, _, _, cx| {
+                        if can_persist {
+                            this.toggle_new_agent_persistent(cx);
+                        }
+                    }),
+                ))
                 .into_any_element(),
         )),
     );

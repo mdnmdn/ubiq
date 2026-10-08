@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-07
+updated: 2026-10-08
 verified: 2026-09-29
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5262,6 +5262,40 @@ user's text is saved. `ubiq-mission`'s `write_document` still saves without the 
 keyed by row, not lineage code (a tab outside annotation mode has no host blocks), so a reparse
 inside its 1.8 s can tint a neighbouring row. A split is read from text containment, so a block
 rewritten as it is split reads as an insertion.
+
+### D209 — Codex converses over its own app-server, asks per the permission mode, and states only the `codex` limit
+
+The `codex` harness's structured run is the native `codex app-server` JSON-RPC bridge
+(`crates/agent-manager/src/io/codex.rs`), and it is the default way Ubiq talks to Codex.
+`codex-acp` stays a sibling, as `claude-code-acp` does under `D95`, offered only behind its settings
+switch. Three choices ride on it:
+
+1. **Approvals follow the profile's permission mode.** `danger-full-access` — the unattended mode,
+   and what an isolated run gets — launches with `approval_policy = "never"`, so Codex asks nothing;
+   every other mode launches `on-request`, and each request (`item/commandExecution/requestApproval`,
+   `item/fileChange/requestApproval`, `item/permissions/requestApproval`,
+   `mcpServer/elicitation/request`, a single-choice `item/tool/requestUserInput`) is parked as an
+   `AgentEvent::PermissionRequest` on the tool call it authorises and answered by the person's pick.
+   The bridge never answers one itself.
+2. **Only the `codex` limit is read**, as a `5 hours` and a `Week` window placed by
+   `windowDurationMins` (300 and 10080), never by position — pushed during a turn by
+   `account/rateLimits/updated`, probed with nothing running by a short-lived app-server's
+   `account/rateLimits/read` (`QuotaSource::Probe`). Other metered limits are ignored.
+3. **A delegate is its own thread.** A spawned agent's notifications arrive on the same connection
+   under its own `threadId`; it is drawn as one `Delegate` call whose id is that thread id, every
+   line it says is stamped with that `Origin`, and its spend is split out with the parent's ring
+   repeated. Only the conversation's own `turn/completed` ends a turn.
+
+**Why:** the app-server is what Codex's own IDE extension speaks, and it states what no ACP adapter
+does for Codex — `modelContextWindow` on every usage report, the rate-limit windows, the subagent
+threads. Approvals by mode keeps the one place a person decides how much an agent may do: the mode
+they picked. Windows by duration survives a provider that reorders or adds a window.
+
+**Cost:** the protocol is marked experimental and moves per release (`just codex-schema-diff`
+watches it). A non-unattended Codex column now blocks on a person where it used to run unasked. The
+token-field overlap (cached and cache-written inside input, reasoning inside output) is read from
+Codex's source, not yet from an authenticated capture. A free-text `requestUserInput` cannot be put
+to a person through a permission prompt and is answered empty.
 
 ## Related docs
 

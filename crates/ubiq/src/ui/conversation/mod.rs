@@ -3321,10 +3321,17 @@ fn composer(
             cx.listener(move |this, _, _, cx| this.cancel_turn(id, cx)),
         ));
         if can_send {
+            // A harness that steers takes the prompt into the turn in flight, so the button sends
+            // rather than holds — `send_or_enqueue` reads the same `steers` answer.
+            let steers = app.workbench.steers(&conversation.harness);
             actions.push(action_button(
                 view.eid("send"),
-                IconName::Inbox,
-                "Enqueue",
+                if steers {
+                    IconName::ArrowUp
+                } else {
+                    IconName::Inbox
+                },
+                if steers { "Steer" } else { "Enqueue" },
                 theme::accent(),
                 true,
                 cx.listener(move |this, _, window, cx| this.send_or_enqueue(id, slot, window, cx)),

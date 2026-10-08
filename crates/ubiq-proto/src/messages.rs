@@ -371,6 +371,24 @@ pub enum Message {
         pane_id: PaneId,
         url: String,
     },
+    /// Sign an account's config home in **by device code**, with no pane: the host asks the
+    /// harness for a page and a one-time code, and the person signs in there from any browser.
+    /// Only for a harness whose [`AgentTypeInfo::device_login`] is true. Answered with
+    /// [`Message::HarnessDeviceCode`], then [`Message::HarnessHomeSignedIn`] or
+    /// [`Message::HarnessLoginFailed`] — the same two outcomes a pane sign-in ends on.
+    BeginDeviceLogin {
+        agent_type: String,
+        /// The account whose home to sign in. Never empty — the home is keyed by it.
+        account: String,
+    },
+    /// The page to open and the code to type there, for a [`Message::BeginDeviceLogin`] under
+    /// way. The host is waiting on the harness for the outcome.
+    HarnessDeviceCode {
+        agent_type: String,
+        account: String,
+        verification_url: String,
+        user_code: String,
+    },
     /// Whether `account`'s home holds a usable login for `agent_type`. Answered with
     /// [`Message::HarnessLoginStatus`], always — a login that is absent is an answer, not an
     /// error.
@@ -3982,6 +4000,16 @@ pub struct AgentTypeInfo {
     /// puts this harness on the **Add harness** picker and offers an account a **Sign in**.
     #[serde(default)]
     pub shares_home: bool,
+    /// Whether a prompt sent while a turn is running **steers** that turn — the library's
+    /// `IoSupport::steer` (native Codex's `turn/steer`). The composer reads it to send mid-turn
+    /// rather than waiting for the turn to end; false keeps the send idle-only.
+    #[serde(default)]
+    pub steers: bool,
+    /// Whether an account's home can be signed in to this harness **by device code** — a page and
+    /// a code drawn in the window, no pane ([`Message::BeginDeviceLogin`]). The library's
+    /// `Harness::device_login`. The pane sign-in stays on offer beside it.
+    #[serde(default)]
+    pub device_login: bool,
 }
 
 /// One model a harness will answer for, with the reasoning-effort levels it accepts folded in.

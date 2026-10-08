@@ -374,6 +374,9 @@ struct Coordinator {
     /// its process has exited, so what the answer needs is parked here until then — the same
     /// shape `active_searches` uses, and forgotten the same way.
     logins: HashMap<PaneId, PendingLogin>,
+    /// The device-code sign-ins under way, by harness and account, and the window that asked —
+    /// the one their outcome goes to. A second ask for the same pair replaces the first's window.
+    device_logins: HashMap<(String, String), ClientId>,
     /// When this coordinator started, which is what the stats screen calls uptime. Nothing else
     /// measured elapsed time before, so this is where it comes from.
     // ponytail: measured from the coordinator's thread rather than from `main`. The difference is
@@ -462,6 +465,10 @@ struct PendingConversation {
     /// back to the library as the run's resume. `None` before the first run, and for a harness
     /// that named none.
     resume: Option<String>,
+    /// Whether the next launch forks [`Self::resume`] rather than continuing it — set by a fork,
+    /// cleared the moment the fork's own harness names its session, so a relaunch after that
+    /// continues the fork rather than forking the source again.
+    fork: bool,
     /// The MCP servers this conversation asked for, from [`Message::StartConversation::mcps`],
     /// carried through to [`ConverseOptions::mcps`] on every launch and relaunch.
     mcps: Vec<String>,
@@ -1119,6 +1126,7 @@ impl Coordinator {
                         named: row.title.is_some(),
                         harness_title: None,
                         resume: None,
+                        fork: false,
                         // Not part of the persisted row yet: an mcp or skill pick made before a
                         // restart does not survive one, same as `catalogue` above.
                         mcps: Vec::new(),
@@ -1183,6 +1191,7 @@ impl Coordinator {
             armed,
             pending_conversations,
             logins: HashMap::new(),
+            device_logins: HashMap::new(),
             started: Instant::now(),
             tasks_synced: Instant::now(),
             agents_this_run: 0,
@@ -1985,6 +1994,28 @@ impl Coordinator {
                 account,
             } => {
                 self.begin_harness_login(client, agent_type, account);
+            }
+            Message::BeginDeviceLogin {
+                agent_type,
+                account,
+            } => {
+                self.begin_device_login(client, agent_type, account);
+            }
+            // A device-code sign-in's thread reporting its outcome through the host's voice (see
+            // `begin_device_login`): the outcome goes to the window that asked, and a success is
+            // recorded exactly as a pane sign-in's clean exit is.
+            Message::HarnessHomeSignedIn {
+                agent_type,
+                account,
+            } if client.is_host_voice() => {
+                self.device_login_ended(agent_type, account, None);
+            }
+            Message::HarnessLoginFailed {
+                agent_type,
+                account,
+                error,
+            } if client.is_host_voice() => {
+                self.device_login_ended(agent_type, account, Some(error));
             }
             Message::CheckHarnessLogin {
                 agent_type,
@@ -3971,6 +4002,7 @@ impl Coordinator {
                 harness_title: None,
                 // Nothing has run, so there is no harness session to continue.
                 resume: None,
+                fork: false,
                 mcps,
                 skills,
                 extra_rw,
@@ -4136,6 +4168,7 @@ impl Coordinator {
                 project: Some(pending.project_id),
                 prompt: first_prompt,
                 resume: pending.resume.clone(),
+                fork: pending.fork,
                 mcps: pending.mcps.clone(),
                 skills: pending.skills.clone(),
                 extra_rw: pending.extra_rw.clone(),
@@ -4742,6 +4775,11 @@ impl Coordinator {
         }
         if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
             pending.resume = resume;
+            // A harness whose conversations live in a shared home (Codex on an account home) has
+            // to be told: the copied directory isolates nothing there, and resuming the source's
+            // id would put both conversations on one thread. A harness whose store *is* the
+            // directory ignores it.
+            pending.fork = forking;
         }
         if forking {
             let sessions = self.sessions();
@@ -4998,6 +5036,7 @@ impl Coordinator {
             self.agents.remember_session(agent_id, &id);
             if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
                 pending.resume = Some(id);
+                pending.fork = false;
             }
         }
     }
@@ -5222,6 +5261,7 @@ impl Coordinator {
         // runs that first — and kept because it costs nothing and says here what a resume needs.
         if session_id.is_some() {
             pending.resume = session_id;
+            pending.fork = false;
         }
         tracing::debug!(
             agent = %agent_id,
@@ -6776,6 +6816,7 @@ impl Coordinator {
             extra_rw: rw_paths(picks.grants),
             prompt: None,
             resume: None,
+            fork: false,
         };
         // An agent type the library knows is composed — its skills, its throwaway configuration
         // and the policy it runs under all come from there. Anything else is a program name,
@@ -7428,6 +7469,105 @@ impl Coordinator {
         }
     }
 
+    /// Sign an account's home in by device code (`BeginDeviceLogin`): no pane — the harness's own
+    /// sign-in hands over a page and a code, which go to the window, and then waits for the person
+    /// to finish in a browser. All of that blocks on the network and on a person, so it runs on a
+    /// thread of its own; the code goes straight to the asking window, and the outcome comes back
+    /// through the host's voice to [`Self::device_login_ended`], which records it as
+    /// [`Self::login_gone`] records a pane's clean exit.
+    fn begin_device_login(&mut self, client: ClientId, agent_type: String, account: String) {
+        let home = match self.agents.device_login_home(&agent_type, &account) {
+            Ok(home) => home,
+            Err(error) => {
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessLoginFailed {
+                        agent_type,
+                        account,
+                        error: format!("{error:#}"),
+                    },
+                );
+                return;
+            }
+        };
+        self.device_logins
+            .insert((agent_type.clone(), account.clone()), client);
+        let asker = self.host.mailbox(To::Client(client));
+        let voice = self.host.voice();
+        let started = thread::Builder::new()
+            .name("ubiq-device-login".to_string())
+            .spawn(move || {
+                let outcome = agent_manager::harness::resolve(&agent_type)
+                    .ok_or_else(|| anyhow::anyhow!("unknown agent type '{agent_type}'"))
+                    .and_then(|harness| harness.begin_device_login(&home))
+                    .and_then(|login| {
+                        asker.send(Message::HarnessDeviceCode {
+                            agent_type: agent_type.clone(),
+                            account: account.clone(),
+                            verification_url: login.verification_url.clone(),
+                            user_code: login.user_code.clone(),
+                        });
+                        login.wait()
+                    });
+                voice.say(match outcome {
+                    Ok(()) => Message::HarnessHomeSignedIn {
+                        agent_type,
+                        account,
+                    },
+                    Err(error) => Message::HarnessLoginFailed {
+                        agent_type,
+                        account,
+                        error: format!("{error:#}"),
+                    },
+                });
+            });
+        if let Err(error) = started {
+            tracing::warn!("no device sign-in thread: {error}");
+        }
+    }
+
+    /// A device-code sign-in has finished, one way or the other: say so to the window that asked,
+    /// and — when it worked — record the sign-in and tell every window the accounts changed.
+    fn device_login_ended(&mut self, agent_type: String, account: String, error: Option<String>) {
+        let Some(client) = self
+            .device_logins
+            .remove(&(agent_type.clone(), account.clone()))
+        else {
+            return;
+        };
+        match error {
+            None => {
+                tracing::info!(harness = %agent_type, account = %account, "home signed in by code");
+                if let Err(error) = self.agents.record_sign_in(&agent_type, &account) {
+                    tracing::warn!(
+                        harness = %agent_type,
+                        account = %account,
+                        "the sign-in finished but could not be recorded: {error:#}"
+                    );
+                }
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessHomeSignedIn {
+                        agent_type,
+                        account,
+                    },
+                );
+                self.broadcast_accounts();
+            }
+            Some(error) => {
+                tracing::info!(harness = %agent_type, account = %account, "{error}");
+                self.host.send(
+                    To::Client(client),
+                    Message::HarnessLoginFailed {
+                        agent_type,
+                        account,
+                        error,
+                    },
+                );
+            }
+        }
+    }
+
     /// An account could not be renamed or deleted; say so to the window that asked, and nobody
     /// else — the same routing `refuse` in [`Self::begin_harness_login`] uses.
     fn account_error(&self, client: ClientId, error: String) {
@@ -7967,6 +8107,7 @@ mod tests {
                 named: false,
                 harness_title: None,
                 resume: None,
+                fork: false,
                 mcps: Vec::new(),
                 skills: Vec::new(),
                 extra_rw: Vec::new(),
@@ -8826,6 +8967,10 @@ mod tests {
             Some("harness-session-1"),
             "the resume token comes from the library's record, not the row"
         );
+        assert!(
+            !pending.fork,
+            "a re-attach continues its session, never forks it"
+        );
 
         coordinator
             .conversations
@@ -9039,6 +9184,28 @@ mod tests {
         let recorded = coordinator.agents.accounts().unwrap();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].id, "work");
+    }
+
+    /// A sign-in by code reports through the host's voice; the outcome reaches the window that
+    /// asked and is recorded as a pane's clean exit is. An outcome nobody asked for is dropped.
+    #[test]
+    fn a_device_sign_in_reports_to_its_asker_and_records_the_account() {
+        let (mut coordinator, client) = test_coordinator();
+        coordinator.device_login_ended("codex".to_string(), "nobody".to_string(), None);
+        assert!(drain_all(&client).is_empty(), "nobody asked for that one");
+
+        coordinator
+            .device_logins
+            .insert(("codex".to_string(), "work".to_string()), client.id());
+        coordinator.device_login_ended("codex".to_string(), "work".to_string(), None);
+
+        let messages = drain_all(&client);
+        assert!(
+            matches!(&messages[..], [Message::HarnessHomeSignedIn { account, .. }, Message::Accounts { .. }] if account == "work"),
+            "the outcome, then the list: {messages:?}"
+        );
+        assert_eq!(coordinator.agents.accounts().unwrap()[0].id, "work");
+        assert!(coordinator.device_logins.is_empty());
     }
 
     /// Signing one harness out shortens the account's `logged_in` and leaves the identity: the

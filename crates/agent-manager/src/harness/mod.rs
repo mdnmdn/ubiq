@@ -16,13 +16,15 @@ use crate::quota::QuotaSource;
 use crate::spec::{HarnessId, McpAsSkill, RunSpec};
 
 pub(crate) mod claude;
-mod codex;
+pub(crate) mod codex;
 mod copilot;
 mod grok;
 mod opencode;
 mod shared;
 pub use claude::Claude;
-pub use codex::Codex;
+pub use codex::{
+    Codex, DeviceLogin as CodexDeviceLogin, begin_device_login as begin_codex_device_login,
+};
 pub use copilot::Copilot;
 pub use grok::Grok;
 pub use opencode::Opencode;
@@ -208,6 +210,10 @@ pub struct IoSupport {
     /// know "can I speak the standard protocol at this harness" asks here instead
     /// of inferring it from the harness id.
     pub acp: bool,
+    /// A prompt sent while a turn is running **steers** that turn — the bridge folds it into the
+    /// live turn (Codex's `turn/steer`) rather than queueing it behind. A caller reads it to decide
+    /// whether to offer sending mid-turn at all. Meaningless when `multi_turn` is false.
+    pub steer: bool,
     /// How — if at all — this harness can be asked how much of the plan is left. Read *before*
     /// anything is spawned, so a caller can offer the question, disable it, or say the provider
     /// states nothing, rather than discovering that from a failed call.
@@ -528,6 +534,18 @@ pub trait Harness {
             "harness '{}' cannot log in into a shared config home",
             self.id()
         )
+    }
+    /// Whether [`Self::begin_device_login`] can sign a home in with no terminal: a page to open
+    /// and a code to type there. Read before anything is spawned, so a caller can offer it.
+    /// Default: false.
+    fn device_login(&self) -> bool {
+        false
+    }
+    /// Begin a device-code sign-in of `home`, the account's shared config home — the
+    /// alternative to [`Self::login_home`]'s terminal. The caller shows the page and the code,
+    /// then [`CodexDeviceLogin::wait`]s. Default: an error naming this harness.
+    fn begin_device_login(&self, _home: &Path) -> Result<CodexDeviceLogin> {
+        anyhow::bail!("harness '{}' has no device-code sign-in", self.id())
     }
     /// The files, **relative to this harness's config home**, in which it keeps its login —
     /// the home [`Self::login_home`] signs into and [`Self::provision_home`] runs from
@@ -913,6 +931,7 @@ mod tests {
                     structured: false,
                     multi_turn: false,
                     acp: false,
+                    steer: false,
                     quota: Default::default(),
                 }
             }
@@ -935,6 +954,7 @@ mod tests {
             home: None,
             resume: None,
             model: None,
+            fork: false,
             mcp_servers: Vec::new(),
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),
@@ -1002,6 +1022,7 @@ cat > /dev/null"#;
                 ephemeral: false,
                 home: None,
                 resume: resume.map(str::to_string),
+                fork: false,
                 model: None,
                 mcp_servers: vec![server.clone()],
                 #[cfg(feature = "inproc-mcp")]

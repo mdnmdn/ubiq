@@ -71,10 +71,24 @@ impl Quotas {
     /// window for nothing. What a surface draws is the gauges and the plan, so that is what
     /// decides — the newer timestamp is still stored, because how old the reading is is the one
     /// thing a stale-looking gauge is judged by.
-    pub fn put(&mut self, snapshot: QuotaSnapshot) -> bool {
+    ///
+    /// **A reading that does not say the plan or the email keeps the ones already said.** A
+    /// window pushed during a turn carries gauges only; it is not news that the account changed
+    /// plan or identity.
+    pub fn put(&mut self, mut snapshot: QuotaSnapshot) -> bool {
         let key = (snapshot.account.clone(), snapshot.harness.clone());
         let changed = match self.held.get(&key) {
-            Some(held) => held.plan != snapshot.plan || held.gauges != snapshot.gauges,
+            Some(held) => {
+                if snapshot.plan.is_none() {
+                    snapshot.plan = held.plan.clone();
+                }
+                if snapshot.email.is_none() {
+                    snapshot.email = held.email.clone();
+                }
+                held.plan != snapshot.plan
+                    || held.email != snapshot.email
+                    || held.gauges != snapshot.gauges
+            }
             None => true,
         };
         self.held.insert(key, snapshot);
@@ -202,6 +216,7 @@ mod tests {
             account: "work".to_string(),
             harness: "claude-code".to_string(),
             plan: Some("max".to_string()),
+            email: None,
             gauges: vec![QuotaGauge {
                 label: "5 hours".to_string(),
                 reading: QuotaReading::Window { used_pct },
@@ -236,6 +251,20 @@ mod tests {
             "the newer reading is still what is held"
         );
         assert!(quotas.put(snapshot(9, 300)), "a moved gauge is a change");
+    }
+
+    #[test]
+    fn a_reading_that_names_no_one_keeps_the_identity_already_read() {
+        let mut quotas = Quotas::new();
+        let mut probed = snapshot(7, 100);
+        probed.email = Some("dev@example.com".to_string());
+        quotas.put(probed);
+        let mut pushed = snapshot(7, 200);
+        pushed.plan = None;
+        assert!(!quotas.put(pushed), "only the timestamp moved");
+        let held = quotas.get("work", "claude-code").unwrap();
+        assert_eq!(held.email.as_deref(), Some("dev@example.com"));
+        assert_eq!(held.plan.as_deref(), Some("max"));
     }
 
     #[test]

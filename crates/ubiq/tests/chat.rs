@@ -742,6 +742,8 @@ fn a_harness(fixture: &Fixture, cx: &mut TestAppContext) {
                 keeps_sessions: true,
                 quota: Default::default(),
                 shares_home: false,
+                steers: false,
+                device_login: false,
             }],
         },
     );

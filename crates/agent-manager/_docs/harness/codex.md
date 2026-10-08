@@ -734,21 +734,53 @@ JSON-RPC 2.0 over stdio. Handshake sequence (client → server unless noted):
 4. `thread/name/set` (optional).
 5. `turn/start` — params `{ threadId, input: [{ type: "text", text: "…" }], effort? }`; response carries `turn.id`.
 
-Codex emits one of **two notification dialects**; detect which on the first inbound notification and handle both:
+**The protocol's own schema is the source.** `codex app-server generate-json-schema --out <dir>`
+and `generate-ts --out <dir>` emit it per installed version, and `just codex-schema-diff` compares
+the method set against the snapshot committed at
+`crates/agent-manager/tests/fixtures/codex-app-server/methods.txt`. Everything below is 0.161.0's.
+Two frame fixtures sit beside it: `live-0.161.0-unauthenticated-turn.ndjson`, captured from a real
+app-server on an empty `CODEX_HOME` (redacted host, installation and request ids), and
+`schema-0.161.0-turn.ndjson`, a successful turn assembled from the generated types — no
+authenticated turn has been captured yet.
 
-- **Legacy** — `codex/event` notifications with a `msg.type` field: `task_started`, `agent_message`, `exec_command_begin` / `exec_command_end`, `patch_apply_begin` / `patch_apply_end`, `task_complete`, `turn_aborted`.
-- **v2 / raw** — discrete method names: `turn/started`, `turn/completed`, `item/started` + `item/completed` (field `itemType` ∈ `commandExecution` | `fileChange` | `agentMessage`), `thread/status/changed` (`status.type == "idle"`), and `error` (`willRetry: false` = terminal).
+Responses carry no `"jsonrpc"` member; route on `id` / `method`. `thread/start`'s response also
+states `model`, `modelProvider`, `approvalPolicy`, `sandbox` (`{ type: readOnly | workspaceWrite |
+dangerFullAccess | externalSandbox, … }`) and `reasoningEffort`.
 
-Canonical category mapping:
+Notifications are discrete methods (v2); every one about a thread carries `threadId`. The legacy
+`codex/event` wrapper (`msg.type` ∈ `task_started`, `agent_message`, `exec_command_begin` /
+`exec_command_end`, `task_complete`, `turn_aborted`) is not in 0.161.0's `ServerNotification` set
+and is read only for older binaries.
 
-| Category        | Legacy                          | v2 / raw                                          |
-|-----------------|---------------------------------|---------------------------------------------------|
-| Assistant text  | `agent_message`                 | `item/completed` (agentMessage)                   |
-| Tool call       | `exec_command_begin`            | `item/started` (commandExecution)                 |
-| Tool result     | `exec_command_end`              | `item/completed` (commandExecution)               |
-| Completion      | `task_complete`                 | `turn/completed` or `thread/status/changed` idle  |
+- **Items** — `item/started` / `item/completed` carry `{ item, threadId, turnId }`; `item` is
+  tagged **`type`**: `userMessage`, `agentMessage { text }`, `reasoning { summary[], content[] }`,
+  `commandExecution { command, cwd, status, aggregatedOutput, exitCode, durationMs }`,
+  `fileChange { changes: [{ path, kind, diff }], status }`, `mcpToolCall { server, tool,
+  arguments, result, error }`, `dynamicToolCall`, `webSearch { query }`, `contextCompaction`,
+  `collabAgentToolCall`, `subAgentActivity`, `plan`, and more. Status is `inProgress | completed |
+  failed | declined`.
+- **Streaming** — `item/agentMessage/delta`, `item/reasoning/summaryTextDelta`,
+  `item/reasoning/textDelta`, `item/commandExecution/outputDelta`, each `{ itemId, delta }`.
+- **Plan** — `turn/plan/updated { plan: [{ step, status: pending | inProgress | completed }] }`.
+- **End of a turn** — `turn/completed { turn: { status: completed | interrupted | failed, error:
+  { message, codexErrorInfo } } }` is the one end. `thread/status/changed` (`idle`, `active`,
+  `systemError`) follows it and ends nothing. An `error { error, willRetry }` notification is a
+  diagnostic: a retrying one is a stream reconnect, and a final one is followed by
+  `turn/completed { status: failed }` carrying the same error.
+- **Subagents** — a spawned agent runs on its own thread (`Thread.parentThreadId` set), and the
+  app-server attaches every new thread to every initialized connection, so its notifications
+  arrive on the same stdio carrying the child's `threadId`.
 
-Token usage: `turn.usage` in the v2 `turn/completed` (keys `usage` / `token_usage` / `tokens`); fallback is scanning `~/.codex/sessions/YYYY/MM/DD/*.jsonl` for `token_count` events.
+**Token usage** is `thread/tokenUsage/updated { threadId, turnId, tokenUsage: { total, last,
+modelContextWindow } }`, each breakdown `{ totalTokens, inputTokens, cachedInputTokens,
+cacheWriteInputTokens, outputTokens, reasoningOutputTokens }`. Read from Codex's source, not yet
+from an authenticated capture: `total` is the thread's running sum of `last`; the context in use is
+`last.totalTokens`; cached and cache-written tokens are counted inside `inputTokens` and reasoning
+inside `outputTokens`, with `totalTokens = inputTokens + outputTokens`. The same core event also
+emits `account/rateLimits/updated { rateLimits: { primary, secondary: { usedPercent,
+windowDurationMins, resetsAt }, planType, rateLimitReachedType, … } }`.
+
+How `CodexBridge` maps all of this onto `AgentEvent` is stated once, in `src/io/codex.rs`.
 
 ### Model & reasoning at launch
 
@@ -778,14 +810,47 @@ Copy skills into the per-run `$CODEX_HOME/.agents/skills/<name>/SKILL.md` (works
 
 ### Tool approval in headless mode
 
-The app-server issues server→client approval requests; auto-accept all of them to stay unattended:
+Whether Codex asks at all is its `approval_policy`: the provisioner writes `never` for the
+unattended `danger-full-access` mode and `on-request` for every other mode (Ubiq's `D209`). What it
+asks arrives as server→client requests, each with `{ threadId, turnId, itemId }` joining it to the
+item it is about. `io/codex.rs` parks every one as a permission request and answers with the
+person's pick, in each method's own response shape:
 
-| Request method / type                   | Auto-accept response                                            |
-|-----------------------------------------|-----------------------------------------------------------------|
-| `item/commandExecution/requestApproval` / `execCommandApproval`  | `{ "decision": "accept" }`        |
-| `item/fileChange/requestApproval` / `applyPatchApproval`         | `{ "decision": "accept" }`        |
-| `item/permissions/requestApproval`      | grant `network` + `fileSystem`, scoped to `"turn"`             |
-| `mcpServer/elicitation/request`         | `{ "action": "accept", "content": null }`                      |
+| Request method                          | Answer (`result`)                                                |
+|-----------------------------------------|------------------------------------------------------------------|
+| `item/commandExecution/requestApproval`, `item/fileChange/requestApproval` | `{ "decision": "accept" \| "acceptForSession" \| "decline" \| "cancel" }` |
+| `execCommandApproval`, `applyPatchApproval` (legacy) | `{ "decision": "approved" \| "approved_for_session" \| { "denied": { "rejection" } } \| "abort" }` |
+| `item/permissions/requestApproval`      | `{ "permissions": <the requested network/fileSystem>, "scope": "turn" \| "session" }`; a refusal grants `{}` |
+| `mcpServer/elicitation/request`         | `{ "action": "accept" \| "decline" \| "cancel", "content": null, "_meta": null }` — only a `url` elicitation, or a form requiring nothing (`content: {}`), is offered; any other is answered `cancel` at once |
+| `item/tool/requestUserInput`            | `{ "answers": { "<questionId>": { "answers": ["<label>"] } } }` — one question with fixed options, offered as non-allowing options so no unattended path picks one; anything else is answered `{ "answers": {} }` at once |
+
+A request the app-server withdraws when its turn ends is announced as `serverRequest/resolved
+{ requestId }`. Any other server request (`item/tool/call`, `account/chatgptAuthTokens/refresh`,
+`attestation/generate`) is refused with JSON-RPC error `-32601` so Codex does not wait on it.
+
+**Steering and per-turn settings.** A prompt sent while a turn is live is `turn/steer { threadId,
+input, expectedTurnId }`, falling back to `turn/start` if the turn has ended. A prompt merged into the live turn (a steer, or a `turn/start` the server answers with the live turn's id) is counted by the host as a turn of its own, and Codex ends the merged turn once — so at `turn/completed` the reader emits one extra `TurnEnded` per merged prompt. `turn/start` takes
+`model` and `effort` overrides that hold "for this turn and subsequent turns"; `model/list` (each
+model's `supportedReasoningEfforts`, `defaultReasoningEffort`, `isDefault`, `hidden`) is the
+catalogue the pickers are drawn from.
+
+**Resume and fork.** `thread/resume { threadId }` carries a thread on; `thread/fork { threadId }`
+opens a new thread with a copy of its history. Both answer like `thread/start`. The bridge opens
+with `thread/resume` from `Provisioned::resume`, and with `thread/fork` when `Provisioned::fork`
+(from `RunSpec::fork`) is also set: an account's runs share one `CODEX_HOME`, so a caller that
+forks by copying the run directory forks nothing here and has to say so. The new thread's id is the
+`SessionStarted` id, which is what a later resume of the fork carries. The first `thread/tokenUsage/updated` after either replays that history and is a baseline, billed nothing.
+
+**Accounts.** `account/read` → `{ account: { type: "chatgpt", email, planType } | { type: "apiKey" }
+| null, requiresOpenaiAuth }`; `account/rateLimits/read` refuses an API-key or signed-out home with
+`-32600 "codex account authentication required to read rate limits"` (observed).
+`account/login/start { type: "chatgptDeviceCode" }` → `{ loginId, verificationUrl, userCode }`, then
+`account/login/completed { loginId, success, error }`. The probe's `email` is the snapshot's
+`QuotaSnapshot::email`. The device-code sign-in is `Harness::begin_device_login` (with
+`Harness::device_login` true for both variants), the trait's face of `begin_codex_device_login`.
+
+**Capabilities.** `IoSupport::steer` is true for the native bridge only (`codex-acp` has no
+`turn/steer`): a caller may send a prompt while a turn runs.
 
 ### Process lifecycle
 

@@ -478,9 +478,13 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A harness that steers (`AgentTypeInfo::steers`) takes the prompt into the turn in flight,
+        // so a running turn is no reason to hold it: it goes out now, exactly as an idle send does.
         let working = self
             .teams_conversation(agent_id, cx)
-            .is_some_and(|conversation| conversation.run == Run::Working);
+            .is_some_and(|conversation| {
+                conversation.run == Run::Working && !self.workbench.steers(&conversation.harness)
+            });
         if !working {
             self.prompt_agent(agent_id, slot, window, cx);
             return;
