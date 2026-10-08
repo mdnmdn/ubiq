@@ -429,7 +429,7 @@ when the turn ends); an idle conversation has the one Send. All three are what E
 
 **A cancelled turn's own echo is not a message.** Claude Code's synthetic user chunk (`[Request interrupted
 by user]`, or the tool-use variant) is dropped by `Conversation::apply` rather than pushed as a
-`ConvBlock::User`: not drawn, and not what `recall_last_message` returns on Up.
+`ConvBlock::User`: not drawn, and not in the sent history Up walks.
 
 **The glyph says the state; the word lives in its tooltip.** `state::status::conversation_status` reads
 `launched`, `run`, `stop_reason`, `pending`, `blocks`, `accepts_input` and `config` into a `Status` — **a

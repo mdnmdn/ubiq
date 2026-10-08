@@ -52,7 +52,7 @@ use crate::ui::eid;
 use crate::ui::empty;
 use crate::ui::kit::{
     MultiPicker, Picker, PickerStyle, UbiqIcon, card, field, ghost_button, icon_button, meter,
-    Tab, mono, pill, primary_button, section_label, tab_strip, tag, toggle_pill,
+    mono, pill, primary_button, section_label, tag, toggle_pill,
 };
 use crate::ui::work::{activity_colour, bucket_colour};
 use crate::ui::{handler, indexed};
@@ -120,7 +120,6 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .min_w(px(0.))
         .min_h(px(0.))
         .bg(theme::app_bg())
-        .children(board_tabs(app, cx))
         .child(toolbar(app, window, cx))
         .child(body);
 
@@ -176,39 +175,6 @@ pub fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Any
         )
         .into_any_element(),
     }
-}
-
-/// The strip of boards over the toolbar (`T-360`): the default board first, then every enabled
-/// named one. Not drawn while the project has only the default board, and its tabs are never
-/// closable — a board is hidden or deleted from the project's settings, not from here.
-fn board_tabs(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
-    let boards = &app.board(cx)?.boards;
-    let tabs = boards.tabs();
-    if tabs.len() < 2 {
-        return None;
-    }
-    let ids: Vec<_> = tabs.iter().map(|info| info.id.clone()).collect();
-    let active = ids.iter().position(|id| *id == boards.active).unwrap_or(0);
-    let labels: Vec<Tab> = tabs
-        .iter()
-        .map(|info| Tab::new(info.name.clone()))
-        .collect();
-    let view = cx.entity();
-    Some(
-        tab_strip(
-            "board-tabs",
-            labels,
-            active,
-            indexed(&view, move |this, index, _, cx| {
-                if let Some(id) = ids.get(index) {
-                    this.select_board(id.clone(), cx);
-                }
-            }),
-            None,
-            None,
-        )
-        .into_any_element(),
-    )
 }
 
 /// One row of the board toolbar's mission filter (M27).
@@ -298,7 +264,7 @@ fn toolbar(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> impl 
     };
 
     // A named board is a plain kanban (`T-360`): no mission filter, no agent or mission to start.
-    let named = !board.boards.active.is_default();
+    let named = !board.boards.view().is_default();
 
     // The tags filter: several labels on at once, and a card has to carry every one that is lit —
     // the same set shape Teams' states filter is, so it is the same `kit::MultiPicker` rather than
@@ -545,6 +511,7 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
     let (Some(work), Some(board)) = (app.board_work(cx), app.board(cx)) else {
         return div().into_any_element();
     };
+    let row_board = board.boards.view();
     let tasks = board.column(work, status);
     let count = tasks.len();
     // Shut by hand, or shut because the project asked this lane to shut itself when it is empty.
@@ -700,7 +667,10 @@ fn column(app: &AppState, status: Status, cx: &mut Context<AppState>) -> AnyElem
             }))
             .child(
                 list(list_state, move |ix, window, cx| {
-                    render_row(&rows, ix, status, &view, window, cx)
+                    // Rows are drawn lazily, after the tab's own draw has ended.
+                    crate::state::board::with_view_board(row_board.clone(), || {
+                        render_row(&rows, ix, status, &view, window, cx)
+                    })
                 })
                 .flex_1()
                 .min_h(px(0.)),

@@ -66,7 +66,8 @@ crates/ubiq-proto/src/
 ├── mission.rs
 ├── tasksrc.rs
 ├── catalog.rs
-└── db.rs
+├── db.rs
+└── merge.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -197,7 +198,9 @@ crates/ubiq-host/src/
 │   ├── blocks.rs
 │   ├── lines.rs
 │   ├── provenance.rs
-│   └── service.rs
+│   ├── service.rs
+│   ├── lineage.rs
+│   └── queue.rs
 ├── mission/
 │   ├── mod.rs
 │   └── scheduler.rs
@@ -731,6 +734,7 @@ the documents in its row.
 | `crates/ubiq-host/src/notifications/os.rs` | [`features/notifications.md`](../features/notifications.md) |
 | `crates/ubiq-host/src/plan/blocks.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
 | `crates/ubiq-host/src/plan/mod.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md), [`wip/planning-system.md`](../wip/planning-system.md) |
+| `crates/ubiq-host/src/plan/queue.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
 | `crates/ubiq-host/src/plan/service.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`wip/planning-system.md`](../wip/planning-system.md) |
 | `crates/ubiq-host/src/projects.rs` | [`features/stats.md`](../features/stats.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/pty/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
@@ -1141,6 +1145,7 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/mcp/sql/blobs.rs` |
 | `crates/ubiq-host/src/mcp/sql/encode.rs` |
 | `crates/ubiq-host/src/mcp/sql/mod.rs` |
+| `crates/ubiq-host/src/plan/lineage.rs` |
 | `crates/ubiq-host/src/plan/lines.rs` |
 | `crates/ubiq-host/src/plan/provenance.rs` |
 | `crates/ubiq-host/src/reply.rs` |
@@ -1155,6 +1160,7 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/work/mock.rs` |
 | `crates/ubiq-proto/src/acp.rs` |
 | `crates/ubiq-proto/src/help.rs` |
+| `crates/ubiq-proto/src/merge.rs` |
 | `crates/ubiq-proto/src/search.rs` |
 | `crates/ubiq/src/app/db/explorer.rs` |
 | `crates/ubiq/src/app/db/settings.rs` |

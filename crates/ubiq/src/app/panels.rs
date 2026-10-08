@@ -457,6 +457,44 @@ impl AppState {
         }
     }
 
+    /// Make the dock's named-board tabs the enabled boards of one project (`T-360`), the same
+    /// bargain [`Self::sync_file_panels`] strikes for files. The default board is the centre panel
+    /// and has no tab of its own here.
+    pub(super) fn sync_board_panels(&mut self, project: ProjectId) {
+        let wanted: Vec<String> = self
+            .projects
+            .get(&project)
+            .map(|open| {
+                open.board
+                    .boards
+                    .tabs()
+                    .iter()
+                    .filter(|b| !b.id.is_default())
+                    .map(|b| b.id.as_str().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for kind in self.panels.keys() {
+            if let Some(key) = kind.board_key()
+                && !wanted.iter().any(|id| id == key)
+            {
+                self.pending_panels.push(PanelEdit::Close(kind.clone()));
+            }
+        }
+        // Board tabs are Tasks' furniture: queued only there, or the open lands in whatever mode
+        // is on screen and the mode-owned sweep drops it. Entering Tasks settles the layout,
+        // which runs this again.
+        if self.workbench.rail_mode != RailMode::TASKS {
+            return;
+        }
+        for key in wanted {
+            // Queued whether or not the panel entity exists: a mode switch drops the placement and
+            // keeps the entity, and `Open` is a no-op for a panel the dock already holds.
+            self.pending_panels
+                .push(PanelEdit::Open(PanelKind::Board(key)));
+        }
+    }
+
     /// Make the dock's chat panels the tabs of one project, the same way [`Self::sync_file_panels`]
     /// squares the file panels.
     ///
@@ -796,6 +834,7 @@ impl AppState {
             // is cleaned up the same way `Self::enter_project` gets the first one in: by squaring
             // the tree with `OpenProject::chats`, which is the tab's actual source of truth.
             self.sync_chat_panels(project);
+            self.sync_board_panels(project);
         }
         self.collapse_empty_regions(window, cx);
         self.note_settled(cx);
@@ -894,6 +933,10 @@ impl AppState {
         for (kind, panel) in &self.panels {
             let key = kind.tab_key().or_else(|| kind.kb_key());
             let db_tab = kind.db_key();
+            let board_enabled = kind.board_key().is_some_and(|id| {
+                self.open_project(cx)
+                    .is_some_and(|open| open.board.boards.tabs().iter().any(|b| b.id.as_str() == id))
+            });
             let at = Visibility {
                 is_ide,
                 has_project,
@@ -901,6 +944,7 @@ impl AppState {
                 pane_on_screen: kind.pane().is_some_and(|id| on_screen.contains(&id)),
                 file_open: match db_tab {
                     Some(key) => db.is_some_and(|db| db.holds_tab(key)),
+                    None if kind.board_key().is_some() => board_enabled,
                     None => key.is_some_and(|key| files.contains_key(key)),
                 },
                 any_file_open: match rail_mode {

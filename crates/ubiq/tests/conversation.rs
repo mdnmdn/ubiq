@@ -1915,60 +1915,66 @@ fn the_todo_panel_shares_the_activity_bar_with_subagents(cx: &mut TestAppContext
     );
 }
 
-/// Up in an empty composer brings the last turn back; up in one being written leaves it alone.
+/// Up walks what the user sent — even when the harness never echoed it — and Down walks back to
+/// the draft that was there; a draft past its first line is left alone.
 #[gpui::test]
-fn up_in_an_empty_composer_recalls_the_last_turn(cx: &mut TestAppContext) {
+fn up_walks_the_sent_history(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
-    // Agents mode, so the fresh start lands on column 0 — `recall_last_message` reads that
-    // column's composer, and outside Agents mode a fresh start no longer lands on one at all
-    // (`AppState::reveal_agent_for_mode`).
+    // Agents mode, so the fresh start lands on column 0 — `recall_history` reads that column's
+    // composer (`AppState::reveal_agent_for_mode`).
     fixture.state.update(cx, |state, cx| {
         state.set_rail_mode(RailMode::AGENTS, cx);
     });
     let id = AgentId::generate();
     fixture.started(an_agent(id), cx);
-    fixture.update(
-        id,
-        1,
-        ConvUpdate::UserChunk {
-            content: ConvContent::Text("look at the parser".to_string()),
-            message_id: Some("u1".to_string()),
-        },
-        cx,
-    );
-
-    let recalled = fixture
-        .window
-        .update(cx, |_, window, cx| {
-            fixture
-                .state
-                .update(cx, |state, cx| state.recall_last_message(0, window, cx))
-        })
-        .expect("the window is open");
-    assert!(recalled, "the last turn never came back");
-    assert_eq!(
+    for text in ["look at the parser", "and the lexer"] {
         fixture
-            .state
-            .read_with(cx, |state, cx| state.column_inputs[0]
-                .read(cx)
-                .value()
-                .to_string()),
-        "look at the parser"
-    );
+            .window
+            .update(cx, |_, window, cx| {
+                fixture.state.update(cx, |state, cx| {
+                    state.column_inputs[0].update(cx, |input, cx| input.set_value(text, window, cx));
+                    state.prompt_agent(id, 0, window, cx);
+                })
+            })
+            .expect("the window is open");
+    }
+    let key = |back: bool, cx: &mut TestAppContext| {
+        fixture
+            .window
+            .update(cx, |_, window, cx| {
+                fixture
+                    .state
+                    .update(cx, |state, cx| state.recall_history(0, back, window, cx))
+            })
+            .expect("the window is open")
+    };
+    let field = |cx: &mut TestAppContext| {
+        fixture.state.read_with(cx, |state, cx| {
+            state.column_inputs[0].read(cx).value().to_string()
+        })
+    };
+    assert!(key(true, cx));
+    assert_eq!(field(cx), "and the lexer");
+    assert!(key(true, cx));
+    assert_eq!(field(cx), "look at the parser");
+    assert!(key(false, cx));
+    assert_eq!(field(cx), "and the lexer");
+    assert!(key(false, cx));
+    assert_eq!(field(cx), "", "the draft before browsing was not restored");
+    assert!(!key(false, cx), "down while not browsing took the key");
 
-    // A draft in the field is work in progress, and the key that would overwrite it does nothing.
-    let recalled = fixture
+    // Edited text ends the walk: Down must not replace it with the stash.
+    assert!(key(true, cx));
+    fixture
         .window
         .update(cx, |_, window, cx| {
             fixture.state.update(cx, |state, cx| {
-                state.column_inputs[0].update(cx, |input, cx| {
-                    input.set_value("half a thought", window, cx);
-                });
-                state.recall_last_message(0, window, cx)
+                state.column_inputs[0].update(cx, |input, cx| input.set_value("edited", window, cx))
             })
         })
         .expect("the window is open");
-    assert!(!recalled, "a draft was overwritten by the recall");
+    assert!(!key(false, cx), "down replaced edited text");
+    assert_eq!(field(cx), "edited");
 }
 
 /// One `READ`, at whichever status the run has reached.

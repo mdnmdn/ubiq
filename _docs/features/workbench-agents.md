@@ -428,13 +428,13 @@ is showing. Enter sends, Shift-Enter inserts a newline, and cmd/ctrl+Enter sends
 bare Enter, so there is nothing extra to wire, only a hint to show for it. `AppState::agent_for_slot`
 is what "sends" resolves the agent through on every surface — a chat tab's own attachment for a slot
 in the chat range, a column's active tab for one in the column range — so the Enter key and the
-composer's own button never disagree about who a slot is addressed at. Up in an *empty* field
-brings the last turn back, the way a shell brings back the last command — `recall_last_message`
-reads it off the transcript, which is what was actually sent, and keeps nothing beside it. Claude
+composer's own button never disagree about who a slot is addressed at. Up on the first line of the field (or in an empty one) walks back through what this
+conversation's user *sent* — `Conversation::sent`, in memory, recorded at send or queue time and
+independent of the transcript, so a turn the harness errored on is still recoverable — and Down
+walks forward, finally restoring the draft that was there before browsing (`recall_history`). Claude
 Code's own cancelled-turn echo (`[Request interrupted by user]`) is not pushed as a transcript block
-in the first place — see the chat document — so it is never what Up hands back. A field
-with a draft in it is left alone: the key moves the cursor, because a key that overwrites what is
-typed is a key that loses work.
+in the first place — see the chat document. With the caret below the first line the key moves the
+caret instead, and the draft is stashed, never overwritten.
 
 **One control does Send, Stop or Enqueue, depending on the turn.** Idle sends, exactly as
 `prompt_agent` always has. A turn already running with the draft empty offers Stop, which cancels

@@ -2206,6 +2206,9 @@ impl AppState {
                         message: Box::new(Message::ListWork { project_id }),
                     });
                 }
+                if self.project(cx) == Some(project_id) {
+                    self.sync_board_panels(project_id);
+                }
                 cx.notify();
             }
 

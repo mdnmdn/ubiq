@@ -665,6 +665,16 @@ fn write_input(wire: &Wire, input: AgentInput) -> crate::Result<()> {
             let text = input.prompt_text().unwrap_or_default();
             let user_input = json!([{"type": "text", "text": text, "text_elements": []}]);
 
+            // The transcript's user block is synthesized here, as `io/jsonl` does for Claude:
+            // the App Server's `userMessage` item is dropped by the reader, so this is the only
+            // source. Emitted before the request so it sorts ahead of the turn's own events.
+            if !text.is_empty() {
+                wire.emit(AgentEvent::UserMessageChunk {
+                    content: Content::text(text.clone()),
+                    message_id: None,
+                });
+            }
+
             // A prompt into a running turn steers it: `turn/steer` appends the input to the turn
             // in flight, which must be the one named (`expectedTurnId`). A turn that ended in
             // between refuses, and the prompt then opens a turn of its own.
@@ -1700,6 +1710,9 @@ impl Mapper {
                 update: ToolCallUpdate::finished(id, ToolStatus::Completed),
             }],
             ("contextCompaction", false) => vec![AgentEvent::Compacted],
+            // The user's own turn is synthesized in `write_input` the moment it is sent, so the
+            // server's `userMessage` item is dropped here: one source, never a duplicate.
+            ("userMessage", _) => Vec::new(),
             _ => Vec::new(),
         }
     }

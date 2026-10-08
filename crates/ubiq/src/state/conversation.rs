@@ -315,6 +315,13 @@ pub struct Conversation {
     pub accepts_input: bool,
     /// What the composer holds, unsent.
     pub draft: String,
+    /// Everything the user has sent from the composer, oldest first — kept here and not read back
+    /// out of the transcript, because a turn the harness errors on is never echoed and would
+    /// otherwise be lost to Arrow Up. In memory only.
+    pub sent: Vec<String>,
+    /// While Arrow Up is walking `sent`: the entry on screen, and the draft that was in the field
+    /// before browsing began, which walking forward past the newest entry restores.
+    pub recall: Option<(usize, String)>,
     /// Whether the harness behind this conversation has actually launched. `false` from
     /// registration until its own `Started` event arrives — the window between them is P3's
     /// pending stage, where the composer offers a model picker instead of a running conversation.
@@ -457,6 +464,8 @@ impl Conversation {
             error: None,
             accepts_input: true,
             draft: String::new(),
+            sent: Vec::new(),
+            recall: None,
             launched: false,
             chosen: BTreeMap::new(),
             open_config: None,
@@ -831,7 +840,7 @@ impl Conversation {
                     // Claude Code echoes a synthetic user-role message when a turn is cancelled —
                     // `[Request interrupted by user]`, or the tool-use variant. Nobody typed it, so
                     // it is dropped rather than pushed: not drawn as a message, and not there for
-                    // `recall_last_message` to hand back as if it were the last thing the user said.
+                    // the sent history to hand back as if it were the last thing the user said.
                     if !is_cancelled_turn_marker(&said) {
                         // Spent only by the *real* turn. A chunk with no text in it and a
                         // synthetic interrupt echo are both this turn's harness talking, not this
@@ -1105,6 +1114,16 @@ impl Conversation {
     pub fn delegate_tokens(&self, id: &str) -> Option<(u64, u64)> {
         let spend = self.spend_by_delegate.get(id)?;
         (spend.total() > 0).then(|| (spend.total(), spend.cached()))
+    }
+
+    /// Remember what the user just sent, so Arrow Up can bring it back. A repeat of the newest
+    /// entry is not stored twice, and sending ends any browsing in progress.
+    pub fn remember_sent(&mut self, typed: &str) {
+        self.recall = None;
+        if typed.trim().is_empty() || self.sent.last().is_some_and(|last| last == typed) {
+            return;
+        }
+        self.sent.push(typed.to_string());
     }
 
     /// Hold a prompt for later, typed while a turn was already running. Returns the id it was

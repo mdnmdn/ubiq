@@ -247,7 +247,29 @@ impl Default for Boards {
     }
 }
 
+thread_local! {
+    /// The board the tab being drawn is about. A board tab draws its own board whatever
+    /// [`Boards::active`] (the focused tab's, which interactions act on) says, so a split of two
+    /// board tabs shows two boards. Set only for the span of a draw, see [`with_view_board`].
+    static VIEW_BOARD: RefCell<Option<BoardId>> = const { RefCell::new(None) };
+}
+
+/// Run `f` with the board draws and reads resolving to `board` rather than the active one.
+pub fn with_view_board<R>(board: BoardId, f: impl FnOnce() -> R) -> R {
+    let prev = VIEW_BOARD.with(|slot| slot.replace(Some(board)));
+    let out = f();
+    VIEW_BOARD.with(|slot| *slot.borrow_mut() = prev);
+    out
+}
+
 impl Boards {
+    /// The board a draw is about: the tab's own while one is being drawn, else the active one.
+    pub fn view(&self) -> BoardId {
+        VIEW_BOARD
+            .with(|slot| slot.borrow().clone())
+            .unwrap_or_else(|| self.active.clone())
+    }
+
     /// Take the host's list. A board that vanished or was disabled while it was on screen sends the
     /// view back to the default one; its projection is dropped with it. Answers whether the active
     /// board changed.
@@ -275,10 +297,11 @@ impl Boards {
 
     /// The named board's projection; `None` for the default board, whose work is the project's.
     pub fn work(&self) -> Option<&WorkProjection> {
-        if self.active.is_default() {
+        let view = self.view();
+        if view.is_default() {
             None
         } else {
-            Some(self.named.get(&self.active).unwrap_or(&self.blank))
+            Some(self.named.get(&view).unwrap_or(&self.blank))
         }
     }
 }

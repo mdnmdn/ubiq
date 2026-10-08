@@ -71,8 +71,10 @@ archived — deleted with its directory; the default board can be neither disabl
 registry is re-read on every disk sync, broadcasting `Boards` when it moved, and again before each
 change, so a row another Ubiq or a pull added is kept; a row whose id is not a slug (`a-z`, `0-9`,
 `-`, non-empty), or repeats one, is ignored, since `boards.toml` travels with a project-managed
-project and an id becomes a directory name. The window draws them in two places. **A tab strip over the toolbar**, one tab per enabled board with the
-default first, appears once a named board is shown; its tabs never close, and picking one swaps the
+project and an id becomes a directory name. The window draws them in two places. **A dock tab per board**: the default board is the centre's "Tasks" tab and
+each enabled named board is a `PanelKind::Board(slug)` centre tab beside it, labelled with its name;
+none closes (a board is hidden or deleted from settings), `AppState::sync_board_panels` keeps them
+equal to the enabled list, and a board tab becoming the displayed one swaps the
 view's projection (`BoardState::boards`, `AppState::board_work`) and clears what was open, filtered
 or mid-drag on the old one. A named board's tasks live in their own projection keyed by board id and
 are fed by the wrapped `WorkList`, `TaskCreated`, `TaskChanged`, `TaskDeleted` and `WorkError`;

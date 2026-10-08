@@ -335,7 +335,7 @@ Arrangement: `reveal_agent`, `group_agent_into`, `bench_agent`, `select_column_t
 `focus_agent_column`, `toggle_agents_session`, `start_tab_drag`, `drop_tab_on`, `drop_tab_at_end`,
 `open_agent_bench_menu` / `pick_agent_bench_menu` / `dismiss_agent_bench_menu`.
 
-Turns: `prompt_agent`, `send_or_enqueue`, `recall_last_message`, `edit_queued_message`,
+Turns: `prompt_agent`, `send_or_enqueue`, `recall_history`, `edit_queued_message`,
 `delete_queued_message`, `cancel_turn`, `steer_column`, `agent_for_slot`.
 
 Composer: `start_composer_resize`, `drag_composer_resize`, `end_composer_resize`,

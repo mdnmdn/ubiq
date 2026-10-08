@@ -1,5 +1,4 @@
 use super::*;
-use crate::state::ConvBlock;
 use crate::state::conversation::ActivityPanel;
 use crate::state::work::AgentLabel;
 
@@ -384,7 +383,7 @@ impl AppState {
     /// Put an agent's own unsent draft back into the composer now addressing it, so reattaching to
     /// a conversation — the chat panel's *Attach running*, most of all — picks up where the last
     /// surface that had it open left off. Only when the field is empty, the same guard
-    /// [`Self::recall_last_message`] uses: a composer already being written into is never
+    /// the history recall respects: a composer already being written into is never
     /// overwritten by a fact from elsewhere.
     pub(super) fn restore_composer_draft(
         &mut self,
@@ -458,6 +457,7 @@ impl AppState {
             return;
         }
         self.send_prompt(agent_id, text);
+        self.remember_sent(agent_id, &typed, cx);
         self.clear_attachments(agent_id, cx);
         self.clear_composer(slot, window, cx);
         cx.notify();
@@ -511,6 +511,7 @@ impl AppState {
         {
             conversation.enqueue(text);
             conversation.clear_attached();
+            conversation.remember_sent(&typed);
         }
         self.clear_composer(slot, window, cx);
         cx.notify();
@@ -531,39 +532,90 @@ impl AppState {
         }
     }
 
-    /// Put the last thing said to this composer's agent back into it, and say whether it did.
+    /// Note one typed message in the conversation's sent history.
+    fn remember_sent(&mut self, agent_id: AgentId, typed: &str, cx: &mut Context<Self>) {
+        if let Some(id) = self.project_of_agent(agent_id, cx)
+            && let Some(open) = self.projects.get_mut(&id)
+            && let Some(conversation) = open.conversations.get_mut(&agent_id)
+        {
+            conversation.remember_sent(typed);
+        }
+    }
+
+    /// Walk this composer's conversation's sent history — Arrow Up (`back`) or Arrow Down — and
+    /// say whether the key was taken.
     ///
-    /// Only when the field is empty: a composer with a draft in it is being written, and a key
-    /// that overwrites what is typed is a key that loses work. The transcript is the history —
-    /// nothing is kept beside it, because the turns the harness echoed back are what was actually
-    /// sent.
-    pub fn recall_last_message(
+    /// The history is `Conversation::sent`, what the user sent, not the transcript: a turn the
+    /// harness errors on is never echoed, and the text must still be recoverable. Up takes the
+    /// key when the field is empty or the caret is on its first line; Down only while browsing,
+    /// with the caret on the last line, and walking past the newest entry restores the draft that
+    /// was there before browsing. Anything else is handed back so the field moves its caret.
+    pub fn recall_history(
         &mut self,
         slot: usize,
+        back: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
         let Some(input) = self.column_inputs.get(slot).cloned() else {
             return false;
         };
-        if !input.read(cx).value().is_empty() {
+        let (value, caret) = {
+            let state = input.read(cx);
+            (state.value().to_string(), state.cursor().min(state.value().len()))
+        };
+        let on_first = value.is_empty() || !value[..caret].contains('\n');
+        let on_last = value.is_empty() || !value[caret..].contains('\n');
+        let Some(agent_id) = self.agent_for_slot(slot, cx) else {
             return false;
-        }
-        let Some(text) = self
-            .agent_for_slot(slot, cx)
-            .and_then(|agent_id| self.teams_conversation(agent_id, cx))
-            .and_then(|conversation| {
-                conversation
-                    .blocks
-                    .iter()
-                    .rev()
-                    .find_map(|block| match block {
-                        ConvBlock::User { text, .. } => Some(text.clone()),
-                        _ => None,
-                    })
-            })
+        };
+        let Some(project_id) = self.project_of_agent(agent_id, cx) else {
+            return false;
+        };
+        let Some(conversation) = self
+            .projects
+            .get_mut(&project_id)
+            .and_then(|open| open.conversations.get_mut(&agent_id))
         else {
             return false;
+        };
+        // Browsing only while the field still holds the entry on screen: edited text, or another
+        // conversation's field, means the walk is over and what is there is the draft.
+        if let Some((at, _)) = &conversation.recall
+            && conversation.sent.get(*at).map(String::as_str) != Some(value.as_str())
+        {
+            conversation.recall = None;
+        }
+        let text = match (back, conversation.recall.clone()) {
+            (true, _) if !on_first => return false,
+            // Entering history takes an empty field or a caret at the very start — Up on a lower
+            // soft-wrapped row of a long draft is the field's own.
+            (true, None) if !(value.is_empty() || caret == 0) => return false,
+            (true, None) => {
+                let Some(last) = conversation.sent.len().checked_sub(1) else {
+                    return false;
+                };
+                conversation.recall = Some((last, value));
+                conversation.sent[last].clone()
+            }
+            (true, Some((at, stash))) => {
+                let Some(older) = at.checked_sub(1) else {
+                    return true;
+                };
+                conversation.recall = Some((older, stash));
+                conversation.sent[older].clone()
+            }
+            (false, None) => return false,
+            (false, Some(_)) if !on_last => return false,
+            (false, Some((at, stash))) => {
+                if at + 1 < conversation.sent.len() {
+                    conversation.recall = Some((at + 1, stash));
+                    conversation.sent[at + 1].clone()
+                } else {
+                    conversation.recall = None;
+                    stash
+                }
+            }
         };
         input.update(cx, |state, cx| state.set_value(text, window, cx));
         cx.notify();

@@ -193,6 +193,10 @@ pub enum PanelKind {
     /// One SQL editor tab, named by its session — `dbsql:<session id>`. A bottom-dock tab, several
     /// at once.
     DbSql(String),
+    /// One named task board (`T-360`), named by its slug. The default board is [`Self::Centre`] in
+    /// Tasks mode, so this is only ever a *named* one. A centre tab beside it, never closable: a
+    /// board is hidden or deleted from the project's settings, not from the strip.
+    Board(String),
     /// Ubiq's own documentation. **Not mode-owned**: the reader opens it to understand the screen
     /// they are looking at, so it has to survive the rail-mode change that takes them there.
     Help,
@@ -224,6 +228,10 @@ impl PanelKind {
     /// The name every SQL tab answers, on [`Self::DB_TABLE`]'s terms.
     pub const DB_SQL: &'static str = "ubiq.db.sql";
 
+    /// The name every named-board tab answers, on [`Self::DB_TABLE`]'s terms: the slug travels in
+    /// the payload.
+    pub const BOARD: &'static str = "ubiq.board";
+
     /// Where this kind may sit. One function, consulted in one place.
     pub fn class(&self) -> PanelClass {
         match self {
@@ -248,6 +256,7 @@ impl PanelKind {
             | PanelKind::Kb(_)
             | PanelKind::DbTable(_)
             | PanelKind::DbSql(_)
+            | PanelKind::Board(_)
             | PanelKind::MissionView(_) => PanelClass::Centre,
         }
     }
@@ -270,6 +279,7 @@ impl PanelKind {
             | PanelKind::Kb(_)
             | PanelKind::DbTable(_)
             | PanelKind::DbSql(_)
+            | PanelKind::Board(_)
             | PanelKind::MissionView(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
             PanelKind::GitRefs => Region::Left,
@@ -329,6 +339,7 @@ impl PanelKind {
             PanelKind::DbExplorer => "ubiq.db.explorer",
             PanelKind::DbTable(_) => Self::DB_TABLE,
             PanelKind::DbSql(_) => Self::DB_SQL,
+            PanelKind::Board(_) => Self::BOARD,
             PanelKind::Task => "ubiq.task",
             PanelKind::AgentsExplorer => "ubiq.agents.explorer",
             PanelKind::Help => "ubiq.help",
@@ -401,6 +412,14 @@ impl PanelKind {
     pub fn db_key(&self) -> Option<&str> {
         match self {
             PanelKind::DbTable(key) | PanelKind::DbSql(key) => Some(key.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The named board this panel is, if it is one — its slug.
+    pub fn board_key(&self) -> Option<&str> {
+        match self {
+            PanelKind::Board(key) => Some(key.as_str()),
             _ => None,
         }
     }
@@ -497,6 +516,11 @@ impl PanelKind {
             // task and the agents list are their mode's furniture, and a project is what either
             // is about.
             PanelKind::Task => at.has_project && matches!(at.rail_mode, Some(RailMode::TASKS)),
+            // A named board is Tasks' centre while it is enabled; `file_open` carries that, as it
+            // does for a database tab.
+            PanelKind::Board(_) => {
+                at.has_project && matches!(at.rail_mode, Some(RailMode::TASKS)) && at.file_open
+            }
             PanelKind::AgentsExplorer => {
                 at.has_project && matches!(at.rail_mode, Some(RailMode::AGENTS))
             }
@@ -545,6 +569,7 @@ impl PanelKind {
                     | PanelKind::DbExplorer
                     | PanelKind::DbTable(_)
                     | PanelKind::DbSql(_)
+                    | PanelKind::Board(_)
                     | PanelKind::Task
                     | PanelKind::AgentsExplorer
             )

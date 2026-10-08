@@ -3356,13 +3356,20 @@ fn composer(
         .flex_none()
         .flex_col()
         .items_stretch()
-        // Up in an empty field brings the last thing sent back, the way a shell does. Captured
-        // above the field, because the field's own `up` moves the cursor and stops there — and it
-        // is handed back untouched when there is nothing to recall or something is typed, so a
-        // draft of more than one line still navigates.
+        // Up / Down walk what this conversation has sent, the way a shell does. Captured above the
+        // field, because the field's own `up` / `down` move the caret and stop there — and the key
+        // is handed back untouched when it is not the history's (caret below the first line, not
+        // browsing), so a draft of more than one line still navigates.
         .capture_action(
             cx.listener(move |this, _: &gpui_component::input::MoveUp, window, cx| {
-                if this.recall_last_message(slot, window, cx) {
+                if this.recall_history(slot, true, window, cx) {
+                    cx.stop_propagation();
+                }
+            }),
+        )
+        .capture_action(
+            cx.listener(move |this, _: &gpui_component::input::MoveDown, window, cx| {
+                if this.recall_history(slot, false, window, cx) {
                     cx.stop_propagation();
                 }
             }),

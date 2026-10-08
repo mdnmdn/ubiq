@@ -264,7 +264,7 @@ The `Chat` panel `open_teams_agent_panel` points at the selection draws the whol
 component, so the window span puts a foreign agent behind every listener in `ui/conversation/`, not
 only behind the four writes above.
 Each of those resolves the agent's own project: `app/agents.rs`'s queue trio, `cancel_turn`,
-`answer_permission`, `fork_conversation`, `reveal_permission`, `recall_last_message`, the config
+`answer_permission`, `fork_conversation`, `reveal_permission`, `recall_history`, the config
 picker and the panel and disclosure toggles all take `project_of_agent`, and the three lifecycle
 rows read the record through `AppState::teams_agent`, `work()`'s span-aware sibling. The transcript
 list body and `ui/conversation/info.rs` read through `teams_conversation` and `teams_agent` for the

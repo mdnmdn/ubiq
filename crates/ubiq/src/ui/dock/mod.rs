@@ -392,6 +392,15 @@ impl WorkbenchPanel {
                 label: "Agents".into(),
                 ..TabInfo::default()
             },
+            // A named board's tab is the board's own name, beside the default board's "Tasks".
+            PanelKind::Board(key) => TabInfo {
+                label: app
+                    .board(cx)
+                    .and_then(|board| board.boards.list.iter().find(|b| b.id.as_str() == key))
+                    .map(|b| SharedString::from(b.name.clone()))
+                    .unwrap_or_else(|| SharedString::from(key.clone())),
+                ..TabInfo::default()
+            },
         }
     }
 }
@@ -571,6 +580,15 @@ impl BasePanel for WorkbenchPanel {
                         if let Some(key) = kind.kb_key() {
                             app.activate_kb_doc(key, cx);
                         }
+                        // A board tab becoming the displayed one is what puts the tasks view on
+                        // that board (`T-360`); the default board's is the centre panel.
+                        if let Some(key) = kind.board_key() {
+                            app.select_board(ubiq_proto::work::BoardId(key.to_string()), cx);
+                        } else if kind == PanelKind::Centre
+                            && app.workbench.rail_mode == crate::state::RailMode::TASKS
+                        {
+                            app.select_board(ubiq_proto::work::BoardId::DEFAULT, cx);
+                        }
                     }
                 }
             });
@@ -687,6 +705,7 @@ impl BasePanel for WorkbenchPanel {
             .tab_key()
             .or_else(|| self.kind.kb_key())
             .or_else(|| self.kind.db_key())
+            .or_else(|| self.kind.board_key())
         {
             state.info = PanelInfo::panel(file_payload(key));
         }
@@ -743,7 +762,20 @@ impl Render for WorkbenchPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let kind = self.kind.clone();
         self.app
-            .update(cx, |app, cx| body(&kind, app, window, cx))
+            .update(cx, |app, cx| match &kind {
+                // A board tab draws its own board; the default board is the centre's.
+                PanelKind::Board(key) => crate::state::board::with_view_board(
+                    ubiq_proto::work::BoardId(key.clone()),
+                    || body(&kind, app, window, cx),
+                ),
+                PanelKind::Centre if app.workbench.rail_mode == crate::state::RailMode::TASKS => {
+                    crate::state::board::with_view_board(
+                        ubiq_proto::work::BoardId::DEFAULT,
+                        || body(&kind, app, window, cx),
+                    )
+                }
+                _ => body(&kind, app, window, cx),
+            })
             .unwrap_or_else(|_| div().into_any_element())
     }
 }
@@ -779,6 +811,7 @@ fn body(
         PanelKind::DbTable(key) => db::table::render(app, key, cx),
         PanelKind::DbSql(key) => db::sql::render(app, key, cx),
         PanelKind::Task => board::panel(app, window, cx),
+        PanelKind::Board(_) => drop_target(centre(app, window, cx), cx),
         PanelKind::AgentsExplorer => agents::sidebar::render(app, cx).into_any_element(),
         PanelKind::Mission(task_id) => mission::render(app, *task_id, window, cx),
         PanelKind::MissionView(task_id) => mission::full::tab(app, *task_id, window, cx),
@@ -1487,7 +1520,8 @@ fn leaf(state: &PanelState) -> Option<PanelKind> {
     // from `ViewPrefs::db_sql_drafts`.
     let is_table = state.panel_name == PanelKind::DB_TABLE;
     let is_sql = state.panel_name == PanelKind::DB_SQL;
-    if !is_file && !is_doc && !is_table && !is_sql {
+    let is_board = state.panel_name == PanelKind::BOARD;
+    if !is_file && !is_doc && !is_table && !is_sql && !is_board {
         return PanelKind::from_name(&state.panel_name);
     }
     let PanelInfo::Panel(payload) = &state.info else {
@@ -1499,10 +1533,11 @@ fn leaf(state: &PanelState) -> Option<PanelKind> {
     // A knowledge-base document writes the same payload under its own panel name, so what the
     // key rebuilds into is the name's answer rather than the payload's.
     let key = || kind.tab_key().map(str::to_string);
-    match (is_doc, is_table, is_sql) {
-        (true, _, _) => Some(PanelKind::Kb(key()?)),
-        (_, true, _) => Some(PanelKind::DbTable(key()?)),
-        (_, _, true) => Some(PanelKind::DbSql(key()?)),
+    match (is_doc, is_table, is_sql, is_board) {
+        (true, ..) => Some(PanelKind::Kb(key()?)),
+        (_, true, ..) => Some(PanelKind::DbTable(key()?)),
+        (_, _, true, _) => Some(PanelKind::DbSql(key()?)),
+        (_, _, _, true) => Some(PanelKind::Board(key()?)),
         _ => Some(kind),
     }
 }

@@ -759,6 +759,9 @@ and is read only for older binaries.
   arguments, result, error }`, `dynamicToolCall`, `webSearch { query }`, `contextCompaction`,
   `collabAgentToolCall`, `subAgentActivity`, `plan`, and more. Status is `inProgress | completed |
   failed | declined`.
+- **The user's turn is synthesized, not read.** The reader drops `userMessage` items; `write_input`
+  in `io/codex.rs` emits `AgentEvent::UserMessageChunk` with the prompt text on each prompt, before
+  the request, as `io/jsonl` does for Claude. One source, so the transcript never shows it twice.
 - **Streaming** — `item/agentMessage/delta`, `item/reasoning/summaryTextDelta`,
   `item/reasoning/textDelta`, `item/commandExecution/outputDelta`, each `{ itemId, delta }`.
 - **Plan** — `turn/plan/updated { plan: [{ step, status: pending | inProgress | completed }] }`.

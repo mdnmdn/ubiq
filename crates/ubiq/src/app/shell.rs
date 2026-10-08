@@ -337,6 +337,7 @@ impl AppState {
         self.search.reset();
         self.sync_file_panels(project);
         self.sync_chat_panels(project);
+        self.sync_board_panels(project);
         // The one exception to a project opening with the right region closed: a persistent
         // agent's tab, shown the moment the work that names it is in hand. If it has not arrived
         // yet, the `WorkList` answer settles this instead.
@@ -420,7 +421,7 @@ impl AppState {
     /// that needs an agent or a mission is not offered.
     pub fn board_is_named(&self, cx: &App) -> bool {
         self.open_project(cx)
-            .is_some_and(|open| !open.board.boards.active.is_default())
+            .is_some_and(|open| !open.board.boards.view().is_default())
     }
 
     /// Send a work message for the board on screen: bare for the default board, wrapped in
