@@ -1143,8 +1143,10 @@ impl TerminalView {
         };
         // GPUI y is positive when scrolling down; scroll_report treats positive as up.
         let delta = -raw;
-        // macOS reports the wheel with the opposite sign of every other platform's mouse.
-        #[cfg(target_os = "macos")]
+        // gpui's macOS and Windows backends both report wheel-up as positive y (Windows:
+        // gpui_windows/src/events.rs `wheel_distance` from the signed HIWORD), so the
+        // negation above is wrong there; undo it. Linux is left as it was.
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let delta = -delta;
         if delta == 0 {
             return;
