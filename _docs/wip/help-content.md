@@ -272,7 +272,9 @@ Paste this ahead of the task's own row:
 > You are writing part of Ubiq's user manual. Work only inside `ubiq/` (the base repository).
 > Read first: `_docs/wip/help-content` (this programme — your task is row `<T#>`),
 > `_docs/help/style` and `_docs/help/structure` (once they exist), and only the documents
-> your row names. Facts come from `_docs/features/`; if a feature document and the running app
+> your row names. The reader is a user who wants to get their work done with Ubiq, not someone
+> interested in its internals: explain what they see, what they can do and how, never the
+> mechanism (`_docs/help/style` §1). Facts come from `_docs/features/`; if a feature document and the running app
 > disagree, say so in your report instead of guessing.
 > Rules: use the Edit/Write tools for every edit — no `sed -i`, no `perl -pi`, no heredoc or
 > Python rewriting a file. Never invent a control, a shortcut or a behaviour. Never reference code,
