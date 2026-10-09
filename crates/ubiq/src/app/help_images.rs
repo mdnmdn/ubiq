@@ -12,6 +12,9 @@
 //!   `localhost` is spelled out because GPUI's request type refuses a `file:///` URI with an empty
 //!   authority.
 //!
+//! The same read-time pass folds each soft line break in a paragraph to a space, because the
+//! library's text view draws one as a hard break (`G419`); a page wrapped in its source then flows.
+//!
 //! The rewrite works on the parsed tree's source spans, so an image written inside a code block or
 //! a code span — an authoring example — is never touched.
 
@@ -41,7 +44,7 @@ pub(super) fn localise(source: &str, root: &Path, page_path: &str) -> String {
     let resolve = |url: &str| file_uri(root, folder, url);
 
     let mut edits: Vec<(Range<usize>, String)> = Vec::new();
-    collect(&tree, source, &resolve, &mut edits);
+    collect(&tree, source, &resolve, false, &mut edits);
     edits.sort_by_key(|(range, _)| range.start);
 
     let mut out = String::with_capacity(source.len());
@@ -58,11 +61,13 @@ pub(super) fn localise(source: &str, root: &Path, page_path: &str) -> String {
     out
 }
 
-/// The edits one subtree asks for: an image's destination, and the `src` of an `<img>` tag.
+/// The edits one subtree asks for: an image's destination, the `src` of an `<img>` tag, and each
+/// soft line break in a paragraph's text. `in_paragraph` is set below a `Paragraph`.
 fn collect(
     node: &Node,
     source: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
+    in_paragraph: bool,
     edits: &mut Vec<(Range<usize>, String)>,
 ) {
     let span = node
@@ -92,12 +97,37 @@ fn collect(
                 }
             }
         }
+        (Node::Text(_), Some(span)) if in_paragraph => soft_breaks(source, span, edits),
         _ => {}
     }
+    let in_paragraph = in_paragraph || matches!(node, Node::Paragraph(_));
     if let Some(children) = node.children() {
         for child in children {
-            collect(child, source, resolve, edits);
+            collect(child, source, resolve, in_paragraph, edits);
         }
+    }
+}
+
+/// Each newline inside one paragraph text node's `span`, with the spaces before it and the next
+/// line's indent and `>` markers, folded to one space (`G419`). A hard break (two trailing spaces,
+/// a backslash) is a `Break` node of its own, and code spans and inline HTML are not `Text`, so
+/// none of them reaches here. Inside a paragraph a line cannot open with a `>` of its own — that
+/// would start a block quote — so every `>` after a newline is a container marker.
+fn soft_breaks(source: &str, span: Range<usize>, edits: &mut Vec<(Range<usize>, String)>) {
+    let bytes = source.as_bytes();
+    let mut at = span.start;
+    while let Some(found) = source[at..span.end].find('\n') {
+        let newline = at + found;
+        let mut start = newline;
+        while start > span.start && matches!(bytes[start - 1], b' ' | b'\t' | b'\r') {
+            start -= 1;
+        }
+        let mut end = newline + 1;
+        while end < span.end && matches!(bytes[end], b' ' | b'\t' | b'>') {
+            end += 1;
+        }
+        edits.push((start..end, " ".to_string()));
+        at = end;
     }
 }
 
@@ -222,6 +252,27 @@ mod tests {
         let root = Path::new("/r/help");
         let page = "`![a](x.png)`\n\n```\n<img src=\"x.png\">\n```\n\n![b](https://e/x.png) ![c](/x.png) ![d](../../x.png)\n";
         assert_eq!(localise(page, root, "page.md"), page);
+    }
+
+    #[test]
+    fn soft_breaks_in_a_paragraph_fold_to_a_space() {
+        let root = Path::new("/r/help");
+        let page = "One\ntwo *three\nfour* end.\n\n- item\n  wrapped\n\n> quoted\n> line\n";
+        assert_eq!(
+            localise(page, root, "page.md"),
+            "One two *three four* end.\n\n- item wrapped\n\n> quoted line\n"
+        );
+    }
+
+    #[test]
+    fn hard_breaks_code_html_tables_and_headings_keep_their_newlines() {
+        let root = Path::new("/r/help");
+        let page = "a  \nb\\\nc\n\n`x\ny`\n\n<span>\nz</span>\n\n```\nq\nr\n```\n\n| h |\n|---|\n| v |\n\nTitle\nmore\n=====\n";
+        let out = localise(page, root, "page.md");
+        assert!(out.starts_with(
+            "a  \nb\\\nc\n\n`x\ny`\n\n<span>\nz</span>\n\n```\nq\nr\n```\n\n| h |\n|---|\n| v |\n"
+        ));
+        assert!(out.ends_with("Title\nmore\n=====\n"));
     }
 
     #[test]

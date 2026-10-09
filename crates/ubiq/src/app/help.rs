@@ -178,7 +178,8 @@ impl AppState {
             return;
         };
         // Images are written relative to the page; the renderer only knows URIs, so they are
-        // rewritten to the bundle's files here, once, where the root is in hand.
+        // rewritten to the bundle's files here, once, where the root is in hand. The same pass
+        // folds a paragraph's soft line breaks, which the renderer would draw as hard ones (G419).
         let source = std::fs::read_to_string(root.join(&page.path))
             .ok()
             .map(|source| super::help_images::localise(&source, &root, &page.path));
