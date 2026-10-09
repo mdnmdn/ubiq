@@ -51,6 +51,15 @@ bundle-win: help-bundle
     cp target/release/ubiq.exe target/ubiq-windows-x86_64/ubiq.exe
     cp target/help/help.bundle target/ubiq-windows-x86_64/help.bundle
 
+# Assemble the Linux release in target/ubiq-linux-x86_64/ — the binary, help.bundle beside it
+bundle-linux: help-bundle
+    cargo build -p ubiq-app --release --features assist-apple
+    rm -rf target/ubiq-linux-x86_64
+    mkdir -p target/ubiq-linux-x86_64
+    cp target/release/ubiq target/ubiq-linux-x86_64/ubiq
+    cp target/help/help.bundle target/ubiq-linux-x86_64/help.bundle
+    cp assets/logo-white-on-blue.png target/ubiq-linux-x86_64/ubiq.png
+
 # ── the harness library ────────────────────────────────────────────
 
 # Run the `am` CLI: `just am claude --print-config`
