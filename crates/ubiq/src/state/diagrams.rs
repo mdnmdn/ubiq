@@ -38,7 +38,7 @@ use sha2::{Digest, Sha256};
 /// **This string and the `=` pin on `merman` in `Cargo.toml` move together.** A renderer whose
 /// output changed while the key stayed the same would serve yesterday's picture forever, and the
 /// cache holds no other version marker — there is no bundle to hash, because there is no bundle.
-const RENDERER: &str = "merman 0.8.0-alpha.5";
+const RENDERER: &str = "merman 0.8.0";
 
 /// The shape of what is written down, so a change to it invalidates every entry at once.
 const CACHE_FORMAT: &str = "v1";
@@ -125,18 +125,33 @@ pub fn render(source: &str, palette: DiagramPalette) -> Result<DiagramImage, Str
         .with_postprocessor(merman::svg::CssOverridePostprocessor::strip_existing_important())
         .with_postprocessor(merman::svg::RootBackgroundPostprocessor::new(BACKGROUND));
 
-    let rendered = merman::svg::HeadlessRenderer::new()
-        .with_site_config(site_config(palette))
-        // Advance tables rather than a font engine: no system library is opened, which is what
-        // keeps a Linux build a plain `cargo build`. The cost is in `D19`.
-        .with_vendored_text_measurer()
-        .with_diagram_id(&next_diagram_id())
-        .render_svg_with_pipeline_sync(source, &pipeline)
-        .map_err(|error| error.to_string())?;
+    let request = merman::SvgRequest {
+        // Merman's built-in measurer rather than a font engine: no system library is opened, which
+        // is what keeps a Linux build a plain `cargo build`. The cost is in `D19`.
+        environment: merman::SvgEnvironment::deterministic(),
+        options: merman::svg::SvgRenderOptions {
+            diagram_id: Some(next_diagram_id()),
+            ..Default::default()
+        },
+        pipeline: Some(pipeline),
+        ..Default::default()
+    };
+    let rendered = merman::Renderer::new()
+        .with_engine(merman::Engine::new().with_site_config(site_config(palette)))
+        .render(merman::RenderRequest::svg(
+            source,
+            merman::OperationControl::new(),
+            request,
+        ));
 
     // A real arm, not an impossibility: prose with no diagram in it renders nothing, and saying so
     // is the answer.
-    let svg = rendered.ok_or_else(|| "no Mermaid diagram in this source".to_string())?;
+    const NO_DIAGRAM: &str = "no Mermaid diagram in this source";
+    let svg = match rendered {
+        Ok(merman::RenderOutput::Svg(Some(output))) => output.into_parts().0,
+        Ok(_) | Err(merman::RenderError::NoDiagram) => return Err(NO_DIAGRAM.to_string()),
+        Err(error) => return Err(error.to_string()),
+    };
 
     let (width, height) = view_box(&svg)
         .ok_or_else(|| "the renderer produced a picture with no usable size".to_string())?;

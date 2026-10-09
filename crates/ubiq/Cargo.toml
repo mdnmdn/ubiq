@@ -120,9 +120,11 @@ chrono = "0.4"
 
 # Mermaid, drawn here. A pure-Rust renderer with no browser and no system library behind it, which
 # is what lets a diagram be drawn on a background thread of the interface's own. **Pinned with `=`**:
-# it is an alpha, its API moved between 0.7 and 0.8, and the pin is half of the diagram cache's
-# version marker — the two move together or the cache serves yesterday's picture forever.
-merman = { version = "=0.8.0-alpha.5", default-features = false, features = [
+# its API moved across the 0.8 pre-releases, and the pin is half of the diagram cache's version
+# marker — the two move together or the cache serves yesterday's picture forever. `all-diagrams`
+# because since 0.8.0 the output features select no diagram family of their own.
+merman = { version = "=0.8.0", default-features = false, features = [
+    "all-diagrams",
     "layout-cytoscape",
     "svg",
 ] }
