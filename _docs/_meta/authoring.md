@@ -70,7 +70,9 @@ exception, and it is narrow:
 > procedure — **you may not**: file it under §7 instead.
 
 Anything you are unsure about is a "no". Two further limits: never create a folder, and never create
-a second document for a capability that already has one — extend the existing one.
+a second document for a capability that already has one — extend the existing one. The one folder
+beyond the usual set, `_docs/help/` (how the user manual is written), exists on the owner's
+instruction.
 
 To write it, **copy the nearest sibling in `features/`** and replace its content. That gives you the
 right frontmatter and the right section order for free. The order is fixed, contract before code:
@@ -115,9 +117,9 @@ When creating (§2), the full set, which you get for free by copying a sibling:
 
 ```yaml
 ---
-id: feat-panes                 # stable forever. Prefix mirrors the folder: prod- feat- tech- meta- wip-
+id: feat-panes                 # stable forever. Prefix mirrors the folder: prod- feat- tech- meta- wip- help-
 title: Panes and terminals
-kind: feature                  # product | feature | tech | meta | wip | inbox
+kind: feature                  # product | feature | tech | meta | wip | help | inbox
 status: current                # current | draft | superseded
 summary: One line. This is the document's entry in INDEX.md.
 read_when: you are changing pane layout, focus or resize

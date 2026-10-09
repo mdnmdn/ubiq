@@ -37,6 +37,7 @@ sits beside a `current` one rather than in a separate folder.
 | `tech/` | Cross-cutting models, rules, conventions and procedures |
 | `references/` | Specifications of protocols Ubiq speaks but does not own. External material, kept verbatim |
 | `design/` | Wireframes, prototypes and captured artifacts. Assets, not documents |
+| `help/` | How the user manual is written: structure, voice, images |
 | `wip/` | The current task's working notes. Deleted when the task closes |
 | `inbox/` | Raw unprocessed input, waiting to be filed |
 | `_meta/` | How this library works. The underscore means *not project knowledge* |
@@ -129,6 +130,15 @@ states the boundary once.
 | [Librarian rulebook](./_meta/librarian.md) | How `_docs/` is organized, why it is organized that way, and how a bookkeeper agent keeps it that way. | 2026-08-31 |
 | [Review log](./_meta/review-log.md) | Append-only record of what each documentation maintenance pass checked, fixed and left alone. | 2026-09-16 |
 
+### Help authoring
+
+| Document | What it is | Verified |
+|---|---|---|
+| [Help coverage](./help/coverage.md) | The living table of every interface area, the help page that covers it, its context key and its state. | 2026-10-09 |
+| [Help images](./help/images.md) | How inline button icons and screenshots for help pages are made, named, sized, themed and referenced. | 2026-10-09 |
+| [Help structure](./help/structure.md) | The information architecture of the user manual — its sections, the five page types and their skeletons, nav order, when a page splits, how context keys are allotted and what the index page does. | 2026-10-09 |
+| [Help style](./help/style.md) | Voice, tone, terminology, formatting conventions and the list of what never appears in a help page. | 2026-10-09 |
+
 ### Work in progress
 
 | Document | What it is | Verified |
@@ -145,6 +155,7 @@ states the boundary once.
 | [The drone as a tool an agent can reach](./wip/drone.md) | The working note for the drone's tenth phase — the drone as a fifth MCP server, with `drone_*` tools over the bus, capability-gated, a new `shell` message pair and a per-root read-only mode. Designed, and none of it written. Carries the gaps the nine built phases left open too, chief among them that nothing has been run against a real `ssh`, `scp` or `sshd`. | 2026-09-25 |
 | [Web panels — the origin and the bridge](./wip/eb-panel-phase6.md) | Phase 2 of the web-panel proposal as built — the `_web/<app>/<token>/` routes on the interface's existing loopback server, a per-panel token from the platform's CSPRNG, two frame queues per session with a long-poll that answers on its own thread, the two-transport `bridge.js` shim, and a demo tenant that proves the loop. The container is the external browser; the embedded `wry` webview was not built and the shim carries its half anyway. | 2026-09-12 |
 | [Grok ACP — captured from the live binary](./wip/grok-acp-capture.md) | What `grok agent stdio` (grok 1.0.13) actually speaks, captured frame by frame, and the gaps between it and `io/acp_client.rs`. | 2026-09-10 |
+| [Writing the manual — the help content programme](./wip/help-content.md) | The brief for turning the 25-page help stub into a full user manual — the goal, the authoring guide that has to exist first under `_docs/help/`, the button and screenshot images, the new philosophy, guide, how-to and FAQ sections, the coverage of every area against the id inventory, and the task list a coordinator delegates to subagents. | 2026-10-09 |
 | [How in-app help works](./wip/help.md) | The mechanics of Ubiq's help system end to end — the content tree and its page frontmatter, the packer and the bundle it writes, how the app finds and unpacks it, how the panel renders and navigates a page, how a context key becomes a page, what the MCP server exposes, and what happens at every point where something is missing. | 2026-09-19 |
 | [In-place help, and the identity layer under it](./wip/in-place-help.md) | An inspector-style help mode — point at any part of the window and read what it is — and the element identity scheme underneath it, which exists to serve personalisation and extensions as much as help. Phases 1 and 2 are built — the `UiId` grammar, a static catalogue of names with a label and a sentence each, a `.ui_id()` element extension feeding a per-frame bounds registry, the deepest-hit lookup, and the targeting mode itself — ⇧F1, a full-window layer, a highlight and a balloon, closed by Escape or its own Done. Phase 3a — marking the rail and the titlebar, every name the catalogue currently holds — is built too, proven by headless render tests against the real elements. The help pages behind the sentences (phase 3b) are still designed here and not written. | 2026-09-29 |
 | [Indexing a project](./wip/indexing.md) | What Ubiq keeps about a project so a search need not re-read it — a per-project level defaulting from an application setting, and a full-text index that selects candidate files for the existing content search rather than answering it. The full-text half is built; the symbol half the `full` level names is not, which is the gap this document exists to record. | 2026-09-29 |

@@ -613,9 +613,9 @@ the documents in its row.
 |---|---|
 | `.claude/excalidraw.py` | [`diagram-format.md`](./diagram-format.md) |
 | `.github/workflows/create-release.yml` | [`operations.md`](./operations.md) |
+| `.github/workflows/release-linux.yml` | [`operations.md`](./operations.md) |
 | `.github/workflows/release-macos.yml` | [`operations.md`](./operations.md) |
 | `.github/workflows/release-windows.yml` | [`operations.md`](./operations.md) |
-| `.github/workflows/release-linux.yml` | [`operations.md`](./operations.md) |
 | `Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `Justfile` | [`operations.md`](./operations.md) |
 | `_devops/scripts/bundle-version.sh` | [`operations.md`](./operations.md) |
@@ -625,15 +625,15 @@ the documents in its row.
 | `_tools/docs.py` | [`operations.md`](./operations.md) |
 | `_tools/drone.py` | [`features/drone.md`](../features/drone.md), [`operations.md`](./operations.md) |
 | `_tools/dump.py` | [`operations.md`](./operations.md) |
-| `_tools/helpbundle.py` | [`operations.md`](./operations.md), [`wip/help.md`](../wip/help.md) |
+| `_tools/helpbundle.py` | [`help/coverage.md`](../help/coverage.md), [`help/images.md`](../help/images.md), [`help/structure.md`](../help/structure.md), [`help/style.md`](../help/style.md), [`operations.md`](./operations.md), [`wip/help-content.md`](../wip/help-content.md), [`wip/help.md`](../wip/help.md) |
 | `_tools/icns.py` | [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md) |
-| `_tools/icons.py` | [`ui-and-design.md`](./ui-and-design.md) |
+| `_tools/icons.py` | [`help/images.md`](../help/images.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/help-content.md`](../wip/help-content.md) |
 | `_tools/licenses.py` | [`operations.md`](./operations.md) |
 | `_tools/teamsim/FORMAT.md` | [`features/workbench-sink.md`](../features/workbench-sink.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `_tools/teamsim/algos.py` | [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `_tools/teamsim/shapes.py` | [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `_tools/webassets.py` | [`operations.md`](./operations.md) |
-| `assets/icons/icons.yaml` | [`ui-and-design.md`](./ui-and-design.md) |
+| `assets/icons/icons.yaml` | [`ui-and-design.md`](./ui-and-design.md), [`wip/help-content.md`](../wip/help-content.md) |
 | `crates/agent-manager/examples/confined_shell_probe.rs` | [`agent-manager.md`](./agent-manager.md) |
 | `crates/agent-manager/src/account.rs` | [`wip/claude-auth-problem.md`](../wip/claude-auth-problem.md) |
 | `crates/agent-manager/src/credentials/mod.rs` | [`agent-manager.md`](./agent-manager.md), [`wip/claude-auth-problem.md`](../wip/claude-auth-problem.md) |
@@ -802,6 +802,7 @@ the documents in its row.
 | `crates/ubiq-proto/src/feedback.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/files.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/git.rs` | [`transport-contract.md`](./transport-contract.md), [`version-control.md`](./version-control.md) |
+| `crates/ubiq-proto/src/help.rs` | [`wip/help-content.md`](../wip/help-content.md) |
 | `crates/ubiq-proto/src/ids.rs` | [`features/connectors.md`](../features/connectors.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/kb.rs` | [`wip/kb.md`](../wip/kb.md) |
 | `crates/ubiq-proto/src/lib.rs` | [`architecture.md`](./architecture.md) |
@@ -946,7 +947,7 @@ the documents in its row.
 | `crates/ubiq/src/state/tasksrc.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md) |
 | `crates/ubiq/src/state/teams.rs` | [`features/workbench-teams.md`](../features/workbench-teams.md), [`inbox/subagent-status-dictionaries-and-hexagon.md`](../inbox/subagent-status-dictionaries-and-hexagon.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/src/state/teamsim.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md), [`features/workbench-teams.md`](../features/workbench-teams.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
-| `crates/ubiq/src/state/ui_id.rs` | [`wip/in-place-help.md`](../wip/in-place-help.md) |
+| `crates/ubiq/src/state/ui_id.rs` | [`help/coverage.md`](../help/coverage.md), [`wip/help-content.md`](../wip/help-content.md), [`wip/in-place-help.md`](../wip/in-place-help.md) |
 | `crates/ubiq/src/state/updates.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/viewport.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/src/state/vim/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -1132,6 +1133,7 @@ the documents in its row.
 | `crates/ubiq/tests/viewer_kind.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/tests/viewport.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/tests/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `help/manifest.toml` | [`help/coverage.md`](../help/coverage.md), [`help/images.md`](../help/images.md), [`help/structure.md`](../help/structure.md), [`help/style.md`](../help/style.md), [`wip/help-content.md`](../wip/help-content.md) |
 | `vendor/gpui-terminal/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `vendor/gpui-terminal/src/clipboard.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `vendor/gpui-terminal/src/event.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
@@ -1181,7 +1183,6 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq-host/src/web_assets/manifest_drawio.rs` |
 | `crates/ubiq-host/src/work/mock.rs` |
 | `crates/ubiq-proto/src/acp.rs` |
-| `crates/ubiq-proto/src/help.rs` |
 | `crates/ubiq-proto/src/merge.rs` |
 | `crates/ubiq-proto/src/search.rs` |
 | `crates/ubiq/src/app/db/explorer.rs` |

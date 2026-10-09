@@ -741,6 +741,7 @@ GROUPS = (
     ("tech", "Tech"),
     ("references", "References"),
     ("_meta", "Meta"),
+    ("help", "Help authoring"),
     ("wip", "Work in progress"),
     ("", "Unclassified"),
 )
@@ -750,6 +751,7 @@ GROUP_BY_KIND = {
     "tech": "tech",
     "reference": "references",
     "meta": "_meta",
+    "help": "help",
 }
 
 
