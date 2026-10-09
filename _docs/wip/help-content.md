@@ -311,3 +311,67 @@ it — one commit per section, message `help: <section>`.
 - [`inbox/ui-id-inventory.md`](../inbox/ui-id-inventory.md) — the coverage checklist
 - [`inbox/help-proposal.md`](../inbox/help-proposal.md) — why help is built this way
 - [`_meta/authoring.md`](../_meta/authoring.md) — the documentation rules
+
+## 10. Phase 0 findings
+
+### T0.1 — the panel in a running build
+
+The app builds and runs headless: `cargo build -p ubiq-app` (5 min) after `apt-get install` of
+`mesa-vulkan-drivers` (lavapipe), `libdbus-1-dev` and the usual GPUI X11/Wayland/xkbcommon dev
+packages, under `Xvfb :99` with `XDG_RUNTIME_DIR` set; `xdotool` drives it and `import -window root`
+captures it. Binary: `target/debug/ubiq`. It opens with no project, the config root is the repo's
+`_data/config`, and F1 opens the panel on the right. All 25 pages were opened from the contents
+tree and the id links followed. `G300` is closed in practice: pages draw, links and back work, the
+unavailable stub never shows. Findings, **observed** unless marked *from code*:
+
+| # | Finding | Effect on the programme |
+|---|---|---|
+| 1 | **Source line breaks render as hard line breaks.** A paragraph wrapped at 100 columns in the file shows as ragged short lines. | Style rule: one paragraph is one source line, or the page looks broken. Every existing page is affected. |
+| 2 | **No image loads.** The panel draws markdown images through `img(SharedUri)`, which asks GPUI's HTTP client; Ubiq installs none (log: `No HttpClient available`). A relative path (`img/x.png`) is handed over unresolved and fails the same way, as does `http://127.0.0.1/…`. The block reserves its space and draws nothing. *From code*: `viewer/markdown.rs` `image_source` and the library's `text::utils::image_source` both force `Resource::Uri`. | Blocks every image in the manual, icons and screenshots alike, and the "images work because the bundle is unpacked" claim in `help.md` §2.4. Needs a code task first: a client that reads local files, or a path-based `ImageSource`, plus resolving a page-relative path against the unpacked root. File as a backlog row; T1.3 and every screenshot wait on it. |
+| 3 | **F1 in Sink mode opens a "not written yet" page** (`style-reference`). Rung 1 also claims `settings` and `feedback`. No page with any of the three ids exists; `claimed_help_page` does not check the catalogue. *From code*: `ui/sink/mod.rs`, `ui/feedback.rs`, `ui/settings`. | Write pages with those ids, or drop the claims. Sink also overrides every rung below it. |
+| 4 | **Four `context:` keys never match.** `panel.ubiq.git-changes`, `-history`, `-refs` and `panel.ubiq.kb-explorer` are written with a hyphen; `PanelKind::name()` answers `ubiq.git.changes`, `ubiq.git.history`, `ubiq.git.refs`, `ubiq.kb.explorer`. Those pages are reachable only by their rail (`rail.git`, `rail.kb`). *From code*: `state/dock.rs` `name()`. The other keys (`panel.ubiq.explorer`, `.search`, `.logs`, `.db.explorer`, `.db.table`, `.db.sql`, `rail.agents/db/git/ide/control/tasks/kb`, `view.chat`) exist. | Fixed in the pages (dotted names). `help-check` does not validate keys against the code. |
+| 5 | **No panel key for** `ubiq.git.diff`, `ubiq.outline`, `ubiq.kb.doc`, `ubiq.task`, `ubiq.agents.explorer`, `ubiq.centre`, the chat tab (only `view.chat`), rails `teams`, `teamsall`, and views `terminal`, `logs`, `explorer`. *From code*. | Input for T0.3 coverage: these fall through to their rail or to `index`. |
+| 6 | **Anchors do not scroll.** A `#heading` link opens the page at the top; a bare `#heading` does nothing (`G296`). *From code*: `ui/help/mod.rs` `follow`. All anchored links in `help/` (`workbench-modes#ide` and two more, in the rail page) resolve to a real heading, but land at the top. | Long pages and deep links lose value; keep pages short. |
+| 7 | **The contents tree has no sections.** Every page except `index` and `troubleshooting` hangs under "Getting started" as its child; folder order is flat. Titles longer than ~24 characters are elided ("Reviewing and staging…"). | `structure` must say how the nav order produces section headings, or the manifest grows them. |
+| 8 | **A "FRONTMATTER id · title · summary" strip shows above every page**, and a draft banner sits above it. The page's own `##` is the first heading; the title appears only in the panel header. | Cosmetic; note in `structure` that the strip is expected. |
+| 9 | **The body clips about 150 px above the panel bottom** while the scrollbar runs the full height; the last lines are reachable by scrolling. Mouse wheel scroll works. | Cosmetic; no content lost. |
+| 10 | **Mac key glyphs on a Linux build**: "⌘P", "^1", "^⇧-" appear as written. | `style` already asks for both platforms; every existing page needs it. |
+| 11 | **Links are sound.** Static pass over `help/**/*.md`: every id link, path link and `#anchor` resolves; `ubiq://./git` is the only non-page link. One content slip: `index` has a comma splice ("an agentic workspace it hosts"). | Fix the slip in the T3.9 rewrite. |
+| 12 | Link following by id, Back, the contents toggle, maximise, and F1 on rail `git` (→ "The Git screen") all work. | None. |
+
+### T0.2 — inline icons: the decision
+
+**Layout is inline; loading is the blocker.** *From code*, in the library's inline-flow renderer
+(`gpui-component` `text/inline_flow.rs`, used whenever a paragraph holds both text and an image),
+and *observed* in a spike page (one PNG in a paragraph, a list item and a table cell, since
+reverted):
+
+- `![alt](x.png)` in a paragraph, list item or table cell sits **on the text line**, wrapped with
+  the words. Its size is fixed at **0.75 × the line height** (about 14 px at the panel's body size),
+  width from the aspect ratio. Markdown syntax carries no size.
+- Size **can** be controlled: an inline HTML `<img src="…" width="18" height="18">` is honoured
+  (observed: an 18 px and a 36 px gap on one line). Unverified: whether `help-check` resolves an
+  HTML `src` the way it resolves a markdown path.
+- It is **vertically centred in the line box**, not baseline-aligned. For a square icon at 0.75 ×
+  line height that reads as sitting on the text; a taller icon grows the line.
+- An image alone in its paragraph is a block (`ImageBlock`, T-185), shrunk to the column, never
+  enlarged. An image alone in a table cell reserves nothing and the row is empty.
+- **No image loads yet** (finding 2 above), so the pixels were never seen; only the reserved gap.
+
+**Decision: inline in text, with `<img width height>` at 16 px when 14 px is too small — and the
+"The parts" table cell kept as a second place, not a fallback.** The fallback buys nothing: a table
+cell goes through the same loader, so it fails the same way. The decision therefore rests on one
+code task, and `images` (T1.3) cannot be written as "done" until it lands:
+
+1. Make local images load in the panel: install an HTTP client that serves the unpacked help root,
+   or give the renderer a path-based `ImageSource`, and resolve a page-relative path (`../img/…`)
+   against the page's folder.
+2. Then re-run this spike with a real icon and look at it.
+
+**Icon colour (open question §9).** An inline PNG has one baked colour. A renderer change could make
+an inline SVG take the text colour (GPUI draws an SVG as a mask tinted by a token, as the buttons
+do), but the inline-flow path only ever builds `img(Resource::Uri)`, and the library's text view is
+a pinned dependency, so it is a fork or an upstream change, not a Ubiq edit. Take the one mid-tone
+PNG tint for now; revisit only if it reads badly on the light palettes.
+
+Screenshots from the run are in the session scratchpad, not in the tree.
