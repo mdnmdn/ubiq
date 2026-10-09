@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
-updated: 2026-10-08
+updated: 2026-10-09
 verified: 2026-10-08
 code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
 depends_on: [tech-structure]
@@ -196,6 +196,13 @@ attaches the zip to the GitHub release of that tag. `.github/workflows/create-re
 manual counterpart — a `workflow_dispatch` whose `platforms` choice is `both`, `macos` or `windows`
 — and it calls those two workflows as reusable jobs so one run ships either platform or both. Each
 platform workflow also accepts a direct `workflow_dispatch` of its own.
+
+The macOS workflow signs (hardened runtime, secure timestamp), notarizes, staples and checks the
+`.app` with `spctl` before zipping it; `help.bundle` is in `Contents/Resources` before `codesign`
+seals the app, and a rejected submission prints the notary log and fails the job. Secrets:
+`MACOS_CERT_P12` (Developer ID Application `.p12`, base64), `MACOS_CERT_PASSWORD`,
+`MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`. Without them it ships
+unsigned.
 
 ### Documentation
 
