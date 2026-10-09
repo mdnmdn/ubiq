@@ -25,6 +25,7 @@
 //! - `projects`: the project record, its snapshot, and what the project family carries
 //! - `settings`: which half owns a settings blob, and the host's own record
 //! - `feedback`: a report the user sends outward, and whether this build has anywhere to send it
+//! - `update`: Ubiq updating itself — the channel, the settings, the status the host reports
 //! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
 //! - `git`: a project's repository as the host has observed it — overview, working-tree map, errors
 //! - `mcp`: the MCP servers Ubiq itself offers a harness, and the tools each one answers
@@ -58,6 +59,7 @@ pub mod conversation;
 pub mod db;
 pub mod drone;
 pub mod feedback;
+pub mod update;
 pub mod files;
 pub mod git;
 pub mod help;

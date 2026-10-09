@@ -20,6 +20,7 @@ use crate::catalog::{
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
+use crate::update::{UpdateSettings, UpdateStatus};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, ImportMode, PathOp, RelatedFile,
@@ -503,6 +504,32 @@ pub enum Message {
     /// It did not. A sentence the user reads, never a key and never a raw body.
     FeedbackFailed {
         failure: FeedbackError,
+    },
+
+    // ── Update family: Ubiq updating itself ─────────────────────────
+    // Host-level, no pane, no project. The feed is compiled in; the host checks, downloads,
+    // verifies and applies, and every state change is broadcast so each window agrees.
+    /// Ask where the updater is. Answered with [`Message::UpdateState`], to the asking client alone.
+    QueryUpdates,
+    /// Look for an update now. Progress is broadcast as [`Message::UpdateState`].
+    CheckForUpdates,
+    /// Persist the user's update choices. Re-broadcast as [`Message::UpdateState`].
+    SaveUpdateSettings {
+        settings: UpdateSettings,
+    },
+    /// Download and verify the available update. Broadcasts `Downloading`, then `Ready` or `Failed`.
+    DownloadUpdate,
+    /// Start the detached helper that waits for this process to exit and installs the downloaded
+    /// update; with `relaunch` it starts the new app afterwards. The host broadcasts `Applying`;
+    /// quitting is the interface's to do ("Restart now"). `relaunch: false` is "install when I quit".
+    ApplyUpdate {
+        relaunch: bool,
+    },
+    /// The updater's whole state. Answers [`Message::QueryUpdates`] and is broadcast on every change.
+    UpdateState {
+        status: UpdateStatus,
+        settings: UpdateSettings,
+        current_version: String,
     },
 
     // ── AgentDefinition family: the saved setups a conversation starts from ──

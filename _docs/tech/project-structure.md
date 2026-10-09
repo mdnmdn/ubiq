@@ -64,6 +64,8 @@ project's own folder — `D30` — with one exception the person creating a proj
 ├── preferences.toml         the interface's own view blob, opaque to the host
 ├── ui-settings.toml         Ui-layer settings, opaque to the host
 ├── host-settings.toml       Host-layer settings, the host parses
+├── updates.toml             the self-updater's choices: channel, auto check, auto download
+├── updates/<version>/       a downloaded, verified update and the helper's staging — safe to delete
 ├── usage.db                 what the agents spent — not a cache: losing it loses history
 ├── cache/
 │   └── harness-models.toml  each harness's model + reasoning-level answers, keyed on its own

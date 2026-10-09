@@ -5312,6 +5312,28 @@ with its SSE stream and `crate::ask::Asks` stay in the source for a future mid-t
 reaches them (`PARKED_ASK` in `mcp/server.rs` is `false`), and the tests drive `ask` directly. This
 supersedes the two-tool choice of `D175` and the bounded park of `D191`; `G360` is moot.
 
+### D211 — Ubiq updates itself from a self-hosted signed feed, installs on quit, and never downgrades
+
+A release build checks a feed it was compiled with (`UBIQ_UPDATE_FEED`, default the `channels`
+release of the project's GitHub repository): one `<channel>.json` manifest per channel — `stable`,
+`beta`, `nightly` — each beside a minisign `.minisig`. **The manifest is verified against the key
+baked in at build time (`UBIQ_UPDATE_PUBKEY`) before it is parsed**, a missing signature is a
+failure rather than an empty channel, and a URL that is not `https` is refused. Following a channel
+follows every channel below it (nightly ⊇ beta ⊇ stable); the host picks the highest semver among
+them that has this platform's build and is strictly greater than the running version, so **it never
+downgrades**. Semver orders prerelease text alphabetically, so `1.5.0-beta.1` < `1.5.0-nightly.7` <
+`1.5.0`; the rule is not adjusted. A download is kept only if its size and SHA-256 match the signed
+manifest.
+
+Applying is a detached helper that waits for Ubiq's PID to exit — a macOS bundle swap after
+`codesign --verify`, or the Windows installer run silently — so **installing on quit is the default
+and a restart is the option** (`ApplyUpdate { relaunch }`). An install that cannot swap itself
+safely (a zip, a translocated or unwritable app, a development build) is `ApplyMode::Manual`: the
+interface links the download. Chosen over an updater framework because the feed is static files on
+a host the project uses for releases, there is no server to run, and the trust root is one public key in
+the binary. It costs a signing key to guard and rotate; a lost key means a release users install by
+hand. The message family is in [`transport-contract.md`](./transport-contract.md).
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

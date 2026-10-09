@@ -21,6 +21,8 @@
 //! - `gc`: collecting the directories of projects no record names (behind `harness`)
 //! - `feedback`: the user's report on its way out — the destination trait, the one this build was
 //!   compiled with, and the thread that posts it (the destinations behind `listener`)
+//! - `updates`: Ubiq updating itself — the signed feed, the verified download, and the detached
+//!   helper that swaps the app in (behind `listener`)
 //! - `files`: a project's tree and its files, read and written off the coordinator's thread
 //! - `git`: a project's repository, observed off the coordinator's thread (behind `git`)
 //! - `work`: the tasks a project has written down, and the sessions and agents doing them (behind
@@ -141,6 +143,8 @@ pub mod shell_integration;
 pub mod shells;
 pub mod store;
 pub mod tasksrc;
+#[cfg(feature = "listener")]
+pub mod updates;
 pub mod watch;
 #[cfg(feature = "listener")]
 pub mod web_assets;
