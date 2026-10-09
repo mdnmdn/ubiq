@@ -71,6 +71,7 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
+| [Ubiq features](./product/features.md) | What a person can do with Ubiq, grouped by area — agents and chat, panes and layout, projects, the IDE, Git, knowledge base, database, tasks and missions, teams, remote hosts, connectors, notifications and settings — each pointing at the document that owns it. | 2026-10-09 |
 | [Glossary](./product/glossary.md) | Plain definitions of the recurring terms — harness, agent type, session, workspace, panel, pane, dock, coordinator, bus, catalog — for anyone reading the rest of this documentation. | 2026-09-01 |
 | [Product overview](./product/overview.md) | What Ubiq is, who runs it, why an agent harness needs a real terminal rather than a chat box, and what the product deliberately refuses to be. | 2026-08-31 |
 
