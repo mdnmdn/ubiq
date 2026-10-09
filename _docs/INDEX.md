@@ -136,8 +136,8 @@ states the boundary once.
 |---|---|---|
 | [Help coverage](./help/coverage.md) | The living table of every interface area, the help page that covers it, its context key and its state. | 2026-10-09 |
 | [Help images](./help/images.md) | How inline button icons and screenshots for help pages are made, named, sized, themed and referenced. | 2026-10-09 |
-| [Help structure](./help/structure.md) | The information architecture of the user manual — its sections, the five page types and their skeletons, nav order, when a page splits, how context keys are allotted and what the index page does. | 2026-10-09 |
-| [Help style](./help/style.md) | Voice, tone, terminology, formatting conventions and the list of what never appears in a help page. | 2026-10-09 |
+| [Help structure](./help/structure.md) | The information architecture of the user manual — its sections in reading order and nav order, the five page types with a skeleton and an exemplar each, page ids and order, when a page splits, how context keys and element targets are allotted, and what the index page does. | 2026-10-09 |
+| [Help style](./help/style.md) | Voice, tone, terminology, formatting conventions, length limits and the list of what never appears in a help page. | 2026-10-09 |
 
 ### Work in progress
 
