@@ -21,3 +21,15 @@ pub fn short() -> String {
         format!("{head}\u{2026}")
     }
 }
+
+/// Ubiq's site, as the About modal links it. `UBIQ_SITE` overrides it at build time.
+pub const SITE: &str = match option_env!("UBIQ_SITE") {
+    Some(v) => v,
+    None => "https://ubiq.app",
+};
+
+/// Ubiq's source repository. `UBIQ_REPO` overrides it at build time.
+pub const REPO: &str = match option_env!("UBIQ_REPO") {
+    Some(v) => v,
+    None => "https://github.com/mdnmdn/ubiq",
+};

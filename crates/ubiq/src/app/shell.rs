@@ -1037,6 +1037,7 @@ impl AppState {
                 }),
             ),
             (Layer::Feedback, w.feedback.is_some()),
+            (Layer::About, w.about.is_some()),
             (Layer::Ask, w.ask.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
             (Layer::FileDialog, w.file_dialog.is_some()),
@@ -1249,6 +1250,9 @@ impl AppState {
             // the ask's own record, and the transcript entry reopens it. Dismissing is not
             // answering, so the harness is still parked and the entry is still there to say so.
             self.close_ask(window, cx);
+        } else if self.workbench.about.is_some() {
+            // Drawn after feedback, so peeled before it.
+            self.close_about(cx);
         } else if self.workbench.feedback.is_some() {
             // Before the clone modal, in reverse paint order: `ui::shell` draws feedback after it,
             // and the balloon is reachable from the titlebar with anything already up.

@@ -322,6 +322,21 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                         gpui_component::tooltip::Tooltip::new("Send feedback").build(window, cx)
                     }),
                 )
+                // About: the mark, the version and the updater in one modal, with every release
+                // channel and the open-source packages this build is made of.
+                .child(
+                    icon_button(
+                        "about",
+                        UbiqIcon::TitlebarAbout,
+                        app.workbench.about.is_some(),
+                        cx.listener(|this, _, _, cx| this.open_about(cx)),
+                    )
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_ABOUT)
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("About Ubiq").build(window, cx)
+                    }),
+                )
                 // Help: the same panel F1 and the overflow row open, on the page for whatever the
                 // window is showing. **Never disabled and never hidden** — a build with no
                 // content still opens it, on the page that says how to build some.

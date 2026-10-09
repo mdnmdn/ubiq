@@ -19,7 +19,7 @@ verbose: help-bundle
     RUST_LOG=debug cargo run -p ubiq-app --features assist-apple
 
 # Build the whole workspace for release
-build: help-bundle
+build: help-bundle licenses
     cargo build --workspace --release --features ubiq-app/assist-apple
 
 # Build the macOS application icon from the logo in assets/
@@ -27,7 +27,7 @@ icns:
     uv run _tools/icns.py
 
 # Assemble Ubiq.app in target/ — icon, binary, Info.plist
-bundle: help-bundle
+bundle: help-bundle licenses
     uv run _tools/icns.py
     cargo build -p ubiq-app --release --features assist-apple
     rm -rf target/Ubiq.app
@@ -44,7 +44,7 @@ bundle: help-bundle
     @echo "Done at $(date)"
 
 # Assemble the Windows release in target/ubiq-windows-x86_64/ — the .exe
-bundle-win: help-bundle
+bundle-win: help-bundle licenses
     cargo build -p ubiq-app --release --features assist-apple
     rm -rf target/ubiq-windows-x86_64
     mkdir -p target/ubiq-windows-x86_64
@@ -261,6 +261,16 @@ help-bundle:
 # Remove target/help/
 help-clean:
     uv run _tools/helpbundle.py clean
+
+# ── licences ───────────────────────────────────────────────────────
+
+# Regenerate assets/third-party.json — the About modal's Open source list — from Cargo.lock
+licenses:
+    uv run _tools/licenses.py generate
+
+# Fail if assets/third-party.json is stale against Cargo.lock
+licenses-check:
+    uv run _tools/licenses.py check
 
 # ── the drone ──────────────────────────────────────────────────────
 

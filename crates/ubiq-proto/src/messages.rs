@@ -20,7 +20,7 @@ use crate::catalog::{
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
 use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
-use crate::update::{UpdateSettings, UpdateStatus};
+use crate::update::{ChannelRelease, UpdateSettings, UpdateStatus};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
     HostPathError, ImportMode, PathOp, RelatedFile,
@@ -530,6 +530,13 @@ pub enum Message {
         status: UpdateStatus,
         settings: UpdateSettings,
         current_version: String,
+    },
+    /// Ask what every channel currently offers. Answered with [`Message::Releases`], to the asking
+    /// client alone. Reads the same signed feed a check does, and changes nothing.
+    QueryReleases,
+    /// One entry per [`UpdateChannel::ALL`](crate::update::UpdateChannel::ALL), in that order.
+    Releases {
+        channels: Vec<ChannelRelease>,
     },
 
     // ── AgentDefinition family: the saved setups a conversation starts from ──

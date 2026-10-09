@@ -11,6 +11,7 @@ Re-exports live in `state/mod.rs`; the work's own records are **not** re-exporte
 
 | Module | Holds |
 |---|---|
+| `about.rs` | The About modal: its tab, the host's per-channel releases, and the third-party package list baked in from `assets/third-party.json` (`AboutState`, `AboutTab`, `ThirdParty`, `third_party()`) |
 | `agents.rs` | The agents screen's view of the work: who is on screen, how they spread across parallel columns, who is on the bench. Owns `COLUMN_MIN_WIDTH`, `COLUMNS_MAX`, the composer row constants |
 | `board.rs` | The tasks board's *view* state — filter text, which session, the form (`BoardState`, `Field`, `TaskForm`) |
 | `chat.rs` | One entry per open chat tab (`ChatTab`, `ChatPick`, `ChatPicks`, `attach_choices`, `StartOffer`) |
@@ -65,6 +66,7 @@ this far: a pane is an ID, a title, and an emulator reading one end of the bus.
 | `remote_connect.rs` | Reaching a remote host from the UI, and the client half of that wire |
 | `host_browse.rs` | Filling the shared file picker from a remote host's filesystem, before a project exists on it |
 | `projects.rs`, `clone.rs` | Opening, switching and cloning projects |
+| `about.rs` | The About modal: open, close, switch tab, ask `QueryReleases`, `take_update` |
 | `agents.rs` | The agents screen's behaviour: columns, bench, composers |
 | `chat.rs`, `panels.rs` | Chat tabs, and the dock's panels |
 | `plan.rs` | The annotated document: open (dialog or tab), save, the `DocumentWire` trait (every plan-family message), `document_md_event` (each `MdViewEvent` to a verb), `refresh_document_decor`, the composer and the rail's focus |
@@ -142,6 +144,7 @@ process, a path on disk or a file descriptor.
 | `new_pane_menu.rs` | Which harness or shell a new pane runs |
 | `file_tab_menu.rs` | A file tab's right-click menu |
 | `clone.rs` | The clone modal |
+| `about.rs` | The About modal: three tabs (About, Releases, Open source), fixed size, raised from the titlebar's mark |
 | `remote_connect.rs` | The "Connect to a remote host" modal |
 
 ### `kit/`

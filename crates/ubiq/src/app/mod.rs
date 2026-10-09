@@ -1397,6 +1397,7 @@ mod agents;
 mod ask;
 mod board;
 mod boot;
+mod about;
 mod capture;
 mod catalog;
 mod chat;

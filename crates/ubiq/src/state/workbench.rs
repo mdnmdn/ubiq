@@ -772,6 +772,9 @@ pub struct WorkbenchState {
     pub feedback_offer: ubiq_proto::feedback::FeedbackOffer,
     /// The updater as the host last reported it. Asked at boot and re-sent on every change.
     pub updates: crate::state::updates::UpdatesState,
+    /// The About modal, while it is up. Raised from the titlebar's mark, over anything, like
+    /// `feedback`.
+    pub about: Option<crate::state::about::AboutState>,
     /// Which agent's question is on screen, while the ask dialog is up. Only the view: what has
     /// been filled in lives on the conversation's own record, which is what lets the dialog be
     /// closed and reopened with the drafts intact. See `crate::state::ask`.
@@ -1087,6 +1090,7 @@ impl Default for WorkbenchState {
             feedback: None,
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
             updates: crate::state::updates::UpdatesState::default(),
+            about: None,
             ask: None,
             all_projects: None,
             image_zoom: None,

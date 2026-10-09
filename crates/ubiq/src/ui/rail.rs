@@ -28,8 +28,8 @@ use ubiq_proto::ids::ProjectId;
 
 /// The mark's two files: the white logo reads on a dark swatch, the blue on a light one. They are
 /// the only assets Ubiq ships, so they are baked in next to the code that draws them.
-const LOGO_WHITE: &[u8] = include_bytes!("../../../../assets/logo-white.png");
-const LOGO_BLUE: &[u8] = include_bytes!("../../../../assets/logo-blue.png");
+pub(crate) const LOGO_WHITE: &[u8] = include_bytes!("../../../../assets/logo-white.png");
+pub(crate) const LOGO_BLUE: &[u8] = include_bytes!("../../../../assets/logo-blue.png");
 
 /// What the rail spends per mode and per group heading. Fixed rather than measured: the badges
 /// under the modes have to know, while the rail is being built, how much room is left over, and

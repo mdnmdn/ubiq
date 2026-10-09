@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use semver::Version;
 use serde::Deserialize;
-use ubiq_proto::update::{UpdateChannel, UpdateInfo};
+use ubiq_proto::update::{ChannelRelease, UpdateChannel, UpdateInfo};
 
 /// One GET. `Ok(None)` is a 404; any other failure is an `Err` sentence.
 pub type Fetch = fn(&str) -> Result<Option<Vec<u8>>, String>;
@@ -111,27 +111,59 @@ pub fn newest(
     current: &Version,
     platform: &str,
 ) -> Result<Option<Release>, String> {
-    let feed = feed.trim_end_matches('/');
     let mut found = Vec::new();
     for channel in UpdateChannel::ALL
         .iter()
         .copied()
         .filter(|c| selected.includes(*c))
     {
-        let url = format!("{feed}/{}.json", channel.slug());
-        let Some(body) = fetch(&url)? else { continue };
-        let Some(signature) = fetch(&format!("{url}.minisig"))? else {
-            return Err(format!(
-                "the {} update manifest has no signature",
-                channel.slug()
-            ));
-        };
-        let signature = String::from_utf8(signature)
-            .map_err(|_| "the update signature is not text".to_string())?;
-        verify(pubkey, &body, &signature)?;
-        found.extend(parse(&body, platform)?);
+        found.extend(channel_release(fetch, feed, pubkey, channel, platform)?);
     }
     Ok(pick(current, found))
+}
+
+/// One channel's manifest, fetched, verified and parsed: its release for `platform`, whatever is
+/// running. `Ok(None)` when the channel has no manifest (a 404) or no build for the platform.
+fn channel_release(
+    fetch: Fetch,
+    feed: &str,
+    pubkey: &str,
+    channel: UpdateChannel,
+    platform: &str,
+) -> Result<Option<Release>, String> {
+    let url = format!("{}/{}.json", feed.trim_end_matches('/'), channel.slug());
+    let Some(body) = fetch(&url)? else {
+        return Ok(None);
+    };
+    let Some(signature) = fetch(&format!("{url}.minisig"))? else {
+        return Err(format!(
+            "the {} update manifest has no signature",
+            channel.slug()
+        ));
+    };
+    let signature =
+        String::from_utf8(signature).map_err(|_| "the update signature is not text".to_string())?;
+    verify(pubkey, &body, &signature)?;
+    parse(&body, platform)
+}
+
+/// What every channel offers right now, in [`UpdateChannel::ALL`] order. One channel failing is
+/// that entry's `error`; it never hides the others.
+pub fn channels(fetch: Fetch, feed: &str, pubkey: &str, platform: &str) -> Vec<ChannelRelease> {
+    UpdateChannel::ALL
+        .iter()
+        .map(|&channel| {
+            let (release, error) = match channel_release(fetch, feed, pubkey, channel, platform) {
+                Ok(release) => (release.map(|r| r.info), None),
+                Err(error) => (None, Some(error)),
+            };
+            ChannelRelease {
+                channel,
+                release,
+                error,
+            }
+        })
+        .collect()
 }
 
 /// The default fetcher: one capped GET over https.
@@ -288,5 +320,42 @@ wLMDjy9FLAuxZ3q4NlEvkgtyhrr0gtTu6KC4KBJdITbbOeAi1zBIYo0v4iTgt8jJpIidRJnp94ABQkJA
             .unwrap()
             .is_none()
         );
+    }
+
+    #[test]
+    fn every_channel_answers_alone_and_one_failing_hides_none() {
+        let all = channels(feed_fetch, "https://f/", KEY, "macos-aarch64");
+        let order: Vec<_> = all.iter().map(|c| c.channel).collect();
+        assert_eq!(order, UpdateChannel::ALL);
+        // Verified but not a manifest, and an unsigned file: each is its own sentence.
+        assert!(all[0].release.is_none());
+        assert!(
+            all[0]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("could not be read")
+        );
+        assert!(all[1].release.is_none());
+        assert!(all[1].error.as_deref().unwrap().contains("no signature"));
+        // A 404 is a channel with nothing in it, not a failure.
+        assert_eq!(
+            all[2],
+            ChannelRelease {
+                channel: UpdateChannel::Nightly,
+                release: None,
+                error: None,
+            }
+        );
+    }
+
+    #[test]
+    fn an_unreachable_feed_is_every_channels_error() {
+        fn down(_: &str) -> Result<Option<Vec<u8>>, String> {
+            Err("the update feed could not be reached".to_string())
+        }
+        let all = channels(down, "https://f", KEY, "macos-aarch64");
+        assert_eq!(all.len(), UpdateChannel::ALL.len());
+        assert!(all.iter().all(|c| c.release.is_none() && c.error.is_some()));
     }
 }

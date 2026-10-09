@@ -92,7 +92,7 @@ pub enum UbiqIcon {
     ModeSink,
     /// work items that leave the board once done — a square whose corner is open and a tick on its way out through it
     ModeTasks,
-    /// the Teams graph of agents working together
+    /// the orchestration graph of agents working together
     ModeTeams,
     /// the harness has stopped and is waiting for the reader to answer
     PaneAwaiting,
@@ -132,6 +132,8 @@ pub enum UbiqIcon {
     SizeTextSmall,
     /// a tab protected from close, drawn before its label
     TabPin,
+    /// about Ubiq — the version, updates, releases and licences, behind the Ubiq mark
+    TitlebarAbout,
     /// open the project in a browser
     TitlebarBrowser,
     /// open the manual — drawn rather than adopted, because gpui-component ships no help glyph
@@ -232,6 +234,7 @@ impl IconNamed for UbiqIcon {
             Self::SizeTextLarge => "icons/size-text-large.svg",
             Self::SizeTextSmall => "icons/size-text-small.svg",
             Self::TabPin => "icons/tab-pin.svg",
+            Self::TitlebarAbout => "icons/titlebar-about.svg",
             Self::TitlebarBrowser => "icons/titlebar-browser.svg",
             Self::TitlebarHelp => "icons/titlebar-help.svg",
             Self::TitlebarNotifications => "icons/titlebar-notifications.svg",
@@ -315,6 +318,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::SizeTextLarge,
     UbiqIcon::SizeTextSmall,
     UbiqIcon::TabPin,
+    UbiqIcon::TitlebarAbout,
     UbiqIcon::TitlebarBrowser,
     UbiqIcon::TitlebarHelp,
     UbiqIcon::TitlebarNotifications,
@@ -408,6 +412,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/size-text-large.svg" => ours!("size-text-large"),
         "icons/size-text-small.svg" => ours!("size-text-small"),
         "icons/tab-pin.svg" => ours!("tab-pin"),
+        "icons/titlebar-about.svg" => ours!("titlebar-about"),
         "icons/titlebar-browser.svg" => ours!("titlebar-browser"),
         "icons/titlebar-help.svg" => ours!("titlebar-help"),
         "icons/titlebar-notifications.svg" => ours!("titlebar-notifications"),

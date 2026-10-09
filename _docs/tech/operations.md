@@ -7,7 +7,7 @@ summary: Prerequisites, the complete command reference, what a first build costs
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-10-09
 verified: 2026-10-08
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml, _devops/scripts/channel-manifest.py, _devops/windows/ubiq.iss]
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/licenses.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml, _devops/scripts/channel-manifest.py, _devops/windows/ubiq.iss]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -301,6 +301,26 @@ and runs, opening a help panel that says so rather than failing.
 `--out-dir DIR` overrides the default `target/help` — Studio's Justfile passes its own, because it
 compiles both binaries into a `target/` one level up from this checkout (`_docs/tech/operations.md`
 in `ubiq-studio` has the detail).
+
+### Third-party licences
+
+| Command | Does |
+|---|---|
+| `just licenses` | Regenerate `assets/third-party.json` from `Cargo.lock` |
+| `just licenses-check` | Fail if the committed file is stale, naming the packages added, removed or changed |
+
+`_tools/licenses.py` is the one script behind both. It reads `cargo metadata --locked` (offline first,
+online when a crate has to be fetched), keeps every package reachable from a workspace member through
+normal and build edges on any target — dev-only edges are skipped — and drops the workspace's own
+crates; a vendored third-party crate such as `vendor/gpui-terminal` stays. Per package it writes the
+SPDX expression, one `spdx.org` link per licence id, a link to the licence file (docs.rs for
+crates.io, the GitHub blob for a git dependency), the first real `Copyright` line in that file, the
+repository, homepage and authors. The output is sorted and carries no timestamp, so an unchanged
+`Cargo.lock` regenerates to a zero diff. The file is committed and the interface embeds it with
+`include_bytes!` for the About modal's Open source tab. `build`, `bundle` and `bundle-win` depend on
+`licenses`, so building regenerates it; `licenses-check` is the cheap staleness test and is not part
+of `just verify`. The web-panel vendor mirrors are not listed: their manifests carry hashes, not
+licences.
 
 ### Reading the tree
 

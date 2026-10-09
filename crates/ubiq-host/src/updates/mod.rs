@@ -29,7 +29,7 @@ use semver::Version;
 use sha2::{Digest, Sha256};
 use ubiq_proto::bus::Mailbox;
 use ubiq_proto::messages::Message;
-use ubiq_proto::update::{ApplyMode, UpdateSettings, UpdateStatus};
+use ubiq_proto::update::{ApplyMode, ChannelRelease, UpdateChannel, UpdateSettings, UpdateStatus};
 
 /// The version this build was released as; `dev-…` or absent for a source build.
 pub const VERSION: Option<&str> = option_env!("UBIQ_VERSION");
@@ -92,6 +92,8 @@ enum Cmd {
     Download,
     Apply(bool),
     Save(UpdateSettings),
+    /// Read every channel's manifest; the answer goes to this mailbox alone.
+    Releases(Mailbox),
 }
 
 struct State {
@@ -165,6 +167,32 @@ impl Updater {
         message(&self.state, &self.version)
     }
 
+    /// Answer `Releases` to `asker`: what each channel offers, whatever is running. A disabled
+    /// build says why at once, for every channel; otherwise the worker reads the feed, so the
+    /// caller's thread never waits on the network.
+    pub fn releases(&self, asker: Mailbox) {
+        let disabled = match &self.state.lock().status {
+            UpdateStatus::Disabled { reason } => Some(reason.clone()),
+            _ => None,
+        };
+        match disabled {
+            Some(reason) => {
+                let channels = UpdateChannel::ALL
+                    .iter()
+                    .map(|&channel| ChannelRelease {
+                        channel,
+                        release: None,
+                        error: Some(reason.clone()),
+                    })
+                    .collect();
+                asker.send(Message::Releases { channels });
+            }
+            None => {
+                let _ = self.commands.send(Cmd::Releases(asker));
+            }
+        }
+    }
+
     pub fn check(&self) {
         let _ = self.commands.send(Cmd::Check);
     }
@@ -203,6 +231,7 @@ impl Worker {
                 Ok(Cmd::Check) => self.check(),
                 Ok(Cmd::Download) => self.download(),
                 Ok(Cmd::Apply(relaunch)) => self.apply(relaunch),
+                Ok(Cmd::Releases(asker)) => self.releases(&asker),
                 Ok(Cmd::Save(settings)) => {
                     let old = std::mem::replace(&mut self.state.lock().settings, settings);
                     save_settings(&self.root, &settings);
@@ -312,6 +341,26 @@ impl Worker {
                 }
             }
         }
+    }
+
+    /// Every channel's newest release for this platform, told to `asker` and nobody else. Touches
+    /// no status: this is a look at the feed, not a check.
+    fn releases(&self, asker: &Mailbox) {
+        // Always answered, so the asker never waits on a question nobody will take up.
+        let Some(platform) = self.env.platform else {
+            let channels = UpdateChannel::ALL
+                .iter()
+                .map(|&channel| ChannelRelease {
+                    channel,
+                    release: None,
+                    error: Some("No releases are published for this platform.".to_string()),
+                })
+                .collect();
+            asker.send(Message::Releases { channels });
+            return;
+        };
+        let channels = feed::channels(self.env.fetch, &self.env.feed, &self.env.pubkey, platform);
+        asker.send(Message::Releases { channels });
     }
 
     fn download(&self) {
@@ -493,7 +542,6 @@ fn save_settings(root: &Path, settings: &UpdateSettings) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ubiq_proto::update::UpdateChannel;
 
     fn env(version: Option<&str>, key: &str, platform: Option<&'static str>) -> Env {
         fn none(_: &str) -> Result<Option<Vec<u8>>, String> {
@@ -607,5 +655,48 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// Start an updater over `env` and ask it for the releases as one client.
+    fn ask_releases(env: Env) -> Vec<ChannelRelease> {
+        let (hub, host) = ubiq_proto::bus::hub();
+        let asker = hub.connect();
+        let updater = Updater::start_with(
+            env,
+            tempfile::tempdir().unwrap().keep(),
+            host.mailbox(ubiq_proto::bus::To::Everyone),
+        );
+        updater.releases(host.mailbox(ubiq_proto::bus::To::Client(asker.id())));
+        match asker
+            .from_host()
+            .recv_timeout(Duration::from_secs(5))
+            .expect("an answer")
+        {
+            Message::Releases { channels } => channels,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_disabled_build_lists_every_channel_with_its_reason() {
+        let channels = ask_releases(env(Some("dev-1"), "k", Some("macos-aarch64")));
+        let order: Vec<_> = channels.iter().map(|c| c.channel).collect();
+        assert_eq!(order, UpdateChannel::ALL);
+        for channel in channels {
+            assert!(channel.release.is_none());
+            assert!(channel.error.unwrap().contains("development"));
+        }
+    }
+
+    #[test]
+    fn releases_are_read_on_the_worker_and_answered_to_the_asker() {
+        // The fake feed has nothing anywhere: every channel is empty, none is an error.
+        let channels = ask_releases(env(Some("1.0.0"), "k", Some("macos-aarch64")));
+        assert_eq!(channels.len(), UpdateChannel::ALL.len());
+        assert!(
+            channels
+                .iter()
+                .all(|c| c.release.is_none() && c.error.is_none())
+        );
     }
 }

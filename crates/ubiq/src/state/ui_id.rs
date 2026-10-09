@@ -278,6 +278,7 @@ pub const TITLEBAR_SEARCH: UiId = UiId::new("titlebar.search");
 pub const TITLEBAR_NOTIFICATIONS: UiId = UiId::new("titlebar.notifications");
 pub const TITLEBAR_FEEDBACK: UiId = UiId::new("titlebar.feedback");
 pub const TITLEBAR_HELP: UiId = UiId::new("titlebar.help");
+pub const TITLEBAR_ABOUT: UiId = UiId::new("titlebar.about");
 pub const TITLEBAR_POINT_AT: UiId = UiId::new("titlebar.point-at");
 /// Settings, and the chevron beside it holding the rest of the occasional commands.
 pub const TITLEBAR_SETTINGS: UiId = UiId::new("titlebar.settings");
@@ -324,6 +325,7 @@ pub const CATALOGUE: &[UiId] = &[
     TITLEBAR_NOTIFICATIONS,
     TITLEBAR_FEEDBACK,
     TITLEBAR_HELP,
+    TITLEBAR_ABOUT,
     TITLEBAR_POINT_AT,
     TITLEBAR_SETTINGS,
     TITLEBAR_OVERFLOW,
@@ -614,6 +616,14 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         TargetInfo {
             label: "Send feedback",
             blurb: "Say what is wrong or missing, with a picture of this window attached.",
+        },
+    ),
+    (
+        TITLEBAR_ABOUT,
+        TargetInfo {
+            label: "About Ubiq",
+            blurb: "The version, updates, every release channel, and the open-source packages \
+                    Ubiq is built from.",
         },
     ),
     (

@@ -135,6 +135,11 @@ impl AppState {
                     cx.notify();
                 }
             }
+            Message::Releases { channels } => {
+                if host == HostRef::Local {
+                    self.receive_releases(channels, cx);
+                }
+            }
             other => return Some(other),
         }
         None

@@ -111,6 +111,19 @@ pub struct UpdateInfo {
     pub size: u64,
 }
 
+/// What one channel publishes for this platform, as [`Message::Releases`] lists it.
+///
+/// [`Message::Releases`]: crate::messages::Message::Releases
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelRelease {
+    pub channel: UpdateChannel,
+    /// The channel's newest release. `None` when it publishes nothing for this platform, or could
+    /// not be read — `error` says which.
+    pub release: Option<UpdateInfo>,
+    /// A sentence for the user when the channel could not be read (or the build cannot read any).
+    pub error: Option<String>,
+}
+
 /// How this install can apply an update.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApplyMode {

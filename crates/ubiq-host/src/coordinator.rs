@@ -2077,6 +2077,8 @@ impl Coordinator {
             Message::QueryUpdates => {
                 self.host.send(To::Client(client), self.updates.snapshot());
             }
+            // The feed read is the updater's too; its answer is the asker's alone.
+            Message::QueryReleases => self.updates.releases(self.host.mailbox(To::Client(client))),
             Message::CheckForUpdates => self.updates.check(),
             Message::SaveUpdateSettings { settings } => self.updates.save(settings),
             Message::DownloadUpdate => self.updates.download(),

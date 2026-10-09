@@ -214,6 +214,10 @@ categories:
     titlebar-panel-bottom: {goal: show or hide the bottom region, source: "adopted:PanelBottom"}
     titlebar-panel-right: {goal: show or hide the right region, source: "adopted:PanelRight"}
     titlebar-search: {goal: search the project, source: "adopted:Search"}
+    titlebar-about:
+      goal: about Ubiq — the version, updates, releases and licences, behind the Ubiq mark
+      source: custom
+      keywords: [about, ubiq, logo, version, licence]
     titlebar-browser:
       goal: open the project in a browser
       source: "adopted:Globe"

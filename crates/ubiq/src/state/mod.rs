@@ -17,6 +17,7 @@ pub mod catalog;
 pub mod chat;
 pub mod clone;
 pub mod conversation;
+pub mod about;
 pub mod db;
 pub mod diagrams;
 pub mod dock;
