@@ -17,6 +17,17 @@ mod tests {
     use super::ensure_started_and_registered;
     use std::fs;
 
+    /// ureq 2's `Response::header`, which ureq 3's `http::Response` spells as a header-map lookup.
+    trait HeaderExt {
+        fn header(&self, name: &str) -> Option<&str>;
+    }
+
+    impl HeaderExt for ureq::http::Response<ureq::Body> {
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers().get(name).and_then(|value| value.to_str().ok())
+        }
+    }
+
     /// One shared server for the whole process (`ensure_started_and_registered`'s contract), so
     /// each test registers its own project under a name unique to it rather than assuming a fresh
     /// server — this is the smoke test for the routing and path-safety logic in `routes.rs`.
@@ -35,7 +46,7 @@ mod tests {
         let body = ureq::get(&format!("{base}README.md"))
             .call()
             .unwrap()
-            .into_string()
+            .into_body().read_to_string()
             .unwrap();
         assert!(body.contains("Hello"), "missing rendered heading: {body}");
         assert!(
@@ -49,12 +60,12 @@ mod tests {
         let (_dir, base) = serve_temp_project("web-export-test-safety");
         let dotfile = ureq::get(&format!("{base}.git/config")).call();
         assert!(
-            matches!(dotfile, Err(ureq::Error::Status(404, _))),
+            matches!(dotfile, Err(ureq::Error::StatusCode(404))),
             "dotfile path should 404, got {dotfile:?}"
         );
         let traversal = ureq::get(&format!("{base}../../../etc/passwd")).call();
         assert!(
-            matches!(traversal, Err(ureq::Error::Status(404, _))),
+            matches!(traversal, Err(ureq::Error::StatusCode(404))),
             "traversal path should 404, got {traversal:?}"
         );
     }
@@ -63,7 +74,7 @@ mod tests {
     fn search_finds_a_term_and_skips_the_dotfile() {
         let (_dir, base) = serve_temp_project("web-export-test-search");
         let get_json = |url: &str| -> serde_json::Value {
-            let text = ureq::get(url).call().unwrap().into_string().unwrap();
+            let text = ureq::get(url).call().unwrap().into_body().read_to_string().unwrap();
             serde_json::from_str(&text).unwrap()
         };
 
@@ -95,7 +106,7 @@ mod tests {
         let small = ureq::get(&format!("{base}notes.xyz"))
             .call()
             .unwrap()
-            .into_string()
+            .into_body().read_to_string()
             .unwrap();
         assert!(
             small.contains("plain text notes"),
@@ -105,7 +116,7 @@ mod tests {
         let big = ureq::get(&format!("{base}big.xyz"))
             .call()
             .unwrap()
-            .into_string()
+            .into_body().read_to_string()
             .unwrap();
         assert!(
             big.len() < 300 * 1024,
@@ -127,7 +138,7 @@ mod tests {
             raw.header("Content-Type"),
             Some("text/plain; charset=utf-8")
         );
-        assert!(raw.into_string().unwrap().contains("# Hello"));
+        assert!(raw.into_body().read_to_string().unwrap().contains("# Hello"));
 
         let dl = ureq::get(&format!("{base}README.md?raw=1&dl=1"))
             .call()
@@ -147,7 +158,7 @@ mod tests {
         let body = ureq::get(&format!("{base}shot.png"))
             .call()
             .unwrap()
-            .into_string()
+            .into_body().read_to_string()
             .unwrap();
         assert!(
             body.contains("<img src=\"?raw=1\""),
@@ -200,11 +211,11 @@ mod tests {
     /// a transport error, so the status is the whole of what a caller asserts on.
     fn post_frame(url: &str, body: serde_json::Value) -> u16 {
         match ureq::post(url)
-            .set("Content-Type", "application/json")
-            .send_string(&body.to_string())
+            .header("Content-Type", "application/json")
+            .send(body.to_string())
         {
-            Ok(response) => response.status(),
-            Err(ureq::Error::Status(code, _)) => code,
+            Ok(response) => response.status().as_u16(),
+            Err(ureq::Error::StatusCode(code)) => code,
             Err(err) => panic!("web bridge post failed to reach the server: {err}"),
         }
     }
@@ -226,7 +237,7 @@ mod tests {
             csp.contains("default-src 'self'") && csp.contains("frame-ancestors 'none'"),
             "the chrome's policy names only this origin: {csp}"
         );
-        assert!(chrome.into_string().unwrap().contains("bridge.js"));
+        assert!(chrome.into_body().read_to_string().unwrap().contains("bridge.js"));
 
         let shim = ureq::get(&format!("{}bridge.js", session.url))
             .call()
@@ -253,7 +264,7 @@ mod tests {
             &ureq::get(&format!("{}bridge", session.url))
                 .call()
                 .unwrap()
-                .into_string()
+                .into_body().read_to_string()
                 .unwrap(),
         )
         .unwrap();
@@ -298,7 +309,7 @@ mod tests {
         assert!(
             matches!(
                 ureq::get(&wrong_url).call(),
-                Err(ureq::Error::Status(404, _))
+                Err(ureq::Error::StatusCode(404))
             ),
             "a token naming no session is dropped, never a 200"
         );
@@ -318,7 +329,7 @@ mod tests {
         assert!(
             matches!(
                 ureq::get(&session.url).call(),
-                Err(ureq::Error::Status(404, _))
+                Err(ureq::Error::StatusCode(404))
             ),
             "a closed session's chrome is gone"
         );
@@ -370,7 +381,7 @@ mod tests {
             .header("Content-Security-Policy")
             .expect("the chrome names a policy")
             .to_string();
-        let body = page.into_string().unwrap();
+        let body = page.into_body().read_to_string().unwrap();
 
         assert!(
             !body.contains("__UBIQ_NONCE__"),
@@ -396,7 +407,7 @@ mod tests {
         let second = ureq::get(&session.url)
             .call()
             .unwrap()
-            .into_string()
+            .into_body().read_to_string()
             .unwrap();
         assert!(!second.contains(&nonce), "a nonce is minted per response");
 
@@ -404,13 +415,13 @@ mod tests {
         let map = ureq::get(&format!("{}vendor/importmap.json", session.url))
             .call()
             .unwrap();
-        assert_eq!(map.into_string().unwrap(), r#"{"imports":{}}"#);
+        assert_eq!(map.into_body().read_to_string().unwrap(), r#"{"imports":{}}"#);
 
         assert!(
             ureq::get(&format!("{}app.js", session.url))
                 .call()
                 .unwrap()
-                .into_string()
+                .into_body().read_to_string()
                 .unwrap()
                 .contains("EXCALIDRAW_ASSET_PATH"),
             "the chrome module is the Excalidraw one, not the demo's"
@@ -444,7 +455,7 @@ mod tests {
             !csp.contains("http"),
             "no remote origin is permitted: {csp}"
         );
-        let body = page.into_string().unwrap();
+        let body = page.into_body().read_to_string().unwrap();
         assert!(
             body.contains("<iframe"),
             "the chrome frames the webapp: {body}"
@@ -454,7 +465,7 @@ mod tests {
             ureq::get(&format!("{}app.js", session.url))
                 .call()
                 .unwrap()
-                .into_string()
+                .into_body().read_to_string()
                 .unwrap()
                 .contains("proto=json"),
             "the chrome module is the draw.io one, not the demo's"
@@ -524,19 +535,19 @@ mod tests {
         // path to resolve and nothing to traverse.
         let dotfile = ureq::get(&format!("{}vendor/.hidden/secret", session.url)).call();
         assert!(
-            matches!(dotfile, Err(ureq::Error::Status(404, _))),
+            matches!(dotfile, Err(ureq::Error::StatusCode(404))),
             "an absent entry 404s: {dotfile:?}"
         );
         let traversal = ureq::get(&format!("{}vendor/../../etc/passwd", session.url)).call();
         assert!(
-            matches!(traversal, Err(ureq::Error::Status(404, _))),
+            matches!(traversal, Err(ureq::Error::StatusCode(404))),
             "so does a traversal-shaped name — it's just another string the index doesn't have: {traversal:?}"
         );
 
         set_vendor_root(&session.token, None);
         let gone = ureq::get(&format!("{}vendor/+esm", session.url)).call();
         assert!(
-            matches!(gone, Err(ureq::Error::Status(404, _))),
+            matches!(gone, Err(ureq::Error::StatusCode(404))),
             "with no vendor archive open the route answers nothing: {gone:?}"
         );
 

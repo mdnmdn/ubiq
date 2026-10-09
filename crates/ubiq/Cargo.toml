@@ -36,7 +36,7 @@ ubiq-archify = { path = "../ubiq-archify", features = ["png"] }
 # and the page says so, which is a complete Ubiq minus one page's contents. Default features only
 # (`std`): the plain `Runtime`/`Context`/`Function`/`Value` surface, with no module loader and no
 # `bindgen` — the page evaluates one string and imports nothing.
-rquickjs = { version = "0.13", optional = true }
+rquickjs = { version = "0.14", optional = true }
 
 # The front end in front of that interpreter (`state/script.rs`): oxc parses both dialects and
 # transpiles TypeScript to the JavaScript QuickJS actually runs. A real parser, not a grammar —
@@ -45,7 +45,7 @@ rquickjs = { version = "0.13", optional = true }
 # behind the `quickjs` feature: validation is a parse, and the page syntax-checks in a build with
 # no interpreter in it. `default-features = false` drops the regular-expression parser, which only
 # matters to a linter walking the inside of a literal.
-oxc = { version = "0.150", default-features = false, features = [
+oxc = { version = "0.153", default-features = false, features = [
     "codegen",
     "semantic",
     "transformer",
@@ -130,10 +130,11 @@ merman = { version = "=0.8.0", default-features = false, features = [
 ] }
 # The content address a cached diagram is filed under. A stable hash, because the name has to mean
 # the same thing after a restart and after a toolchain upgrade.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Swift and C# ship a grammar in gpui-component but no highlight query — these three build the two
 # `LanguageConfig`s that fill that gap, from the grammar crates' own bundled `highlights.scm`.
+# The core is gpui-component's own (`0.26.13`): a `LanguageConfig` takes its `Language` type.
 tree-sitter = "0.26"
 tree-sitter-swift = "0.7"
 tree-sitter-c-sharp = "0.23"
@@ -163,11 +164,12 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # Trust roots for https dials: the platform's store first, the bundled Mozilla set
 # when it cannot be read. Neither draws.
 rustls-native-certs = "0.8"
-webpki-roots = "0.26"
+webpki-roots = "1"
 # Remote-host bearer tokens, one entry per saved host. The settings file carries the
-# address and never the secret; this is where the secret lives. keyring 3 with no platform
-# feature is an in-memory mock, so each store is named: nothing would survive a restart otherwise.
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# address and never the secret; this is where the secret lives. keyring 4's default `v1` feature
+# is the platform-native store on each OS (Keychain, Credential Manager, Secret Service) — the
+# same requirement and features agent-manager names, so the workspace links one keyring.
+keyring = "4"
 
 # Local read-only doc/source viewer server (web_export module)
 tiny_http = "0.12"
@@ -211,7 +213,8 @@ objc2-app-kit = { version = "0.3", features = [
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
 # The frame type behind gpui's `ScreenCaptureFrame` on macOS is a `CVImageBuffer`, and this
 # is what reads its pixels. Already in the graph behind gpui — named here because
-# `app/capture.rs` decodes a frame itself.
+# `app/capture.rs` decodes a frame itself. Held at gpui-pre-macos's own 0.5: a newer major would
+# be a second `CVImageBuffer` type the frame never matches.
 core-video = "0.5"
 
 # The frame type behind gpui's `ScreenCaptureFrame` on Windows and Linux, so a captured
@@ -247,7 +250,7 @@ flate2 = "1"
 
 [dev-dependencies]
 # A blocking HTTP client, to exercise the web-export server's routing and path safety end to end.
-ureq = "2"
+ureq = "3"
 # The console's state is asserted against the sink's own types
 ubiq-proto = { path = "../ubiq-proto" }
 # A window with no graphics device behind it. Same revision as the dependency above — this only
