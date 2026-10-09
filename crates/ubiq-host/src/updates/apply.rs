@@ -52,7 +52,11 @@ pub fn bundle_of(exe: &Path) -> Option<PathBuf> {
 /// Whether a file can be made in `dir` — the honest test of "the swap will be allowed".
 fn writable(dir: &Path) -> bool {
     let probe = dir.join(format!(".ubiq-update-probe-{}", std::process::id()));
-    match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
         Ok(_) => {
             let _ = std::fs::remove_file(&probe);
             true
@@ -73,7 +77,9 @@ fn ps(text: &str) -> String {
 
 /// The macOS swap script.
 pub fn mac_script(pid: u32, zip: &Path, stage: &Path, bundle: &Path, relaunch: bool) -> String {
-    let name = bundle.file_name().map_or("Ubiq.app".into(), |n| n.to_string_lossy());
+    let name = bundle
+        .file_name()
+        .map_or("Ubiq.app".into(), |n| n.to_string_lossy());
     let mut script = format!(
         r#"#!/bin/sh
 # Written by Ubiq: waits for pid {pid} to exit, then replaces the app bundle.
@@ -104,7 +110,10 @@ echo "updated"
         zip = sh(&zip.to_string_lossy()),
     );
     if relaunch {
-        script.push_str(&format!("/usr/bin/open -n {}\n", sh(&bundle.to_string_lossy())));
+        script.push_str(&format!(
+            "/usr/bin/open -n {}\n",
+            sh(&bundle.to_string_lossy())
+        ));
     }
     script
 }
@@ -117,18 +126,16 @@ pub fn windows_command(pid: u32, installer: &Path, exe: &Path, relaunch: bool) -
         ps(&installer.to_string_lossy())
     );
     if relaunch {
-        command.push_str(&format!(" Start-Process -FilePath {};", ps(&exe.to_string_lossy())));
+        command.push_str(&format!(
+            " Start-Process -FilePath {};",
+            ps(&exe.to_string_lossy())
+        ));
     }
     command
 }
 
 /// Start the helper for `mode`. `file` is the verified download; `stage` a scratch directory.
-pub fn spawn(
-    mode: ApplyMode,
-    file: &Path,
-    stage: &Path,
-    relaunch: bool,
-) -> Result<(), String> {
+pub fn spawn(mode: ApplyMode, file: &Path, stage: &Path, relaunch: bool) -> Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|error| format!("Ubiq could not find its own program: {error}"))?;
     let pid = std::process::id();
@@ -142,15 +149,25 @@ pub fn spawn(
 }
 
 #[cfg(unix)]
-fn spawn_swap(pid: u32, zip: &Path, stage: &Path, exe: &Path, relaunch: bool) -> Result<(), String> {
+fn spawn_swap(
+    pid: u32,
+    zip: &Path,
+    stage: &Path,
+    exe: &Path,
+    relaunch: bool,
+) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
     let bundle = bundle_of(exe).ok_or("Ubiq is not running from an app bundle")?;
-    std::fs::create_dir_all(stage).map_err(|error| format!("could not prepare the update: {error}"))?;
+    std::fs::create_dir_all(stage)
+        .map_err(|error| format!("could not prepare the update: {error}"))?;
     let script = stage.join("apply.sh");
-    crate::atomic::write_atomic(&script, mac_script(pid, zip, stage, &bundle, relaunch).as_bytes())
-        .map_err(|error| format!("could not write the update helper: {error}"))?;
+    crate::atomic::write_atomic(
+        &script,
+        mac_script(pid, zip, stage, &bundle, relaunch).as_bytes(),
+    )
+    .map_err(|error| format!("could not write the update helper: {error}"))?;
     Command::new("/bin/sh")
         .arg(&script)
         .stdin(Stdio::null())
@@ -175,7 +192,13 @@ fn spawn_installer(pid: u32, installer: &Path, exe: &Path, relaunch: bool) -> Re
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command"])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+        ])
         .arg(windows_command(pid, installer, exe, relaunch))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -206,7 +229,10 @@ mod tests {
     fn a_translocated_or_bare_executable_is_manual() {
         let exe = Path::new("/private/var/AppTranslocation/X/d/Ubiq.app/Contents/MacOS/ubiq");
         assert_eq!(mode_of(exe), ApplyMode::Manual);
-        assert_eq!(mode_of(Path::new("/tmp/target/debug/ubiq")), ApplyMode::Manual);
+        assert_eq!(
+            mode_of(Path::new("/tmp/target/debug/ubiq")),
+            ApplyMode::Manual
+        );
     }
 
     #[test]
@@ -225,8 +251,21 @@ mod tests {
         let swap = script.find("mv \"$NEW\" \"$BUNDLE\"").unwrap();
         assert!(wait < unpack && unpack < verify && verify < quarantine && quarantine < swap);
         assert!(script.contains("mv \"$OLD\" \"$BUNDLE\""));
-        assert!(script.trim_end().ends_with("/usr/bin/open -n '/Applications/Ubiq.app'"));
-        assert!(!mac_script(1, Path::new("z"), Path::new("s"), Path::new("/A/U.app"), false).contains("open -n"));
+        assert!(
+            script
+                .trim_end()
+                .ends_with("/usr/bin/open -n '/Applications/Ubiq.app'")
+        );
+        assert!(
+            !mac_script(
+                1,
+                Path::new("z"),
+                Path::new("s"),
+                Path::new("/A/U.app"),
+                false
+            )
+            .contains("open -n")
+        );
     }
 
     #[test]
@@ -237,7 +276,12 @@ mod tests {
 
     #[test]
     fn the_windows_command_waits_installs_then_relaunches() {
-        let command = windows_command(7, Path::new(r"C:\c\Setup.exe"), Path::new(r"C:\A\ubiq.exe"), true);
+        let command = windows_command(
+            7,
+            Path::new(r"C:\c\Setup.exe"),
+            Path::new(r"C:\A\ubiq.exe"),
+            true,
+        );
         assert!(command.starts_with("Wait-Process -Id 7"));
         assert!(command.contains("/VERYSILENT") && command.contains("/CURRENTUSER"));
         assert!(command.ends_with(r"Start-Process -FilePath 'C:\A\ubiq.exe';"));

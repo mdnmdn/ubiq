@@ -363,6 +363,15 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             )
         },
     );
+    add(
+        ids::SETTINGS_APP_SYSTEM,
+        section(
+            ids::UPDATES,
+            "Updates",
+            || UbiqIcon::GitFetch.into(),
+            |ctx, _, cx| updates(ctx.app, cx),
+        ),
+    );
     // Only where the window runs on Windows: Explorer's menu is the one context menu Ubiq knows
     // how to join, and a section that could only ever say "not supported" is not worth a nav row.
     // The host still answers for itself — a window on Windows attached to another platform's host
@@ -541,6 +550,203 @@ fn appearance(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     // Beside the rail's other switch, "Open projects in the rail".
     rows.extend(modes);
     column(rows)
+}
+
+/// Ubiq updating itself: which channel it follows, whether it looks and downloads on its own, and
+/// the one thing the updater is doing now. The host does the work; every control here is a message
+/// to it, and a build that cannot update says why and leaves them dim.
+fn updates(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    use ubiq_proto::update::{ApplyMode, UpdateChannel, UpdateStatus};
+
+    let state = &app.workbench.updates;
+    let live = state.enabled();
+    let busy = matches!(
+        state.status,
+        UpdateStatus::Checking | UpdateStatus::Downloading { .. } | UpdateStatus::Applying { .. }
+    );
+    let colour = match &state.status {
+        UpdateStatus::Failed { .. } => theme::danger(),
+        UpdateStatus::Disabled { .. } => theme::warning(),
+        UpdateStatus::Available { .. } | UpdateStatus::Ready { .. } => theme::accent(),
+        UpdateStatus::UpToDate { .. } => theme::success(),
+        _ => theme::text_faint(),
+    };
+    // A control the build cannot honour: half opacity and a listener that does nothing.
+    let gate = |live: bool, button: gpui::Stateful<gpui::Div>| {
+        if live {
+            button.into_any_element()
+        } else {
+            button.opacity(0.5).into_any_element()
+        }
+    };
+
+    let channels: Vec<AnyElement> = UpdateChannel::ALL
+        .iter()
+        .copied()
+        .map(|channel| {
+            gate(
+                live,
+                choice_pill(
+                    ElementId::Name(
+                        format!("app-settings-update-channel-{}", channel.slug()).into(),
+                    ),
+                    channel.label(),
+                    channel == state.settings.channel,
+                    cx.listener(move |this, _, _, cx| {
+                        if this.workbench.updates.enabled() {
+                            this.set_update_channel(channel, cx);
+                        }
+                    }),
+                ),
+            )
+        })
+        .collect();
+
+    let mut buttons: Vec<AnyElement> = vec![gate(
+        live && !busy,
+        ghost_button(
+            "app-settings-update-check",
+            None,
+            "Check now",
+            cx.listener(|this, _, _, cx| {
+                if this.workbench.updates.enabled() {
+                    this.check_for_updates(cx);
+                }
+            }),
+        ),
+    )];
+    match &state.status {
+        UpdateStatus::Available {
+            apply: ApplyMode::Manual,
+            info,
+        } => {
+            let url = info.notes_url.clone();
+            buttons.push(
+                primary_button(
+                    "app-settings-update-page",
+                    None,
+                    "Open download page",
+                    cx.listener(move |_, _, _, cx| cx.open_url(&url)),
+                )
+                .into_any_element(),
+            );
+        }
+        UpdateStatus::Available { .. } => buttons.push(
+            primary_button(
+                "app-settings-update-download",
+                None,
+                "Download",
+                cx.listener(|this, _, _, cx| this.download_update(cx)),
+            )
+            .into_any_element(),
+        ),
+        UpdateStatus::Ready { .. } => {
+            buttons.push(
+                primary_button(
+                    "app-settings-update-restart",
+                    None,
+                    "Restart and install",
+                    cx.listener(|this, _, _, cx| this.request_restart_to_update(cx)),
+                )
+                .into_any_element(),
+            );
+            if !state.on_quit {
+                buttons.push(
+                    ghost_button(
+                        "app-settings-update-on-quit",
+                        None,
+                        "Install on quit",
+                        cx.listener(|this, _, _, cx| this.install_update_on_quit(cx)),
+                    )
+                    .into_any_element(),
+                );
+            }
+        }
+        _ => {}
+    }
+    if let Some(info) = state.info().filter(|info| !info.notes_url.is_empty()) {
+        let url = info.notes_url.clone();
+        buttons.push(
+            ghost_button(
+                "app-settings-update-notes",
+                None,
+                "Release notes",
+                cx.listener(move |_, _, _, cx| cx.open_url(&url)),
+            )
+            .into_any_element(),
+        );
+    }
+
+    column(vec![
+        heading(
+            "Updates",
+            "Ubiq looking for a newer build of itself, from the release feed compiled into this \
+             one. Nothing is installed without your say: a download waits until you restart or \
+             quit.",
+        ),
+        setting_row(
+            "Version",
+            "The build running now.",
+            mono(
+                if state.current_version.is_empty() {
+                    crate::version::FULL.to_string()
+                } else {
+                    state.current_version.clone()
+                },
+                theme::text_muted(),
+            )
+            .into_any_element(),
+        ),
+        setting_row(
+            "Channel",
+            "Which releases to follow. Beta includes stable; nightly includes both.",
+            pill_row(channels),
+        ),
+        setting_row(
+            "Check for updates automatically",
+            "Shortly after start, then every few hours.",
+            gate(
+                live,
+                check_box(
+                    "app-settings-update-auto-check",
+                    state.settings.auto_check,
+                    cx.listener(|this, _, _, cx| {
+                        if this.workbench.updates.enabled() {
+                            this.toggle_update_auto_check(cx);
+                        }
+                    }),
+                ),
+            ),
+        ),
+        setting_row(
+            "Download updates automatically",
+            "Fetch an available update in the background. Installing it is always your call.",
+            gate(
+                live,
+                check_box(
+                    "app-settings-update-auto-download",
+                    state.settings.auto_download,
+                    cx.listener(|this, _, _, cx| {
+                        if this.workbench.updates.enabled() {
+                            this.toggle_update_auto_download(cx);
+                        }
+                    }),
+                ),
+            ),
+        ),
+        div()
+            .flex()
+            .flex_none()
+            .child(state_chip(state.line(), colour, 1.0))
+            .into_any_element(),
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .children(buttons)
+            .into_any_element(),
+    ])
 }
 
 /// A row of pills, which is how every choice on this page is drawn.

@@ -78,9 +78,8 @@ impl Env {
             return Err("updates are not offered on this platform".to_string());
         }
         let version = self.version.as_deref().unwrap_or("");
-        let parsed = Version::parse(version).map_err(|_| {
-            "this is a development build, which does not update itself".to_string()
-        })?;
+        let parsed = Version::parse(version)
+            .map_err(|_| "this is a development build, which does not update itself".to_string())?;
         if self.pubkey.trim().is_empty() {
             return Err("this build has no update signing key".to_string());
         }
@@ -110,7 +109,9 @@ impl<T> Shared<T> {
         Self(std::sync::Mutex::new(value))
     }
     fn lock(&self) -> std::sync::MutexGuard<'_, T> {
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -261,8 +262,12 @@ impl Worker {
         if self.disabled() {
             return;
         }
-        let Ok(current) = self.env.current() else { return };
-        let Some(platform) = self.env.platform else { return };
+        let Ok(current) = self.env.current() else {
+            return;
+        };
+        let Some(platform) = self.env.platform else {
+            return;
+        };
         self.set(UpdateStatus::Checking);
         let channel = self.state.lock().settings.channel;
         match feed::newest(
@@ -314,7 +319,8 @@ impl Worker {
             return;
         }
         let Some(release) = self.state.lock().found.clone() else {
-            return self.fail("there is no update to download; check for updates first".to_string());
+            return self
+                .fail("there is no update to download; check for updates first".to_string());
         };
         let dir = self.root.join("updates").join(&release.info.version);
         let info = release.info.clone();
@@ -374,13 +380,10 @@ fn message(state: &Shared<State>, version: &str) -> Message {
 }
 
 /// Stream `asset` into `dir`, verifying its size and SHA-256; a mismatch deletes the file.
-fn fetch_asset(
-    asset: &feed::Asset,
-    dir: &Path,
-    progress: impl Fn(u64),
-) -> Result<PathBuf, String> {
+fn fetch_asset(asset: &feed::Asset, dir: &Path, progress: impl Fn(u64)) -> Result<PathBuf, String> {
     feed::require_https(&asset.url)?;
-    std::fs::create_dir_all(dir).map_err(|error| format!("could not prepare the download: {error}"))?;
+    std::fs::create_dir_all(dir)
+        .map_err(|error| format!("could not prepare the download: {error}"))?;
     let name: String = asset
         .url
         .rsplit('/')
@@ -392,7 +395,11 @@ fn fetch_asset(
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
         .collect();
-    let name = if name.is_empty() || name.starts_with('.') { "update".to_string() } else { name };
+    let name = if name.is_empty() || name.starts_with('.') {
+        "update".to_string()
+    } else {
+        name
+    };
     let target = dir.join(&name);
     let part = dir.join(format!("{name}.part"));
     let response = ureq::AgentBuilder::new()
@@ -448,7 +455,8 @@ fn stream(
             progress(received);
         }
     }
-    file.flush().map_err(|error| format!("could not write the download: {error}"))?;
+    file.flush()
+        .map_err(|error| format!("could not write the download: {error}"))?;
     verify_digest(received, &hash.finalize(), asset)
 }
 
@@ -474,7 +482,9 @@ fn load_settings(root: &Path) -> UpdateSettings {
 }
 
 fn save_settings(root: &Path, settings: &UpdateSettings) {
-    let Ok(text) = toml::to_string(settings) else { return };
+    let Ok(text) = toml::to_string(settings) else {
+        return;
+    };
     if let Err(error) = crate::atomic::write_atomic(&root.join(SETTINGS_FILE), text.as_bytes()) {
         tracing::warn!("update settings could not be saved: {error}");
     }
@@ -503,16 +513,34 @@ mod tests {
     fn a_build_is_disabled_with_a_reason() {
         let mac = Some("macos-aarch64");
         assert!(env(Some("1.0.0"), "k", mac).current().is_ok());
-        assert!(env(Some("dev-abc"), "k", mac).current().unwrap_err().contains("development"));
+        assert!(
+            env(Some("dev-abc"), "k", mac)
+                .current()
+                .unwrap_err()
+                .contains("development")
+        );
         assert!(env(None, "k", mac).current().is_err());
-        assert!(env(Some("1.0.0"), " ", mac).current().unwrap_err().contains("key"));
-        assert!(env(Some("1.0.0"), "k", None).current().unwrap_err().contains("platform"));
+        assert!(
+            env(Some("1.0.0"), " ", mac)
+                .current()
+                .unwrap_err()
+                .contains("key")
+        );
+        assert!(
+            env(Some("1.0.0"), "k", None)
+                .current()
+                .unwrap_err()
+                .contains("platform")
+        );
     }
 
     #[test]
     fn a_download_is_kept_only_if_size_and_digest_match() {
         let body = b"hello update";
-        let hex: String = Sha256::digest(body).iter().map(|b| format!("{b:02x}")).collect();
+        let hex: String = Sha256::digest(body)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let asset = feed::Asset {
             url: "https://e/a.zip".into(),
             sha256: hex.clone(),
@@ -521,12 +549,30 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let part = dir.path().join("a.part");
         assert!(stream(&body[..], &part, &asset, |_| {}).is_ok());
-        let wrong = feed::Asset { sha256: "00".into(), ..asset.clone() };
-        assert!(stream(&body[..], &part, &wrong, |_| {}).unwrap_err().contains("checksum"));
-        let short = feed::Asset { size: 3, ..asset.clone() };
-        assert!(stream(&body[..], &part, &short, |_| {}).unwrap_err().contains("larger"));
+        let wrong = feed::Asset {
+            sha256: "00".into(),
+            ..asset.clone()
+        };
+        assert!(
+            stream(&body[..], &part, &wrong, |_| {})
+                .unwrap_err()
+                .contains("checksum")
+        );
+        let short = feed::Asset {
+            size: 3,
+            ..asset.clone()
+        };
+        assert!(
+            stream(&body[..], &part, &short, |_| {})
+                .unwrap_err()
+                .contains("larger")
+        );
         let long = feed::Asset { size: 99, ..asset };
-        assert!(stream(&body[..], &part, &long, |_| {}).unwrap_err().contains("incomplete"));
+        assert!(
+            stream(&body[..], &part, &long, |_| {})
+                .unwrap_err()
+                .contains("incomplete")
+        );
     }
 
     #[test]
@@ -551,7 +597,11 @@ mod tests {
             host.mailbox(ubiq_proto::bus::To::Everyone),
         );
         match updater.snapshot() {
-            Message::UpdateState { status: UpdateStatus::Disabled { reason }, current_version, .. } => {
+            Message::UpdateState {
+                status: UpdateStatus::Disabled { reason },
+                current_version,
+                ..
+            } => {
                 assert!(reason.contains("development"));
                 assert_eq!(current_version, "dev-1");
             }

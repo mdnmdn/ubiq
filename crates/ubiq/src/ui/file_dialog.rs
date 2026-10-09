@@ -530,6 +530,43 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 window,
             )
         }
+        Some(FileDialog::RestartForUpdate) => {
+            let mut body = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .pt_3()
+                .child(modal_note("Restarting takes all of this with it:"));
+            for row in app.unsaved_summary(cx) {
+                body = body.child(modal_note(&row));
+            }
+            let footer = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-restart-update-cancel",
+                    None,
+                    "Cancel",
+                    cx.listener(|this, _, _, cx| this.close_file_dialog(cx)),
+                ))
+                .child(primary_button(
+                    "app-restart-update-confirm",
+                    None,
+                    "Restart anyway",
+                    cx.listener(|this, _, window, cx| this.confirm_file_dialog(window, cx)),
+                ))
+                .into_any_element();
+            modal(
+                "app-restart-update",
+                theme::danger(),
+                "Restart and install",
+                body.into_any_element(),
+                footer,
+                crate::ui::handler(&view, |this, _, cx| this.close_file_dialog(cx)),
+                window,
+            )
+        }
         Some(FileDialog::PasteImage) => {
             let body = div()
                 .flex()

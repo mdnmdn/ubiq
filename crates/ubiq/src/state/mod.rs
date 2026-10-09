@@ -55,6 +55,7 @@ pub mod tasksrc;
 pub mod teams;
 pub mod teamsim;
 pub mod ui_id;
+pub mod updates;
 pub mod viewport;
 pub mod vim;
 pub mod wbs;

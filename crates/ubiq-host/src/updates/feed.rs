@@ -51,7 +51,9 @@ pub fn require_https(url: &str) -> Result<(), String> {
     if url.len() > 8 && url[..8].eq_ignore_ascii_case("https://") {
         Ok(())
     } else {
-        Err(format!("the update feed named a URL that is not https: {url}"))
+        Err(format!(
+            "the update feed named a URL that is not https: {url}"
+        ))
     }
 }
 
@@ -111,11 +113,18 @@ pub fn newest(
 ) -> Result<Option<Release>, String> {
     let feed = feed.trim_end_matches('/');
     let mut found = Vec::new();
-    for channel in UpdateChannel::ALL.iter().copied().filter(|c| selected.includes(*c)) {
+    for channel in UpdateChannel::ALL
+        .iter()
+        .copied()
+        .filter(|c| selected.includes(*c))
+    {
         let url = format!("{feed}/{}.json", channel.slug());
         let Some(body) = fetch(&url)? else { continue };
         let Some(signature) = fetch(&format!("{url}.minisig"))? else {
-            return Err(format!("the {} update manifest has no signature", channel.slug()));
+            return Err(format!(
+                "the {} update manifest has no signature",
+                channel.slug()
+            ));
         };
         let signature = String::from_utf8(signature)
             .map_err(|_| "the update signature is not text".to_string())?;
@@ -169,9 +178,12 @@ wLMDjy9FLAuxZ3q4NlEvkgtyhrr0gtTu6KC4KBJdITbbOeAi1zBIYo0v4iTgt8jJpIidRJnp94ABQkJA
     }
 
     fn release(channel: &str, version: &str) -> Release {
-        parse(manifest(channel, version, "https://e.com/a.zip").as_bytes(), "macos-aarch64")
-            .unwrap()
-            .unwrap()
+        parse(
+            manifest(channel, version, "https://e.com/a.zip").as_bytes(),
+            "macos-aarch64",
+        )
+        .unwrap()
+        .unwrap()
     }
 
     #[test]
@@ -217,7 +229,10 @@ wLMDjy9FLAuxZ3q4NlEvkgtyhrr0gtTu6KC4KBJdITbbOeAi1zBIYo0v4iTgt8jJpIidRJnp94ABQkJA
         ];
         assert_eq!(pick(&now, releases).unwrap().info.version, "1.5.0");
         let nightly = Version::parse("1.5.0-nightly.7").unwrap();
-        let releases = vec![release("beta", "1.5.0-beta.1"), release("nightly", "1.5.0-nightly.7")];
+        let releases = vec![
+            release("beta", "1.5.0-beta.1"),
+            release("nightly", "1.5.0-nightly.7"),
+        ];
         assert!(pick(&nightly, releases).is_none());
     }
 
@@ -234,20 +249,44 @@ wLMDjy9FLAuxZ3q4NlEvkgtyhrr0gtTu6KC4KBJdITbbOeAi1zBIYo0v4iTgt8jJpIidRJnp94ABQkJA
     fn a_channel_file_must_be_signed_and_a_missing_one_is_empty() {
         let now = Version::parse("1.0.0").unwrap();
         // `stable.json` verifies but is not a manifest: verified bytes are still parsed.
-        let error = newest(feed_fetch, "https://f/", KEY, UpdateChannel::Stable, &now, "macos-aarch64")
-            .unwrap_err();
+        let error = newest(
+            feed_fetch,
+            "https://f/",
+            KEY,
+            UpdateChannel::Stable,
+            &now,
+            "macos-aarch64",
+        )
+        .unwrap_err();
         assert!(error.contains("could not be read"), "{error}");
         // `beta.json` has no signature file at all.
-        let error = newest(feed_fetch, "https://f", KEY, UpdateChannel::Beta, &now, "macos-aarch64")
-            .unwrap_err();
-        assert!(error.contains("no signature") || error.contains("could not be read"), "{error}");
+        let error = newest(
+            feed_fetch,
+            "https://f",
+            KEY,
+            UpdateChannel::Beta,
+            &now,
+            "macos-aarch64",
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("no signature") || error.contains("could not be read"),
+            "{error}"
+        );
         fn empty(_: &str) -> Result<Option<Vec<u8>>, String> {
             Ok(None)
         }
         assert!(
-            newest(empty, "https://f", KEY, UpdateChannel::Nightly, &now, "macos-aarch64")
-                .unwrap()
-                .is_none()
+            newest(
+                empty,
+                "https://f",
+                KEY,
+                UpdateChannel::Nightly,
+                &now,
+                "macos-aarch64"
+            )
+            .unwrap()
+            .is_none()
         );
     }
 }

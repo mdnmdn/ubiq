@@ -74,9 +74,7 @@ impl UpdateChannel {
             Some("nightly") => Some(Self::Nightly),
             _ => None,
         };
-        named.unwrap_or_else(|| {
-            option_env!("UBIQ_VERSION").map_or(Self::Stable, Self::of_version)
-        })
+        named.unwrap_or_else(|| option_env!("UBIQ_VERSION").map_or(Self::Stable, Self::of_version))
     }
 }
 
@@ -128,19 +126,36 @@ pub enum ApplyMode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UpdateStatus {
     /// This build cannot update itself, and `reason` is a sentence saying why.
-    Disabled { reason: String },
+    Disabled {
+        reason: String,
+    },
     Idle,
     Checking,
     /// The newest release is this one or older. `checked` is when the host last looked.
-    UpToDate { checked: String },
-    Available { info: UpdateInfo, apply: ApplyMode },
-    Downloading { info: UpdateInfo, received: u64, total: u64 },
+    UpToDate {
+        checked: String,
+    },
+    Available {
+        info: UpdateInfo,
+        apply: ApplyMode,
+    },
+    Downloading {
+        info: UpdateInfo,
+        received: u64,
+        total: u64,
+    },
     /// Downloaded and verified, waiting to be applied.
-    Ready { info: UpdateInfo },
+    Ready {
+        info: UpdateInfo,
+    },
     /// The helper has been started; the app is expected to quit.
-    Applying { info: UpdateInfo },
+    Applying {
+        info: UpdateInfo,
+    },
     /// `message` is a sentence for the user.
-    Failed { message: String },
+    Failed {
+        message: String,
+    },
 }
 
 #[cfg(test)]
@@ -158,13 +173,22 @@ mod tests {
     #[test]
     fn a_version_names_its_channel() {
         assert_eq!(UpdateChannel::of_version("v1.4.0"), UpdateChannel::Stable);
-        assert_eq!(UpdateChannel::of_version("1.5.0-beta.1"), UpdateChannel::Beta);
-        assert_eq!(UpdateChannel::of_version("1.5.0-nightly.20260101"), UpdateChannel::Nightly);
+        assert_eq!(
+            UpdateChannel::of_version("1.5.0-beta.1"),
+            UpdateChannel::Beta
+        );
+        assert_eq!(
+            UpdateChannel::of_version("1.5.0-nightly.20260101"),
+            UpdateChannel::Nightly
+        );
         assert_eq!(UpdateChannel::of_version("1.5.0-rc.1"), UpdateChannel::Beta);
     }
 
     #[test]
     fn channels_serialise_lowercase() {
-        assert_eq!(serde_json::to_string(&UpdateChannel::Nightly).unwrap(), "\"nightly\"");
+        assert_eq!(
+            serde_json::to_string(&UpdateChannel::Nightly).unwrap(),
+            "\"nightly\""
+        );
     }
 }

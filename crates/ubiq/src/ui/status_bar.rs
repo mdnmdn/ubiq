@@ -8,12 +8,14 @@
 //! that is not one prints nothing git-related.
 
 use gpui::{
-    Anchor, App, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    Anchor, AnyElement, App, Context, Focusable, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use ubiq_proto::git::{AHEAD_BEHIND_CAP, GitCounts, GitOperation};
 use ubiq_proto::work::Bucket;
+
+use gpui_component::Icon;
 
 use crate::app::AppState;
 use crate::state::editor::ViewerKind;
@@ -114,6 +116,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         return strip
             .child(mono("no project", theme::text_faint()))
             .child(div().flex_1().min_w(px(0.)))
+            .children(update_item(app, cx))
             .child(size_control(app, cx))
             .child(made_with_love())
             .child(version_label());
@@ -150,6 +153,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .children(update_item(app, cx))
             .child(size_control(app, cx))
             .child(version_label())
             .child(made_with_love());
@@ -181,6 +185,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                 )
             }))
             .child(div().flex_1().min_w(px(0.)))
+            .children(update_item(app, cx))
             .child(size_control(app, cx))
             .child(version_label())
             .child(made_with_love())
@@ -210,6 +215,7 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .child(div().flex_1().min_w(px(0.)))
         .children(git_readout(app, cx))
         .child(vim_chip(app, cx))
+        .children(update_item(app, cx))
         .child(size_control(app, cx))
         .child(version_label())
         .child(made_with_love())
@@ -298,6 +304,49 @@ fn size_control(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement 
         trigger = trigger.child(size::panel(app, cx));
     }
     trigger
+}
+
+/// "Update available" / "Restart to update", while the updater has one to offer. Absent when the
+/// build cannot update, is current, is checking or failed: the strip reports facts worth acting on,
+/// and the Updates section carries the rest. A click opens that section.
+fn update_item(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
+    use ubiq_proto::update::UpdateStatus;
+
+    let state = &app.workbench.updates;
+    if !state.pending() {
+        return None;
+    }
+    let (word, tip) = match &state.status {
+        UpdateStatus::Ready { .. } if state.on_quit => {
+            ("Installs on quit", "Installs when you quit")
+        }
+        UpdateStatus::Ready { .. } => (
+            "Restart to update",
+            "An update is ready \u{2014} open Updates",
+        ),
+        _ => (
+            "Update available",
+            "A newer build exists \u{2014} open Updates",
+        ),
+    };
+    Some(
+        div()
+            .id("update-available")
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1p5()
+            .cursor_pointer()
+            .child(
+                Icon::new(UbiqIcon::GitFetch)
+                    .size_3()
+                    .text_color(theme::accent()),
+            )
+            .child(mono(word, theme::accent()))
+            .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip).build(window, cx))
+            .on_click(cx.listener(|this, _, _, cx| this.open_updates_settings(cx)))
+            .into_any_element(),
+    )
 }
 
 /// Branch, tracking, working-tree totals — or nothing, when the project is not a repository.
