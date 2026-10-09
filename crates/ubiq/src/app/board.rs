@@ -917,14 +917,18 @@ impl AppState {
             (self.task_link_input.clone(), link),
             (self.task_assigned_input.clone(), assigned_to),
             (self.task_label_input.clone(), String::new()),
-            (self.step_title_input.clone(), String::new()),
-            (self.new_step_input.clone(), String::new()),
-            (self.new_comment_input.clone(), String::new()),
         ] {
             input.update(cx, |state, cx| state.set_value(&value, window, cx));
         }
         let description_input = self.task_description_input.clone();
         description_input.update(cx, |state, cx| state.set_value(&description, window, cx));
+        for input in [
+            self.step_title_input.clone(),
+            self.new_step_input.clone(),
+            self.new_comment_input.clone(),
+        ] {
+            input.update(cx, |state, cx| state.set_value("", window, cx));
+        }
     }
 
     /// Point the panel at a task. Picking a card always opens the panel, because a selection

@@ -1015,9 +1015,9 @@ pub struct AppState {
     pub task_link_input: Entity<InputState>,
     pub task_assigned_input: Entity<InputState>,
     pub task_label_input: Entity<InputState>,
-    pub step_title_input: Entity<InputState>,
-    pub new_step_input: Entity<InputState>,
-    pub new_comment_input: Entity<InputState>,
+    pub step_title_input: Entity<TextareaState>,
+    pub new_step_input: Entity<TextareaState>,
+    pub new_comment_input: Entity<TextareaState>,
     /// The reference picker's own search field — see `BoardState::form::reference_query` for
     /// what it mirrors and `AppState::toggle_reference_picker` for where it is cleared.
     pub task_reference_query: Entity<InputState>,

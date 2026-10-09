@@ -25,7 +25,7 @@ use gpui::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div,
     prelude::FluentBuilder, px,
 };
-use gpui_component::input::{Input, InputState, Textarea};
+use gpui_component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_component::scroll::Scrollbar;
 use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -1539,76 +1539,76 @@ pub fn step_controls(
         .into_any_element()
 }
 
+/// A growing text field for one sub-task title or comment. Enter is a newline; ⌘⏎ (⌃⏎ off macOS)
+/// runs `submit`, the same key the description editor answers to (`SubmitSearch`).
+fn grow_field(
+    input: &Entity<TextareaState>,
+    border: gpui::Rgba,
+    window: &Window,
+    submit: impl Fn(&mut AppState, &mut Window, &mut Context<AppState>) + 'static,
+    cx: &mut Context<AppState>,
+) -> gpui::Div {
+    let focused = input.read(cx).focus_handle(cx).is_focused(window);
+    field(border, focused)
+        .flex_col()
+        .items_stretch()
+        .px_2()
+        .py(px(3.))
+        .cursor_text()
+        .child(
+            Textarea::new(input)
+                .appearance(false)
+                .bordered(false)
+                .w_full()
+                .text_size(theme::font(Family::Chrome, Role::Body)),
+        )
+        .on_action(cx.listener(move |this, _: &SubmitSearch, window, cx| {
+            submit(this, window, cx)
+        }))
+}
+
 /// The field a sub-task is renamed in, shown in place of its title.
-pub fn step_field(app: &AppState, window: &Window, cx: &App) -> AnyElement {
-    let focused = app
-        .step_title_input
-        .read(cx)
-        .focus_handle(cx)
-        .is_focused(window);
-    field(theme::accent(), focused)
-        .flex_1()
-        .min_w(px(0.))
-        .px_2()
-        .py(px(1.))
-        .text_size(theme::font(Family::Chrome, Role::Body))
-        .child(Input::new(&app.step_title_input).appearance(false))
-        .into_any_element()
+pub fn step_field(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let input = app.step_title_input.clone();
+    grow_field(
+        &input,
+        theme::accent(),
+        window,
+        |this, window, cx| this.commit_step_title(window, cx),
+        cx,
+    )
+    .flex_1()
+    .min_w(px(0.))
+    .into_any_element()
 }
 
-/// The field at the foot of the list. Enter adds and keeps the focus, so several sub-tasks can be
-/// typed in a row without reaching for the mouse.
-pub fn new_step(app: &AppState, window: &Window, cx: &App) -> AnyElement {
-    let focused = app
-        .new_step_input
-        .read(cx)
-        .focus_handle(cx)
-        .is_focused(window);
-    field(theme::border(), focused)
-        .h(px(26.))
-        .px_2()
-        .flex_none()
-        .gap_2()
-        .child(
-            Icon::new(IconName::Plus)
-                .with_size(Size::XSmall)
-                .text_color(theme::text_faint()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(theme::font(Family::Chrome, Role::Body))
-                .child(Input::new(&app.new_step_input).appearance(false)),
-        )
-        .into_any_element()
+/// The field at the foot of the list. ⌘⏎ adds and keeps the focus, so several sub-tasks can be
+/// typed in a row without reaching for the mouse; Enter is a newline.
+pub fn new_step(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let input = app.new_step_input.clone();
+    grow_field(
+        &input,
+        theme::border(),
+        window,
+        |this, window, cx| this.add_task_step(window, cx),
+        cx,
+    )
+    .flex_none()
+    .into_any_element()
 }
 
-/// The field at the foot of the comments. Enter posts and keeps the focus.
-pub fn new_comment(app: &AppState, window: &Window, cx: &App) -> AnyElement {
-    let focused = app
-        .new_comment_input
-        .read(cx)
-        .focus_handle(cx)
-        .is_focused(window);
-    field(theme::border(), focused)
-        .h(px(26.))
-        .px_2()
-        .flex_none()
-        .gap_2()
-        .child(
-            Icon::new(IconName::Plus)
-                .with_size(Size::XSmall)
-                .text_color(theme::text_faint()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(theme::font(Family::Chrome, Role::Body))
-                .child(Input::new(&app.new_comment_input).appearance(false)),
-        )
-        .into_any_element()
+/// The field at the foot of the comments. ⌘⏎ posts and keeps the focus; Enter is a newline.
+pub fn new_comment(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    let input = app.new_comment_input.clone();
+    grow_field(
+        &input,
+        theme::border(),
+        window,
+        |this, window, cx| this.add_task_comment(window, cx),
+        cx,
+    )
+    .flex_none()
+    .into_any_element()
 }
 
 /// Delete, and the question it asks first.

@@ -109,14 +109,23 @@ impl AppState {
             cx.new(|cx| InputState::new(window, cx).placeholder("New label\u{2026}"));
 
         // One field for renaming whichever sub-task is open, because only one ever is.
-        let step_title_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Rename this sub-task"));
+        let step_title_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Rename this sub-task")
+                .auto_grow(1, 8)
+        });
 
-        let new_step_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Add a sub-task\u{2026}"));
+        let new_step_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Add a sub-task\u{2026}")
+                .auto_grow(1, 8)
+        });
 
-        let new_comment_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Add a comment\u{2026}"));
+        let new_comment_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Add a comment\u{2026}")
+                .auto_grow(1, 8)
+        });
 
         let task_reference_query = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search title, notes, todos\u{2026}")
@@ -1268,14 +1277,13 @@ impl AppState {
         subscriptions.push(cx.subscribe_in(
             &step_title_input,
             window,
-            |this, input, event: &InputEvent, window, cx| match event {
+            |this, input, event: &InputEvent, _window, cx| match event {
                 InputEvent::Change => {
                     let text = input.read(cx).value().to_string();
                     if let Some(board) = this.board_mut(cx) {
                         board.form.step_title = text;
                     }
                 }
-                InputEvent::PressEnter { shift: false, .. } => this.commit_step_title(window, cx),
                 _ => {}
             },
         ));
@@ -1283,14 +1291,13 @@ impl AppState {
         subscriptions.push(cx.subscribe_in(
             &new_step_input,
             window,
-            |this, input, event: &InputEvent, window, cx| match event {
+            |this, input, event: &InputEvent, _window, cx| match event {
                 InputEvent::Change => {
                     let text = input.read(cx).value().to_string();
                     if let Some(board) = this.board_mut(cx) {
                         board.form.new_step = text;
                     }
                 }
-                InputEvent::PressEnter { shift: false, .. } => this.add_task_step(window, cx),
                 _ => {}
             },
         ));
@@ -1298,14 +1305,13 @@ impl AppState {
         subscriptions.push(cx.subscribe_in(
             &new_comment_input,
             window,
-            |this, input, event: &InputEvent, window, cx| match event {
+            |this, input, event: &InputEvent, _window, cx| match event {
                 InputEvent::Change => {
                     let text = input.read(cx).value().to_string();
                     if let Some(board) = this.board_mut(cx) {
                         board.form.new_comment = text;
                     }
                 }
-                InputEvent::PressEnter { shift: false, .. } => this.add_task_comment(window, cx),
                 _ => {}
             },
         ));

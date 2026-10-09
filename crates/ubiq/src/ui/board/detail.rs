@@ -15,6 +15,7 @@ use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
+use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::work::{CommentAuthor, Level, Status, StepState, TaskRecord};
@@ -223,7 +224,14 @@ fn body(
                                 .when(done, |this| this.line_through())
                                 .cursor_text()
                                 .hover(|this| this.text_color(theme::accent()))
-                                .child(SharedString::from(step.title.clone()))
+                                .child(
+                                    TextView::markdown(
+                                        eid2("board-step-md", task_id, step_id),
+                                        step.title.clone(),
+                                    )
+                                    .on_link_click(crate::ui::on_link(cx.entity(), None))
+                                    .text_size(theme::font(Family::Chrome, Role::Body)),
+                                )
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.begin_task_edit(Field::Step(step_id), window, cx)
                                 }))
@@ -429,7 +437,14 @@ fn body(
                     div()
                         .text_size(theme::font(Family::Chrome, Role::Body))
                         .text_color(theme::text())
-                        .child(SharedString::from(comment.text.clone())),
+                        .child(
+                            TextView::markdown(
+                                eid2("board-comment-md", task.id, comment.id),
+                                comment.text.clone(),
+                            )
+                            .on_link_click(crate::ui::on_link(cx.entity(), None))
+                            .text_size(theme::font(Family::Content, Role::Body)),
+                        ),
                 )
                 .into_any_element()
         }))
