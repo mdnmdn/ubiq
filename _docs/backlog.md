@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-10-08
+updated: 2026-10-09
 verified: 2026-10-08
 review_cycle: monthly
 ---
@@ -403,7 +403,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G416 | A subagent's own context percentage cannot be drawn. A subagent usage report repeats the parent's occupancy, so a delegate card has no context ring (`Conversation::subagent_tokens` carries spend only). Showing one needs an additive field on `UsageRecord` carrying the delegate's own context use | [`features/workbench-teams.md`](./features/workbench-teams.md), [`features/chat.md`](./features/chat.md) |
 | G417 | A Codex subagent's spend lands in the conversation's own stats bucket. Codex sends no subagent type on a usage report, only an instance id, so the `tot` per-subagent breakdown and the usage meter cannot attribute it to a type | [`features/chat.md`](./features/chat.md), [`features/workbench-teams.md`](./features/workbench-teams.md) |
 | G418 | Multi-agent v2 naming is read from Codex's source and a hand-written fixture, not a live capture. A real Codex subagent session recorded with `raw` filled would confirm the `subAgentActivity` and `source.subAgent.thread_spawn` shapes the mapper names delegates from | [`features/workbench-teams.md`](./features/workbench-teams.md) |
-| G419 | A soft line break in markdown draws as a hard one. CommonMark reads a single newline inside a paragraph as a space; the pinned `gpui-component` text view keeps the `\n` in the `Text` node's value (`text/format/markdown.rs`) and lays it out as a line break (`text/inline_flow.rs`, and GPUI's own shaping for a paragraph with no image), with no option to fold it. So a help page wrapped at 100 columns shows as ragged short lines, and every caller of `viewer::markdown` — help, the docs fixture, the plan surface — draws the same. The fix is upstream (fold soft breaks in the parse), or a Ubiq pass over the body that rewrites each newline inside a `Text` node's source span, and its continuation indent or `>` markers, to one space before the view parses it; until then help pages keep one paragraph to one source line | [`wip/help.md`](./wip/help.md), [`wip/help-content.md`](./wip/help-content.md) |
+| G419 | A soft line break in markdown draws as a hard one. CommonMark reads a single newline inside a paragraph as a space; the pinned `gpui-component` text view keeps the `\n` in the `Text` node's value (`text/format/markdown.rs`) and lays it out as a line break (`text/inline_flow.rs`, and GPUI's own shaping for a paragraph with no image), with no option to fold it. The help panel works around it — `app::help_images::localise` folds each newline inside a paragraph's `Text` source span to a space when a page is read — but every other caller of `viewer::markdown` (a markdown file tab, the docs fixture, the plan surface) still draws a wrapped paragraph as ragged short lines. The fix is upstream (fold soft breaks in the parse), or the same pass moved into `viewer::markdown` so every caller gets it | [`wip/help.md`](./wip/help.md), [`wip/help-content.md`](./wip/help-content.md) |
 
 
 ## Related docs

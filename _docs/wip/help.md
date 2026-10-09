@@ -139,8 +139,11 @@ written. And on `HelpReady` the window installs an HTTP client that answers a `f
 that root and refuses everything else, so no other markdown document reads the disk through an
 image. Screenshots are PNG, taken at 2× on the dark theme unless the page is about theming.
 
-**One paragraph is one source line.** The renderer draws a soft line break as a hard one, so a
-paragraph wrapped in the file shows as ragged short lines (`G419`).
+**Wrap paragraphs freely.** The renderer draws a soft line break as a hard one (`G419`), so the
+same read-time pass folds each newline inside a paragraph's text — with the next line's indent or
+`>` markers — to one space, and a paragraph wrapped at 100 columns flows. A hard break (two trailing
+spaces, a trailing backslash), a code block or span, inline HTML, a table and a heading keep their
+newlines.
 
 ## 3. The packer
 
