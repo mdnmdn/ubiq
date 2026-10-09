@@ -35,6 +35,10 @@ bundle: help-bundle
     cp target/release/ubiq target/Ubiq.app/Contents/MacOS/ubiq
     cp target/AppIcon.icns target/Ubiq.app/Contents/Resources/AppIcon.icns
     cp _tools/Info.plist target/Ubiq.app/Contents/Info.plist
+    # Stamp the version: short = X.Y.Z core (kept as-is for dev-… builds), build = the full string
+    v="{{UBIQ_VERSION}}"; v="${v#v}"; core="${v%%[-+]*}"; \
+        case "$v" in dev-*) ;; *) /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $core" target/Ubiq.app/Contents/Info.plist;; esac; \
+        /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $v" target/Ubiq.app/Contents/Info.plist
     # The help bundle ships inside the .app, where `help::resolve` looks first after the override
     cp target/help/help.bundle target/Ubiq.app/Contents/Resources/help.bundle
     @echo "Done at $(date)"

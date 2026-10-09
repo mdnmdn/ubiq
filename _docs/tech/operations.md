@@ -7,7 +7,7 @@ summary: Prerequisites, the complete command reference, what a first build costs
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-10-09
 verified: 2026-10-08
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml]
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml, _devops/scripts/channel-manifest.py, _devops/windows/ubiq.iss]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -190,12 +190,44 @@ gate keeps it out of macOS builds. `AppIcon.ico` is generated from `assets/logo-
 at 16 through 256 pixels. Like every recipe in this file it expects a POSIX shell on the path (Git
 Bash, which a Windows runner carries).
 
-A tag matching `v*` runs `.github/workflows/release-macos.yml` and
-`.github/workflows/release-windows.yml` together: each workflow assembles its platform bundle and
-attaches the zip to the GitHub release of that tag. `.github/workflows/create-release.yml` is the
-manual counterpart — a `workflow_dispatch` whose `platforms` choice is `both`, `macos` or `windows`
-— and it calls those two workflows as reusable jobs so one run ships either platform or both. Each
-platform workflow also accepts a direct `workflow_dispatch` of its own.
+`.github/workflows/create-release.yml` is the one release entry point; the two platform workflows
+are `workflow_call` only. A run computes a channel, builds each platform, uploads workflow artifacts,
+and one `publish` job creates the GitHub release and the signed update manifest. Nothing is ever
+deleted, moved or force-pushed: every nightly is a new prerelease under a new tag.
+
+| Channel | Trigger | Tag | Version | Release |
+|---|---|---|---|---|
+| stable | tag `vX.Y.Z` | `vX.Y.Z` | `X.Y.Z` | normal |
+| beta | tag `vX.Y.Z-<pre>` | same | without the `v` | prerelease |
+| nightly | cron `17 2 * * *`, or a manual run | `nightly-YYYYMMDD-HHMM` | `<ubiq-app version>-nightly.YYYYMMDDHHMM` | prerelease "Nightly …" |
+
+A manual `workflow_dispatch` takes `platforms` (`both`, `macos`, `windows`) and `channel` (default
+`nightly`); `stable` and `beta` must run on a matching tag ref or the `meta` job fails. A scheduled run
+skips when the latest `nightly-*` release targets HEAD. The version reaches the build as
+`UBIQ_VERSION`, with `UBIQ_CHANNEL` and `UBIQ_UPDATE_PUBKEY` (the `UPDATE_PUBLIC_KEY` variable) read by
+the app through `option_env!`; `just bundle` stamps `CFBundleShortVersionString` (the `X.Y.Z` core) and
+`CFBundleVersion` (the full string) into the `Info.plist` copy.
+
+| Platform | Artifacts | Built by |
+|---|---|---|
+| macOS | `Ubiq-macos-arm64.zip` (what the updater downloads), `Ubiq-macos-arm64.dmg` (signed and notarized like the app) | `release-macos.yml` |
+| Windows | `Ubiq-windows-x86_64.zip`, `Ubiq-Setup-x86_64.exe` — per-user Inno Setup installer, silent with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER` | `release-windows.yml`, `_devops/windows/ubiq.iss` |
+| Release | `SHA256SUMS` over all of the above | `create-release.yml` |
+
+`publish` then writes `<channel>.json` with `_devops/scripts/channel-manifest.py` (a platform key,
+`macos-aarch64` or `windows-x86_64`, is present only if built; each carries `url`, `sha256`, `size`),
+signs it with `minisign -S`, and uploads both it and `<channel>.json.minisig` to the fixed `channels`
+release (created on first use, replaced with `--clobber`). Without `UPDATE_SIGNING_KEY` the release
+still ships and the manifest is skipped with a warning.
+
+| Secret / variable | Used for |
+|---|---|
+| `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `MACOS_SIGN_IDENTITY` | Signing the `.app` and `.dmg` |
+| `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarizing and stapling |
+| `UPDATE_SIGNING_KEY`, `UPDATE_SIGNING_PASSWORD` | The minisign secret key file's contents, and its password |
+| variable `UPDATE_PUBLIC_KEY` | The minisign public key line, baked into the build |
+
+Make the update key pair with `minisign -G -p ubiq.pub -s ubiq.key`.
 
 The macOS workflow signs the `.app` after `help.bundle` is in `Contents/Resources`, in one of three
 modes picked by the secrets set. `MACOS_CERT_P12` (a `.p12`, base64), `MACOS_CERT_PASSWORD` and

@@ -1,16 +1,25 @@
 name: release-macos
 
 on:
-  push:
-    tags: ["v*"]
-  workflow_dispatch:
   workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      channel:
+        type: string
+        required: true
+
+env:
+  UBIQ_VERSION: ${{ inputs.version }}
+  UBIQ_CHANNEL: ${{ inputs.channel }}
+  UBIQ_UPDATE_PUBKEY: ${{ vars.UPDATE_PUBLIC_KEY }}
 
 jobs:
   build:
     runs-on: macos-26
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,9 +29,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v5
       - uses: extractions/setup-just@v2
-
-      - id: version
-        run: echo "v=$(_devops/scripts/bundle-version.sh)" >> "$GITHUB_OUTPUT"
 
       - run: just bundle
 
@@ -43,11 +49,22 @@ jobs:
         run: |
           set -euo pipefail
           APP=target/Ubiq.app
+          DMG=Ubiq-macos-arm64.dmg
+
+          # The installer image: Ubiq.app plus an Applications link, compressed.
+          make_dmg() {
+            rm -rf "$RUNNER_TEMP/dmg" "$DMG"
+            mkdir "$RUNNER_TEMP/dmg"
+            ditto "$APP" "$RUNNER_TEMP/dmg/Ubiq.app"
+            ln -s /Applications "$RUNNER_TEMP/dmg/Applications"
+            hdiutil create -volname Ubiq -srcfolder "$RUNNER_TEMP/dmg" -ov -format UDZO "$DMG"
+          }
 
           if [ -z "$MACOS_CERT_P12" ]; then
             echo "::warning::no signing certificate — ad-hoc signing Ubiq.app"
             codesign --force --deep --sign - "$APP"
             codesign --verify --deep --strict --verbose=2 "$APP"
+            make_dmg
             exit 0
           fi
 
@@ -80,6 +97,8 @@ jobs:
 
           if ! $NOTARIZE; then
             echo "::warning::APPLE_* secrets not set — Ubiq.app is signed but not notarized"
+            make_dmg
+            codesign --force --timestamp=none --keychain "$KEYCHAIN" --sign "$MACOS_SIGN_IDENTITY" "$DMG"
             exit 0
           fi
           AUTH=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD")
@@ -97,13 +116,27 @@ jobs:
           xcrun stapler validate "$APP"
           spctl --assess --type execute --verbose=4 "$APP"
 
+          # The dmg is notarized on its own; the app inside already carries its ticket.
+          make_dmg
+          codesign --force --timestamp --keychain "$KEYCHAIN" --sign "$MACOS_SIGN_IDENTITY" "$DMG"
+          xcrun notarytool submit "$DMG" "${AUTH[@]}" \
+            --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary-dmg.json" || true
+          cat "$RUNNER_TEMP/notary-dmg.json"
+          ID="$(plutil -extract id raw "$RUNNER_TEMP/notary-dmg.json")"
+          STATUS="$(plutil -extract status raw "$RUNNER_TEMP/notary-dmg.json")"
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$ID" "${AUTH[@]}"
+            exit 1
+          fi
+          xcrun stapler staple "$DMG"
+
       # Zipped after stapling, so the ticket travels inside the archive.
       - run: ditto -c -k --keepParent target/Ubiq.app Ubiq-macos-arm64.zip
 
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.version.outputs.v }}
-          name: ${{ steps.version.outputs.v }}
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          generate_release_notes: true
-          files: Ubiq-macos-arm64.zip
+          name: release-macos
+          if-no-files-found: error
+          path: |
+            Ubiq-macos-arm64.zip
+            Ubiq-macos-arm64.dmg
