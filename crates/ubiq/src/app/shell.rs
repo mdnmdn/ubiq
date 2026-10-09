@@ -1424,6 +1424,22 @@ impl AppState {
         WindowRegistry::read(cx).project(id)
     }
 
+    /// `<Edition> [<letter>] - <project> - Agentic Workspace`: the letter only while several windows
+    /// are open, the project only while the window holds one.
+    pub fn window_title(&self, cx: &App) -> String {
+        let mut title = product_name().to_string();
+        if self.several_windows(cx) {
+            title.push(' ');
+            title.push(self.window_label(cx));
+        }
+        if let Some(snapshot) = self.project_snapshot(cx) {
+            title.push_str(" - ");
+            title.push_str(&snapshot.record.name);
+        }
+        title.push_str(" - Agentic Workspace");
+        title
+    }
+
     pub fn project_name(&self, cx: &App) -> String {
         self.project_snapshot(cx)
             .map(|p| p.record.name.clone())

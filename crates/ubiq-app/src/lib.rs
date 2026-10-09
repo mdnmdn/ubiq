@@ -255,6 +255,8 @@ impl Default for Contributions {
 pub struct Boot {
     pub stores: Box<dyn FnOnce(&Path) -> Stores>,
     pub contributions: Contributions,
+    /// The edition's name in the window title ("Ubiq", "Ubiq Studio").
+    pub product: &'static str,
 }
 
 impl Default for Boot {
@@ -262,6 +264,7 @@ impl Default for Boot {
         Boot {
             stores: Box::new(Stores::files),
             contributions: Contributions::default(),
+            product: "Ubiq",
         }
     }
 }
@@ -463,6 +466,7 @@ pub fn run(boot: Boot) {
     // headless run never reaches it, and never needs to — a container is drawn or it is nothing.
     #[cfg(feature = "ui")]
     {
+        ubiq::app::set_product_name(boot.product);
         ubiq::ext::settings::install(boot.contributions.settings_sections);
         ubiq::ext::rail::install(boot.contributions.rail_modes);
         ubiq::ext::menu::install(boot.contributions.bar_menus);
@@ -981,6 +985,7 @@ mod tests {
                 settings: Box::new(MemorySettingsStore::new()),
             }),
             contributions: Contributions::default(),
+            product: "Ubiq",
         };
 
         // The base is the default, not one configuration of several.

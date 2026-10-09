@@ -701,7 +701,14 @@ impl AppState {
         // Every window draws from the same registry, so a project moved in one window redraws the
         // picker in all of them. Another window taking a project is also a change this window has
         // to act on, and it learns about it the same way it learns about its own.
-        subscriptions.push(cx.observe_global::<WindowRegistry>(|this, cx| this.sync_projects(cx)));
+        // The title follows it too: the letter appears and disappears with the window count, and
+        // the project name with the selection.
+        subscriptions.push(
+            cx.observe_global_in::<WindowRegistry>(window, |this, window, cx| {
+                this.sync_projects(cx);
+                window.set_window_title(&this.window_title(cx));
+            }),
+        );
 
         // One subscription per column composer, each carrying the slot it belongs to. What is
         // typed lands in that slot of the project's drafts, and in the agent's own conversation —

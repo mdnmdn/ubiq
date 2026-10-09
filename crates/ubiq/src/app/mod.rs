@@ -1739,6 +1739,17 @@ fn short_program_name(agent_type: &str) -> &str {
     }
 }
 
+static PRODUCT_NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// The edition's name, for the window title. An edition sets it once at boot; unset it is "Ubiq".
+pub fn set_product_name(name: &'static str) {
+    let _ = PRODUCT_NAME.set(name);
+}
+
+pub fn product_name() -> &'static str {
+    PRODUCT_NAME.get().copied().unwrap_or("Ubiq")
+}
+
 /// Re-exported so `main.rs` can name the palette it boots with.
 pub fn boot_theme() -> ThemeId {
     ThemeId::DARK
@@ -1830,7 +1841,9 @@ fn open_window(project: Option<ProjectId>, adopt: bool, paths: Vec<PathBuf>, cx:
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some(format!("Ubiq {label} - Agentic workbench").into()),
+                // Provisional: the window's observer of the registry sets the real one, with the
+                // project and the letter, as soon as the window is registered.
+                title: Some(format!("{} - Agentic Workspace", product_name()).into()),
                 ..Default::default()
             }),
             ..Default::default()

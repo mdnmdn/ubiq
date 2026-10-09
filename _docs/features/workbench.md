@@ -1726,7 +1726,7 @@ never disagree about what row an index means.
 
 `open_project_window` in `crates/ubiq/src/app/mod.rs` is the only place a window is created, so the
 first window and "open in a new window" reach the same code. It seeds the registry, allocates the
-window's letter — before the window exists, because the title carries it — and each window owns its
+window's letter — before the window exists — and each window owns its
 own `AppState`. `focus_window` brings one to the front; `window_closed`, called from `main.rs`, drops
 a closed window's slot so everything it held returns to history.
 
