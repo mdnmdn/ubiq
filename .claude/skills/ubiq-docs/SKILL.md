@@ -97,6 +97,7 @@ Folders encode **kind of knowledge**; frontmatter encodes **stability**. Never m
 | `tech/` | Cross-cutting models, rules, conventions and procedures |
 | `references/` | Specifications of protocols Ubiq speaks but does not own. Exempt from the length and fence caps |
 | `design/` | Wireframes, prototypes, captured artifacts. **Assets, not documents** — excluded from every lint check, because editing evidence to satisfy a linter destroys what makes it evidence |
+| `help/` | How the user manual is written: structure, voice, images, coverage. Created on the owner's instruction; `kind: help`, id prefix `help-` |
 | `wip/` | The current task's working notes. Deleted when the task closes |
 | `inbox/` | Raw unprocessed input, waiting to be filed |
 | `_meta/` | How this library works. The underscore means *not project knowledge* |
@@ -151,7 +152,7 @@ document depend on to `code_anchors`, and leave the rest alone.
 |---|---|---|---|
 | `id` | **Yes** — lint fails without it, and on a duplicate | The stable handle `depends_on` cites | Prefix mirrors the folder: `prod-` `feat-` `tech-` `meta-` `wip-` `inbox-`. **Never changed once written** — renaming a file is free, renaming an id breaks the graph |
 | `title` | By convention | The catalogue's link text | Falls back to the first H1, then the filename |
-| `kind` | By convention | `product` \| `feature` \| `tech` \| `meta` \| `wip`; `inbox/` uses `proposal` | Only mechanical role: groups a root-level document in the catalogue |
+| `kind` | By convention | `product` \| `feature` \| `tech` \| `meta` \| `wip` \| `help`; `inbox/` uses `proposal` | Only mechanical role: groups a root-level document in the catalogue |
 | `status` | By convention | `current` \| `draft` \| `superseded`; `inbox/` uses `proposal` | Only `current` is checked for banned phrasing |
 | `summary` | By convention | The document's catalogue row | One line, says what is inside |
 | `read_when` | By convention | What gets the document opened; feeds INDEX §4 | Phrase as the reader's **task**: "you are adding a message variant", not "message conventions" |
