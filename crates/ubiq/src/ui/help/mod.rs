@@ -282,6 +282,9 @@ fn page_body(
         .current()
         .map(|page| folder_of(&page.path))
         .unwrap_or_default();
+    // A page's frontmatter is the packer's input (`wip/help.md` §2.1) — the title is already in the
+    // header — so the panel draws the body alone, without the frontmatter strip other callers get.
+    let (_, source) = viewer::markdown::split_frontmatter(source);
     let document =
         viewer::markdown::render_linked(app, key, source, false, follow(cx.entity(), base), cx);
     let mut column = div().flex().flex_col().flex_1().min_h(px(0.));
