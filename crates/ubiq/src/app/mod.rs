@@ -1325,6 +1325,8 @@ pub struct AppState {
     /// handle because the picker is reopened fresh each time the `+` is toggled, and a shared
     /// handle would carry a stale offset in from whatever else last used it.
     pub task_reference_scroll: ScrollHandle,
+    /// The whole edit-task panel's scroll (`ui/board/detail.rs`).
+    pub task_detail_scroll: ScrollHandle,
     /// The prerequisite picker's own result list, `task_reference_scroll`'s sibling.
     pub task_prerequisite_scroll: ScrollHandle,
     /// The annotated document's thread rail, **virtualized** (T-152): a thread costs roughly as

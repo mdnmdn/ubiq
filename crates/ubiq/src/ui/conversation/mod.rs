@@ -55,7 +55,7 @@ use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
     self, ContextItem, Picker, PickerStyle, UbiqIcon, context_menu, ghost_button, harness_icon,
-    icon_button, mono, pill, popover, primary_button, progress_ring, progress_ring_in,
+    icon_button, icon_button_tip, mono, pill, popover, primary_button, progress_ring, progress_ring_in,
     removable_tag, status_dot, tag as kit_tag,
 };
 use crate::ui::{handler, indexed};
@@ -3879,54 +3879,61 @@ fn queue_list(
     queued: &[QueuedMessage],
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    const PREVIEW_CHARS: usize = 80;
-
     let rows: Vec<AnyElement> = queued
         .iter()
         .map(|message| {
             let queued_id = message.id;
-            let mut preview: String = message.text.chars().take(PREVIEW_CHARS).collect();
-            if message.text.chars().count() > PREVIEW_CHARS {
-                preview.push('\u{2026}');
-            }
+            // One line: newlines and runs of blanks fold to a single space so a multiline prompt
+            // cannot break the row; `elided_with` cuts it to the width and carries the whole text
+            // as its tooltip.
+            let line = message.text.split_whitespace().collect::<Vec<_>>().join(" ");
 
             div()
                 .id(view.eid(&format!("queued-{queued_id}")))
-                .px_2()
+                .pl_2()
                 .h(px(26.))
+                .w_full()
                 .flex()
                 .flex_none()
                 .items_center()
                 .gap_2()
+                .overflow_hidden()
                 .bg(theme::surface())
                 .border_l(px(theme::accent_edge()))
                 .border_color(theme::border())
                 .child(
-                    mono(preview, theme::text_muted())
-                        .flex_1()
-                        .min_w(px(0.))
-                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Label)),
+                    kit::elided_with(
+                        view.eid(&format!("queued-text-{queued_id}")),
+                        line,
+                        message.text.clone(),
+                        theme::text_muted(),
+                        theme::font(theme::Family::Conversation, theme::Role::Label),
+                    )
+                    .font_family(theme::MONO_FONT),
                 )
-                .child(ghost_button(
+                .child(icon_button_tip(
                     view.eid(&format!("queued-send-now-{queued_id}")),
-                    Some(IconName::ArrowUp),
+                    IconName::ArrowUp,
                     "Send now",
+                    true,
                     cx.listener(move |this, _, _, cx| {
                         this.send_queued_message_now(agent_id, queued_id, cx);
                     }),
                 ))
-                .child(ghost_button(
+                .child(icon_button_tip(
                     view.eid(&format!("queued-edit-{queued_id}")),
-                    Some(IconName::Replace),
+                    IconName::Replace,
                     "Edit",
+                    true,
                     cx.listener(move |this, _, window, cx| {
                         this.edit_queued_message(agent_id, slot, queued_id, window, cx);
                     }),
                 ))
-                .child(ghost_button(
+                .child(icon_button_tip(
                     view.eid(&format!("queued-delete-{queued_id}")),
-                    Some(IconName::Delete),
+                    IconName::Delete,
                     "Delete",
+                    true,
                     cx.listener(move |this, _, _, cx| {
                         this.delete_queued_message(agent_id, queued_id, cx);
                     }),

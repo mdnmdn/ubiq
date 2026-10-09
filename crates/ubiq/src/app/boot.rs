@@ -1991,6 +1991,7 @@ impl AppState {
             workbench_focus: cx.focus_handle(),
             agents_scroll: ScrollHandle::new(),
             task_reference_scroll: ScrollHandle::new(),
+            task_detail_scroll: ScrollHandle::new(),
             task_prerequisite_scroll: ScrollHandle::new(),
             plan_thread_list: gpui::ListState::new(
                 0,

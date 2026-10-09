@@ -15,6 +15,7 @@ use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
+use gpui_component::scroll::Scrollbar;
 use gpui_component::text::TextView;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
@@ -268,7 +269,7 @@ fn body(
         })
         .collect();
 
-    div()
+    let content = div()
         .id("board-detail")
         .flex()
         .flex_col()
@@ -278,6 +279,7 @@ fn body(
         .py_3()
         .gap_3()
         .overflow_y_scroll()
+        .track_scroll(&app.task_detail_scroll)
         .children(form::refusal(app))
         // Said once, over the whole panel, rather than beside each locked field: the reason is the
         // same for all of them, and a control that only greys out leaves the user guessing.
@@ -316,11 +318,8 @@ fn body(
                 )
                 // A level makes a mission, which only the default board has.
                 .children((!named).then(|| {
-                    fact(
-                        "Level",
-                        form::level_pill(task, &app.mission_term(cx), cx),
-                    )
-                    .into_any_element()
+                    fact("Level", form::level_pill(task, &app.mission_term(cx), cx))
+                        .into_any_element()
                 }))
                 // The task panel keeps working for a mission's anchor task and gains exactly one
                 // row: the way into the mission's own surface (`mission-proposal.md` §6.1). Drawn
@@ -356,7 +355,7 @@ fn body(
                 .children(
                     drawn(task.colour.is_some())
                         .then(|| fact("Colour", form::colour(task, cx)).into_any_element()),
-                )
+                ),
         )
         .child(form::description(app, task, window, cx))
         .children((total > 0).then(|| {
@@ -482,7 +481,21 @@ fn body(
                         })),
                 )
                 .into_any_element()
-        }))
+        }));
+
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .child(content)
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .child(Scrollbar::vertical(&app.task_detail_scroll)),
+        )
         .into_any_element()
 }
 
