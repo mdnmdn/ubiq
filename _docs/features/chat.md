@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-06
+updated: 2026-10-09
 verified: 2026-10-09
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
@@ -425,7 +425,7 @@ run out in 17 min`. The maths is `state::settings::pace`; the ring and its toolt
 `kit::quota_ring`, shared with the harness settings.
 
 **The footer reports whoever is being read.** With a delegate up, `tot` and the cache ring are that
-delegate's (`Conversation::delegate_tokens`). **A delegate's spend is that delegate's**:
+delegate's, its own subtree included (`Conversation::delegate_tokens`). **A delegate's spend is that delegate's**:
 `UsageRecord::subagent_id` names the spawning `Task` call, so two `general-purpose` delegates are two
 buckets, while `UsageRecord::subagent` stays the *type* the `tot` breakdown and usage meter aggregate by.
 With no instance identified, nothing is drawn (`T-259`). **A delegate has no context level**: its usage

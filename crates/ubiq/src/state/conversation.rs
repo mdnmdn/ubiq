@@ -112,8 +112,9 @@ pub struct SubagentTab {
     /// on its row, in place of what it would otherwise say it was doing: a delegate waiting on a
     /// human is not doing anything, and the question is the more useful of the two readings.
     pub waiting: usize,
-    /// What this delegate's own last line says it is doing — the running tool's title, or
-    /// thinking/writing where the line was prose. `None` where the transcript holds nothing of
+    /// What this delegate's own last line says it is doing — the running tool's title, or the
+    /// last line of its prose or thinking (`Writing` / `Thinking` where that line is empty).
+    /// `None` where the transcript holds nothing of
     /// its own yet: a delegate with no lines is not doing anything this window can name.
     pub activity: Option<String>,
     /// The same reading as [`Self::activity`], in the shared vocabulary rather than in the
@@ -162,6 +163,39 @@ pub enum ActivityPanel {
     #[default]
     Subagents,
     Todos,
+}
+
+/// The last thing a prose block says, as one plain line: its last line that says anything, with
+/// the markdown that leads it (a heading's `#`s, a quote's `>`, a list marker — each only before a
+/// space) and wraps it whole (`**…**`, `` `…` ``) taken off. Lines with nothing but markup — a
+/// closing fence, a rule — are passed over. `None` where no line says anything. The row it is read
+/// for truncates it, so no length is cut here.
+fn last_line(body: &str) -> Option<String> {
+    body.lines().rev().find_map(|line| {
+        let mut line = line.trim();
+        loop {
+            let before = line;
+            for marker in ["#", ">", "-", "*", "+"] {
+                if let Some(rest) = line.strip_prefix(marker) {
+                    let rest = rest.trim_start_matches(marker);
+                    if rest.starts_with(' ') {
+                        line = rest.trim_start();
+                    }
+                }
+            }
+            for wrap in ["**", "__", "`", "*", "_"] {
+                if line.len() > 2 * wrap.len() && line.starts_with(wrap) && line.ends_with(wrap) {
+                    line = line[wrap.len()..line.len() - wrap.len()].trim();
+                }
+            }
+            if line == before {
+                break;
+            }
+        }
+        line.chars()
+            .any(char::is_alphanumeric)
+            .then(|| line.to_string())
+    })
 }
 
 /// Fold one report's spend into a running total. Field by field, because a flow is summed and
@@ -604,8 +638,9 @@ impl Conversation {
         tabs
     }
 
-    /// What this delegate's own last line says it is doing — the running tool's title, or
-    /// thinking/writing where the line was prose. `None` where the transcript holds nothing of
+    /// What this delegate's own last line says it is doing — the running tool's title, or the
+    /// last line of its prose or thinking, which says more than the words `Writing` / `Thinking`
+    /// the status chip already draws (those stand in only for an empty line). `None` where the transcript holds nothing of
     /// its own yet: a delegate with no lines is not doing anything this window can name.
     ///
     /// Read off `ConvBlock::subagent_id`, so the spawning `Task` call itself — whose id equals
@@ -618,8 +653,12 @@ impl Conversation {
             .find(|block| block.subagent_id() == Some(id))
             .and_then(|block| match block {
                 ConvBlock::Tool { call, .. } => Some(call.title.clone()),
-                ConvBlock::Thought { .. } => Some("Thinking".to_string()),
-                ConvBlock::Agent { .. } => Some("Writing".to_string()),
+                ConvBlock::Thought { body, .. } => {
+                    Some(last_line(body).unwrap_or_else(|| "Thinking".to_string()))
+                }
+                ConvBlock::Agent { body, .. } => {
+                    Some(last_line(body).unwrap_or_else(|| "Writing".to_string()))
+                }
                 ConvBlock::User { .. } | ConvBlock::Compacted => None,
             })
     }
@@ -936,8 +975,9 @@ impl Conversation {
                 }
                 // A subagent's report repeats the parent's occupancy and names the subagent's own
                 // model. Neither is news about this conversation: it is a spend row, and it stops
-                // here rather than moving the ring or renaming the column.
-                if usage.subagent.is_some() {
+                // here rather than moving the ring or renaming the column. Either stamp says so — a
+                // Codex delegate names its instance and often no type.
+                if usage.subagent.is_some() || usage.subagent_id.is_some() {
                     return;
                 }
                 // A model is only named where the harness named it: a usage
@@ -1105,14 +1145,50 @@ impl Conversation {
         (spend.total() > 0).then(|| (spend.total(), spend.cached()))
     }
 
-    /// What **one delegate** has spent — its total and the cached part of it — keyed by the
-    /// spawning call's id, which is the instance and not the type.
+    /// What **one delegate's subtree** has spent — its own reports plus every delegate it spawned,
+    /// down — as a total and the cached part of it, keyed by the spawning call's id, which is the
+    /// instance and not the type. Never a sibling's or the parent's: the conversation's own card
+    /// reads [`Self::total_tokens`], which is everything.
+    ///
+    /// A delegate's children are the `Delegate`-shaped calls its own lines made: a call stamped
+    /// with this delegate whose id is itself a delegate's id.
     ///
     /// This is what a card and a delegate's own footer read. `None` where the harness never
     /// identified the instance behind a report: nothing is drawn rather than the type's total,
     /// which is the same figure on every card of that type (`T-259`).
     pub fn delegate_tokens(&self, id: &str) -> Option<(u64, u64)> {
-        let spend = self.spend_by_delegate.get(id)?;
+        // One pass for every parent → child edge, and only between delegates: an ordinary tool
+        // call a delegate made is not a subtree to walk. Asked every frame, per card.
+        let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+        for block in &self.blocks {
+            if let ConvBlock::Tool { call, .. } = block {
+                let child = call.id.as_str();
+                let Some(parent) = call.subagent.as_ref().map(|who| who.id.as_str()) else {
+                    continue;
+                };
+                if parent != child
+                    && (self.spend_by_delegate.contains_key(child) || self.has_subagent(child))
+                {
+                    children.entry(parent).or_default().push(child);
+                }
+            }
+        }
+        let mut subtree = vec![id];
+        let mut ix = 0;
+        while let Some(&parent) = subtree.get(ix) {
+            ix += 1;
+            for &child in children.get(parent).into_iter().flatten() {
+                if !subtree.contains(&child) {
+                    subtree.push(child);
+                }
+            }
+        }
+        let mut spend = TokenSpend::default();
+        for &member in &subtree {
+            if let Some(own) = self.spend_by_delegate.get(member) {
+                accumulate(&mut spend, own);
+            }
+        }
         (spend.total() > 0).then(|| (spend.total(), spend.cached()))
     }
 
@@ -1913,7 +1989,7 @@ mod tests {
     }
 
     /// What a delegate is doing right now is read off its own last line — the running tool's
-    /// title where that line is a call, "Thinking" or "Writing" where it is prose, and nothing at
+    /// title where that line is a call, the prose's own last line where it is prose, and nothing at
     /// all where it has not said anything of its own yet. The spawning `Task` call, whose id
     /// equals the delegate's own, is never mistaken for one of those lines.
     #[test]
@@ -1941,7 +2017,10 @@ mod tests {
                 }),
             },
         );
-        assert_eq!(c.subagent_activity("t751"), Some("Thinking".to_string()));
+        assert_eq!(
+            c.subagent_activity("t751"),
+            Some("How to greet formally?".to_string())
+        );
 
         c.apply(
             3,
@@ -1970,7 +2049,32 @@ mod tests {
         );
 
         c.apply(4, said_by("Good day.", "t751", Some("general-purpose")));
-        assert_eq!(c.subagent_activity("t751"), Some("Writing".to_string()));
+        assert_eq!(c.subagent_activity("t751"), Some("Good day.".to_string()));
+        assert_eq!(c.subagent_doing("t751"), Doing::Writing, "the chip still says the kind");
+    }
+
+    /// Markdown off the line a card reads, and the kind's word only where nothing is left.
+    #[test]
+    fn last_line_is_the_prose_tail_in_plain_words() {
+        assert_eq!(
+            last_line("Plan:\n\n## **Chef: pizza ready!**\n"),
+            Some("Chef: pizza ready!".to_string())
+        );
+        assert_eq!(last_line("- `sleep 4`"), Some("sleep 4".to_string()));
+        assert_eq!(last_line("  \n**\n"), None);
+        // Markup-only lines are passed over, not drawn.
+        assert_eq!(
+            last_line("Plating:\n```\nserve()\n```\n---\n"),
+            Some("serve()".to_string())
+        );
+        // Text that only looks like markup is left as written.
+        assert_eq!(last_line("-5 degrees"), Some("-5 degrees".to_string()));
+        assert_eq!(
+            last_line("**Note** this"),
+            Some("**Note** this".to_string())
+        );
+        assert_eq!(last_line("_private"), Some("_private".to_string()));
+        assert_eq!(last_line("> ## Done"), Some("Done".to_string()));
     }
 
     /// The panels are closed until they are asked for: a conversation's delegates or plans are a
@@ -2391,6 +2495,59 @@ mod tests {
             c.subagent_tokens("Explore"),
             None,
             "a type that never reported has nothing to draw — not a zero it made up"
+        );
+    }
+
+    /// **The rollup.** The parent's card is everything — its own reports and every descendant's;
+    /// a delegate's card is its own subtree, never a sibling's or the parent's. Three Codex
+    /// delegates as `_data/codex-subagents.jsonl` reports them (instance id, no type, the
+    /// parent's ring repeated), plus a grandchild the chef spawned: its `Delegate` call is
+    /// stamped with the chef, which is how the chef's card knows it is the chef's.
+    #[test]
+    fn a_parent_counts_everything_and_a_delegate_its_subtree() {
+        let mut c = conversation();
+        for (ix, id) in ["chef", "pastry", "kitchen"].into_iter().enumerate() {
+            c.apply(ix as u64 + 1, task_call(id, "Subagent", ToolStatus::InProgress));
+        }
+        c.apply(
+            4,
+            ConvUpdate::ToolCall(ToolCallRecord {
+                id: "sous".to_string(),
+                title: "sous".to_string(),
+                kind: ToolKind::Other,
+                status: ToolStatus::InProgress,
+                content: Vec::new(),
+                locations: Vec::new(),
+                subagent: Some(Subagent {
+                    id: "chef".to_string(),
+                    ..Default::default()
+                }),
+            }),
+        );
+        c.apply(5, usage(29_880, 258_400, spend(30_000, 100), None));
+        let reports = [
+            ("chef", 18_000),
+            ("pastry", 2_000),
+            ("kitchen", 3_000),
+            ("sous", 500),
+        ];
+        for (ix, (id, input)) in reports.into_iter().enumerate() {
+            c.apply(
+                ix as u64 + 6,
+                // A level unlike the parent's, so a report that leaked into the ring would show.
+                delegate_usage(99, 258_400, spend(input, 0), None, Some(id)),
+            );
+        }
+
+        assert_eq!(c.total_tokens(), Some(30_100 + 18_000 + 2_000 + 3_000 + 500));
+        assert_eq!(c.delegate_tokens("chef"), Some((18_500, 0)), "own + sous");
+        assert_eq!(c.delegate_tokens("pastry"), Some((2_000, 0)));
+        assert_eq!(c.delegate_tokens("kitchen"), Some((3_000, 0)));
+        assert_eq!(c.delegate_tokens("sous"), Some((500, 0)));
+        assert_eq!(
+            c.usage.as_ref().map(|u| u.used),
+            Some(29_880),
+            "a report stamped only with an instance id never stands in for the parent's"
         );
     }
 

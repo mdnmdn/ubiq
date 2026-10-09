@@ -772,7 +772,13 @@ and is read only for older binaries.
   `turn/completed { status: failed }` carrying the same error.
 - **Subagents** — a spawned agent runs on its own thread (`Thread.parentThreadId` set), and the
   app-server attaches every new thread to every initialized connection, so its notifications
-  arrive on the same stdio carrying the child's `threadId`.
+  arrive on the same stdio carrying the child's `threadId`. Multi-agent v2 names a delegate by
+  `agentPath` (`/root/chef`) on the parent's `subAgentActivity` items and on the child thread's
+  `source.subAgent.thread_spawn`. The mapper (`io/codex.rs`) titles the delegate by nickname, then
+  thread name, then the path's last segment, then role, and retitles an already-announced card when
+  a name arrives later; a grandchild nests under the delegate that spawned it, and v2's `wait`
+  reads "Wait for agents". A `sleep` item is a step ("Sleep 4s"); a command's title is Codex's
+  parsed reading ("Read menu.rs") or the bare command without its `sh -lc` wrapper.
 
 **Token usage** is `thread/tokenUsage/updated { threadId, turnId, tokenUsage: { total, last,
 modelContextWindow } }`, each breakdown `{ totalTokens, inputTokens, cachedInputTokens,

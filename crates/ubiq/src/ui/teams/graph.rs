@@ -764,7 +764,8 @@ fn delegate_activity_label(tab: &SubagentTab) -> Option<String> {
 /// footer.** The same shape [`agent_card`] draws, at the delegate's grain — the one thing this mode
 /// never draws twice differently. The footer's ring is the one fact a delegate's own transcript
 /// can state about its spend: [`Conversation::delegate_tokens`] banks it by the spawning call's
-/// id, so two delegates of one type read two figures rather than one bucket twice (`T-259`). No
+/// id and rolls up the delegate's own subtree, so two delegates of one type read two figures
+/// rather than one bucket twice (`T-259`), and the parent's card is the only one with the whole. No
 /// context ring sits beside it — a parent's occupancy drawn under a delegate's card would be a
 /// number about somebody else (`G96`, `G195`).
 #[allow(clippy::too_many_arguments)]
@@ -871,7 +872,7 @@ fn subagent_card(
         );
     }
 
-    // The footer: what *this* delegate has spent, on the left — the state's chip is not here,
+    // The footer: what *this* delegate and the delegates it spawned have spent, on the left — the state's chip is not here,
     // it is pinned to the card's own corner below, past this row's flow and its padding.
     let spend = conversation.and_then(|c| c.delegate_tokens(&tab.id));
     body = body.child(

@@ -1355,7 +1355,21 @@ struct Delegate {
     origin: Origin,
     /// Its spawning call has been announced (a frame can name the thread before anything else).
     announced: bool,
+    /// How good the name its call carries is — [`NameRank`]: `0` the `Subagent` placeholder — so
+    /// a frame that names it better later (a late `thread/started` after a `subAgentActivity`)
+    /// still retitles it, and a worse one never does, whatever order they arrive in.
+    named: NameRank,
 }
+
+/// A delegate's name source, worst to best. The instance's own names outrank its role (a type,
+/// shared with its siblings), and the prompt it was spawned with outranks them all — the one
+/// title v1 has always drawn.
+type NameRank = u8;
+const NAME_ROLE: NameRank = 1;
+const NAME_PATH: NameRank = 2;
+const NAME_THREAD: NameRank = 3;
+const NAME_NICKNAME: NameRank = 4;
+const NAME_PROMPT: NameRank = 5;
 
 /// The `codex` limit's two windows and its block state, as the last push left them.
 #[derive(Default)]
@@ -1465,8 +1479,9 @@ impl Mapper {
     }
 
     /// Make sure a subagent thread has its `Delegate` call, learning what `thread` (a `Thread`
-    /// object, from `thread/started`) says about it. Announced once, under the stamp of the
-    /// thread that spawned it, so a grandchild sits in its parent delegate's transcript.
+    /// object, from `thread/started`, or the fields of a spawn or a `subAgentActivity`) says about
+    /// it. Announced once, under the stamp of the thread that spawned it, so a grandchild sits in
+    /// its parent delegate's transcript; a name that arrives after the announcement retitles it.
     fn announce(&mut self, thread: &str, info: Option<&Value>) -> Vec<AgentEvent> {
         let field = |key: &str| {
             info.and_then(|t| t.get(key))
@@ -1474,6 +1489,28 @@ impl Mapper {
                 .filter(|s| !s.is_empty())
                 .map(str::to_string)
         };
+        // Multi-agent v2 states the spawn on the thread's `source` rather than its top level.
+        let spawn = |key: &str| {
+            info.and_then(|t| t.pointer(&format!("/source/subAgent/thread_spawn/{key}")))
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        };
+        let role = field("agentRole").or_else(|| spawn("agent_role"));
+        // The instance's own name before its role: a role is a type, shared by its siblings, and
+        // the card draws it on its second row anyway.
+        let name = field("agentNickname")
+            .or_else(|| spawn("agent_nickname"))
+            .map(|name| (NAME_NICKNAME, name))
+            .or_else(|| field("name").map(|name| (NAME_THREAD, name)))
+            .or_else(|| {
+                field("agentPath")
+                    .or_else(|| spawn("agent_path"))
+                    .as_deref()
+                    .and_then(path_name)
+                    .map(|name| (NAME_PATH, name))
+            })
+            .or_else(|| role.clone().map(|name| (NAME_ROLE, name)));
         let child = self
             .children
             .entry(thread.to_string())
@@ -1483,9 +1520,10 @@ impl Mapper {
                     ..Origin::default()
                 },
                 announced: false,
+                named: 0,
             });
         if child.origin.subagent_type.is_none() {
-            child.origin.subagent_type = field("agentRole").or_else(|| field("agentNickname"));
+            child.origin.subagent_type = role.or_else(|| field("agentNickname"));
         }
         if child.origin.model.is_none() {
             child.origin.model = field("model");
@@ -1494,12 +1532,23 @@ impl Mapper {
             child.origin.thinking = field("reasoningEffort");
         }
         if child.announced {
-            return Vec::new();
+            return match name {
+                Some((rank, name)) if rank > child.named => {
+                    child.named = rank;
+                    vec![AgentEvent::ToolCallUpdate {
+                        update: ToolCallUpdate {
+                            id: thread.to_string(),
+                            title: Some(name),
+                            ..ToolCallUpdate::default()
+                        },
+                    }]
+                }
+                _ => Vec::new(),
+            };
         }
         child.announced = true;
-        let title = field("agentNickname")
-            .or_else(|| field("agentRole"))
-            .unwrap_or_else(|| "Subagent".to_string());
+        let (rank, title) = name.unwrap_or_else(|| (0, "Subagent".to_string()));
+        child.named = rank;
         let parent = field("parentThreadId");
         let mut call = ToolCall::new(thread, title);
         call.kind = ToolKind::Delegate;
@@ -1578,6 +1627,9 @@ impl Mapper {
                 });
                 events.extend(self.announce(receiver, Some(&info)));
                 if let Some(title) = &title {
+                    if let Some(child) = self.children.get_mut(receiver) {
+                        child.named = NAME_PROMPT;
+                    }
                     events.push(AgentEvent::ToolCallUpdate {
                         update: ToolCallUpdate {
                             id: receiver.clone(),
@@ -1619,6 +1671,35 @@ impl Mapper {
                 });
             }
         }
+        events
+    }
+
+    /// A `subAgentActivity` — multi-agent v2's word to the parent about one of its agents, naming
+    /// it by `agentPath` where v1 spawned through a `collabAgentToolCall`. It is the delegate's
+    /// own `Delegate` call (titled with the path's last segment) and its status, never a step of
+    /// its own.
+    fn map_subagent_activity(&mut self, item: &Value, origin: &Origin) -> Vec<AgentEvent> {
+        let Some(thread) = item
+            .get("agentThreadId")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+        else {
+            return Vec::new();
+        };
+        let info = json!({
+            "agentPath": item.get("agentPath"),
+            "parentThreadId": origin.parent_tool_use_id,
+        });
+        let mut events = self.announce(thread, Some(&info));
+        let status = match item.get("kind").and_then(Value::as_str) {
+            Some("started" | "interacted") => ToolStatus::InProgress,
+            Some("completed") => ToolStatus::Completed,
+            Some("interrupted") => ToolStatus::Failed,
+            _ => return events,
+        };
+        events.push(AgentEvent::ToolCallUpdate {
+            update: ToolCallUpdate::finished(thread, status),
+        });
         events
     }
 
@@ -1667,6 +1748,9 @@ impl Mapper {
         let item_type = item.get("type").and_then(Value::as_str).unwrap_or_default();
         if item_type == "collabAgentToolCall" {
             return self.map_collab(item, started, origin);
+        }
+        if item_type == "subAgentActivity" {
+            return self.map_subagent_activity(item, origin);
         }
         // A delegate's compaction is not the conversation's memory line.
         if item_type == "contextCompaction" && origin.is_subagent() {
@@ -1725,11 +1809,7 @@ impl Mapper {
                 }]
             }
             ("commandExecution", true) => {
-                let command = item
-                    .get("command")
-                    .and_then(Value::as_str)
-                    .unwrap_or("command");
-                let mut call = ToolCall::new(id, command);
+                let mut call = ToolCall::new(id, command_title(item));
                 call.kind = ToolKind::Execute;
                 call.status = ToolStatus::InProgress;
                 call.raw_input = Some(item.clone());
@@ -1802,6 +1882,20 @@ impl Mapper {
                 vec![AgentEvent::ToolCall { call }]
             }
             ("webSearch", false) => vec![AgentEvent::ToolCallUpdate {
+                update: ToolCallUpdate::finished(id, ToolStatus::Completed),
+            }],
+            // The model's own pause — a step like any other, so a delegate that is waiting says
+            // so rather than reading as still writing its last line.
+            ("sleep", true) => {
+                let title = match item.get("durationMs").and_then(Value::as_u64) {
+                    Some(ms) => format!("Sleep {}", duration_words(ms)),
+                    None => "Sleep".to_string(),
+                };
+                let mut call = ToolCall::new(id, title);
+                call.status = ToolStatus::InProgress;
+                vec![AgentEvent::ToolCall { call }]
+            }
+            ("sleep", false) => vec![AgentEvent::ToolCallUpdate {
                 update: ToolCallUpdate::finished(id, ToolStatus::Completed),
             }],
             ("contextCompaction", false) => vec![AgentEvent::Compacted],
@@ -2003,6 +2097,99 @@ fn prompt_title(prompt: &str) -> String {
     }
 }
 
+/// A delegate's name from its multi-agent v2 `agentPath` (`/root/chef` → `chef`): the last
+/// segment, which is the task name the parent spawned it under. `None` for an empty path.
+fn path_name(path: &str) -> Option<String> {
+    path.rsplit('/')
+        .find(|segment| !segment.trim().is_empty())
+        .map(|segment| segment.trim().to_string())
+}
+
+/// A pause's length, short: `800ms`, `4s`, `1.5s`, `2m 5s`.
+fn duration_words(ms: u64) -> String {
+    match ms {
+        0..=999 => format!("{ms}ms"),
+        1_000..=59_999 if ms % 1_000 == 0 => format!("{}s", ms / 1_000),
+        1_000..=59_999 => format!("{:.1}s", ms as f64 / 1_000.0),
+        _ => match (ms / 60_000, (ms % 60_000) / 1_000) {
+            (m, 0) => format!("{m}m"),
+            (m, s) => format!("{m}m {s}s"),
+        },
+    }
+}
+
+/// A `commandExecution`'s title: what Codex's own parse of it says it does (`commandActions` —
+/// `Read main.rs`, `Search todo in src`) where every part is one it understood, else the command
+/// itself, out of the `sh -lc '…'` wrapper Codex runs every command inside.
+fn command_title(item: &Value) -> String {
+    let actions: Vec<Option<String>> = item
+        .get("commandActions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|action| {
+            let text = |key: &str| {
+                action
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+            };
+            match action.get("type").and_then(Value::as_str)? {
+                "read" => Some(format!("Read {}", text("name").or_else(|| text("path"))?)),
+                "listFiles" => Some(match text("path") {
+                    Some(path) => format!("List {path}"),
+                    None => "List files".to_string(),
+                }),
+                "search" => Some(match (text("query"), text("path")) {
+                    (Some(query), Some(path)) => format!("Search {query} in {path}"),
+                    (Some(query), None) => format!("Search {query}"),
+                    (None, Some(path)) => format!("Search {path}"),
+                    (None, None) => "Search".to_string(),
+                }),
+                _ => None,
+            }
+        })
+        .collect();
+    if !actions.is_empty() && actions.iter().all(Option::is_some) {
+        return actions.into_iter().flatten().collect::<Vec<_>>().join(", ");
+    }
+    let command = item
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or("command");
+    unwrap_shell(command).to_string()
+}
+
+/// `/bin/zsh -lc 'sleep 4'` → `sleep 4`: the script a shell wrapper runs, one layer of matching
+/// quotes off. Anything else is returned as it came.
+fn unwrap_shell(command: &str) -> &str {
+    let Some((shell, rest)) = command.split_once(' ') else {
+        return command;
+    };
+    let shell = shell.rsplit('/').next().unwrap_or(shell);
+    if !matches!(shell, "sh" | "bash" | "zsh") {
+        return command;
+    }
+    let Some(script) = ["-lc ", "-c "]
+        .iter()
+        .find_map(|flag| rest.strip_prefix(flag))
+    else {
+        return command;
+    };
+    let script = script.trim();
+    for quote in ['\'', '"'] {
+        if let Some(inner) = script
+            .strip_prefix(quote)
+            .and_then(|s| s.strip_suffix(quote))
+        {
+            if !inner.contains(quote) {
+                return inner;
+            }
+        }
+    }
+    script
+}
+
 /// A non-spawning collaboration step, in words.
 fn collab_title(tool: &str, agents: usize) -> String {
     let verb = match tool {
@@ -2016,6 +2203,8 @@ fn collab_title(tool: &str, agents: usize) -> String {
         other => return other.to_string(),
     };
     match agents {
+        // Multi-agent v2's `wait` names no agent: it waits on whichever answers first.
+        0 => format!("{verb} agents"),
         1 => format!("{verb} agent"),
         n => format!("{verb} {n} agents"),
     }
@@ -2893,6 +3082,112 @@ mod tests {
                 None,
             )
         );
+    }
+
+    /// `_data/codex-subagents.jsonl` (a multi-agent v2 session, chef and two assistants): every
+    /// delegate drew as `Subagent` with no model, because no `collabAgentToolCall` spawn ever
+    /// reached the mapper. v2 names its agents by `agentPath`, on the parent's
+    /// `subAgentActivity` and on the child thread's `source`; either names the card, a name that
+    /// arrives after the child spoke retitles it, and a grandchild sits under its parent delegate.
+    #[test]
+    fn multi_agent_v2_names_delegates_by_path() {
+        let fixture = r#"
+{"method":"item/agentMessage/delta","params":{"threadId":"t-chef","itemId":"m1","delta":"Chef: on it"}}
+{"method":"item/started","params":{"threadId":"t-root","item":{"type":"subAgentActivity","id":"a1","kind":"started","agentPath":"/root/chef","agentThreadId":"t-chef"}}}
+{"method":"thread/started","params":{"thread":{"id":"t-pastry","parentThreadId":"t-root","source":{"subAgent":{"thread_spawn":{"parent_thread_id":"t-root","depth":1,"agent_path":"/root/pastry_assistant","agent_role":"worker"}}}}}}
+{"method":"item/started","params":{"threadId":"t-chef","item":{"type":"subAgentActivity","id":"a2","kind":"started","agentPath":"/root/chef/sous","agentThreadId":"t-sous"}}}
+{"method":"item/completed","params":{"threadId":"t-root","item":{"type":"subAgentActivity","id":"a3","kind":"completed","agentPath":"/root/chef","agentThreadId":"t-chef"}}}
+{"method":"item/started","params":{"threadId":"t-root","item":{"type":"collabAgentToolCall","id":"w1","tool":"wait","status":"inProgress","senderThreadId":"t-root","receiverThreadIds":[],"agentsStates":{}}}}
+"#;
+        let events = replay(fixture, "t-root", Some("gpt-6.1-sol"));
+        let call = |id: &str| {
+            events.iter().find_map(|e| match e {
+                AgentEvent::ToolCall { call } if call.id == id => Some(call.clone()),
+                _ => None,
+            })
+        };
+        let retitled = |id: &str| {
+            events.iter().find_map(|e| match e {
+                AgentEvent::ToolCallUpdate { update } if update.id == id => update.title.clone(),
+                _ => None,
+            })
+        };
+
+        // The chef spoke first, so it was announced unnamed — and retitled once its path arrived.
+        assert_eq!(call("t-chef").unwrap().title, "Subagent");
+        assert_eq!(retitled("t-chef").as_deref(), Some("chef"));
+        // The pastry assistant's own thread named it, and its role is its type.
+        let pastry = call("t-pastry").unwrap();
+        assert_eq!(pastry.title, "pastry_assistant");
+        assert_eq!(pastry.kind, ToolKind::Delegate);
+        // The sous chef was spawned by the chef, so its call sits in the chef's transcript.
+        let sous = call("t-sous").unwrap();
+        assert_eq!(sous.title, "sous");
+        assert_eq!(sous.origin.parent_tool_use_id.as_deref(), Some("t-chef"));
+        // A `subAgentActivity` is the delegate's status, not a step of its own.
+        assert!(call("a1").is_none() && call("a3").is_none());
+        assert!(events.iter().any(|e| matches!(
+            e,
+            AgentEvent::ToolCallUpdate { update }
+                if update.id == "t-chef" && update.status == Some(ToolStatus::Completed)
+        )));
+        // v2's `wait` names nobody.
+        assert_eq!(call("w1").unwrap().title, "Wait for agents");
+    }
+
+    /// A better name wins whatever order the frames come in, and a worse one never takes it back:
+    /// the path first, then the thread's own nickname, then the path again.
+    #[test]
+    fn a_better_name_retitles_and_a_worse_one_does_not() {
+        let fixture = r#"
+{"method":"item/started","params":{"threadId":"t-root","item":{"type":"subAgentActivity","id":"a1","kind":"started","agentPath":"/root/chef","agentThreadId":"t-chef"}}}
+{"method":"thread/started","params":{"thread":{"id":"t-chef","parentThreadId":"t-root","agentNickname":"Ada","agentRole":"worker"}}}
+{"method":"item/completed","params":{"threadId":"t-root","item":{"type":"subAgentActivity","id":"a1","kind":"completed","agentPath":"/root/chef","agentThreadId":"t-chef"}}}
+"#;
+        let events = replay(fixture, "t-root", None);
+        let titles: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::ToolCall { call } if call.id == "t-chef" => Some(call.title.as_str()),
+                AgentEvent::ToolCallUpdate { update } if update.id == "t-chef" => {
+                    update.title.as_deref()
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(titles, ["chef", "Ada"]);
+    }
+
+    /// What a delegate is doing reads as what it does: a pause is a step with its length, and a
+    /// command is Codex's own reading of it, or the script out of its shell wrapper.
+    #[test]
+    fn steps_say_what_they_do() {
+        let fixture = r#"
+{"method":"item/started","params":{"threadId":"t-root","item":{"type":"sleep","id":"s1","durationMs":4000}}}
+{"method":"item/completed","params":{"threadId":"t-root","item":{"type":"sleep","id":"s1","durationMs":4000}}}
+{"method":"item/started","params":{"threadId":"t-root","item":{"type":"commandExecution","id":"c1","command":"/bin/zsh -lc 'sleep 3 && echo plated'","commandActions":[{"type":"unknown","command":"sleep 3"}],"status":"inProgress"}}}
+{"method":"item/started","params":{"threadId":"t-root","item":{"type":"commandExecution","id":"c2","command":"/bin/zsh -lc 'cat src/menu.rs'","commandActions":[{"type":"read","command":"cat src/menu.rs","name":"menu.rs","path":"src/menu.rs"}],"status":"inProgress"}}}
+{"method":"item/started","params":{"threadId":"t-root","item":{"type":"commandExecution","id":"c3","command":"rg -n pizza src","commandActions":[{"type":"search","command":"rg -n pizza src","query":"pizza","path":"src"}],"status":"inProgress"}}}
+"#;
+        let events = replay(fixture, "t-root", None);
+        let title = |id: &str| {
+            events.iter().find_map(|e| match e {
+                AgentEvent::ToolCall { call } if call.id == id => Some(call.title.clone()),
+                _ => None,
+            })
+        };
+        assert_eq!(title("s1").as_deref(), Some("Sleep 4s"));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            AgentEvent::ToolCallUpdate { update }
+                if update.id == "s1" && update.status == Some(ToolStatus::Completed)
+        )));
+        assert_eq!(title("c1").as_deref(), Some("sleep 3 && echo plated"));
+        assert_eq!(title("c2").as_deref(), Some("Read menu.rs"));
+        assert_eq!(title("c3").as_deref(), Some("Search pizza in src"));
+        assert_eq!(duration_words(1_500), "1.5s");
+        assert_eq!(duration_words(125_000), "2m 5s");
+        assert_eq!(unwrap_shell("ls -la"), "ls -la");
     }
 
     /// Cache writes are inside `inputTokens` too (Codex's Responses parser test reads

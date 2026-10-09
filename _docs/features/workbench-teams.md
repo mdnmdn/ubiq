@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's graph mode — `Teams`, over a project or the whole window, drawing its cards' conversations in the dock — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer.
 read_when: you are changing the Teams screen — its graph, how it arranges itself, a card or a delegate row, the span, the filters or the tasks drawer
-updated: 2026-10-06
-verified: 2026-10-06
+updated: 2026-10-09
+verified: 2026-10-09
 code_anchors: [crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/tests/teams.rs, crates/ubiq/tests/teams_view.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -174,15 +174,19 @@ hexagonal status mark and the delegate's name lead; the harness icon and its mod
 `conversation::short_model_label`, the cut the composer's chip already makes —
 `claude-haiku-4-5-20251001` is `haiku`, and a harness that is not Claude keeps its id whole, so one
 project never spells a model two ways) follow beneath; a line naming its current command comes
-next — the running tool's title, `Thinking` for a thought, `Writing` for prose, read off the
+next — the running tool's title, or the last non-blank line of its prose or thought stripped of
+markdown (`Thinking` / `Writing` only where nothing is left; Claude cards read the same), read off the
 delegate's own last block in the transcript (`Conversation::subagent_activity`) and carried onto
 `SubagentTab::activity`, or `need you` — `need you \u{d7}N` above one request — where it is blocked
 on a permission answer (`SubagentTab::waiting`), in place of the activity rather than beside it. A
 delegate with no line of its own yet, or no model the harness named, draws neither. The footer
 carries the one ring a delegate's own transcript can state anything about — how much of what its
-type has spent came back from cache, banked by `Conversation::subagent_tokens` — there is no
+subtree has spent came back from cache — and its token count, a **subtree total**: the delegate's
+own reports plus every delegate it spawned, never a sibling's or the parent's, banked by
+`Conversation::subagent_tokens`; the top-level card is the overall total. A usage report that
+names only an instance id leaves the parent's context ring and model alone. There is no
 per-delegate context ring beside it, on the same rule that keeps a parent's occupancy off a
-delegate's card at all (`G96`). **The state's own `status_chip` is neither in the first row nor in
+delegate's card at all (`G96`, `G416`). **The state's own `status_chip` is neither in the first row nor in
 the footer's flow (T-99).** It is pinned to the card's own bottom-right corner, flush with the
 block's edge past every row's own padding, so it never has to fight the footer for space and the
 first row says only whose card it is. The full model id is a hover away on the card, and readable

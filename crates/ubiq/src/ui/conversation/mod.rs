@@ -3036,7 +3036,7 @@ fn identity_chip(conversation: &Conversation, view: &ConversationView) -> AnyEle
     let mark = harness_icon(&conversation.harness);
     let mut identity_tip = if conversation.account.is_empty() {
         format!(
-            "{} \u{2014} no account, running as you",
+            "{} \u{2014} default account",
             conversation.harness
         )
     } else {
