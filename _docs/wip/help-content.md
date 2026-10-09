@@ -219,8 +219,9 @@ Each verified by doing it in a running build before it is written:
 
 Harvested from the reference pages' "What you can do here" lists, then from the FAQ: switch a
 harness's permission mode; resume or fork a conversation; split and move panes; hide versus close a
-tab; search the project; stage a single hunk; add an MCP connector; change theme and interface
-size; find the logs; use the navigator. One page each, named for the verb.
+tab; search the project; stage a file; sign in a connector (a GitHub or GitLab identity — not an
+MCP server); change theme and interface size; find the logs; use the navigator. One page each,
+named for the verb. Staging is per path, not per hunk (`features/workbench-git.md`).
 
 ### 5.4 FAQ
 
