@@ -177,7 +177,11 @@ impl AppState {
             self.help.sources.insert(id.to_string(), None);
             return;
         };
-        let source = std::fs::read_to_string(root.join(&page.path)).ok();
+        // Images are written relative to the page; the renderer only knows URIs, so they are
+        // rewritten to the bundle's files here, once, where the root is in hand.
+        let source = std::fs::read_to_string(root.join(&page.path))
+            .ok()
+            .map(|source| super::help_images::localise(&source, &root, &page.path));
         if source.is_none() {
             tracing::warn!(
                 "help: the page {id} is listed but {} is not there",
@@ -272,6 +276,11 @@ impl AppState {
                     catalog.pages.len(),
                     catalog.namespace
                 );
+                // GPUI loads every markdown image through the application's HTTP client; this
+                // one serves the bundle's files and nothing else (`app::help_images`).
+                cx.set_http_client(std::sync::Arc::new(super::help_images::HelpImages::new(
+                    std::path::Path::new(&root),
+                )));
                 self.help.state = HelpState::Ready {
                     root: root.into(),
                     catalog,

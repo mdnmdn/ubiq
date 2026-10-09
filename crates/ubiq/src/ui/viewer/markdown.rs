@@ -68,7 +68,9 @@ impl ImageBlock {
 /// The same `img(...)` source the library's own inline image renderer resolves a markdown image
 /// URL through (`gpui_base::text::utils::image_source`) — a `SharedUri` unconditionally, not the
 /// generic `From<String>` GPUI offers, which reads a non-URI string as an embedded asset rather
-/// than a project-relative path and would silently stop a real image from loading.
+/// than a project-relative path and would silently stop a real image from loading. A URI loads
+/// through the application's HTTP client, which serves only the help bundle's `file:` URIs
+/// (`app::help_images`); any other image draws nothing.
 fn image_source(url: &str) -> ImageSource {
     ImageSource::Resource(Resource::Uri(SharedUri::from(url.to_string())))
 }
@@ -397,7 +399,7 @@ fn render_linked_scrollable(
 ///
 /// Returns `(Some(yaml), body)` when the source opens with `---\n`, or `(None, source)` when it
 /// does not. The body is clean — the parser never sees the opening or closing delimiters.
-fn split_frontmatter(source: &str) -> (Option<&str>, &str) {
+pub(crate) fn split_frontmatter(source: &str) -> (Option<&str>, &str) {
     let trimmed = source.trim_start();
     let Some(after_open) = trimmed
         .strip_prefix("---\n")

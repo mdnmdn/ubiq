@@ -1413,6 +1413,7 @@ pub use projects::Holds;
 pub use size::size_name_valid;
 mod git;
 mod help;
+mod help_images;
 mod host_browse;
 pub mod host_secrets;
 mod hosts;

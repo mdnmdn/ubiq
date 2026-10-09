@@ -5,9 +5,9 @@ kind: wip
 status: draft
 summary: The mechanics of Ubiq's help system end to end — the content tree and its page frontmatter, the packer and the bundle it writes, how the app finds and unpacks it, how the panel renders and navigates a page, how a context key becomes a page, what the MCP server exposes, and what happens at every point where something is missing.
 read_when: you are writing a help page, changing the packer or the bundle, wiring a screen to contextual help, or debugging why the help panel shows the wrong thing
-updated: 2026-09-19
+updated: 2026-10-09
 verified: 2026-09-19
-code_anchors: [crates/ubiq/src/app/help.rs, crates/ubiq/src/state/help.rs, crates/ubiq/src/ui/help/mod.rs, crates/ubiq-host/src/mcp/help.rs, _tools/helpbundle.py]
+code_anchors: [crates/ubiq/src/app/help.rs, crates/ubiq/src/app/help_images.rs, crates/ubiq/src/state/help.rs, crates/ubiq/src/ui/help/mod.rs, crates/ubiq-host/src/mcp/help.rs, _tools/helpbundle.py]
 depends_on: [inbox-help, feat-workbench, tech-ui, tech-transport, tech-operations, wip-kb]
 ---
 
@@ -126,9 +126,21 @@ Doc-relative paths into `help/img/`:
 ![The Changes panel](../img/git-changes.png)
 ```
 
-They work because the bundle is unpacked to real files before anything is rendered (§4) — the image
-source underneath resolves a filesystem path, not an archive entry. Screenshots are PNG, taken at 2×
-on the dark theme unless the page is about theming.
+An inline HTML `<img src="../img/x.png" width="16" height="16">` takes the same path and carries a
+size; markdown syntax carries none.
+
+They work because the bundle is unpacked to real files before anything is rendered (§4). The text
+view hands GPUI every image as a URI, and GPUI loads a URI through the application's HTTP client, so
+two pieces in `app::help_images` close the gap. When a page is read, each page-relative image path —
+a markdown image's destination and an `<img>` tag's `src`, found through the parsed tree so an
+example inside a code block is left alone — is rewritten to a `file://localhost/…` URI under the
+help root; an absolute path, a path that climbs out of the root and anything with a scheme stay as
+written. And on `HelpReady` the window installs an HTTP client that answers a `file:` URI under
+that root and refuses everything else, so no other markdown document reads the disk through an
+image. Screenshots are PNG, taken at 2× on the dark theme unless the page is about theming.
+
+**One paragraph is one source line.** The renderer draws a soft line break as a hard one, so a
+paragraph wrapped in the file shows as ragged short lines (`G419`).
 
 ## 3. The packer
 
@@ -238,7 +250,9 @@ Three ways in, all the same panel: the `?` in the titlebar's right cluster, **F1
 page for the current context, §5), and a **Help** row in the overflow menu.
 
 The body is a header (title, back, forward, contents toggle, search field), the nav tree from
-`catalog.json`, and `viewer::markdown::render` for the page. Back and forward walk a `Vec<HelpPage>`
+`catalog.json`, and `viewer::markdown::render_linked` for the page — its body only: the
+frontmatter is the packer's (§2.1), so the panel splits it off and draws no frontmatter strip, and
+the title shows in the header. Back and forward walk a `Vec<HelpPage>`
 with a cursor — help history is the panel's own, not the window's, so reading three pages does not
 disturb the editor's navigation.
 
