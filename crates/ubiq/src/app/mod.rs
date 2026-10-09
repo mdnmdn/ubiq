@@ -1405,6 +1405,7 @@ mod clone;
 mod editor;
 mod explorer;
 mod feedback;
+mod updates;
 pub use catalog::CatalogInputs;
 pub use explorer::{MIN_QUERY, relative_to_root};
 pub use projects::Holds;

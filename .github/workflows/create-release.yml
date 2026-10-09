@@ -1,6 +1,11 @@
 name: create-release
 
+# The one release entry point. A v* tag ships stable (vX.Y.Z) or beta (vX.Y.Z-pre); a manual run
+# ships a nightly. Nothing is ever deleted or moved: every nightly is a new prerelease under a new
+# tag. Only the `channels` release's manifests are replaced in place.
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       platforms:
@@ -12,18 +17,152 @@ on:
           - both
           - macos
           - windows
+      channel:
+        description: Release channel (stable and beta need a tag ref)
+        type: choice
+        required: true
+        default: nightly
+        options:
+          - stable
+          - beta
+          - nightly
 
 jobs:
+  meta:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      channel: ${{ steps.m.outputs.channel }}
+      version: ${{ steps.m.outputs.version }}
+      tag: ${{ steps.m.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          WANT: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          channel=nightly
+          if [ "$EVENT" = push ]; then
+            channel=tag
+          elif [ "$EVENT" = workflow_dispatch ] && [ "$WANT" != nightly ]; then
+            [ "$REF_TYPE" = tag ] || { echo "::error::a $WANT release must run on a v* tag ref"; exit 1; }
+            channel=tag
+          fi
+          if [ "$channel" = tag ]; then
+            tag="$REF_NAME"
+            if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then channel=stable
+            elif [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-.+ ]]; then channel=beta
+            else echo "::error::tag $tag is not vX.Y.Z or vX.Y.Z-<prerelease>"; exit 1; fi
+            if [ "$EVENT" = workflow_dispatch ] && [ "$WANT" != "$channel" ]; then
+              echo "::error::tag $tag is a $channel release, not $WANT"; exit 1
+            fi
+            version="${tag#v}"
+          else
+            base="$(awk -F'"' '/^version *=/ { print $2; exit }' crates/ubiq-app/Cargo.toml)"
+            stamp="$(date -u +%Y%m%d-%H%M)"
+            version="$base-nightly.${stamp/-/}"
+            tag="nightly-$stamp"
+          fi
+          {
+            echo "channel=$channel"
+            echo "version=$version"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
   macos:
-    if: inputs.platforms == 'both' || inputs.platforms == 'macos'
+    needs: meta
+    if: inputs.platforms != 'windows'
     uses: ./.github/workflows/release-macos.yml
     secrets: inherit
     permissions:
-      contents: write
+      contents: read
+    with:
+      version: ${{ needs.meta.outputs.version }}
+      channel: ${{ needs.meta.outputs.channel }}
 
   windows:
-    if: inputs.platforms == 'both' || inputs.platforms == 'windows'
+    needs: meta
+    if: inputs.platforms != 'macos'
     uses: ./.github/workflows/release-windows.yml
     secrets: inherit
     permissions:
+      contents: read
+    with:
+      version: ${{ needs.meta.outputs.version }}
+      channel: ${{ needs.meta.outputs.channel }}
+
+  publish:
+    needs: [meta, macos, windows]
+    # A platform that was not requested is skipped (fine); a requested one must have succeeded.
+    if: >-
+      always() &&
+      needs.meta.result == 'success' &&
+      (needs.macos.result == 'success' || needs.macos.result == 'skipped') &&
+      (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
+      (needs.macos.result == 'success' || needs.windows.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
       contents: write
+    concurrency:
+      group: release-channels
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHANNEL: ${{ needs.meta.outputs.channel }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      TAG: ${{ needs.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        run: |
+          cd dist
+          ls -l
+          sha256sum Ubiq-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        run: |
+          set -euo pipefail
+          args=(--target "$GITHUB_SHA")
+          case "$CHANNEL" in
+            stable) args+=(--title "$TAG" --generate-notes) ;;
+            beta)   args+=(--title "$TAG" --generate-notes --prerelease) ;;
+            nightly) args+=(--title "Nightly $VERSION" --prerelease
+                            --notes "Automated nightly build of $GITHUB_SHA.") ;;
+          esac
+          gh release create "$TAG" "${args[@]}" dist/*
+
+      - name: Sign and publish the channel manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          UPDATE_SIGNING_PASSWORD: ${{ secrets.UPDATE_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::warning::UPDATE_SIGNING_KEY not set — release published, channel manifest skipped"
+            exit 0
+          fi
+          sudo apt-get install -y minisign
+          python3 _devops/scripts/channel-manifest.py --channel "$CHANNEL" --version "$VERSION" \
+            --tag "$TAG" --repo "$GITHUB_REPOSITORY" --out "$CHANNEL.json" dist/*
+          cat "$CHANNEL.json"
+          keyfile="$RUNNER_TEMP/update.key"
+          (umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$keyfile")
+          printf '%s\n' "$UPDATE_SIGNING_PASSWORD" | minisign -S -s "$keyfile" -m "$CHANNEL.json"
+          rm -f "$keyfile"
+          gh release view channels >/dev/null 2>&1 || gh release create channels --prerelease \
+            --target "$GITHUB_SHA" --title "Update channels" \
+            --notes "Signed update manifests, one per channel. Replaced on every release."
+          gh release upload channels "$CHANNEL.json" "$CHANNEL.json.minisig" --clobber

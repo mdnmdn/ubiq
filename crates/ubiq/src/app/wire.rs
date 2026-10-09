@@ -569,6 +569,9 @@ impl AppState {
         let Some(message) = self.receive_feedback(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_updates(host, message, cx) else {
+            return;
+        };
         let Some(message) = self.receive_ask(host, message, cx) else {
             return;
         };

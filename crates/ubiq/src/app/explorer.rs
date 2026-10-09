@@ -1108,6 +1108,11 @@ impl AppState {
                 self.close_project(project, true, cx);
                 return;
             }
+            FileDialog::RestartForUpdate => {
+                self.close_file_dialog(cx);
+                self.restart_to_update(cx);
+                return;
+            }
             FileDialog::CloseWindow { quitting } => {
                 self.close_file_dialog(cx);
                 if quitting {
@@ -1259,6 +1264,7 @@ impl AppState {
             | FileDialog::SaveFailed { .. }
             | FileDialog::OverwriteFile { .. }
             | FileDialog::CloseWindow { .. }
+            | FileDialog::RestartForUpdate
             | FileDialog::CloseProject { .. }
             | FileDialog::RenameTab { .. } => {}
         }

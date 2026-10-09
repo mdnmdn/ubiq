@@ -645,6 +645,9 @@ pub enum FileDialog {
     /// `quitting` is the same question asked for the whole application — ⌘Q — which takes every
     /// window with it.
     CloseWindow { quitting: bool },
+    /// "Restart and install", asked while the window holds something a restart would take with
+    /// it. The yes sends `ApplyUpdate { relaunch: true }` and quits.
+    RestartForUpdate,
     /// Naming something new inside `parent` of a knowledge-base source. The KB's own variants
     /// rather than `New`, `Rename` and `Remove` reused, because every path in that family is
     /// relative to its source and a dialog that forgot which source it was raised on would write
@@ -767,6 +770,8 @@ pub struct WorkbenchState {
     /// runs. Off until the host answers, which is what keeps the send button disabled in a build
     /// that has no destination.
     pub feedback_offer: ubiq_proto::feedback::FeedbackOffer,
+    /// The updater as the host last reported it. Asked at boot and re-sent on every change.
+    pub updates: crate::state::updates::UpdatesState,
     /// Which agent's question is on screen, while the ask dialog is up. Only the view: what has
     /// been filled in lives on the conversation's own record, which is what lets the dialog be
     /// closed and reopened with the drafts intact. See `crate::state::ask`.
@@ -1081,6 +1086,7 @@ impl Default for WorkbenchState {
             clone_project: None,
             feedback: None,
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
+            updates: crate::state::updates::UpdatesState::default(),
             ask: None,
             all_projects: None,
             image_zoom: None,

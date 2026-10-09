@@ -264,6 +264,8 @@ struct Coordinator {
     /// The thread that posts the user's report to whatever destination this build was compiled
     /// with. A blocking HTTPS call, so it is a thread for [`crate::quota`]'s reason.
     feedback: crate::feedback::Feedback,
+    /// Ubiq updating itself: a worker thread of its own, broadcasting its state to every window.
+    updates: crate::updates::Updater,
     /// One live search per project. The flag means two things: a cancel request, set when a
     /// second search for the same project arrives or `CancelSearch` names this one; and "this
     /// search is over", set by the worker itself when it finishes, cancelled or not. `search_job`
@@ -1136,6 +1138,7 @@ impl Coordinator {
                 )
             })
             .collect();
+        let updates = crate::updates::Updater::start(root.path.clone(), host.mailbox(To::Everyone));
 
         Self {
             host,
@@ -1161,6 +1164,7 @@ impl Coordinator {
             quota: crate::quota::Quota::start(quota_root),
             quotas: crate::quota::Quotas::new(),
             feedback: crate::feedback::Feedback::start(),
+            updates,
             search: Search::start(),
             index: crate::index::Index::start(),
             active_searches: HashMap::new(),
@@ -2066,6 +2070,17 @@ impl Coordinator {
                     reply_to: self.host.mailbox(To::Client(client)),
                 });
             }
+
+            // ── the update family ───────────────────────────────────
+            // Each of these blocks (the feed, the download, the helper's spawn), so each is a
+            // command to the updater's own thread; it broadcasts what it becomes.
+            Message::QueryUpdates => {
+                self.host.send(To::Client(client), self.updates.snapshot());
+            }
+            Message::CheckForUpdates => self.updates.check(),
+            Message::SaveUpdateSettings { settings } => self.updates.save(settings),
+            Message::DownloadUpdate => self.updates.download(),
+            Message::ApplyUpdate { relaunch } => self.updates.apply(relaunch),
 
             // ── Quota family: how much of an account's plan is left ──
             Message::QueryQuota {

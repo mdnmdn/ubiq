@@ -2043,6 +2043,7 @@ impl AppState {
         // Whether this build has anywhere to send feedback. Asked once: the destination is
         // compiled into the host's binary, so the answer cannot change while the process runs.
         this.ask_feedback_offer();
+        this.ask_updates();
 
         // A window that boots already pointed at a project never calls `activate_project`, and
         // `OpenedProject` is the only thing that tells the host a project is live — it is what

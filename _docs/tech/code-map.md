@@ -67,7 +67,8 @@ crates/ubiq-proto/src/
 ├── tasksrc.rs
 ├── catalog.rs
 ├── db.rs
-└── merge.rs
+├── merge.rs
+└── update.rs
 
 crates/ubiq-host/src/
 ├── pty/
@@ -218,7 +219,6 @@ crates/ubiq-host/src/
 │   ├── make.rs
 │   ├── mise.rs
 │   └── mod.rs
-├── .DS_Store
 ├── db/
 │   ├── jobs.rs
 │   ├── mod.rs
@@ -228,7 +228,11 @@ crates/ubiq-host/src/
 │   ├── tests.rs
 │   ├── agent.rs
 │   └── editors.rs
-└── archify.rs
+├── archify.rs
+└── updates/
+    ├── apply.rs
+    ├── feed.rs
+    └── mod.rs
 
 crates/ubiq/src/
 ├── state/
@@ -347,7 +351,8 @@ crates/ubiq/src/
 │   │   ├── popover.rs
 │   │   ├── blocks.rs
 │   │   ├── colour.rs
-│   │   └── slider.rs
+│   │   ├── slider.rs
+│   │   └── quota.rs
 │   ├── editor.rs
 │   ├── empty.rs
 │   ├── explorer.rs
@@ -573,17 +578,16 @@ crates/ubiq/src/
 │   │   └── table.rs
 │   └── unix_connect.rs
 ├── version.rs
-├── ext/
-│   ├── id.rs
-│   ├── ids.rs
-│   ├── mod.rs
-│   ├── registry.rs
-│   ├── settings.rs
-│   ├── rail.rs
-│   ├── menu.rs
-│   ├── runner.rs
-│   └── viewer.rs
-└── .DS_Store
+└── ext/
+    ├── id.rs
+    ├── ids.rs
+    ├── mod.rs
+    ├── registry.rs
+    ├── settings.rs
+    ├── rail.rs
+    ├── menu.rs
+    ├── runner.rs
+    └── viewer.rs
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -609,6 +613,8 @@ the documents in its row.
 | `Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `Justfile` | [`operations.md`](./operations.md) |
 | `_devops/scripts/bundle-version.sh` | [`operations.md`](./operations.md) |
+| `_devops/scripts/channel-manifest.py` | [`operations.md`](./operations.md) |
+| `_devops/windows/ubiq.iss` | [`operations.md`](./operations.md) |
 | `_tools/Info.plist` | [`operations.md`](./operations.md) |
 | `_tools/docs.py` | [`operations.md`](./operations.md) |
 | `_tools/drone.py` | [`features/drone.md`](../features/drone.md), [`operations.md`](./operations.md) |
@@ -763,6 +769,9 @@ the documents in its row.
 | `crates/ubiq-host/src/tasksrc/store.rs` | [`inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md) |
 | `crates/ubiq-host/src/tasksrc/sync.rs` | [`inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md) |
 | `crates/ubiq-host/src/tasksrc/trello.rs` | [`inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md) |
+| `crates/ubiq-host/src/updates/apply.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-host/src/updates/feed.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-host/src/updates/mod.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/watch/mod.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md), [`wip/indexing.md`](../wip/indexing.md) |
 | `crates/ubiq-host/src/web_assets/archive.rs` | [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
 | `crates/ubiq-host/src/web_assets/manifest.rs` | [`wip/web-panel-phase3.md`](../wip/web-panel-phase3.md) |
@@ -802,6 +811,7 @@ the documents in its row.
 | `crates/ubiq-proto/src/stats.rs` | [`features/stats.md`](../features/stats.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/tasksrc.rs` | [`inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/tools.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-proto/src/update.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/wire.rs` | [`architecture.md`](./architecture.md), [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-proto/src/work.rs` | [`transport-contract.md`](./transport-contract.md), [`wip/agent-setup.md`](../wip/agent-setup.md) |
 | `crates/ubiq/Cargo.toml` | [`project-structure.md`](./project-structure.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
@@ -1195,6 +1205,7 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq/src/ui/db/results.rs` |
 | `crates/ubiq/src/ui/kit/icons.rs` |
 | `crates/ubiq/src/ui/kit/panel.rs` |
+| `crates/ubiq/src/ui/kit/quota.rs` |
 | `crates/ubiq/src/ui/kit/slider.rs` |
 | `crates/ubiq/src/ui/mdview/blocks.rs` |
 | `crates/ubiq/src/ui/mdview/events.rs` |

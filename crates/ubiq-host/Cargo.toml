@@ -84,6 +84,12 @@ x509-parser = { version = "0.18", optional = true }
 # The fingerprint a pin is: SHA-256 over a certificate's DER. One hash, no drawing. Behind
 # `listener`.
 sha2 = { version = "0.10", optional = true }
+# The self-updater's signature check (`updates/`, `D-updates`): the feed's manifests are minisign
+# signed and verified against a key baked into the build before they are parsed. Pure Rust, one
+# purpose. Behind `listener`.
+minisign-verify = { version = "0.2", optional = true }
+# Ordering the feed's versions, prereleases included. Already in the lockfile. Behind `listener`.
+semver = { version = "1", optional = true }
 # Deflating each web bundle entry into the `.bundle` container. Already in the workspace lockfile
 # via crates/ubiq, so this pulls nothing new.
 flate2 = "1"
@@ -173,6 +179,8 @@ listener = [
     "dep:tiny_http",
     "dep:ureq",
     "dep:rand",
+    "dep:minisign-verify",
+    "dep:semver",
 ]
 # Talking to the desktop directly: `notifications`, deleting to its trash, and `shell_integration`.
 desktop = ["dep:notify-rust", "dep:trash", "dep:winreg"]
