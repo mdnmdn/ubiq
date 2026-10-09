@@ -6,7 +6,7 @@ status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
 updated: 2026-10-08
-verified: 2026-10-08
+verified: 2026-10-09
 review_cycle: monthly
 ---
 
@@ -78,7 +78,6 @@ change what Ubiq does (here), or where a document lives (there)?
 | G55 | The component library's dock places edge regions left, right and bottom only, so there is no top region: "docked on top" is a split at the top of the centre, and takes its width from the centre rather than spanning under the explorer | [`features/workbench.md`](./features/workbench.md) |
 | G56 | A panel dropped in a region its class forbids is moved back on the same edit rather than refused under the pointer, because the library's drop is region-blind. The drop reads as refused; the drag offers no indicator saying it would be | [`features/workbench.md`](./features/workbench.md) |
 | G57 | Panels cannot be moved between, or focused from, the keyboard. `D17`'s reversal makes it possible and nothing builds it | [`features/workbench.md`](./features/workbench.md) |
-| G58 | The library's free-floating tiles canvas is reachable — Ubiq names a tiles renderer because a dock renderer must — and nothing builds one, so the renderer draws nothing | [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G59 | A panel name a saved layout carries that this build does not know is dropped rather than kept as a placeholder, so a layout written by a later build loses those panels on the round trip. The version check catches the case that matters; a hand-edited file is the one that does not | [`features/workbench.md`](./features/workbench.md) |
 | G68 | The file picker is raised by one screen — the kitchen sink's picker page — over a fixture tree, so no screen chooses a real path through it yet. It takes the forest it draws rather than fetching one, so a caller over a real project needs `ProjectTree`'s listings folded into `PickerNode`s and a second `PickerOwner` to route the answer to | [`features/workbench.md`](./features/workbench.md) |
 | G60 | The session family's table documents `ListSessions`, `CreateSession`, `AttachToSession`, `DetachFromSession`, `ListAgentTypes`, `SessionList`, `SessionCreated`, `SessionAttached`, `AgentTypes`, `Status` and `Error`, none of which are variants of `Message` — the table is ahead of `crates/ubiq-proto/src/messages.rs`, which `G19` reads from the other side | [`tech/transport-contract.md`](./tech/transport-contract.md) |

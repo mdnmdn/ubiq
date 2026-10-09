@@ -21,7 +21,7 @@ use gpui::{
 };
 use gpui_component::dock::{
     BasePanelView, DockAreaRenderer, DockContext, DockPlacement, DropIndicator, NodeId,
-    TabGroupContext, TabGroupRenderer, TileContext, TilesRenderer,
+    TabGroupContext, TabGroupRenderer,
 };
 use gpui_component::{Icon, IconName, InteractiveElementExt as _, Sizable as _, Size};
 
@@ -371,10 +371,6 @@ impl DockAreaRenderer for Skin {
     }
 
     fn tab_group_renderer(&self) -> Rc<dyn TabGroupRenderer> {
-        Rc::new(self.clone())
-    }
-
-    fn tiles_renderer(&self) -> Rc<dyn TilesRenderer> {
         Rc::new(self.clone())
     }
 }
@@ -898,15 +894,6 @@ impl TabGroupRenderer for Skin {
     /// A group whose every panel is hidden. It keeps its shape rather than collapsing mid-drag.
     fn render_empty(&self, _: &TabGroupContext, _: &mut Window, _: &mut App) -> Option<AnyElement> {
         Some(div().flex_1().bg(theme::app_bg()).into_any_element())
-    }
-}
-
-/// Ubiq builds no tiles canvas — the free-floating one the library offers is a backlog row — but a
-/// dock renderer must still name a tiles renderer, because the library builds one for any canvas a
-/// layout happens to hold.
-impl TilesRenderer for Skin {
-    fn render_drag_bar(&self, _: &TileContext, _: &mut Window, _: &mut App) -> AnyElement {
-        div().into_any_element()
     }
 }
 

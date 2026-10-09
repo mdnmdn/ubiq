@@ -6,7 +6,7 @@ status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-10-09
-verified: 2026-10-08
+verified: 2026-10-09
 code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml, _devops/scripts/channel-manifest.py, _devops/windows/ubiq.iss]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -23,8 +23,8 @@ review_cycle: monthly
 | [`uv`](https://docs.astral.sh/uv/) | The `_tools/` scripts | Each script declares its own dependencies inline; no environment to create |
 | A C toolchain and system graphics libraries | GPUI | Xcode command line tools on macOS; on Linux, the X11 and Wayland development packages |
 
-GPUI is pulled from git rather than a published crate, so the first build compiles Zed's rendering
-stack from source. Expect it to take a long time and a lot of disk. Later builds are incremental.
+GPUI is the `gpui-pre` snapshot of Zed's crates, built from source like any crate, so the first
+build compiles Zed's rendering stack. Expect it to take a long time and a lot of disk. Later builds are incremental.
 
 ## The command surface
 

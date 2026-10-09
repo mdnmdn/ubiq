@@ -41,7 +41,7 @@ ui = [
     "dep:gpui",
     "dep:gpui_platform",
     "dep:gpui-component",
-    "dep:gpui-component-assets",
+    "dep:gpui-kit-assets",
 ]
 
 # Forwarded to the host, which owns the backend; the interface never names one. `ubiq-host` does
@@ -92,15 +92,15 @@ flume = "0.12"
 percent-encoding = "2"
 
 # All four are the `ui` feature's, and nothing outside it names them.
-gpui = { git = "https://github.com/zed-industries/zed", optional = true }
-gpui_platform = { git = "https://github.com/zed-industries/zed", optional = true, features = [
+gpui = { package = "gpui-pre", version = "=0.3.8", optional = true }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", optional = true, features = [
     "font-kit",
     "wayland",
     "x11",
     "runtime_shaders",
 ] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3", optional = true }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3", optional = true }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "0bbd9870ce420af9feacbf948b21d3824d82dc0b", optional = true }
+gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "0bbd9870ce420af9feacbf948b21d3824d82dc0b", optional = true }
 
 [dev-dependencies]
 # `handoff`'s tests claim a lock in a throwaway root rather than the real config dir.

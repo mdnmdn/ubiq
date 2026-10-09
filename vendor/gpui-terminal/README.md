@@ -8,10 +8,11 @@ is what lets Ubiq hand it a bus endpoint instead of a pseudo-terminal.
 Upstream revision: `51f0292938876c8da3de03f0139088591e3be518`.
 
 It is vendored rather than depended on because it is written against the `gpui` published on
-crates.io and Ubiq builds against Zed's `main`, where two calls have since changed shape. The
+crates.io and Ubiq builds against the `gpui-pre` snapshot gpui-component pins, where two calls
+have since changed shape. The
 divergence from upstream is:
 
-- `Cargo.toml` — `gpui` comes from Zed's git, the example binary and its `portable-pty` dependency
+- `Cargo.toml` — `gpui` is the `gpui-pre` snapshot the rest of Ubiq names, the example binary and its `portable-pty` dependency
   are dropped.
 - `src/lib.rs` — one crate-level `allow` for the lint upstream trips, so `just clippy` stays clean
   without editing upstream code.

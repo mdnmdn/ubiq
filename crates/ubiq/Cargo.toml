@@ -51,16 +51,18 @@ oxc = { version = "0.150", default-features = false, features = [
     "transformer",
 ] }
 
-# GPUI core
-gpui = { git = "https://github.com/zed-industries/zed", features = ["screen-capture"] }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
+# GPUI core. The `gpui-pre` snapshot of Zed's crates that gpui-component builds against, pinned
+# with `=` exactly as gpui-component pins it: a second GPUI in the graph is a second `App` type.
+# Every crate naming `gpui` in this workspace names this same requirement.
+gpui = { package = "gpui-pre", version = "=0.3.8", features = ["screen-capture"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = [
     "font-kit",
     "wayland",
     "x11",
     "runtime_shaders",
     "screen-capture",
 ] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3", features = [
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "0bbd9870ce420af9feacbf948b21d3824d82dc0b", features = [
     "tree-sitter-markdown",
     "tree-sitter-rust",
     "tree-sitter-python",
@@ -81,7 +83,7 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
     "tree-sitter-kotlin",
     "tree-sitter-diff",
 ] }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
+gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "0bbd9870ce420af9feacbf948b21d3824d82dc0b" }
 
 # The LSP vocabulary gpui-component's provider traits are written in — a `CompletionProvider`
 # answers with `lsp_types::CompletionResponse`, so the `/` menu in `ui/editor.rs` has to name the
@@ -183,13 +185,16 @@ image = { version = "0.25", default-features = false, features = [
     "bmp",
 ] }
 
-# The embedded browser a web panel draws in. `gpui-wry` is gpui-component's own wry binding —
-# same repository, so it resolves to the revision the component crates already pin, and a child
-# webview is laid out by a GPUI element rather than by a second window. macOS and Windows only:
-# the crate's Unix path is unfinished upstream, so every other platform keeps the external
-# browser that phase 5 shipped.
+# The embedded browser a web panel draws in. `gpui-wry` is gpui-component's own wry binding, and
+# a child webview is laid out by a GPUI element rather than by a second window. macOS and Windows
+# only: every other platform keeps the external browser that phase 5 shipped.
+# **Held at `dc00da18`**, the last revision before upstream renamed it `gpui-webview` and made it
+# require GPUI Fast (#3389, #3398) — a longbridge fork of GPUI that, through feature unification,
+# would switch gpui-component itself onto a GPUI other than the one this crate names. At this
+# revision it depends on `gpui-pre =0.3.8` and nothing else of the repository, so it shares the
+# one GPUI above; its API is the one this crate was written against.
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-gpui-wry = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
+gpui-wry = { git = "https://github.com/longbridge/gpui-component", rev = "dc00da1837f16a6da42280535d76a2d7acc4a40e" }
 wry = { version = "0.53.3", package = "lb-wry" }
 raw-window-handle = { version = "0.6", features = ["std"] }
 
@@ -208,15 +213,15 @@ objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString
 core-video = "0.5"
 
 # The frame type behind gpui's `ScreenCaptureFrame` on Windows and Linux, so a captured
-# frame can be decoded. Same revision gpui resolves to — a skew would be two `scap` crates
-# and a match that never fires. macOS decodes `CVImageBuffer` through `core-video` above.
+# frame can be decoded. The same crates.io release `gpui-pre` resolves to — a skew would be two
+# `scap` crates and a match that never fires. macOS decodes `CVImageBuffer` through `core-video`.
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
-zed-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", package = "zed-scap", version = "0.0.8-zed", default-features = false }
+zed-scap = { version = "0.0.8-zed", default-features = false }
 
-# Pin windows-capture to the 1.4 line on Windows: zed-scap@4afea48 needs the 1.4 API
-# (`Context`, `as_nopadding_buffer`) but predates the 1.5 `Settings::new` breakage
-# (new SecondaryWindow, MinimumUpdateInterval, DirtyRegion args). Upstream reverted the
-# 1.5 bump and stayed on the 1.3/1.4 line, so stay there too.
+# Pin windows-capture to the 1.4 line on Windows: zed-scap 0.0.8-zed asks for `^1.3.6` and needs
+# the 1.4 API (`Context`, `as_nopadding_buffer`) but predates the 1.5 `Settings::new` breakage
+# (new SecondaryWindow, MinimumUpdateInterval, DirtyRegion args); 2.x is outside its range
+# altogether. Upstream stayed on the 1.3/1.4 line, so stay there too.
 # Named here only to constrain the resolver — no code uses it directly.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-capture = "=1.4.4"
@@ -245,6 +250,6 @@ ureq = "2"
 ubiq-proto = { path = "../ubiq-proto" }
 # A window with no graphics device behind it. Same revision as the dependency above — this only
 # turns on the test platform, and never becomes a dependency of the binary.
-gpui = { git = "https://github.com/zed-industries/zed", features = ["test-support"] }
+gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }
 # A throwaway workarea for the diagram cache's disk tier
 tempfile = "3"

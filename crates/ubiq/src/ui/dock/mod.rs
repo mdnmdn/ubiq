@@ -1467,9 +1467,9 @@ fn rebuild(
             }
             (count > 0).then(|| layout.active_index((*active_index).min(count - 1)))
         }
-        // A bare leaf where a container belongs, and a tiles canvas Ubiq never builds. Both are
-        // read as a group of one so a hand-edited file cannot lose a panel.
-        PanelInfo::Panel(_) | PanelInfo::Tiles { .. } => {
+        // A bare leaf where a container belongs is read as a group of one, so a hand-edited file
+        // cannot lose a panel.
+        PanelInfo::Panel(_) => {
             let kind = leaf(state)?;
             let built = panel(kind, cx)?;
             Some(DockLayout::tabs().panel_view(WorkbenchPanel::handle(&built), cx))

@@ -6,7 +6,7 @@ status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
 updated: 2026-10-08
-verified: 2026-10-08
+verified: 2026-10-09
 code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -243,7 +243,8 @@ and the rules that follow from that are the whole point of the folder:
 
 - **Keep it close to upstream.** A change here is either a rebase onto a newer upstream revision, or
   a minimal patch that upstream's version cannot carry — the crate is vendored because upstream
-  builds against the `gpui` published on crates.io while Ubiq builds against Zed's `main`.
+  builds against the `gpui` published on crates.io while Ubiq builds against the `gpui-pre`
+  snapshot of Zed's crates that gpui-component pins (`=0.3.8`).
 - **Record every divergence.** `vendor/gpui-terminal/README.md` names the upstream revision, the
   licence, and each file that differs and why. A rebase reapplies exactly that list, so a patch
   missing from it is a patch the next rebase drops.
@@ -396,11 +397,15 @@ postcard or bincode.
 (gpui-component's own wry binding, so a child webview is laid out by a GPUI element rather than a
 second window), `wry` itself (published as `lb-wry` 0.53.3) and `raw-window-handle`. Every other
 platform compiles none of the three and keeps the external browser a web panel falls back to —
-`gpui-wry`'s Unix path is unfinished upstream. All four dependencies drawn from
-`github.com/longbridge/gpui-component` — `gpui-component` and `gpui-component-assets` in both
-`crates/ubiq/Cargo.toml` and `crates/ubiq-app/Cargo.toml`, plus `gpui-wry` — are pinned to the same
-`rev`, because a fourth crate from that source forces Cargo to re-resolve it and an unpinned
-resolve can land on a revision missing a crate one of the other three depends on.
+`gpui-wry`'s Unix path is unfinished upstream. Every dependency drawn from
+`github.com/longbridge/gpui-component` is pinned by `rev`: `gpui-component` and `gpui-kit-assets`
+in both `crates/ubiq/Cargo.toml` and `crates/ubiq-app/Cargo.toml` at one revision, and `gpui-wry`
+at `dc00da18`, the last revision before upstream renamed it `gpui-webview` and made it require
+GPUI Fast — a fork of GPUI that, through feature unification, would move gpui-component onto a
+GPUI other than the one Ubiq names. GPUI itself is the `gpui-pre` crates.io snapshot
+(`gpui = { package = "gpui-pre", version = "=0.3.8" }`, likewise `gpui_platform`) that
+gpui-component pins exactly; every crate naming `gpui` names that same requirement, and
+`zed-scap` is the crates.io release it resolves to.
 
 ## Where a new file goes
 
