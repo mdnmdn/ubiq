@@ -199,11 +199,10 @@ deleted, moved or force-pushed: every nightly is a new prerelease under a new ta
 |---|---|---|---|---|
 | stable | tag `vX.Y.Z` | `vX.Y.Z` | `X.Y.Z` | normal |
 | beta | tag `vX.Y.Z-<pre>` | same | without the `v` | prerelease |
-| nightly | cron `17 2 * * *`, or a manual run | `nightly-YYYYMMDD-HHMM` | `<ubiq-app version>-nightly.YYYYMMDDHHMM` | prerelease "Nightly …" |
+| nightly | a manual run only | `nightly-YYYYMMDD-HHMM` | `<ubiq-app version>-nightly.YYYYMMDDHHMM` | prerelease "Nightly …" |
 
 A manual `workflow_dispatch` takes `platforms` (`both`, `macos`, `windows`) and `channel` (default
-`nightly`); `stable` and `beta` must run on a matching tag ref or the `meta` job fails. A scheduled run
-skips when the latest `nightly-*` release targets HEAD. The version reaches the build as
+`nightly`); `stable` and `beta` must run on a matching tag ref or the `meta` job fails. The version reaches the build as
 `UBIQ_VERSION`, with `UBIQ_CHANNEL` and `UBIQ_UPDATE_PUBKEY` (the `UPDATE_PUBLIC_KEY` variable) read by
 the app through `option_env!`; `just bundle` stamps `CFBundleShortVersionString` (the `X.Y.Z` core) and
 `CFBundleVersion` (the full string) into the `Info.plist` copy.
