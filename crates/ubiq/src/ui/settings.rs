@@ -2655,9 +2655,8 @@ impl QuotaScope {
 /// the age of the reading and a refresh.
 ///
 /// This is the surface that works when nothing is running, which is why every negative answer is
-/// drawn in place rather than hidden. A harness that states no limit says so once — an absent
-/// readout reads as a missing feature, and for three of the five harnesses it is a permanent
-/// answer about the provider instead.
+/// drawn in place rather than hidden — except the two that the foot line already says (asked and
+/// nothing named, not asked yet) and a harness that states no limit, which draws nothing.
 ///
 /// `account` is `None` where the surface has no identity in hand — a **harness** row under
 /// `Installed` that nobody has signed into. Then what is drawn is one sentence saying so and
@@ -2687,14 +2686,7 @@ fn harness_quota(
         .map(|info| info.quota)
         .unwrap_or_default();
     if !source.reports() {
-        return div()
-            .pl_2()
-            .pb_1()
-            .child(note(
-                "This harness states no limit anything can read.".to_string(),
-                theme::text_faint(),
-            ))
-            .into_any_element();
+        return div().into_any_element();
     }
 
     // No identity: the harness reports a limit, but a limit is always somebody's. Say that, and
@@ -2755,17 +2747,10 @@ fn harness_quota(
                     .child(rows),
             );
         }
-        // Asked, and the provider named nothing. A different fact from never having asked, and
-        // from a failed read below — all three are said in their own words.
-        Some(_) => {
-            block = block.child(note(
-                "Asked, and this plan states no limit.".to_string(),
-                theme::text_faint(),
-            ));
-        }
-        None if source.probeable() => {
-            block = block.child(note("Not read yet.".to_string(), theme::text_faint()));
-        }
+        // Asked and nothing named, or not asked yet: the foot line below ("plan —", "read … ago")
+        // already says which, so no sentence is drawn.
+        Some(_) => {}
+        None if source.probeable() => {}
         // A push-only harness has nothing to read while it is idle: the provider states its
         // window during a turn and offers no way to ask.
         None => {

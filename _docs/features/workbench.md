@@ -1069,7 +1069,7 @@ shared between the two Refresh buttons. The remaining quota is the footer's **do
 tick, pace tooltip — `chat.md`) beside the per-window rows, which keep the words (reading, reset, detail) but
 draw no bar for a window the ring shows (a third window or more keeps its linear meter). With **no identity at all** the row says only that — nobody
 is signed in, and a plan is always some identity's — and draws no gauges and no Refresh, because
-both are readings of a login. A harness that states no limit anything can read still says so.
+both are readings of a login. A harness that states no limit anything can read draws no readout, and neither does "asked, nothing named" or "not read yet" — the foot line says which.
 
 **Each ACP harness that is a second wire onto a tool with a native one gets a switch at the end of
 the section, off by default.** "Enable Claude Code ACP", "Enable Codex ACP" —
