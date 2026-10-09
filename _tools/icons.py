@@ -65,6 +65,12 @@ THEMES = {
 }
 SIZES = (16, 24, 64)
 
+# The help manual's inline icons: `help/img/ui/<name>.png`, rendered at 2x `ICON_MD` (theme.rs),
+# the size a button icon is drawn at.
+THEME_RS = ROOT / "crates" / "ubiq" / "src" / "theme.rs"
+HELP_ICONS = ROOT / "help" / "img" / "ui"
+HELP_ICON_PX = 14
+
 # The Lucide files gpui-component ships, so a sheet can stand a new icon beside the borrowed ones
 # it has to match — half the set is Lucide, so that is what coherence is judged against. It is a
 # cargo checkout, hence the glob; sheets simply leave the borrowed rows out if it is not there.
@@ -233,6 +239,27 @@ def tinted(svg: str, px: int, fg: str, bg: str) -> Image.Image:
     """The mask painted in `fg` over `bg` — what the app actually draws."""
     tile = Image.new("RGB", (px, px), bg)
     tile.paste(Image.new("RGB", (px, px), fg), (0, 0), mask(svg, px))
+    return tile
+
+
+def help_tint() -> str:
+    """The one colour a help icon is baked in: `text.muted` of the built-in LIGHT palette.
+
+    A PNG has a single colour and the help panel follows the theme, so it has to read on both
+    grounds. The light palette's muted text is the darker of the two mutes, which keeps it above
+    3:1 on the dark ground as well as on the light one. Read from theme.rs, never restated.
+    """
+    src = THEME_RS.read_text()
+    block = src[src.index("const LIGHT: Palette"):]
+    return "#" + re.search(r"text: TextColors \{.*?muted: rgba_hex\(0x([0-9a-f]{6})\)",
+                           block, re.S).group(1)
+
+
+def exported(svg: str, colour: str) -> Image.Image:
+    """The mask in one colour on a transparent ground, at 2x the interface icon size."""
+    px = HELP_ICON_PX * 2
+    tile = Image.new("RGBA", (px, px), colour)
+    tile.putalpha(mask(svg, px))
     return tile
 
 
@@ -494,6 +521,8 @@ def main() -> int:
     p = sub.add_parser("audit", help="the whole set, one contact sheet per category")
     p.add_argument("--theme", default="dark", choices=list(THEMES))
     sub.add_parser("dupes", help="pairs that look alike")
+    p = sub.add_parser("export", help="PNGs for the help manual in help/img/ui/")
+    p.add_argument("names", nargs="*", help="icon names; default is every drawn icon")
     args = parser.parse_args()
 
     icons, canon = registry()
@@ -541,6 +570,23 @@ def main() -> int:
         return 0
 
     drawn = {n: i for n, i in icons.items() if i.path.exists()}
+
+    if args.cmd == "export":
+        missing = [n for n in args.names if n not in drawn]
+        if missing:
+            console.print(f"[red]no file for: {', '.join(missing)}[/]")
+            return 1
+        colour = help_tint()
+        HELP_ICONS.mkdir(parents=True, exist_ok=True)
+        total = 0
+        for name in args.names or sorted(drawn):
+            out = HELP_ICONS / f"{name}.png"
+            exported(drawn[name].path.read_text(), colour).save(out, optimize=True)
+            total += out.stat().st_size
+        count = len(args.names) or len(drawn)
+        console.print(f"[green]{count} icons[/] -> {HELP_ICONS.relative_to(ROOT)}, "
+                      f"{HELP_ICON_PX * 2}px, {colour}, {total:,} bytes")
+        return 0
 
     if args.cmd == "sheet":
         names = (args.names

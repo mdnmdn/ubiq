@@ -291,6 +291,7 @@ the manifest the repository is committed to.
 | Command | Does |
 |---|---|
 | `just help-check` | Validate `help/` — frontmatter, unique ids, links, images, context keys, nav reachability |
+| `just help-icons` | Export every drawn icon (or the named ones) as a tinted 28px PNG into `help/img/ui/` — `_tools/icons.py export` |
 | `just help-bundle` | Validate, then write `target/help/help.bundle` |
 | `just help-clean` | Remove `target/help/` |
 

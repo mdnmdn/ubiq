@@ -263,6 +263,10 @@ web-assets-verify-drawio:
 help-check:
     uv run _tools/helpbundle.py check
 
+# Export the icon set as tinted PNGs into help/img/ui/ — pass names to export only those
+help-icons *names:
+    uv run _tools/icons.py export {{names}}
+
 # Validate help/, then write target/help/help.bundle
 help-bundle:
     uv run _tools/helpbundle.py bundle
