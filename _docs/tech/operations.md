@@ -197,12 +197,17 @@ manual counterpart — a `workflow_dispatch` whose `platforms` choice is `both`,
 — and it calls those two workflows as reusable jobs so one run ships either platform or both. Each
 platform workflow also accepts a direct `workflow_dispatch` of its own.
 
-The macOS workflow signs (hardened runtime, secure timestamp), notarizes, staples and checks the
-`.app` with `spctl` before zipping it; `help.bundle` is in `Contents/Resources` before `codesign`
-seals the app, and a rejected submission prints the notary log and fails the job. Secrets:
-`MACOS_CERT_P12` (Developer ID Application `.p12`, base64), `MACOS_CERT_PASSWORD`,
-`MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`. Without them it ships
-unsigned.
+The macOS workflow signs the `.app` after `help.bundle` is in `Contents/Resources`, in one of three
+modes picked by the secrets set. `MACOS_CERT_P12` (a `.p12`, base64), `MACOS_CERT_PASSWORD` and
+`MACOS_SIGN_IDENTITY` (the certificate's common name) sign it with the hardened runtime; adding
+`APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_APP_PASSWORD` — which needs a Developer ID Application
+certificate — also notarizes, staples and checks it with `spctl`, and a rejected submission fails
+the job. A self-signed code-signing certificate gives the "unidentified developer" prompt (Privacy
+& Security → Open Anyway); no certificate gives an ad-hoc signed bundle, never a "damaged" one.
+Make a self-signed one with `openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=Ubiq"
+-addext keyUsage=critical,digitalSignature -addext extendedKeyUsage=critical,codeSigning -keyout
+k.pem -out c.pem`, then `openssl pkcs12 -export -legacy -inkey k.pem -in c.pem -out ubiq.p12` and
+`base64 -i ubiq.p12`; the identity is then `Ubiq`.
 
 ### Documentation
 

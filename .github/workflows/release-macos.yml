@@ -26,9 +26,12 @@ jobs:
 
       - run: just bundle
 
-      # Sign and notarize. Runs only when the signing secrets are set; without them the release
-      # ships the unsigned bundle as before. Nothing may write into Ubiq.app after `codesign` —
-      # `help.bundle` is copied in by `just bundle`, so it is sealed with the rest of Resources.
+      # Sign, and notarize when Apple credentials are set. Three modes, picked by which secrets exist:
+      #   Developer ID cert + APPLE_* → signed, notarized, stapled (opens without a prompt)
+      #   any cert (self-signed)      → signed, not notarized ("unidentified developer", Open Anyway)
+      #   no cert                     → ad-hoc signed bundle, so macOS never calls it "damaged"
+      # Nothing may write into Ubiq.app after `codesign` — `help.bundle` is copied in by
+      # `just bundle`, so it is sealed with the rest of Resources.
       - name: Sign and notarize
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
@@ -38,11 +41,16 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
+          set -euo pipefail
+          APP=target/Ubiq.app
+
           if [ -z "$MACOS_CERT_P12" ]; then
-            echo "::warning::signing secrets not set — shipping an unsigned Ubiq.app"
+            echo "::warning::no signing certificate — ad-hoc signing Ubiq.app"
+            codesign --force --deep --sign - "$APP"
+            codesign --verify --deep --strict --verbose=2 "$APP"
             exit 0
           fi
-          set -euo pipefail
+
           KEYCHAIN="$RUNNER_TEMP/sign.keychain-db"
           KEYCHAIN_PW="$(uuidgen)"
           echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
@@ -54,30 +62,40 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
+          trap 'security delete-keychain "$KEYCHAIN"' EXIT
 
-          # Hardened runtime and a secure timestamp are what notarization requires.
-          codesign --force --timestamp --options runtime --keychain "$KEYCHAIN" \
-            --sign "$MACOS_SIGN_IDENTITY" target/Ubiq.app/Contents/MacOS/ubiq
-          codesign --force --timestamp --options runtime --keychain "$KEYCHAIN" \
-            --sign "$MACOS_SIGN_IDENTITY" target/Ubiq.app
-          codesign --verify --deep --strict --verbose=2 target/Ubiq.app
+          # Notarization needs the hardened runtime and Apple's secure timestamp; a self-signed
+          # identity gets the runtime but no timestamp.
+          NOTARIZE=false
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
+            NOTARIZE=true
+          fi
+          TS=--timestamp=none
+          if $NOTARIZE; then TS=--timestamp; fi
+          for target in "$APP/Contents/MacOS/ubiq" "$APP"; do
+            codesign --force $TS --options runtime --keychain "$KEYCHAIN" \
+              --sign "$MACOS_SIGN_IDENTITY" "$target"
+          done
+          codesign --verify --deep --strict --verbose=2 "$APP"
 
-          ditto -c -k --keepParent target/Ubiq.app "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+          if ! $NOTARIZE; then
+            echo "::warning::APPLE_* secrets not set — Ubiq.app is signed but not notarized"
+            exit 0
+          fi
+          AUTH=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD")
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" "${AUTH[@]}" \
             --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json" || true
           cat "$RUNNER_TEMP/notary.json"
           ID="$(plutil -extract id raw "$RUNNER_TEMP/notary.json")"
           STATUS="$(plutil -extract status raw "$RUNNER_TEMP/notary.json")"
           if [ "$STATUS" != "Accepted" ]; then
-            xcrun notarytool log "$ID" \
-              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+            xcrun notarytool log "$ID" "${AUTH[@]}"
             exit 1
           fi
-          xcrun stapler staple target/Ubiq.app
-          xcrun stapler validate target/Ubiq.app
-          spctl --assess --type execute --verbose=4 target/Ubiq.app
-          security delete-keychain "$KEYCHAIN"
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
 
       # Zipped after stapling, so the ticket travels inside the archive.
       - run: ditto -c -k --keepParent target/Ubiq.app Ubiq-macos-arm64.zip
