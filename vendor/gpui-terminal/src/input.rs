@@ -87,6 +87,21 @@
 use alacritty_terminal::term::TermMode;
 use gpui::Keystroke;
 
+/// Home (`H`) / End (`F`): `ESC [ x` normally, `ESC O x` in application cursor mode, and the
+/// xterm `ESC [ 1 ; <mod> x` form whenever a modifier is held (which wins over DECCKM).
+fn home_end(final_byte: u8, keystroke: &Keystroke, mode: TermMode) -> Vec<u8> {
+    let m = &keystroke.modifiers;
+    // xterm modifier parameter: 1 + shift(1) + alt(2) + ctrl(4)
+    let param = 1 + u8::from(m.shift) + 2 * u8::from(m.alt) + 4 * u8::from(m.control);
+    if param > 1 {
+        return format!("\x1b[1;{}{}", param, final_byte as char).into_bytes();
+    }
+    if mode.contains(TermMode::APP_CURSOR) {
+        return vec![0x1b, b'O', final_byte];
+    }
+    vec![0x1b, b'[', final_byte]
+}
+
 /// Convert a GPUI keystroke to terminal escape sequence bytes.
 ///
 /// This function translates GPUI keyboard events into the appropriate byte sequences
@@ -172,8 +187,8 @@ pub fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u
         }
 
         // Navigation keys
-        "home" => return Some(b"\x1b[H".to_vec()),
-        "end" => return Some(b"\x1b[F".to_vec()),
+        "home" => return Some(home_end(b'H', keystroke, mode)),
+        "end" => return Some(home_end(b'F', keystroke, mode)),
         "pageup" => return Some(b"\x1b[5~".to_vec()),
         "pagedown" => return Some(b"\x1b[6~".to_vec()),
         "insert" => return Some(b"\x1b[2~".to_vec()),
