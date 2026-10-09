@@ -20,7 +20,7 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 toml = "1"
-directories = "5"
+directories = "6"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 tracing = "0.1"
@@ -32,7 +32,7 @@ flume = "0.12"
 # Behind `git`.
 git2 = { version = "0.21", default-features = false, features = ["https", "ssh"], optional = true }
 # The hunks themselves. A diff library lives here and never in the interface. Behind `git`.
-similar = { version = "2", optional = true }
+similar = { version = "3", optional = true }
 # Content search: walk the tree with the project's own ignore rules, match with the ripgrep
 # libraries. None of these draw; `just host` stays green.
 ignore = "0.4"
@@ -49,7 +49,7 @@ num_cpus = "1"
 tantivy = { version = "0.26", default-features = false, features = ["mmap"], optional = true }
 # Filesystem watch: one recursive handle per open project. Already in the workspace build graph
 # through `gpui-component`, so a direct edge here is a manifest line, not a new crate to vet.
-notify = "7"
+notify = "8"
 # Deleting to the platform's trash, so a removal the user regrets is recoverable outside Ubiq. It
 # talks to the desktop's own trash service and draws nothing, so `just host` stays green. Behind
 # `desktop`.
@@ -77,13 +77,13 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-native-certs = { version = "0.8", optional = true }
 # The floor under the platform roots, for a machine whose trust store cannot be read. A static
 # table of public CAs — no code runs, nothing draws. Behind `listener`.
-webpki-roots = { version = "0.26", optional = true }
+webpki-roots = { version = "1", optional = true }
 # Reading a leaf certificate so the user can be shown what they are vouching for: subject, SANs,
 # issuer, validity. A parser, no I/O, no UI. Behind `listener`.
 x509-parser = { version = "0.18", optional = true }
 # The fingerprint a pin is: SHA-256 over a certificate's DER. One hash, no drawing. Behind
 # `listener`.
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.11", optional = true }
 # The self-updater's signature check (`updates/`, `D-updates`): the feed's manifests are minisign
 # signed and verified against a key baked into the build before they are parsed. Pure Rust, one
 # purpose. Behind `listener`.
@@ -94,7 +94,7 @@ semver = { version = "1", optional = true }
 # via crates/ubiq, so this pulls nothing new.
 flate2 = "1"
 # The PKCE verifier and the `state` nonce. A CSPRNG and nothing else. Behind `listener`.
-rand = { version = "0.8", optional = true }
+rand = { version = "0.10", optional = true }
 # PEM parsing for `--tls-cert`/`--tls-key`: the two files a served host reads its
 # server identity from. A parser, no I/O, no UI. Behind `listener`.
 rustls-pemfile = { version = "2", optional = true }
@@ -113,31 +113,31 @@ ring = { version = "0.17", optional = true }
 # process half lives here. Behind `harness`.
 ubiq-archify = { path = "../ubiq-archify", optional = true }
 # The sealed password and the key that opens it are TOML strings, so they are base64. Behind `db`.
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 # A password-protected wiki (`kb/vault.rs`, `D206`): Argon2id turns the password into a key, every
 # document is sealed with XChaCha20-Poly1305 under a fresh random nonce, and every key and plaintext
 # buffer is wiped on drop. RustCrypto's own, pure Rust, nothing that draws. Not gated: `kb` is not.
-argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
-chacha20poly1305 = "0.10"
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
+chacha20poly1305 = "0.11"
 zeroize = "1"
 
 # TOON, the token-lean table encoding the SQL MCP servers answer in. `default-features = false`
 # drops its CLI and its extras; only `encode` is used.
-toon-format = { version = "0.5", default-features = false }
+toon-format = { version = "0.6", default-features = false }
 
 # The usage meter's storage. A counter that survives a restart is a database, and this is the one
 # every machine already has. `bundled` compiles SQLite into the binary on purpose: the OS's own
 # libsqlite3 varies by platform and by decade, and which SQL is understood — `WITHOUT ROWID`, the
 # upsert the meter is built on — must not be a property of the machine Ubiq happens to run on. It
 # is a C library with a Rust wrapper: no runtime, no window, nothing that draws. Behind `harness`.
-rusqlite = { version = "0.37", features = ["bundled"], optional = true }
+rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"], optional = true }
 # The host's own resident set, for the stats screen. One call per sample, no sampling thread, and
 # a `None` on a platform that will not say. Draws nothing.
 memory-stats = "1"
 # Machine facts for the remote-hosts panel — hostname, RAM, CPU load, disk free. Read on the
 # metadata sampler thread only, never the coordinator's; every failure becomes `None`.
 # Draws nothing; `just host` stays green.
-sysinfo = "0.31"
+sysinfo = "0.39"
 hostname = "0.4"
 # No `markdown` here: the walk a plan's block ids are assigned over is `ubiq_proto::blocks`, shared
 # with the interface so the host's index and the window's optimistic cache split a document by the
@@ -309,4 +309,4 @@ foundation-models = { version = "0.11", features = ["macos_26_0"], optional = tr
 # in the lockfile through `embed-resource`, so this pulls nothing new. Named by `desktop` on every
 # platform and resolving to nothing off Windows, on `foundation-models`' pattern above. Draws
 # nothing; `just host` stays green.
-winreg = { version = "0.55", optional = true }
+winreg = { version = "0.56", optional = true }

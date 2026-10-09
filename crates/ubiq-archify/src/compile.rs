@@ -710,7 +710,10 @@ pub fn compile_with(text: &str, opts: &Opts<'_>, verify: Option<EvidenceCheck<'_
         input,
         Candidate {
             path: input.to_owned(),
-            sha256: format!("{:x}", Sha256::digest(text.as_bytes())),
+            sha256: Sha256::digest(text.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
             bytes: text.len() as u64,
         },
     );

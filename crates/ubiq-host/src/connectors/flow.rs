@@ -604,9 +604,8 @@ fn scopes(token: &Token) -> Vec<String> {
 /// `count` random bytes, base64url with no padding — a PKCE verifier and a `state` nonce are the
 /// same shape and the same requirement.
 fn nonce(count: usize) -> String {
-    use rand::RngCore;
     let mut bytes = vec![0u8; count];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::fill(&mut bytes[..]);
     b64url(&bytes)
 }
 

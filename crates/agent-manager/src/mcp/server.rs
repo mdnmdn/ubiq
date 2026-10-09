@@ -229,10 +229,13 @@ mod tests {
 
     fn post(url: &str, body: Value) -> Value {
         ureq::post(url)
-            .timeout(Duration::from_secs(5))
-            .send_string(&body.to_string())
+            .config()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .build()
+            .send(body.to_string())
             .expect("request should succeed")
-            .into_json()
+            .body_mut()
+            .read_json()
             .expect("response should be JSON")
     }
 
@@ -295,24 +298,26 @@ mod tests {
     #[test]
     fn notification_gets_a_bare_202_with_no_body() {
         let server = start(Arc::new(EchoService)).unwrap();
-        let resp = ureq::post(&server.url())
-            .timeout(Duration::from_secs(5))
-            .send_string(
-                &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string(),
-            )
+        let mut resp = ureq::post(&server.url())
+            .config()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .build()
+            .send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string())
             .expect("request should succeed");
-        assert_eq!(resp.status(), 202);
-        assert_eq!(resp.into_string().unwrap(), "");
+        assert_eq!(resp.status().as_u16(), 202);
+        assert_eq!(resp.body_mut().read_to_string().unwrap(), "");
     }
 
     #[test]
     fn malformed_body_gets_a_parse_error_not_a_panic() {
         let server = start(Arc::new(EchoService)).unwrap();
-        let resp = ureq::post(&server.url())
-            .timeout(Duration::from_secs(5))
-            .send_string("not json")
+        let mut resp = ureq::post(&server.url())
+            .config()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .build()
+            .send("not json")
             .expect("request should succeed");
-        let value: Value = resp.into_json().unwrap();
+        let value: Value = resp.body_mut().read_json().unwrap();
         assert_eq!(value["error"]["code"], -32700);
     }
 

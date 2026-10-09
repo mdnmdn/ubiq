@@ -27,7 +27,7 @@ regex = "1"
 # render one — so sharing the walk moves the dependency down rather than adding one.
 markdown = "1.0"
 # `merge`'s three-way document merge. Already in the lock for the host's git diff, pure Rust.
-similar = "2"
+similar = "3"
 # The bus tape serialises every message it records, and the wire form of an id is asserted against
 # JSON in the tests
 serde_json = "1.0"
@@ -41,7 +41,7 @@ serde_bytes = "0.11"
 # `drone::verify`'s pin check: a cached drone binary's bytes against the generated manifest's
 # SHA-256. Pure Rust, no C toolchain — the same reason `ubiq-host` already carries it for its TLS
 # pin verifier, unconditionally here because both halves resolve a drone (`G108`).
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 # `drone::verify`'s tests write a scratch binary to disk rather than asserting on a fixture path.

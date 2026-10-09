@@ -13,7 +13,7 @@ png = ["dep:resvg", "dep:anyhow"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 regex = "1.12"          # schema `pattern` keyword
-sha2 = "0.10"           # the receipt's input hash (compile.rs)
-kurbo = "0.11"          # sigil path parsing (sigils.rs)
-resvg = { version = "0.46", optional = true }
+sha2 = "0.11"          # the receipt's input hash (compile.rs)
+kurbo = "0.13"         # sigil path parsing (sigils.rs)
+resvg = { version = "0.48", optional = true }
 anyhow = { version = "1", optional = true }

@@ -96,9 +96,9 @@ fn sample_memory(meta: &mut HostMeta) {
     let result = std::panic::catch_unwind(|| {
         use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind};
         let mut sys = sysinfo::System::new_with_specifics(
-            RefreshKind::new()
-                .with_memory(MemoryRefreshKind::new().with_ram())
-                .with_cpu(CpuRefreshKind::new().with_cpu_usage()),
+            RefreshKind::nothing()
+                .with_memory(MemoryRefreshKind::nothing().with_ram())
+                .with_cpu(CpuRefreshKind::nothing().with_cpu_usage()),
         );
         sys.refresh_memory();
         sys.refresh_cpu_usage();

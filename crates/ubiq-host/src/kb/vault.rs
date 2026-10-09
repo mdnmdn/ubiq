@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use argon2::{Algorithm, Argon2, Params, Version};
-use chacha20poly1305::aead::{Aead, AeadCore, OsRng, Payload, rand_core::RngCore};
+use chacha20poly1305::aead::{Aead, Generate, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
 use ubiq_proto::ids::KbSourceId;
@@ -107,7 +107,7 @@ impl std::fmt::Debug for Key {
 
 impl Key {
     fn cipher(&self) -> XChaCha20Poly1305 {
-        XChaCha20Poly1305::new(self.bytes.as_ref().into())
+        XChaCha20Poly1305::new_from_slice(self.bytes.as_ref()).expect("the key is 32 bytes")
     }
 
     /// Seal one document's plaintext.
@@ -116,7 +116,7 @@ impl Key {
         out.extend_from_slice(MAGIC);
         out.push(FORMAT);
         out.extend_from_slice(&self.id);
-        let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let nonce = XNonce::generate();
         let sealed = self
             .cipher()
             .encrypt(
@@ -141,10 +141,11 @@ impl Key {
         if id != self.id {
             return Err(VaultError::OtherKey);
         }
-        let nonce = XNonce::from_slice(&sealed[PREFIX_LEN..PREFIX_LEN + NONCE_LEN]);
+        let nonce = XNonce::try_from(&sealed[PREFIX_LEN..PREFIX_LEN + NONCE_LEN])
+            .map_err(|_| VaultError::Corrupt("the document does not open: it is damaged".into()))?;
         self.cipher()
             .decrypt(
-                nonce,
+                &nonce,
                 Payload {
                     msg: &sealed[PREFIX_LEN + NONCE_LEN..],
                     aad: &sealed[..PREFIX_LEN],
@@ -377,10 +378,8 @@ fn is_atomic_temp(name: &str) -> bool {
 }
 
 fn derive_new(password: &str, params: KdfParams) -> Result<(Key, KeyRecord), VaultError> {
-    let mut salt = [0u8; SALT_LEN];
-    OsRng.fill_bytes(&mut salt);
-    let mut id = [0u8; KEY_ID_LEN];
-    OsRng.fill_bytes(&mut id);
+    let salt = <[u8; SALT_LEN]>::generate();
+    let id = <[u8; KEY_ID_LEN]>::generate();
     let bytes = stretch(password, &salt, params)?;
     let key = Key { id, bytes };
     let verifier = key.seal(VERIFIER)?;

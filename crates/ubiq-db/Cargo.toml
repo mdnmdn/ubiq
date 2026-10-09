@@ -29,7 +29,7 @@ tracing = "0.1"
 sqlparser = { version = "=0.63.0", default-features = false, features = ["std", "visitor"] }
 
 # ---- `drivers` ----
-rusqlite = { version = "0.37", optional = true, features = ["bundled", "column_decltype"] }
+rusqlite = { version = "0.40", optional = true, features = ["bundled", "column_decltype"] }
 mysql = { version = "28", optional = true, default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
 tiberius = { version = "0.13", optional = true, default-features = false, features = ["tds73", "rustls", "sql-browser-tokio"] }
 # `sync`: the SQL Server cancel signal (`Notify`); no new crate.
@@ -39,5 +39,5 @@ futures-util = { version = "0.3", optional = true, default-features = false, fea
 chrono = { version = "0.4", optional = true, default-features = false, features = ["std"] }
 # PostgreSQL: sqlx-postgres directly (never the `sqlx` facade: sqlx-sqlite would add a second libsqlite3).
 # 0.8.6 only: 0.9 pulls crates the base lock lacks.
-sqlx-core = { version = "=0.8.6", optional = true, default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-native-roots"] }
-sqlx-postgres = { version = "=0.8.6", optional = true, default-features = false }
+sqlx-core = { version = "=0.9.0", optional = true, default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-native-roots"] }
+sqlx-postgres = { version = "=0.9.0", optional = true, default-features = false }
