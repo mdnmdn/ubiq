@@ -7,7 +7,7 @@ summary: Prerequisites, the complete command reference, what a first build costs
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-10-09
 verified: 2026-10-08
-code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/licenses.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml, _devops/scripts/channel-manifest.py, _devops/windows/ubiq.iss]
+code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/licenses.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml, .github/workflows/release-linux.yml, _devops/scripts/channel-manifest.py, _devops/windows/ubiq.iss]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -169,7 +169,7 @@ a server you point it at; each creates and drops its own objects.
 host's stub assist backend and never touch `foundation-models` or its Swift bridge. `just assist`
 type-checks the on-device backend on its own, deliberately outside `verify`, because compiling it
 costs a Swift toolchain, the macOS 26 SDK and a minute of `swiftc` for a backend no test exercises.
-`just dev`, `just verbose`, `just build`, `just bundle` and `just bundle-win` name the feature
+`just dev`, `just verbose`, `just build`, `just bundle`, `just bundle-win` and `just bundle-linux` name the feature
 explicitly, so a running or bundled Ubiq carries the real backend.
 
 ### Packaging
@@ -179,6 +179,7 @@ explicitly, so a running or bundled Ubiq carries the real backend.
 | `just icns` | Build `target/AppIcon.icns` from the logo in `assets/` — the ten representations an `.iconset` needs, assembled by `iconutil` |
 | `just bundle` | Assemble `target/Ubiq.app`: release build of the binary, `AppIcon.icns`, and `_tools/Info.plist`. macOS-only, unsigned, for a local `.app` |
 | `just bundle-win` | Assemble `target/ubiq-windows-x86_64/`: the release build's `ubiq.exe`, with `res/AppIcon.ico` embedded as its icon. Windows-only |
+| `just bundle-linux` | Assemble `target/ubiq-linux-x86_64/`: the release build's `ubiq`, `help.bundle` beside it, and `ubiq.png` from `assets/logo-white-on-blue.png`. Linux-only |
 
 `just bundle` requires macOS and Xcode's command line tools for `iconutil`. The bundle is unsigned
 and carries no hardened-runtime entitlements, so it launches locally but is not ready to distribute.
@@ -190,9 +191,11 @@ gate keeps it out of macOS builds. `AppIcon.ico` is generated from `assets/logo-
 at 16 through 256 pixels. Like every recipe in this file it expects a POSIX shell on the path (Git
 Bash, which a Windows runner carries).
 
-`.github/workflows/create-release.yml` is the one release entry point; the two platform workflows
-are `workflow_call` only. A run computes a channel, builds each platform, uploads workflow artifacts,
-and one `publish` job creates the GitHub release and the signed update manifest. Nothing is ever
+`.github/workflows/create-release.yml` is the one release entry point; the three platform workflows
+are `workflow_call` only. A run computes a channel, builds each selected platform, uploads workflow
+artifacts, and one `publish` job creates a single GitHub release carrying every platform built and
+the signed update manifest. A requested platform that fails stops the release; an unrequested one is
+skipped. Nothing is ever
 deleted, moved or force-pushed: every nightly is a new prerelease under a new tag.
 
 | Channel | Trigger | Tag | Version | Release |
@@ -201,8 +204,9 @@ deleted, moved or force-pushed: every nightly is a new prerelease under a new ta
 | beta | tag `vX.Y.Z-<pre>` | same | without the `v` | prerelease |
 | nightly | a manual run only | `nightly-YYYYMMDD-HHMM` | `<ubiq-app version>-nightly.YYYYMMDDHHMM` | prerelease "Nightly …" |
 
-A manual `workflow_dispatch` takes `platforms` (`both`, `macos`, `windows`) and `channel` (default
-`nightly`); `stable` and `beta` must run on a matching tag ref or the `meta` job fails. The version reaches the build as
+A manual `workflow_dispatch` takes one checkbox per platform — `macos`, `windows`, `linux`, all on by
+default, at least one required — and `channel` (default `nightly`); a tag push builds all three.
+`stable` and `beta` must run on a matching tag ref or the `meta` job fails. The version reaches the build as
 `UBIQ_VERSION`, with `UBIQ_CHANNEL` and `UBIQ_UPDATE_PUBKEY` (the `UPDATE_PUBLIC_KEY` variable) read by
 the app through `option_env!`; `just bundle` stamps `CFBundleShortVersionString` (the `X.Y.Z` core) and
 `CFBundleVersion` (the full string) into the `Info.plist` copy.
@@ -211,10 +215,12 @@ the app through `option_env!`; `just bundle` stamps `CFBundleShortVersionString`
 |---|---|---|
 | macOS | `Ubiq-macos-arm64.zip` (what the updater downloads), `Ubiq-macos-arm64.dmg` (signed and notarized like the app) | `release-macos.yml` |
 | Windows | `Ubiq-windows-x86_64.zip`, `Ubiq-Setup-x86_64.exe` — per-user Inno Setup installer, silent with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER` | `release-windows.yml`, `_devops/windows/ubiq.iss` |
+| Linux | `Ubiq-linux-x86_64.tar.gz` — the `bundle-linux` folder, built on `ubuntu-22.04` for the oldest glibc a runner offers | `release-linux.yml` |
 | Release | `SHA256SUMS` over all of the above | `create-release.yml` |
 
 `publish` then writes `<channel>.json` with `_devops/scripts/channel-manifest.py` (a platform key,
-`macos-aarch64` or `windows-x86_64`, is present only if built; each carries `url`, `sha256`, `size`),
+`macos-aarch64` or `windows-x86_64`, is present only if built; each carries `url`, `sha256`, `size`;
+Linux has no key, because `platform_key` offers it no updates, so a Linux-only run skips the manifest),
 signs it with `minisign -S`, and uploads both it and `<channel>.json.minisig` to the fixed `channels`
 release (created on first use, replaced with `--clobber`). Without `UPDATE_SIGNING_KEY` the release
 still ships and the manifest is skipped with a warning.
@@ -292,9 +298,9 @@ the manifest the repository is committed to.
 and no `cargo` step knows help exists (`D146`). `help-check` is part of `just verify` and passes
 trivially when there is no `help/` tree, so a clone that has never built the content still verifies.
 `help-bundle` writes one `UBIQBND1` archive — the same format the vendor bundles use — carrying every
-page, every image and a derived `catalog.json`. `dev`, `verbose`, `build`, `bundle` and `bundle-win`
-all depend on `help-bundle`, so the archive is rebuilt before any of them runs; `bundle` and
-`bundle-win` then copy `target/help/help.bundle` beside the binary. Nothing has to be remembered —
+page, every image and a derived `catalog.json`. `dev`, `verbose`, `build`, `bundle`, `bundle-win`
+and `bundle-linux` all depend on `help-bundle`, so the archive is rebuilt before any of them runs;
+the three `bundle` recipes then copy `target/help/help.bundle` beside the binary. Nothing has to be remembered —
 the recipe is the dependency, not a separate step — and a tree with no `help/` content still builds
 and runs, opening a help panel that says so rather than failing.
 

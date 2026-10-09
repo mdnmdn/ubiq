@@ -8,15 +8,19 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      platforms:
-        description: Platforms to include in the release
-        type: choice
-        required: true
-        default: both
-        options:
-          - both
-          - macos
-          - windows
+      # One checkbox per platform — the run's multiselect. A tag push builds all three.
+      macos:
+        description: Build macOS
+        type: boolean
+        default: true
+      windows:
+        description: Build Windows
+        type: boolean
+        default: true
+      linux:
+        description: Build Linux
+        type: boolean
+        default: true
       channel:
         description: Release channel (stable and beta need a tag ref)
         type: choice
@@ -36,6 +40,9 @@ jobs:
       channel: ${{ steps.m.outputs.channel }}
       version: ${{ steps.m.outputs.version }}
       tag: ${{ steps.m.outputs.tag }}
+      macos: ${{ steps.p.outputs.macos }}
+      windows: ${{ steps.p.outputs.windows }}
+      linux: ${{ steps.p.outputs.linux }}
     steps:
       - uses: actions/checkout@v4
       - id: m
@@ -73,10 +80,25 @@ jobs:
             echo "version=$version"
             echo "tag=$tag"
           } >> "$GITHUB_OUTPUT"
+      - id: p
+        env:
+          EVENT: ${{ github.event_name }}
+          MACOS: ${{ inputs.macos }}
+          WINDOWS: ${{ inputs.windows }}
+          LINUX: ${{ inputs.linux }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then MACOS=true WINDOWS=true LINUX=true; fi
+          [ "$MACOS$WINDOWS$LINUX" != falsefalsefalse ] || { echo "::error::select at least one platform"; exit 1; }
+          {
+            echo "macos=$MACOS"
+            echo "windows=$WINDOWS"
+            echo "linux=$LINUX"
+          } >> "$GITHUB_OUTPUT"
 
   macos:
     needs: meta
-    if: inputs.platforms != 'windows'
+    if: needs.meta.outputs.macos == 'true'
     uses: ./.github/workflows/release-macos.yml
     secrets: inherit
     permissions:
@@ -87,7 +109,7 @@ jobs:
 
   windows:
     needs: meta
-    if: inputs.platforms != 'macos'
+    if: needs.meta.outputs.windows == 'true'
     uses: ./.github/workflows/release-windows.yml
     secrets: inherit
     permissions:
@@ -96,15 +118,27 @@ jobs:
       version: ${{ needs.meta.outputs.version }}
       channel: ${{ needs.meta.outputs.channel }}
 
+  linux:
+    needs: meta
+    if: needs.meta.outputs.linux == 'true'
+    uses: ./.github/workflows/release-linux.yml
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      version: ${{ needs.meta.outputs.version }}
+      channel: ${{ needs.meta.outputs.channel }}
+
+  # One GitHub release carrying every platform this run built.
   publish:
-    needs: [meta, macos, windows]
-    # A platform that was not requested is skipped (fine); a requested one must have succeeded.
+    needs: [meta, macos, windows, linux]
+    # A platform that was not requested is skipped (fine); a requested one must have succeeded,
+    # and `meta` refuses a run with none selected.
     if: >-
       always() &&
       needs.meta.result == 'success' &&
-      (needs.macos.result == 'success' || needs.macos.result == 'skipped') &&
-      (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
-      (needs.macos.result == 'success' || needs.windows.result == 'success')
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -152,6 +186,11 @@ jobs:
           set -euo pipefail
           if [ -z "$UPDATE_SIGNING_KEY" ]; then
             echo "::warning::UPDATE_SIGNING_KEY not set — release published, channel manifest skipped"
+            exit 0
+          fi
+          # Linux is not offered updates (`platform_key`), so a Linux-only run has no manifest.
+          if [ ! -f dist/Ubiq-macos-arm64.zip ] && [ ! -f dist/Ubiq-Setup-x86_64.exe ]; then
+            echo "::notice::no updatable platform in this release — channel manifest skipped"
             exit 0
           fi
           sudo apt-get install -y minisign

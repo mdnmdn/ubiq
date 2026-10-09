@@ -615,6 +615,7 @@ the documents in its row.
 | `.github/workflows/create-release.yml` | [`operations.md`](./operations.md) |
 | `.github/workflows/release-macos.yml` | [`operations.md`](./operations.md) |
 | `.github/workflows/release-windows.yml` | [`operations.md`](./operations.md) |
+| `.github/workflows/release-linux.yml` | [`operations.md`](./operations.md) |
 | `Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `Justfile` | [`operations.md`](./operations.md) |
 | `_devops/scripts/bundle-version.sh` | [`operations.md`](./operations.md) |

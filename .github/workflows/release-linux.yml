@@ -1,0 +1,50 @@
+name: release-linux
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      channel:
+        type: string
+        required: true
+
+env:
+  UBIQ_VERSION: ${{ inputs.version }}
+  UBIQ_CHANNEL: ${{ inputs.channel }}
+  UBIQ_UPDATE_PUBKEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+
+jobs:
+  build:
+    # The oldest supported runner, so the binary links against the oldest glibc we can offer.
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # GPUI's system libraries: X11, Wayland, xkbcommon, fontconfig, ALSA, Vulkan.
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config \
+            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
+            libxkbcommon-x11-dev libxcb1-dev libvulkan1 libssl-dev libzstd-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v5
+      - uses: extractions/setup-just@v2
+
+      - run: just bundle-linux
+
+      - run: tar -C target -czf Ubiq-linux-x86_64.tar.gz ubiq-linux-x86_64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          if-no-files-found: error
+          path: Ubiq-linux-x86_64.tar.gz
