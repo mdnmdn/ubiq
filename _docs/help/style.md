@@ -23,6 +23,19 @@ help an element shows under ⇧F1.
 
 ## 1. Voice and tone
 
+**The reader** is someone using Ubiq to get their own work done — running agents on their code,
+reviewing what the agents changed, keeping several projects and accounts apart. They are not
+interested in how Ubiq is built. Every page answers their questions: *what is this for me*, *what
+can I do with it*, *how do I do it*, *what happens when I do*, and *what do I do when it goes
+wrong*. A behaviour is explained by what the reader sees and gets, never by the mechanism behind
+it; when a reason helps, it is a reason in the reader's terms ("so the agent keeps working while
+the tab is hidden"), not an architectural one. If a sentence would only interest someone reading
+Ubiq's source, it does not belong in the manual.
+
+The reader knows their own tools — git, a terminal, the harnesses they use — and the manual does
+not teach those. It teaches Ubiq: where things are, what they do, and how to use them for the
+reader's purpose.
+
 The manual talks to one person who is using Ubiq while reading it. It is plain, calm and exact.
 
 | Rule | Write | Not |

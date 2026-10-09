@@ -20,6 +20,12 @@ This document owns the information architecture of the manual: the sections and 
 The words on a page belong to [`style`](./style.md), its pictures to [`images`](./images.md), and
 the record of which area has which page to [`coverage`](./coverage.md).
 
+The manual is organised around what the reader wants to do, not around how Ubiq is built: the
+reader is a user, not a contributor ([`style`](./style.md) §1). A `features/` document is a source
+of facts, never a template — a help page keeps the facts the user meets on screen and drops the
+mechanism. Where a section's shape and a user's task disagree, the task wins: a guide or a how-to
+is written for every common purpose, and a reference page's "What you can do here" leads to them.
+
 ## 1. Sections, in reading order
 
 The manual reads from *why* to *what* to *what went wrong*. A reader who starts at the top and
