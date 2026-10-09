@@ -3,7 +3,7 @@ id: git-changes
 title: Reviewing and staging changes
 summary: What the Changes panel shows, how to stage a hunk, and what the badges mean.
 keywords: [stage, unstage, hunk, diff, revert, commit]
-context: [panel.ubiq.git-changes]
+context: [panel.ubiq.git.changes]
 order: 20
 status: current
 related: [git-overview, git-history]

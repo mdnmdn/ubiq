@@ -3,7 +3,7 @@ id: git-refs
 title: Branches, tags and remotes
 summary: The Refs panel's sections, and how selecting a ref moves the history graph.
 keywords: [branch, tag, remote, ref, checkout]
-context: [panel.ubiq.git-refs]
+context: [panel.ubiq.git.refs]
 order: 40
 status: current
 related: [git-overview, git-history]

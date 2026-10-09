@@ -3,7 +3,7 @@ id: git-history
 title: Browsing history
 summary: The commit graph, its lanes, and searching commits by message or author.
 keywords: [history, log, commit graph, search commits]
-context: [panel.ubiq.git-history]
+context: [panel.ubiq.git.history]
 order: 30
 status: current
 related: [git-overview, git-changes, git-refs]
