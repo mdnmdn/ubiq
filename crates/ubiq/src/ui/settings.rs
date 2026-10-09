@@ -2229,7 +2229,7 @@ pub(crate) fn definition_row(
     let clone_id = definition.id.clone();
     div()
         .flex()
-        .items_start()
+        .items_center()
         .justify_between()
         .gap_2()
         .py_1()
@@ -2243,13 +2243,14 @@ pub(crate) fn definition_row(
                 .min_w(px(0.))
                 .overflow_hidden()
                 .child(
-                    // Title line: as tall as a button, so the actions line up with it.
+                    // Title line: the name and its tags; clipped, never pushed into the actions.
                     div()
                         .flex()
                         .items_center()
                         .h(px(26.))
                         .gap_2()
                         .min_w(px(0.))
+                        .overflow_hidden()
                         .child(
                             div()
                                 .flex_none()
@@ -2270,15 +2271,21 @@ pub(crate) fn definition_row(
                                 .items_center()
                                 .gap_2()
                                 .children(definition_marks(definition)),
-                        )
-                        .child(elided(
-                            ElementId::Name(
-                                format!("app-settings-definition-{}-summary", definition.id).into(),
-                            ),
-                            format!("\u{2014} {}", parts.join(" \u{b7} ")),
-                            theme::text_muted(),
-                            theme::font(Family::Chrome, Role::Meta),
-                        )),
+                        ),
+                )
+                // The summary gets a line of its own, full column width, elided with the whole
+                // text on hover — beside the name it was squeezed into the actions.
+                .child(
+                    elided(
+                        ElementId::Name(
+                            format!("app-settings-definition-{}-summary", definition.id).into(),
+                        ),
+                        parts.join(" \u{b7} "),
+                        theme::text_muted(),
+                        theme::font(Family::Chrome, Role::Meta),
+                    )
+                    // `elided` fills a row; in this column it is one line tall, not a share of it.
+                    .flex_none(),
                 )
                 // What the definition is for, under the name — one line, elided rather than
                 // wrapped: this row is a summary, not the form.
@@ -2300,6 +2307,7 @@ pub(crate) fn definition_row(
                                 theme::text_muted(),
                                 theme::font(Family::Chrome, Role::Meta),
                             )
+                            .flex_none()
                         }),
                 ),
         )
