@@ -1015,12 +1015,17 @@ fn plan_rows(
                 continue;
             }
         }
-        rows.push(row(
-            RowKind::Block(ix),
-            Some(ix),
-            (0, ix),
-            block_shape(block),
-        ));
+        // A prompt drawn under the call is part of the row: it arrives, is answered and changes
+        // without the block moving, so it is in the signature, and in the estimate.
+        let (shape, estimate) = block_shape(block);
+        let shape = match attached.get(&ix) {
+            Some(requests) => (
+                hashed((shape, requests.iter().map(|r| prompt_shape(r)).collect::<Vec<_>>())),
+                estimate + px(120.) * requests.len() as f32,
+            ),
+            None => (shape, estimate),
+        };
+        rows.push(row(RowKind::Block(ix), Some(ix), (0, ix), shape));
         at += 1;
     }
 
@@ -1031,7 +1036,10 @@ fn plan_rows(
             RowKind::Adrift(request),
             None,
             (2, request),
-            (hashed(request), px(120.)),
+            (
+                hashed((request, conversation.pending.get(request).map(prompt_shape))),
+                px(120.),
+            ),
         ));
     }
 
@@ -1408,6 +1416,8 @@ fn transcript(
     let rows = plan_rows(conversation, &visible, &attached, &adrift, tag, width, size);
 
     if let Some(scroll) = scroll {
+        // Any change to the rows marks the transcript for the next periodic forced relayout.
+        scroll.note_rows(hashed(rows.iter().map(|row| (row.key, row.sig)).collect::<Vec<_>>()));
         // Somewhere to be taken to, asked for by the strip that named the prompt. Resolved here
         // rather than where it was asked for, because only the frame that planned the rows knows
         // which row a block ended up as.
@@ -2353,29 +2363,183 @@ fn permission(
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let request_id = pending.request_id.clone();
-    let what = pending
-        .tool_call
-        .title
-        .clone()
-        .or_else(|| call.map(|call| call.title.clone()))
-        .unwrap_or_else(|| "The agent is asking to go ahead".to_string());
+    let what = prompt_what(pending, call);
+    let items: &[ToolContent] = pending.tool_call.content.as_deref().unwrap_or_default();
 
     // The request's own detail, which is what a `switch_mode` prompt's plan and a pre-approval
     // diff arrive as. Only the patch's: the call's own content is the block above this one, and
     // drawing it twice would read as two operations.
-    let detail: Vec<AnyElement> = pending
-        .tool_call
-        .content
-        .iter()
-        .flatten()
-        .map(content)
-        .collect();
+    let detail: Vec<AnyElement> = items.iter().map(content).collect();
 
-    let buttons: Vec<AnyElement> = pending
+    // **Clamped to four lines, by arithmetic rather than by measuring** — the same reading
+    // `prompt_shape` signs the row with, so the row's cached height and what is drawn here agree.
+    // Each part is cut to its own four-line box with `overflow_hidden`: the title by `line_clamp`
+    // (ellipsis), the detail by a height of four label lines, whole elements cut off rather than
+    // the raw string cut mid-syntax. A prompt at or under the limit is drawn exactly as before.
+    let (title_lines, detail_lines) = prompt_lines(&what, items);
+    let title_clamped = title_lines > PROMPT_CLAMP_LINES;
+    let detail_clamped = detail_lines > PROMPT_CLAMP_LINES;
+    let clamped = title_clamped || detail_clamped;
+
+    let buttons = permission_buttons(
+        agent,
+        pending,
+        &format!("{}-permission", view.id),
+        cx,
+    );
+
+    div()
+        .px_3()
+        .py_2()
+        .flex()
+        .flex_none()
+        .flex_col()
+        .gap_2()
+        .bg(theme::warning_soft())
+        .border_l(px(theme::accent_edge()))
+        .border_color(theme::warning())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    mono("NEEDS YOU", theme::warning())
+                        .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
+                )
+                // Only when something was cut: the way to the rest, with the same answers.
+                .when(clamped, |this| {
+                    let request_id = request_id.clone();
+                    this.child(icon_button_tip(
+                        view.eid(&format!("permission-expand-{request_id}")),
+                        IconName::Maximize,
+                        "Show full request",
+                        true,
+                        cx.listener(move |this, _, _, cx| {
+                            this.open_permission_dialog(agent, request_id.clone(), cx);
+                        }),
+                    ))
+                }),
+        )
+        .child(
+            div()
+                .w_full()
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
+                .text_color(theme::text())
+                .when(title_clamped, |this| {
+                    this.line_clamp(PROMPT_CLAMP_LINES).text_ellipsis()
+                })
+                .child(SharedString::from(what)),
+        )
+        // The request's own content is what a long diff or a long plan makes unreadable (T-175):
+        // capped and scrolled in its own region so it cannot push the answer buttons below it out
+        // of reach, the way a modal's body scrolls under `MODAL_MAX_HEIGHT` rather than growing the
+        // modal itself.
+        .when(!detail.is_empty(), |this| {
+            let region = div()
+                .id(view.eid(&format!("permission-detail-{request_id}")))
+                .flex()
+                .flex_col()
+                .gap_1();
+            this.child(if detail_clamped {
+                // Four lines of the label size, cut clean: no scroll, because the dialog is
+                // where the rest is read.
+                region
+                    .max_h(theme::font(theme::Family::Conversation, theme::Role::Label) * 6.5)
+                    .overflow_hidden()
+                    .children(detail)
+            } else {
+                // The old safety net: a few very long wrapped lines are still capped and scroll.
+                region
+                    .max_h(px(theme::permission_detail_max_h()))
+                    .overflow_y_scroll()
+                    .children(detail)
+            })
+        })
+        // A request that offered no option at all is still worth drawing: it says the turn is
+        // blocked, which is the thing the reader has to know. Answering it needs the harness to
+        // offer something.
+        .when(buttons.is_empty(), |this| {
+            this.child(
+                mono("the harness offered no answer to this", theme::text_faint())
+                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
+            )
+        })
+        .child(div().flex().items_center().gap_2().children(buttons))
+        .into_any_element()
+}
+
+/// How many lines a prompt shows inline before it is cut and offers the dialog.
+const PROMPT_CLAMP_LINES: usize = 4;
+
+/// Columns a prompt line is assumed to wrap at. An estimate: the clamp is decided without
+/// measuring, so it has to be a pure function of the request — which is also what lets
+/// [`prompt_shape`] sign the row with it.
+const PROMPT_COLS: usize = 70;
+
+/// What the prompt says it is asking: the request's own title, else the call's, else a stock line.
+fn prompt_what(
+    pending: &Pending,
+    call: Option<&ubiq_proto::conversation::ToolCallRecord>,
+) -> String {
+    pending
+        .tool_call
+        .title
+        .clone()
+        .or_else(|| call.map(|call| call.title.clone()))
+        .unwrap_or_else(|| "The agent is asking to go ahead".to_string())
+}
+
+fn wrapped_lines(text: &str) -> usize {
+    text.lines()
+        .map(|line| line.chars().count().div_ceil(PROMPT_COLS).max(1))
+        .sum::<usize>()
+        .max(1)
+}
+
+/// The estimated line counts of a prompt's title and of its detail.
+fn prompt_lines(what: &str, items: &[ToolContent]) -> (usize, usize) {
+    let detail = items
+        .iter()
+        .map(|item| match item {
+            ToolContent::Text(text) => wrapped_lines(text),
+            ToolContent::Diff {
+                old_text, new_text, ..
+            } => 1 + old_text.as_deref().map_or(0, wrapped_lines) + wrapped_lines(new_text),
+        })
+        .sum();
+    (wrapped_lines(what), detail)
+}
+
+/// What a prompt draws, in one number: everything that decides its height. Folded into the
+/// signature of the row it is drawn in, so a prompt arriving, being answered or changing is a
+/// re-measure rather than a stale height.
+fn prompt_shape(pending: &Pending) -> u64 {
+    let items: &[ToolContent] = pending.tool_call.content.as_deref().unwrap_or_default();
+    let (title, detail) = prompt_lines(pending.tool_call.title.as_deref().unwrap_or(""), items);
+    hashed((
+        &pending.request_id,
+        title.min(PROMPT_CLAMP_LINES + 1),
+        detail.min(PROMPT_CLAMP_LINES + 1),
+        items.len(),
+        pending.options.len(),
+    ))
+}
+
+/// The answer buttons of one prompt, for the inline prompt and the dialog alike — one builder, so
+/// the two cannot drift. `prefix` keeps the element ids of the two apart.
+fn permission_buttons(
+    agent: AgentId,
+    pending: &Pending,
+    prefix: &str,
+    cx: &mut Context<AppState>,
+) -> Vec<AnyElement> {
+    let request_id = &pending.request_id;
+    pending
         .options
         .iter()
         .map(|option| {
-            let id = view.eid(&format!("permission-{request_id}-{}", option.option_id));
+            let id = ElementId::Name(format!("{prefix}-{request_id}-{}", option.option_id).into());
             let request_id = request_id.clone();
             // The option id is echoed back exactly as it arrived: it is the harness's token, and
             // nothing here reads it. `kind` is the only thing this looks at, and only to draw.
@@ -2397,55 +2561,71 @@ fn permission(
                 ghost_button(id, icon, option.name.clone(), answer).into_any_element()
             }
         })
-        .collect();
+        .collect()
+}
 
-    div()
-        .px_3()
-        .py_2()
+/// A permission request read in full: the title, everything it says in a body that scrolls inside
+/// the modal, and the same answers as the inline prompt. Answering goes through
+/// `answer_permission`, which closes the dialog; Cancel and Escape close it without answering.
+/// Drawn only while the request is still pending (`AppState::permission_dialog_target`).
+pub fn permission_dialog(
+    agent: AgentId,
+    pending: &Pending,
+    window: &mut Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let what = prompt_what(pending, None);
+    // The header holds one line; the body holds the whole text.
+    let first = what.lines().next().unwrap_or_default();
+    let title = if first.chars().count() > 80 {
+        format!("{}\u{2026}", first.chars().take(80).collect::<String>())
+    } else {
+        first.to_string()
+    };
+    let items: &[ToolContent] = pending.tool_call.content.as_deref().unwrap_or_default();
+    let body = div()
         .flex()
-        .flex_none()
         .flex_col()
         .gap_2()
-        .bg(theme::warning_soft())
-        .border_l(px(theme::accent_edge()))
-        .border_color(theme::warning())
-        .child(
-            mono("NEEDS YOU", theme::warning())
-                .text_size(theme::font(theme::Family::Conversation, theme::Role::Micro)),
-        )
         .child(
             div()
+                .w_full()
                 .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
                 .text_color(theme::text())
                 .child(SharedString::from(what)),
         )
-        // The request's own content is what a long diff or a long plan makes unreadable (T-175):
-        // capped and scrolled in its own region so it cannot push the answer buttons below it out
-        // of reach, the way a modal's body scrolls under `MODAL_MAX_HEIGHT` rather than growing the
-        // modal itself.
-        .when(!detail.is_empty(), |this| {
-            this.child(
-                div()
-                    .id(view.eid(&format!("permission-detail-{request_id}")))
-                    .max_h(px(theme::permission_detail_max_h()))
-                    .overflow_y_scroll()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .children(detail),
-            )
-        })
-        // A request that offered no option at all is still worth drawing: it says the turn is
-        // blocked, which is the thing the reader has to know. Answering it needs the harness to
-        // offer something.
-        .when(buttons.is_empty(), |this| {
-            this.child(
-                mono("the harness offered no answer to this", theme::text_faint())
-                    .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta)),
-            )
-        })
-        .child(div().flex().items_center().gap_2().children(buttons))
-        .into_any_element()
+        .children(items.iter().map(content).collect::<Vec<_>>())
+        .into_any_element();
+
+    let mut footer = permission_buttons(agent, pending, "permission-dialog", cx);
+    footer.push(
+        ghost_button(
+            "permission-dialog-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, _, cx| this.close_permission_dialog(cx)),
+        )
+        .into_any_element(),
+    );
+    let view = cx.entity();
+    kit::modal(
+        "permission-dialog",
+        theme::warning(),
+        &title,
+        body,
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .children(footer)
+            .into_any_element(),
+        crate::ui::dismiss(
+            &view,
+            crate::state::Layer::PermissionDialog,
+            |this, _, cx| this.close_permission_dialog(cx),
+        ),
+        window,
+    )
 }
 
 /// That something is waiting, kept in view above the footer while the prompt itself is anywhere in
@@ -4127,6 +4307,30 @@ mod tests {
             before,
             "a prompt arrived at the tail with no block changed to say so — the follow has to \
              notice it anyway"
+        );
+    }
+
+    /// A long prompt is clamped to four lines, and what decides it is in the row signature: a
+    /// short one is not clamped, and a prompt whose text grew re-measures.
+    #[test]
+    fn a_long_prompt_is_clamped_and_signed() {
+        let short = "Run cargo test";
+        let long = format!("{}\n", "word ".repeat(40)).repeat(6);
+        assert!(prompt_lines(short, &[]).0 <= PROMPT_CLAMP_LINES);
+        assert!(prompt_lines(&long, &[]).0 > PROMPT_CLAMP_LINES);
+        let pending = |title: &str| Pending {
+            request_id: "r1".to_string(),
+            tool_call: ToolCallPatch {
+                title: Some(title.to_string()),
+                ..ToolCallPatch::default()
+            },
+            options: Vec::new(),
+        };
+        assert_ne!(prompt_shape(&pending(short)), prompt_shape(&pending(&long)));
+        // Past the clamp, more text does not change what is drawn, so it does not re-measure.
+        assert_eq!(
+            prompt_shape(&pending(&long)),
+            prompt_shape(&pending(&format!("{long}{long}")))
         );
     }
 

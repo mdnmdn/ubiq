@@ -2885,3 +2885,22 @@ impl Render for MarkdownColumn {
             )
     }
 }
+
+/// The periodic forced relayout is change-driven: a tick with no row change asks for nothing, a
+/// change is answered by exactly one forced pass, and then the transcript is left alone.
+#[test]
+fn the_periodic_relayout_is_asked_only_after_the_rows_changed() {
+    let scroll = TranscriptScroll::default();
+
+    scroll.note_rows(0);
+    assert!(!scroll.relayout_if_changed(), "unchanged rows: no relayout");
+    assert!(!scroll.take_force());
+
+    scroll.note_rows(1);
+    scroll.note_rows(1);
+    assert!(scroll.relayout_if_changed(), "changed rows: one relayout");
+    assert!(scroll.take_force());
+
+    assert!(!scroll.relayout_if_changed(), "then none until something changes");
+    assert!(!scroll.take_force());
+}

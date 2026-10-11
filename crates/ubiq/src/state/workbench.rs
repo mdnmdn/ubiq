@@ -789,6 +789,10 @@ pub struct WorkbenchState {
     /// places that raise the dialog — the harnesses settings section and a conversation's info
     /// modal — reach it from different ends. One at a time, on the window's own rule.
     pub capabilities: Option<String>,
+    /// The permission request being read in full, while its dialog is up: the agent that asked and
+    /// the request id. The request itself stays on the conversation — the dialog is a second view
+    /// of it, so it closes by itself the moment the request is no longer pending.
+    pub permission_dialog: Option<(AgentId, String)>,
     /// The annotated document on screen — today always a task's plan, raised from the task panel
     /// for a task carrying a [`ubiq_proto::work::Level`]. One at a time, like `feedback`:
     /// opening another replaces whichever was open. The field keeps its name because the plan is
@@ -1091,6 +1095,7 @@ impl Default for WorkbenchState {
             all_projects: None,
             image_zoom: None,
             capabilities: None,
+            permission_dialog: None,
             plan: None,
             mission: None,
             new_agent: None,

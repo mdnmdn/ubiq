@@ -1568,6 +1568,12 @@ pub struct TranscriptScroll {
     /// height actually moved, `Some(false)` nothing did (the signal to stop asking), `None` no
     /// forced pass has reported back yet — the transcript was not on screen to run one.
     force_result: Cell<Option<bool>>,
+    /// Fingerprint of the rows the last frame planned — every row's identity and signature.
+    rows_seen: Cell<u64>,
+    /// Whether the rows changed since the last forced relayout was asked for. What makes the
+    /// periodic timer change-driven: a quiet transcript is re-measured once after its last
+    /// change, then left alone.
+    dirty: Cell<bool>,
 }
 
 impl Default for TranscriptScroll {
@@ -1585,6 +1591,8 @@ impl Default for TranscriptScroll {
             heights: RefCell::default(),
             force: Cell::default(),
             force_result: Cell::default(),
+            rows_seen: Cell::default(),
+            dirty: Cell::default(),
         }
     }
 }
@@ -1752,6 +1760,25 @@ impl TranscriptScroll {
     /// once.
     pub fn force_relayout(&self) {
         self.force.set(true);
+    }
+
+    /// Record the fingerprint of the rows a frame planned; a different one than the last frame's
+    /// marks the transcript changed since its last forced relayout. Called once per frame, where
+    /// the rows are planned.
+    pub fn note_rows(&self, fingerprint: u64) {
+        if self.rows_seen.replace(fingerprint) != fingerprint {
+            self.dirty.set(true);
+        }
+    }
+
+    /// The periodic timer's tick: ask for a forced relayout only if the rows changed since the
+    /// last one asked for, and clear the mark. `true` when one was asked for.
+    pub fn relayout_if_changed(&self) -> bool {
+        let changed = self.dirty.replace(false);
+        if changed {
+            self.force_relayout();
+        }
+        changed
     }
 
     /// Take the forced-relayout request, if this is the frame answering one. Consumed once, the

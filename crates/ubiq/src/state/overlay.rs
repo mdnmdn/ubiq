@@ -112,6 +112,10 @@ pub enum Layer {
     /// and from a conversation's info modal. Above both, because it is a reading raised *over*
     /// whichever of them asked for it, and Escape means "put the reading away" while it is up.
     Capabilities,
+    /// A permission request read in full, with its answers — raised from the inline prompt's
+    /// expand button. A modal over the workbench like the rest; closes itself when the request is
+    /// resolved elsewhere.
+    PermissionDialog,
     /// The file question — new, rename, save-as and the rest, and the plan modal's own Export
     /// prompt, painted over it on the same terms `FileDialog` already sits over everything else
     /// that can raise it.

@@ -1777,7 +1777,8 @@ impl AppState {
         // conversation — a cached height that `needs_measure` had no signal to invalidate (T-194).
         // Resizing the panel always fixes it, because the width change forces every row's
         // signature to move; this is the same forced pass asked for on a timer instead, one per
-        // composer slot, so a transcript nobody is resizing straightens itself out too. Not
+        // composer slot, so a transcript nobody is resizing straightens itself out too. Asked only
+        // when the transcript's rows changed since the last pass (`note_rows`). Not
         // bounded: a settled transcript is not one that stays settled — the next long message can
         // leave a stale height behind — and stopping on the first quiet pass ended the loop within
         // seconds of boot. A pass re-measures only the rows on screen, which is cheap (T-284).
@@ -1786,14 +1787,22 @@ impl AppState {
                 loop {
                     let settle = cx.background_executor().timer(Duration::from_secs(4));
                     settle.await;
+                    // Only a transcript whose rows changed since the last forced pass is asked:
+                    // a quiet chat gets one pass after its last change, then none.
                     let asked = this.update(cx, |state, cx| {
-                        if let Some(scroll) = state.transcript_scrolls.get(slot) {
-                            scroll.force_relayout();
+                        let changed = state
+                            .transcript_scrolls
+                            .get(slot)
+                            .is_some_and(TranscriptScroll::relayout_if_changed);
+                        if changed {
+                            cx.notify();
                         }
-                        cx.notify();
+                        changed
                     });
-                    if asked.is_err() {
-                        break;
+                    match asked {
+                        Err(_) => break,
+                        Ok(false) => continue,
+                        Ok(true) => {}
                     }
                     // A frame to answer the request with, before the result is read back.
                     let answered = cx.background_executor().timer(Duration::from_millis(150));

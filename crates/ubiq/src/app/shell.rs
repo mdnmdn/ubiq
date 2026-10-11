@@ -1084,6 +1084,10 @@ impl AppState {
             ),
             (Layer::ImageZoom, w.image_zoom.is_some()),
             (Layer::Capabilities, w.capabilities.is_some()),
+            (
+                Layer::PermissionDialog,
+                self.permission_dialog_target().is_some(),
+            ),
             (Layer::Dropdown, dropdown),
             (Layer::HelpTarget, w.help_target.is_some()),
         ]
@@ -1229,6 +1233,9 @@ impl AppState {
             self.decline_paste_image(cx);
         } else if self.workbench.file_dialog.is_some() {
             self.close_file_dialog(cx);
+        } else if self.permission_dialog_target().is_some() {
+            // Painted after the capabilities dialog, so peeled before it. Escape answers nothing.
+            self.close_permission_dialog(cx);
         } else if self.workbench.capabilities.is_some() {
             // Above the zoom modal in paint order: it is raised over the settings page and over
             // the conversation info modal alike, so Escape puts the reading away and leaves
