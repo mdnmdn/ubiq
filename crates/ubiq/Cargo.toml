@@ -211,15 +211,22 @@ objc2-app-kit = { version = "0.3", features = [
     "NSResponder",
 ] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
-# The frame type behind gpui's `ScreenCaptureFrame` on macOS is a `CVImageBuffer`, and this
-# is what reads its pixels. Already in the graph behind gpui — named here because
-# `app/capture.rs` decodes a frame itself. Held at gpui-pre-macos's own 0.5: a newer major would
-# be a second `CVImageBuffer` type the frame never matches.
-core-video = "0.5"
+# The frame type behind gpui's `ScreenCaptureFrame` on macOS is an
+# `objc2_core_foundation::CFRetained<objc2_core_video::CVImageBuffer>`, and this is what reads
+# its pixels. Already in the graph behind gpui — named here because `app/capture.rs` decodes a
+# frame itself. Held at gpui-pre's own 0.3: a different major would be a second `CVImageBuffer`
+# type the frame never matches.
+objc2-core-video = { version = "0.3.2", default-features = false, features = [
+    "CVBase",
+    "CVBuffer",
+    "CVImageBuffer",
+    "CVPixelBuffer",
+    "CVReturn",
+] }
 
 # The frame type behind gpui's `ScreenCaptureFrame` on Windows and Linux, so a captured
 # frame can be decoded. The same crates.io release `gpui-pre` resolves to — a skew would be two
-# `scap` crates and a match that never fires. macOS decodes `CVImageBuffer` through `core-video`.
+# `scap` crates and a match that never fires. macOS decodes `CVImageBuffer` through `objc2-core-video`.
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 zed-scap = { version = "0.0.8-zed", default-features = false }
 
