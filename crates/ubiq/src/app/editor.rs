@@ -1849,6 +1849,11 @@ impl AppState {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The feedback modal, while up, takes the paste as its picture (this chord only reaches
+        // here outside a text field, so text paste in the modal's inputs is untouched).
+        if self.paste_feedback_image(cx) {
+            return;
+        }
         let Some(bytes) = clipboard::clipboard_image(cx) else {
             cx.propagate();
             return;

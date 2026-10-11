@@ -1,10 +1,10 @@
 //! The feedback control: what the balloon does, and what the host says back.
 //!
-//! **The picture is taken first and the modal second.** Pressing the control photographs the
-//! window through [`AppState::shoot_window`] and raises the modal from the answer, so what the
-//! report carries is the window the user was looking at when something went wrong — not the modal
-//! they opened to say so. Where no capture is possible the modal is raised all the same, with no
-//! picture: a report is worth sending without one.
+//! **The picture is optional and on request.** The modal opens at once with none, so opening it
+//! never asks the OS for screen-recording permission. "Take screenshot" hides the modal, waits for
+//! a frame without it, photographs the window through [`AppState::shoot_window`] and restores the
+//! modal; "Paste image" (or ⌘V outside the fields) attaches the clipboard's image as PNG. A report
+//! is worth sending without a picture.
 //!
 //! **Where the report goes is not the interface's business.** It sends
 //! [`Message::SendFeedback`] and draws the receipt. Which service is behind it, and what key buys
@@ -26,19 +26,104 @@ impl AppState {
         self.bus.send_to(HostRef::Local, Message::QueryFeedback);
     }
 
-    /// Press the balloon: photograph the window, then raise the modal over the picture.
-    pub fn open_feedback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Press the balloon: raise the modal at once, with no picture. Nothing is captured here, so
+    /// nothing asks the operating system for screen-recording permission.
+    pub fn open_feedback(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.workbench.feedback.is_some() {
             return;
         }
         self.workbench.open_menu = None;
-        self.shoot_window(window, cx, |this, shot, cx| {
-            this.workbench.feedback = Some(FeedbackForm {
-                shot,
-                ..FeedbackForm::default()
+        self.workbench.feedback = Some(FeedbackForm::default());
+        cx.notify();
+    }
+
+    /// "Take screenshot": hide the modal (the form stays), let a frame without it reach the
+    /// screen, photograph the window, then restore the modal with the picture attached.
+    ///
+    /// Sequence: `capturing` is set and the window notified; `on_next_frame` fires after the frame
+    /// that draws no modal; a short settle timer then lets the compositor present it before the
+    /// display is streamed, because `shoot_window` captures the *display*, not our own buffer.
+    pub fn take_feedback_shot(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let idle = self
+            .workbench
+            .feedback
+            .as_ref()
+            .is_some_and(|f| !f.capturing && f.sending.is_none());
+        if !idle || !self.capture_offered(cx) {
+            return;
+        }
+        let Some(feedback) = self.workbench.feedback.as_mut() else {
+            return;
+        };
+        feedback.capturing = true;
+        feedback.note = None;
+        self.workbench.open_menu = None;
+        cx.notify();
+        let view = cx.entity();
+        window.on_next_frame(move |window, cx| {
+            view.update(cx, |_, cx| {
+                cx.spawn_in(window, async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(150))
+                        .await;
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        this.shoot_window(window, cx, |this, shot, cx| {
+                            if let Some(feedback) = this.workbench.feedback.as_mut() {
+                                feedback.capturing = false;
+                                match shot {
+                                    Some(png) => feedback.shot = Some(png),
+                                    None => {
+                                        feedback.note = Some(
+                                            "Could not capture the window. Check the screen \
+                                             recording permission."
+                                                .to_string(),
+                                        )
+                                    }
+                                }
+                            }
+                            cx.notify();
+                        });
+                    });
+                })
+                .detach();
             });
-            cx.notify();
         });
+    }
+
+    /// "Paste image" and ⌘V/Ctrl+V outside the fields: attach the clipboard's image as PNG.
+    /// Returns whether the modal took the gesture, so a caller can hand the key back.
+    pub fn paste_feedback_image(&mut self, cx: &mut Context<Self>) -> bool {
+        match &self.workbench.feedback {
+            Some(feedback) if !feedback.capturing && feedback.sending.is_none() => {}
+            _ => return false,
+        }
+        let image = cx.read_from_clipboard().and_then(|item| {
+            item.entries().iter().find_map(|entry| match entry {
+                gpui::ClipboardEntry::Image(image) if !image.bytes.is_empty() => {
+                    Some((image.format, image.bytes.clone()))
+                }
+                _ => None,
+            })
+        });
+        let png = image.and_then(|(format, bytes)| {
+            // Everything but PNG is re-encoded; a format with no decoder here comes back as it
+            // arrived and is refused, since the report's picture is PNG by contract.
+            match super::clipboard::pasted_image_bytes(format, bytes) {
+                (gpui::ImageFormat::Png, png) => Some(png),
+                _ => None,
+            }
+        });
+        if let Some(feedback) = self.workbench.feedback.as_mut() {
+            match png {
+                Some(png) => {
+                    feedback.shot = Some(png);
+                    feedback.note = None;
+                }
+                None => feedback.note = Some("No image on the clipboard.".to_string()),
+            }
+        }
+        cx.notify();
+        true
     }
 
     /// Close it. A report already in flight is not cancelled — it has left the window, and the
@@ -96,6 +181,7 @@ impl AppState {
     pub fn drop_feedback_shot(&mut self, cx: &mut Context<Self>) {
         if let Some(feedback) = self.workbench.feedback.as_mut() {
             feedback.shot = None;
+            feedback.note = None;
             cx.notify();
         }
     }

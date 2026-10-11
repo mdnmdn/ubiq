@@ -945,17 +945,21 @@ screenshot is start, take one, stop. Where the platform asks for consent the fir
 asks it, and where it does not the Appearance switch is the only thing between the application and
 a screenshot. Nothing crosses the bus.
 
-**The balloon beside the bell photographs the window before it raises anything over it.** Pressing
-it runs the same capture the capture button does — `capture_offered()`'s three gates apply, the
-platform's own permission prompt on macOS and Wayland included — and only once the picture is back
-does the feedback modal open, so the modal is never in its own screenshot. Where no capture is
-possible the modal still opens, with no picture, because a report is worth sending without one.
-It carries a title, a Type dropdown (Bug, Feature, Eco feature), a description, the screenshot with
-a Remove button, and Send. Send is dimmed while the title is blank, while a report is already in
-flight, and in a build compiled with no feedback destination at all — the sentence under the button
-says which of the three. A report that lands turns the footer into a receipt, with an Open link
-when the destination returned one. The balloon is drawn always, project or none, because it says
-something about Ubiq itself rather than about a project.
+**The balloon beside the bell opens the feedback modal at once, with no picture.** Nothing is
+captured on open, so the platform's screen-recording prompt (macOS, Wayland) never fires from the
+balloon. The modal carries a title, a Type dropdown (Bug, Feature, Eco feature), a description, a
+Screenshot section, and Send. The section has **Take screenshot**, offered where `capture_offered()`
+is true: it hides the modal (title, type and description are kept), waits for a frame without it
+plus a short settle, photographs the window, and restores the modal with the picture attached; if
+the capture fails or permission is denied the modal returns with no picture and an inline note.
+**Paste image** (and Cmd/Ctrl+V while the modal is up and focus is not in one of its text inputs)
+attaches the clipboard's image, re-encoded as PNG when it is another format, or notes that the
+clipboard has no image. The preview carries a ✕ that removes the picture. Send is dimmed while the
+title is blank, while a report is already in flight, and in a build compiled with no feedback
+destination at all — the sentence under the button says which of the three. A report without a
+picture is valid. A report that lands turns the footer into a receipt, with an Open link when the
+destination returned one. The balloon is drawn always, project or none, because it says something
+about Ubiq itself rather than about a project.
 
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a body that both scroll —

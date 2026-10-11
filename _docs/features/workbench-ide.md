@@ -898,13 +898,14 @@ together, `shoot_window()` is the whole of taking the picture — it streams one
 `cx.screen_capture_sources()` and hands `Option<Vec<u8>>` to whatever function pointer it was
 given, `None` where the platform, the setting or the decode said no — and `capture_window()` is
 `shoot_window()` with `open_untitled_image()` as that callback, which is what the capture button
-still does. The feedback balloon is `shoot_window()`'s other caller: `app/feedback.rs`'s
-`open_feedback()` passes a callback that raises the modal from the picture instead, on
+still does. The feedback modal's **Take screenshot** button is `shoot_window()`'s other caller:
+`app/feedback.rs`'s `take_feedback_shot()` hides the modal, waits a frame and a short settle, and
+passes a callback that attaches the picture and restores it, on
 `state/feedback.rs`'s `FeedbackForm` and drawn by `ui/feedback.rs`. `decode_window_png()`,
 `crop_rect()` and `crop_png()` are the crop and the encode — the frame becomes RGBA in
 `frame_rgba()` on the capturer's own thread, from `zed_scap::frame::Frame` on
 Windows and Linux and from a `CVImageBuffer` on macOS, which is why `gpui` and `gpui_platform` carry
-the `screen-capture` feature in `crates/ubiq/Cargo.toml` and `core-video` and `zed-scap` sit behind
+the `screen-capture` feature in `crates/ubiq/Cargo.toml` and `objc2-core-video` and `zed-scap` sit behind
 target `cfg`s there. The pixels land in `app/editor.rs`'s `open_untitled_image()`, and
 `clipboard.rs`'s `next_capture_name()` numbers the tab. `state/image_edit.rs` is the buffer:
 `ImageEdit::new()` builds the scene of `state/scene.rs` elements over the base bytes, `push()`,
@@ -1029,7 +1030,7 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | The palette is switched with a diagram on screen | The picture is rendered again for the new palette. The two palettes are two entries, so switching back is a cache hit |
 | A window has no project yet | A diagram still renders, with the memory tier alone. There is no workarea to write to until the catalogue has arrived |
 | The capture switch is off, the platform decodes no frame, or the backend does not answer | The titlebar has no capture button and the keystroke does nothing. There is nothing to dismiss and nothing to report |
-| The balloon is pressed where no capture is possible | The feedback modal opens all the same, with no screenshot to show or remove |
+| A feedback screenshot is requested where no capture is possible, or the capture fails | The modal returns with no picture and a short inline note; Take screenshot is not offered where `capture_offered()` is false |
 | A build has no feedback destination compiled in | The balloon is still offered; the modal opens and its Send stays dimmed, naming the reason under the button |
 | An answer names a report the window is no longer holding | Discarded — the modal was closed, or a second report started, since it was sent |
 | The platform refuses the capture, offers no display, or sends a frame this build does not read | The reason is logged and no tab opens. A capture that cannot land is not a half-drawn picture |

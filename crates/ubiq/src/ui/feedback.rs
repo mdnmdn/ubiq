@@ -4,8 +4,9 @@
 //! than unwired while it would do nothing. Three things dim it: a build with no destination, a
 //! blank title, and a report already in flight.
 //!
-//! The screenshot is shown, not merely reported: what leaves the machine is a picture of the
-//! user's own screen, so they see exactly what they are sending and can drop it with one press.
+//! The screenshot is optional and on request (Take screenshot, Paste image) and shown, not merely
+//! reported: what leaves the machine is a picture of the user's own screen, so they see exactly
+//! what they are sending and can drop it with one press (the \u{2715}).
 
 use std::sync::Arc;
 
@@ -66,7 +67,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         .child(title_field(app, window, cx))
         .child(kind_picker(app, feedback, cx))
         .child(description_field(app, window, cx))
-        .child(shot(feedback, cx))
+        .child(shot(app, feedback, cx))
         .into_any_element();
 
     modal_sized(
@@ -172,23 +173,52 @@ fn description_field(app: &AppState, window: &Window, cx: &mut Context<AppState>
         .into_any_element()
 }
 
-/// The picture, or the sentence that says why there is none.
-fn shot(feedback: &FeedbackForm, cx: &mut Context<AppState>) -> AnyElement {
-    let Some(png) = feedback.shot.as_ref() else {
-        return div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .gap_2()
-            .child(label_block(
-                "Screenshot",
-                "None taken. A report is worth sending without one.",
-            ))
-            .into_any_element();
-    };
+/// The picture section: the two ways to attach one, the inline note, and the preview with its
+/// remove control.
+fn shot(app: &AppState, feedback: &FeedbackForm, cx: &mut Context<AppState>) -> AnyElement {
+    let busy = feedback.sending.is_some();
+    let mut actions = div().flex().items_center().gap_2();
+    if app.capture_offered(cx) {
+        actions = actions.child(
+            ghost_button(
+                "feedback-take-shot",
+                None,
+                "Take screenshot",
+                cx.listener(|this, _, window, cx| this.take_feedback_shot(window, cx)),
+            )
+            .opacity(if busy { 0.5 } else { 1.0 }),
+        );
+    }
+    actions = actions.child(
+        ghost_button(
+            "feedback-paste-image",
+            None,
+            "Paste image",
+            cx.listener(|this, _, _, cx| {
+                this.paste_feedback_image(cx);
+            }),
+        )
+        .opacity(if busy { 0.5 } else { 1.0 }),
+    );
+    if feedback.shot.is_some() {
+        actions = actions.child(
+            ghost_button(
+                "feedback-drop-shot",
+                None,
+                "\u{2715}",
+                cx.listener(|this, _, _, cx| this.drop_feedback_shot(cx)),
+            )
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Remove the picture").build(window, cx)
+            }),
+        );
+    }
 
-    let image = Arc::new(Image::from_bytes(ImageFormat::Png, png.clone()));
-    div()
+    let hint = match feedback.shot {
+        Some(_) => "Attached. This is exactly what will be sent.",
+        None => "Optional. A report is worth sending without one.",
+    };
+    let mut section = div()
         .flex()
         .flex_col()
         .flex_none()
@@ -199,18 +229,14 @@ fn shot(feedback: &FeedbackForm, cx: &mut Context<AppState>) -> AnyElement {
                 .items_center()
                 .justify_between()
                 .gap_2()
-                .child(label_block(
-                    "Screenshot",
-                    "The window as it was when you pressed the balloon.",
-                ))
-                .child(ghost_button(
-                    "feedback-drop-shot",
-                    None,
-                    "Remove",
-                    cx.listener(|this, _, _, cx| this.drop_feedback_shot(cx)),
-                )),
+                .child(label_block("Screenshot", hint))
+                .child(actions),
         )
-        .child(
+        .children(feedback.note.as_ref().map(|note| modal_note(note)));
+
+    if let Some(png) = feedback.shot.as_ref() {
+        let image = Arc::new(Image::from_bytes(ImageFormat::Png, png.clone()));
+        section = section.child(
             div()
                 .h(px(SHOT_HEIGHT))
                 .flex()
@@ -225,8 +251,9 @@ fn shot(feedback: &FeedbackForm, cx: &mut Context<AppState>) -> AnyElement {
                         .max_w(relative(1.))
                         .max_h(relative(1.)),
                 ),
-        )
-        .into_any_element()
+        );
+    }
+    section.into_any_element()
 }
 
 fn footer(app: &AppState, feedback: &FeedbackForm, cx: &mut Context<AppState>) -> AnyElement {

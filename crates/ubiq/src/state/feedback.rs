@@ -3,9 +3,8 @@
 //! One struct, on [`crate::state::clone::CloneState`]'s shape and for its reason: every field is
 //! answerable at any time and none of them is a step.
 //!
-//! **The screenshot is taken before the modal opens, never after.** A window photographed with the
-//! modal on it is a picture of the modal, so the control captures first and raises this second —
-//! which is why `shot` is a field here rather than something the modal asks for.
+//! **The screenshot is optional and on request.** The modal opens with none; the user can take one
+//! (the modal hides itself for the shot — `capturing`) or paste an image from the clipboard.
 //!
 //! **An answer naming a report this state no longer holds is discarded**, the discipline every
 //! id-carrying family in the window follows.
@@ -21,10 +20,14 @@ pub struct FeedbackForm {
     pub kind: FeedbackKind,
     /// The body, mirrored from the textarea.
     pub description: String,
-    /// The window as it was when the control was pressed, PNG encoded. `None` where the platform
-    /// offers no capture, where the user has it turned off, or where the capture failed — all
-    /// three are the same thing to the modal: there is no picture to show or to send.
+    /// The attached picture, PNG encoded: a window shot taken on request, or a pasted image.
+    /// `None` is a valid report.
     pub shot: Option<Vec<u8>>,
+    /// The modal is out of the picture while the window is photographed. The form (and so the
+    /// fields) stays; only the drawing is skipped.
+    pub capturing: bool,
+    /// A short inline sentence about the picture: why a capture or a paste attached nothing.
+    pub note: Option<String>,
     /// The report in flight, if one is. Set when Send is pressed and cleared by the answer;
     /// the modal is read-only while it is set, so one press is one report.
     pub sending: Option<FeedbackId>,

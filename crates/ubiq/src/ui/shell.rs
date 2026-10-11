@@ -414,6 +414,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             app.workbench
                 .feedback
                 .as_ref()
+                // Out of the picture while the window is photographed.
+                .filter(|form| !form.capturing)
                 .map(|_| crate::ui::feedback::render(app, window, cx)),
         )
         // An agent's question, over the feedback modal on the same terms — except that it is

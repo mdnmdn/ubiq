@@ -1036,7 +1036,10 @@ impl AppState {
                         })
                 }),
             ),
-            (Layer::Feedback, w.feedback.is_some()),
+            (
+                Layer::Feedback,
+                w.feedback.as_ref().is_some_and(|f| !f.capturing),
+            ),
             (Layer::Ask, w.ask.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
             (Layer::FileDialog, w.file_dialog.is_some()),
