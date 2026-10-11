@@ -6,7 +6,7 @@ status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
 updated: 2026-10-02
-verified: 2026-10-02
+verified: 2026-10-12
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs, crates/ubiq-host/src/runners/mod.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -332,7 +332,9 @@ the pane does no buffering of its own beyond what backpressure requires.
 **A pane is one panel in the window's dock.** `PanelKind::Terminal` in
 `crates/ubiq/src/state/dock.rs` carries the pane ID, and `crates/ubiq/src/ui/dock/mod.rs` holds the
 panel itself. Three of its answers are this document's: its focus handle is the emulator's, so
-giving the panel the keyboard puts keystrokes on the harness with nothing in between; `set_active()`
+giving the panel the keyboard puts keystrokes on the harness with nothing in between — pushed into
+the panel by `AppState::settle_visibility` and never read back from `AppState`, because the dock asks
+for it while removing a panel, inside the window's own update, and a read there is a panic; `set_active()`
 calls `focus_pane()` when the displayed tab is a terminal and `blur_panes()` when it is not, which
 is what makes "no pane holds the keyboard unless a terminal is focused" true by construction; and
 `on_removed()` waits a turn, guarded by `on_added_to()`, because the library reports a closed tab

@@ -93,6 +93,12 @@ pub struct WorkbenchPanel {
     /// Where the keyboard rests for a panel that is not a terminal. A terminal answers with its
     /// emulator's handle instead, which is what puts keystrokes on the harness.
     focus_handle: FocusHandle,
+    /// A terminal panel's emulator handle — **pushed by the window, never read back from it**, for
+    /// `visible`'s reason: the dock asks a panel for its focus handle while it is removing one
+    /// (`DockArea::remove_panel` checks whether the panel held focus, then hands focus on), which
+    /// happens inside the window's own update. Reading `AppState` there was the crash on a pane's
+    /// exit. Kept current by `AppState::settle_visibility`.
+    terminal_focus: Option<FocusHandle>,
     /// Whether the panel is drawn at all — **pushed by the window, never read back from it.**
     ///
     /// The dock asks this question while it is reconciling a tree, and it reconciles from inside
@@ -129,6 +135,7 @@ impl WorkbenchPanel {
             kind,
             app,
             focus_handle: cx.focus_handle(),
+            terminal_focus: None,
             visible: true,
             attached: false,
             displaced: false,
@@ -142,6 +149,11 @@ impl WorkbenchPanel {
         let changed = self.visible != visible;
         self.visible = visible;
         changed
+    }
+
+    /// Tell a terminal panel which emulator handle is its keyboard — see [`Self::terminal_focus`].
+    pub fn set_terminal_focus(&mut self, handle: Option<FocusHandle>) {
+        self.terminal_focus = handle;
     }
 
     pub fn kind(&self) -> &PanelKind {
@@ -742,14 +754,12 @@ impl Focusable for WorkbenchPanel {
     /// the harness with nothing in between. Every other panel answers with its own handle, which
     /// is how "when the focused panel is not a terminal, no pane holds the keyboard" is true by
     /// construction rather than by a rule someone has to remember.
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
-        if let Some(pane_id) = self.kind.pane()
-            && let Some(app) = self.app.upgrade()
-            && let Some(terminal) = app.read(cx).terminal(pane_id)
-        {
-            return terminal.read(cx).focus_handle().clone();
-        }
-        self.focus_handle.clone()
+    ///
+    /// Never reads `AppState`: the dock asks this from inside the window's own update.
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.terminal_focus
+            .clone()
+            .unwrap_or_else(|| self.focus_handle.clone())
     }
 }
 
