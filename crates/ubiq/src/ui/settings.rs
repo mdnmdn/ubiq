@@ -363,6 +363,19 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             )
         },
     );
+    // Where the feedback modal posts to. Asked on arrival: another window may have changed it.
+    add(
+        ids::SETTINGS_APP_SYSTEM,
+        SettingsSectionSpec {
+            on_show: Some(AppState::on_show_feedback),
+            ..section(
+                ids::FEEDBACK,
+                "Feedback",
+                || IconName::Inbox.into(),
+                |ctx, window, cx| feedback(ctx.app, window, cx),
+            )
+        },
+    );
     add(
         ids::SETTINGS_APP_SYSTEM,
         section(
@@ -747,6 +760,198 @@ fn updates(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .children(buttons)
             .into_any_element(),
     ])
+}
+
+/// Where the feedback modal posts to: the destination compiled into this build, the user's
+/// override of either half, and a check against the service. The key is never on this side — the
+/// host sends whether one is set, where from, and a prefix.
+fn feedback(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+    use crate::state::settings::FeedbackTest;
+    use ubiq_proto::feedback::FeedbackSource;
+
+    let intro = heading(
+        "Feedback",
+        "Where the feedback modal sends a report. This build may carry a destination compiled in; \
+         an override here wins over it field by field, and clearing one goes back to it. The key \
+         is kept in the system keychain and never shown.",
+    );
+    let Some(settings) = app.workbench.settings.feedback.as_ref() else {
+        return column(vec![
+            intro,
+            modal_note("Asking the host\u{2026}").into_any_element(),
+        ]);
+    };
+
+    let shown = |text: String, source: FeedbackSource| {
+        let colour = match source {
+            FeedbackSource::Override => theme::accent(),
+            FeedbackSource::Compiled => theme::text_muted(),
+            FeedbackSource::None => theme::text_faint(),
+        };
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .child(mono(text, theme::text_muted()))
+            .child(badge(source.label(), colour))
+            .into_any_element()
+    };
+    let line = |input: &gpui::Entity<gpui_component::input::InputState>, masked: bool| {
+        let focused = input.read(cx).focus_handle(cx).is_focused(window);
+        let mut field_input = Input::new(input).appearance(false);
+        if masked {
+            field_input = field_input.mask_toggle();
+        }
+        field(theme::border(), focused)
+            .h(px(30.))
+            .w(px(300.))
+            .px_2()
+            .child(field_input)
+            .into_any_element()
+    };
+
+    let mut rows = vec![
+        intro,
+        setting_row(
+            "Intake URL",
+            "Where reports are posted, as it resolves now.",
+            shown(
+                settings.url.clone().unwrap_or_else(|| "none".to_string()),
+                settings.url_source,
+            ),
+        ),
+        setting_row(
+            "Key",
+            "The intake key reports are posted with \u{2014} its first characters only.",
+            shown(
+                settings
+                    .key_prefix
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+                settings.key_source,
+            ),
+        ),
+    ];
+    if settings.url.is_none() && !settings.key_set {
+        rows.push(
+            modal_note(
+                "No feedback destination is configured: this build was compiled without one and \
+                 no override is set. The feedback modal's send button stays disabled until both \
+                 a URL and a key are set.",
+            )
+            .into_any_element(),
+        );
+    } else if settings.url.is_none() || !settings.key_set {
+        rows.push(
+            modal_note(if settings.url.is_none() {
+                "A key is set but no URL: reports cannot be sent until one is."
+            } else {
+                "A URL is set but no key: reports cannot be sent until one is."
+            })
+            .into_any_element(),
+        );
+    }
+    rows.push(setting_row(
+        "URL override",
+        "Leave empty to keep the current override, or the compiled default if there is none.",
+        line(&app.feedback_url_input, false),
+    ));
+    rows.push(setting_row(
+        "Key override",
+        "Paste a new intake key. Leave empty to keep the one in use.",
+        line(&app.feedback_key_input, true),
+    ));
+
+    let mut buttons: Vec<AnyElement> = vec![
+        primary_button(
+            "app-settings-feedback-save",
+            None,
+            "Save",
+            cx.listener(|this, _, window, cx| this.save_feedback_settings(window, cx)),
+        )
+        .into_any_element(),
+    ];
+    if settings.url_source == FeedbackSource::Override {
+        buttons.push(
+            ghost_button(
+                "app-settings-feedback-clear-url",
+                None,
+                "Clear URL override",
+                cx.listener(|this, _, _, cx| this.clear_feedback_override(true, false, cx)),
+            )
+            .into_any_element(),
+        );
+    }
+    if settings.key_source == FeedbackSource::Override {
+        buttons.push(
+            ghost_button(
+                "app-settings-feedback-clear-key",
+                None,
+                "Clear key override",
+                cx.listener(|this, _, _, cx| this.clear_feedback_override(false, true, cx)),
+            )
+            .into_any_element(),
+        );
+    }
+    let testing = matches!(
+        app.workbench.settings.feedback_test,
+        Some(FeedbackTest::Running)
+    );
+    let test = ghost_button(
+        "app-settings-feedback-test",
+        None,
+        "Test",
+        cx.listener(|this, _, _, cx| this.test_feedback(cx)),
+    );
+    buttons.push(if testing {
+        test.opacity(0.5).into_any_element()
+    } else {
+        test.into_any_element()
+    });
+    rows.push(
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .children(buttons)
+            .into_any_element(),
+    );
+
+    if let Some(error) = &settings.error {
+        rows.push(state_chip(error.clone(), theme::danger(), 1.0).into_any_element());
+    }
+    match &app.workbench.settings.feedback_test {
+        Some(FeedbackTest::Running) => {
+            rows.push(state_chip("Testing\u{2026}", theme::text_faint(), 1.0).into_any_element())
+        }
+        Some(FeedbackTest::Done(result)) if result.ok => rows.push(
+            state_chip(
+                match &result.key_name {
+                    Some(name) => format!("Connected \u{2014} key \u{201c}{name}\u{201d}"),
+                    None => "Connected".to_string(),
+                },
+                theme::success(),
+                1.0,
+            )
+            .into_any_element(),
+        ),
+        Some(FeedbackTest::Done(result)) => rows.push(
+            state_chip(
+                result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "The test failed".to_string()),
+                theme::danger(),
+                1.0,
+            )
+            .into_any_element(),
+        ),
+        None => {}
+    }
+
+    column(rows)
 }
 
 /// A row of pills, which is how every choice on this page is drawn.

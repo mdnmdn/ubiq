@@ -109,6 +109,45 @@ pub fn modal_sized(
     on_dismiss: impl Fn(&mut Window, &mut gpui::App) + 'static,
     window: &Window,
 ) -> AnyElement {
+    modal_frame(
+        id, edge, width, fill_height, title, actions, body, footer, on_dismiss, true, window,
+    )
+}
+
+/// [`modal_sized`] whose backdrop click does nothing: only the × and the footer close it. For a
+/// dialog that holds work a stray click must not throw away.
+#[allow(clippy::too_many_arguments)]
+pub fn modal_sized_pinned(
+    id: &'static str,
+    edge: Rgba,
+    width: f32,
+    fill_height: Option<f32>,
+    title: &str,
+    actions: Option<AnyElement>,
+    body: AnyElement,
+    footer: AnyElement,
+    on_dismiss: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    window: &Window,
+) -> AnyElement {
+    modal_frame(
+        id, edge, width, fill_height, title, actions, body, footer, on_dismiss, false, window,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn modal_frame(
+    id: &'static str,
+    edge: Rgba,
+    width: f32,
+    fill_height: Option<f32>,
+    title: &str,
+    actions: Option<AnyElement>,
+    body: AnyElement,
+    footer: AnyElement,
+    on_dismiss: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    outside_dismisses: bool,
+    window: &Window,
+) -> AnyElement {
     let dismiss = Rc::new(on_dismiss);
     let close = dismiss.clone();
     let viewport = window.viewport_size();
@@ -190,8 +229,12 @@ pub fn modal_sized(
                 .border_t_1()
                 .border_color(theme::border())
                 .child(footer),
-        )
-        .on_mouse_down_out(move |_, window, cx| dismiss(window, cx));
+        );
+    let panel = if outside_dismisses {
+        panel.on_mouse_down_out(move |_, window, cx| dismiss(window, cx))
+    } else {
+        panel
+    };
 
     deferred(
         anchored().position(point(px(0.), px(0.))).child(

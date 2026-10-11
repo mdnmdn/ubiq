@@ -30,7 +30,12 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - uses: extractions/setup-just@v2
 
+      # The feedback destination is compiled in as the default (`option_env!`); a user may override
+      # either half at run time in Settings → Feedback. Unset → an empty value, read as no default.
       - run: just bundle
+        env:
+          UBIQ_FEEDBACK_URL: ${{ vars.UBIQ_FEEDBACK_URL }}
+          UBIQ_FEEDBACK_API_KEY: ${{ secrets.UBIQ_FEEDBACK_API_KEY }}
 
       # Sign, and notarize when Apple credentials are set. Three modes, picked by which secrets exist:
       #   Developer ID cert + APPLE_* → signed, notarized, stapled (opens without a prompt)

@@ -1,11 +1,15 @@
 //! A report the user sends outward: what is wrong, what it looks like, and where it lands.
 //!
 //! Feedback is the one thing Ubiq says to a service that is neither the user's harness nor the
-//! user's repository host — so the *destination* is not a setting. Which service a build reports
-//! to is a property of the build, chosen when it is compiled and stated to the interface as
-//! [`FeedbackChannel`]; the host resolves it from `option_env!` values on
-//! [`ProviderId`](crate::connectors::ProviderId)'s discipline, and a build compiled without them
-//! offers no destination at all.
+//! user's repository host. Which service a build reports to is chosen when it is compiled — the
+//! host reads `option_env!` values on [`ProviderId`](crate::connectors::ProviderId)'s discipline —
+//! and those compiled values are **defaults**: the user may override the intake URL and the key
+//! at run time ([`FeedbackSettings`]), field by field, and clearing an override returns that field
+//! to the compiled default. A build with neither a default nor an override offers no destination.
+//!
+//! **The key never reaches the interface.** It goes in once, in a
+//! [`Secret`](crate::messages::Secret), on its way to the OS keychain; what comes back is whether
+//! one is set, where it came from, and a short prefix to recognise it by.
 //!
 //! The screenshot rides the report as PNG bytes rather than a path: the interface photographs its
 //! own window and the host has no reason to learn where that picture would have been written, and
@@ -52,12 +56,12 @@ impl FeedbackKind {
     }
 }
 
-/// Where a build's reports go. Compiled in, never configured at run time.
+/// Where a build's reports go.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedbackChannel {
-    /// This build was compiled without a destination. The control is drawn and refuses — the
-    /// honest state for a source build, and why [`FeedbackOffer::enabled`] exists.
+    /// No destination: none compiled in and none configured. The control is drawn and refuses —
+    /// the honest state for a source build, and why [`FeedbackOffer::enabled`] exists.
     #[default]
     None,
     /// Ubiq's own intake API: one POST, one API key.
@@ -70,7 +74,7 @@ impl FeedbackChannel {
     /// What the modal says under the send button, so the user knows where their words go.
     pub fn label(self) -> &'static str {
         match self {
-            Self::None => "This build has no feedback destination",
+            Self::None => "No feedback destination is configured",
             Self::Api => "Sent to the Ubiq feedback service",
             Self::Issues => "Opened as an issue on the project's tracker",
         }
@@ -80,12 +84,13 @@ impl FeedbackChannel {
 /// Whether this build can send feedback at all, and where to. Answers
 /// [`Message::QueryFeedback`](crate::messages::Message).
 ///
-/// The interface asks once at boot and draws the send button disabled while `enabled` is false —
-/// the missing key is a fact about the binary, so it cannot change while the process runs.
+/// The interface asks once at boot and draws the send button disabled while `enabled` is false.
+/// The host broadcasts a fresh one whenever the destination's settings change, so the button
+/// follows an override without a restart.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeedbackOffer {
-    /// Whether a destination is configured and complete. False when the URL or the key is
-    /// missing, and false in a build compiled without the `listener` feature.
+    /// Whether a destination is configured and complete. False when the effective URL or the
+    /// effective key is missing, and false in a build compiled without the `listener` feature.
     pub enabled: bool,
     /// Which destination, for the sentence under the button.
     pub channel: FeedbackChannel,
@@ -128,4 +133,90 @@ pub struct FeedbackReceipt {
 pub struct FeedbackError {
     pub report_id: FeedbackId,
     pub error: String,
+}
+
+/// Where one field of the destination's settings comes from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedbackSource {
+    /// Neither compiled in nor overridden.
+    #[default]
+    None,
+    /// The value this build was compiled with.
+    Compiled,
+    /// The user's override, which wins over the compiled value.
+    Override,
+}
+
+impl FeedbackSource {
+    /// What the badge beside a value says.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "not set",
+            Self::Compiled => "compiled",
+            Self::Override => "override",
+        }
+    }
+}
+
+/// The destination's settings as the interface may see them. Answers
+/// [`Message::QueryFeedbackSettings`](crate::messages::Message) and is broadcast after every
+/// [`Message::SetFeedbackSettings`](crate::messages::Message).
+///
+/// **Never the key.** `key_prefix` is its first few characters, enough to tell two keys apart and
+/// not enough to post with.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedbackSettings {
+    /// The intake URL reports are posted to, as it resolves now: the override if one is set, the
+    /// compiled value otherwise.
+    pub url: Option<String>,
+    pub url_source: FeedbackSource,
+    /// Whether a key resolves at all, and from where.
+    pub key_set: bool,
+    pub key_source: FeedbackSource,
+    /// The effective key's first characters, for display only.
+    pub key_prefix: Option<String>,
+    /// Why the last change was not (wholly) kept — a keychain that refused, a settings file that
+    /// could not be written. `None` when it was.
+    pub error: Option<String>,
+}
+
+/// Whether `url` may be an intake override: `https://`, or plain `http://` only to `localhost` or
+/// `127.0.0.1` (any port). The key travels in this request, so anything else is refused.
+pub fn validate_url(url: &str) -> Result<(), String> {
+    let url = url.trim();
+    if url.starts_with("https://") && url.len() > "https://".len() {
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let host = host.rsplit_once(':').map_or(host, |(host, _)| host);
+        if host == "localhost" || host == "127.0.0.1" {
+            return Ok(());
+        }
+    }
+    Err("the URL must start with https:// (http:// only for localhost or 127.0.0.1)".to_string())
+}
+
+/// One change to the destination's settings. A `Some` field sets that override; a `clear_*` flag
+/// drops it, returning the field to the compiled default. A clear wins over a value sent beside it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedbackSettingsChange {
+    pub url: Option<String>,
+    /// Filed in the OS keychain and never sent back.
+    pub key: Option<crate::messages::Secret>,
+    pub clear_url: bool,
+    pub clear_key: bool,
+}
+
+/// What a connection test found. Answers [`Message::TestFeedback`](crate::messages::Message), to
+/// the asking client alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedbackTestResult {
+    /// The service accepted the key.
+    pub ok: bool,
+    /// The name the service has the key under, when it said one.
+    pub key_name: Option<String>,
+    /// Why it did not work, as a sentence. Never a key, never a raw body.
+    pub error: Option<String>,
 }

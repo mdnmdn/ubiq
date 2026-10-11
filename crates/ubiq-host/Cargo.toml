@@ -101,6 +101,10 @@ rustls-pemfile = { version = "2", optional = true }
 # The loopback listener an OAuth redirect lands on: one bound port, one request, then dropped. A
 # blocking HTTP server small enough to have no runtime and no view layer. Behind `listener`.
 tiny_http = { version = "0.12", optional = true }
+# The feedback key override (`feedback/keychain.rs`): one entry in the platform's own keychain.
+# The same requirement and default `v1` feature `crates/ubiq` and agent-manager name, so the
+# workspace links one keyring. Draws nothing. Behind `listener`, beside the feedback POST.
+keyring = { version = "4", optional = true }
 
 # The database explorer's engine, with its four drivers: the host opens every connection, the
 # interface never does (`D199`). Behind `db`.
@@ -181,6 +185,7 @@ listener = [
     "dep:rand",
     "dep:minisign-verify",
     "dep:semver",
+    "dep:keyring",
 ]
 # Talking to the desktop directly: `notifications`, deleting to its trash, and `shell_integration`.
 desktop = ["dep:notify-rust", "dep:trash", "dep:winreg"]

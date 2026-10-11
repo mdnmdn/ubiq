@@ -1,8 +1,7 @@
 //! The first destination: Ubiq's own intake API.
 //!
-//! **The service does not exist yet.** What is settled is the shape of the call, which is what a
-//! build has to be compiled against — one `POST` of one JSON object to [`super::API_URL`],
-//! authenticated with [`super::API_KEY`] in `X-Api-Key`. The request body below is the contract;
+//! One `POST` of one JSON object to the resolved intake URL (the override, or [`super::API_URL`]),
+//! authenticated with the resolved key (the override, or [`super::API_KEY`]) in `X-Api-Key`. The request body below is the contract;
 //! the response is read leniently, because the only things taken from it are the two the interface
 //! draws, and a service that names neither has still accepted the report.
 //!
@@ -20,12 +19,16 @@
 //!
 //! The reply is read for `reference` (or `id`, or `number`) and `url` (or `html_url`), both
 //! optional.
+//!
+//! [`test`] is the settings page's connection check: one `POST` to `…/api/feedback/test` with the
+//! same key, which the service answers `200 {ok, key, service, version}` or `401 {ok: false}`
+//! without creating anything.
 
 use std::time::Duration;
 
 use anyhow::bail;
 use serde_json::{Value, json};
-use ubiq_proto::feedback::{FeedbackChannel, FeedbackReceipt, FeedbackReport};
+use ubiq_proto::feedback::{FeedbackChannel, FeedbackReceipt, FeedbackReport, FeedbackTestResult};
 
 use super::{Destination, USER_AGENT, base64};
 
@@ -34,12 +37,12 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// One POST, one key.
 pub struct Api {
-    url: &'static str,
-    key: &'static str,
+    url: String,
+    key: String,
 }
 
 impl Api {
-    pub fn new(url: &'static str, key: &'static str) -> Self {
+    pub fn new(url: String, key: String) -> Self {
         Self { url, key }
     }
 }
@@ -67,8 +70,8 @@ impl Destination for Api {
             .timeout_read(READ_TIMEOUT)
             .user_agent(USER_AGENT)
             .build()
-            .post(self.url)
-            .set("X-Api-Key", self.key)
+            .post(&self.url)
+            .set("X-Api-Key", &self.key)
             .send_json(body);
 
         let response = match response {
@@ -94,6 +97,55 @@ impl Destination for Api {
             reference: string(&answered, &["reference", "id", "number"]),
             url: string(&answered, &["url", "html_url"]),
         })
+    }
+}
+
+/// Ask the test endpoint whether `key` would be accepted. Creates nothing on the service.
+pub fn test(url: &str, key: &str) -> FeedbackTestResult {
+    let response = ureq::AgentBuilder::new()
+        .timeout_connect(CONNECT_TIMEOUT)
+        .timeout_read(CONNECT_TIMEOUT)
+        .user_agent(USER_AGENT)
+        .build()
+        .post(url)
+        .set("X-Api-Key", key)
+        .send_json(json!({}));
+    let failed = |error: String| FeedbackTestResult {
+        ok: false,
+        key_name: None,
+        error: Some(error),
+    };
+    match response {
+        Ok(response) => {
+            let body: Value = response.into_json().unwrap_or(Value::Null);
+            test_result(&body)
+        }
+        Err(ureq::Error::Status(401, _)) => failed("the service refused the key (401)".to_string()),
+        Err(ureq::Error::Status(code, _)) => {
+            failed(format!("the feedback service answered {code}"))
+        }
+        Err(ureq::Error::Transport(transport)) => failed(format!(
+            "the feedback service could not be reached: {}",
+            transport.kind()
+        )),
+    }
+}
+
+/// Read a 2xx test answer. A body that does not say `ok: true` is not a pass, whatever the status:
+/// a URL pointing at the wrong service answers 200 too.
+fn test_result(body: &Value) -> FeedbackTestResult {
+    if body.get("ok").and_then(Value::as_bool) == Some(true) {
+        FeedbackTestResult {
+            ok: true,
+            key_name: string(body, &["key"]),
+            error: None,
+        }
+    } else {
+        FeedbackTestResult {
+            ok: false,
+            key_name: None,
+            error: Some("the URL answered, but not as the feedback service".to_string()),
+        }
     }
 }
 
@@ -136,5 +188,13 @@ mod tests {
     #[test]
     fn an_empty_answer_is_still_a_receipt() {
         assert_eq!(receipt_of(&Value::Null), (None, None));
+    }
+
+    #[test]
+    fn a_test_passes_only_on_ok_true() {
+        let pass = test_result(&json!({"ok": true, "key": "ci", "service": "ubiq-feedback"}));
+        assert!(pass.ok);
+        assert_eq!(pass.key_name.as_deref(), Some("ci"));
+        assert!(!test_result(&json!({"hello": "world"})).ok);
     }
 }

@@ -13,6 +13,7 @@ use ubiq_proto::assist::{
 };
 use ubiq_proto::connectors::{AuthKind, CertInfo, ConnectError, OauthApp, ProviderId};
 use ubiq_proto::conversation::RateLimitRecord;
+use ubiq_proto::feedback::{FeedbackSettings, FeedbackTestResult};
 use ubiq_proto::ids::{
     AiProviderId, ConnectId, ConnectionId, OauthAppId, PaneId, ProjectId, SshProfileId, SuggestId,
     ToolId,
@@ -716,6 +717,15 @@ pub struct AiTest {
     pub error: Option<String>,
 }
 
+/// The feedback section's connection test.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FeedbackTest {
+    /// Asked, not answered.
+    Running,
+    /// What the host found.
+    Done(FeedbackTestResult),
+}
+
 /// The settings overlay, and the values it is showing.
 #[derive(Clone, Debug)]
 pub struct SettingsState {
@@ -888,6 +898,14 @@ pub struct SettingsState {
     /// "none has yet" into a record — and a set that persisted for the life of the process would
     /// leave that page stale until a restart. Once per visit, never once per frame.
     pub acp_asked: HashSet<String>,
+    /// The feedback destination as the host last said it resolves: the effective URL, whether a
+    /// key is set and its prefix — never the key. Absent until the Feedback section asks.
+    pub feedback: Option<FeedbackSettings>,
+    /// The Feedback section's connection test, from the click until the next change.
+    pub feedback_test: Option<FeedbackTest>,
+    /// A Save is in flight: the two fields are emptied when the host answers without an error,
+    /// and kept when it answers with one.
+    pub feedback_save_pending: bool,
 }
 
 /// Which tools list a tool editor writes: the machine-wide rows, or one project's.
@@ -1143,6 +1161,9 @@ impl Default for SettingsState {
             quota_errors: HashMap::new(),
             acp_capabilities: HashMap::new(),
             acp_asked: HashSet::new(),
+            feedback: None,
+            feedback_test: None,
+            feedback_save_pending: false,
         }
     }
 }

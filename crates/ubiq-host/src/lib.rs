@@ -19,8 +19,9 @@
 //! - `repos`: cloning a repository into a project, and the listings that find one (behind `git`)
 //! - `projects`: the catalogue as the host runs it
 //! - `gc`: collecting the directories of projects no record names (behind `harness`)
-//! - `feedback`: the user's report on its way out — the destination trait, the one this build was
-//!   compiled with, and the thread that posts it (the destinations behind `listener`)
+//! - `feedback`: the user's report on its way out — the destination trait, the compiled default
+//!   and the user's override of it, and the thread that posts it (the destinations behind
+//!   `listener`)
 //! - `updates`: Ubiq updating itself — the signed feed, the verified download, and the detached
 //!   helper that swaps the app in (behind `listener`)
 //! - `files`: a project's tree and its files, read and written off the coordinator's thread

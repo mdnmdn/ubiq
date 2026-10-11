@@ -20,8 +20,9 @@ use crate::state::feedback::{FeedbackForm, Sent};
 use super::*;
 
 impl AppState {
-    /// Ask the host whether this build can send feedback. Asked once, at boot: the destination is
-    /// compiled in, so the answer cannot change while the process runs.
+    /// Ask the host whether this build can send feedback. Asked once, at boot; the destination is
+    /// compiled in but an override set at run time can change it, and the host then broadcasts a
+    /// fresh offer.
     pub fn ask_feedback_offer(&mut self) {
         self.bus.send_to(HostRef::Local, Message::QueryFeedback);
     }
@@ -94,6 +95,8 @@ impl AppState {
     /// Returns whether the modal took the gesture, so a caller can hand the key back.
     pub fn paste_feedback_image(&mut self, cx: &mut Context<Self>) -> bool {
         match &self.workbench.feedback {
+            // The edit dialog is over the modal: the paste is swallowed, not turned into a tab.
+            Some(feedback) if feedback.shot_edit.is_some() => return true,
             Some(feedback) if !feedback.capturing && feedback.sending.is_none() => {}
             _ => return false,
         }
@@ -183,6 +186,52 @@ impl AppState {
             feedback.shot = None;
             feedback.note = None;
             cx.notify();
+        }
+    }
+
+    /// "Edit": open the attached picture in the image editor, in a dialog over the modal.
+    pub fn open_feedback_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(feedback) = self.workbench.feedback.as_mut() else {
+            return;
+        };
+        if feedback.sending.is_some() || !feedback.begin_edit() {
+            return;
+        }
+        let key = feedback.edit_key();
+        self.workbench.open_menu = None;
+        if let Some(key) = key {
+            // A fresh fit, whatever an earlier edit left the camera at.
+            self.reset_viewport(&key, cx);
+        }
+        // The form's inputs sit under the dialog and would take Cmd+Z, Backspace and the rest of
+        // the editor's keys: the workbench root holds focus while the dialog is up.
+        self.workbench_focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Apply: the edited PNG replaces the attached picture.
+    pub fn apply_feedback_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(feedback) = self.workbench.feedback.as_mut() {
+            feedback.apply_edit();
+            feedback.note = None;
+        }
+        self.focus_feedback_title(window, cx);
+        cx.notify();
+    }
+
+    /// Cancel (and Escape): the dialog goes, the picture and the rest of the form stay as they were.
+    pub fn cancel_feedback_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(feedback) = self.workbench.feedback.as_mut() {
+            feedback.shot_edit = None;
+        }
+        self.focus_feedback_title(window, cx);
+        cx.notify();
+    }
+
+    /// Back under the modal: the title field takes the keyboard again.
+    fn focus_feedback_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workbench.feedback.is_some() {
+            self.feedback_title_input.read(cx).focus_handle(cx).focus(window, cx);
         }
     }
 

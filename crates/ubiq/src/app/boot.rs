@@ -511,6 +511,16 @@ impl AppState {
             InputState::new(window, cx).placeholder("Type it once \u{2014} it is never read back")
         });
 
+        // The Feedback section's two overrides. Read at save time, so no subscription; the key box
+        // is masked and always left empty, because a stored key is never read back.
+        let feedback_url_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://\u{2026}/api/feedback"));
+        let feedback_key_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Paste a new key \u{2014} it is never read back")
+                .masked(true)
+        });
+
         // The remote-connect modal's fields. `remote_address_input` doubles as the paste target
         // for a whole connection string — see the `InputEvent::Change` subscription below.
         let remote_address_input =
@@ -1643,6 +1653,8 @@ impl AppState {
             ssh_user_input.read(cx).focus_handle(cx),
             ssh_key_path_input.read(cx).focus_handle(cx),
             ssh_secret_input.read(cx).focus_handle(cx),
+            feedback_url_input.read(cx).focus_handle(cx),
+            feedback_key_input.read(cx).focus_handle(cx),
             remote_address_input.read(cx).focus_handle(cx),
             remote_token_input.read(cx).focus_handle(cx),
             remote_root_input.read(cx).focus_handle(cx),
@@ -1973,6 +1985,8 @@ impl AppState {
             ssh_user_input,
             ssh_key_path_input,
             ssh_secret_input,
+            feedback_url_input,
+            feedback_key_input,
             remote_address_input,
             remote_token_input,
             remote_root_input,
@@ -2041,7 +2055,8 @@ impl AppState {
         // there. Re-asked whenever the provider changes — see `set_assist_provider`.
         this.bus.send(Message::GetAssist);
         // Whether this build has anywhere to send feedback. Asked once: the destination is
-        // compiled into the host's binary, so the answer cannot change while the process runs.
+        // compiled into the host's binary, but an override set at run time can change the
+        // answer, and the host then broadcasts a fresh offer.
         this.ask_feedback_offer();
         this.ask_updates();
 

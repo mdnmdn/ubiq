@@ -200,6 +200,15 @@ pub struct HostSettings {
     /// its secret pruned with it, so no key is ever stranded under an id nothing names.
     #[serde(default)]
     pub ssh_profiles: Vec<SshProfile>,
+
+    /// The feedback intake URL the user set, overriding the one this build was compiled with.
+    /// `None` is the compiled default (`crate::feedback`).
+    ///
+    /// **Host-mutated**, on `ai_providers`' footing: it changes only through
+    /// `SetFeedbackSettings`, whose key half lives in the OS keychain beside it, so
+    /// `Settings::set` keeps what is on disk over whatever a `SetSettings` blob carries.
+    #[serde(default)]
+    pub feedback_url: Option<String>,
 }
 
 /// One SSH target: enough to dial it, never enough to unlock it.
@@ -523,7 +532,11 @@ pub enum RemoteScheme {
 /// Twenty adds [`RemoteCarrier::Unix`]. An older build cannot parse the new `kind`, so the whole
 /// record would fail to load and be moved aside as corrupt; the bump makes it refuse the file and
 /// leave it intact instead.
-pub const HOST_SETTINGS_SCHEMA: u32 = 20;
+///
+/// Twenty-one adds [`HostSettings::feedback_url`]. An older build drops it on its next write and
+/// reports go back to the compiled destination while the key override in the keychain stays —
+/// a pair that no longer matches, which is the silent half-revert the bump exists to refuse.
+pub const HOST_SETTINGS_SCHEMA: u32 = 21;
 
 fn isolate_agents_default() -> bool {
     true
@@ -591,6 +604,7 @@ impl Default for HostSettings {
             ai_providers: Vec::new(),
             remote_hosts: Vec::new(),
             ssh_profiles: Vec::new(),
+            feedback_url: None,
         }
     }
 }

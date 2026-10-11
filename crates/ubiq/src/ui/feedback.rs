@@ -22,7 +22,8 @@ use crate::state::feedback::FeedbackForm;
 use crate::state::{Layer, MenuId};
 use crate::theme;
 use crate::ui::kit::{
-    Picker, PickerStyle, ghost_button, label_block, modal_note, modal_sized, primary_button,
+    Picker, PickerStyle, ghost_button, label_block, modal_note, modal_sized, modal_sized_pinned,
+    primary_button,
 };
 use crate::ui::{handler, indexed};
 
@@ -33,6 +34,9 @@ pub fn help_page() -> Option<&'static str> {
 }
 
 const FEEDBACK_WIDTH: f32 = 520.0;
+/// The picture editor's dialog: wide enough for the toolbar's tools, the style and the history.
+const EDIT_WIDTH: f32 = 860.0;
+const EDIT_HEIGHT: f32 = 600.0;
 /// How tall the picture is drawn. Wide enough to recognise the screen, short enough that the
 /// fields stay on the same page as it.
 const SHOT_HEIGHT: f32 = 180.0;
@@ -81,6 +85,67 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         footer(app, feedback, cx),
         crate::ui::dismiss(&view, Layer::Feedback, |this, window, cx| {
             this.close_feedback(window, cx)
+        }),
+        window,
+    )
+}
+
+/// The picture editor in a dialog over the modal: the viewer's own toolbar and canvas over the
+/// form's in-memory buffer, with Cancel and Apply in the footer.
+pub fn edit_dialog(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> AnyElement {
+    let Some(file) = app
+        .workbench
+        .feedback
+        .as_ref()
+        .and_then(|feedback| feedback.shot_edit.as_ref())
+    else {
+        return div().into_any_element();
+    };
+    let view = cx.entity();
+    let body = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .pt_3()
+        .child(crate::ui::viewer::image_edit::toolbar(app, file, cx))
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_h(px(0.))
+                .child(crate::ui::viewer::image_edit::render(app, file, cx)),
+        )
+        .into_any_element();
+    let footer = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(ghost_button(
+            "feedback-edit-cancel",
+            None,
+            "Cancel",
+            cx.listener(|this, _, window, cx| this.cancel_feedback_edit(window, cx)),
+        ))
+        .child(primary_button(
+            "feedback-edit-apply",
+            None,
+            "Apply",
+            cx.listener(|this, _, window, cx| this.apply_feedback_edit(window, cx)),
+        ))
+        .into_any_element();
+    // Pinned: a backdrop click must not throw the edit away.
+    modal_sized_pinned(
+        "feedback-edit-modal",
+        theme::accent(),
+        EDIT_WIDTH,
+        Some(EDIT_HEIGHT),
+        "Edit picture",
+        None,
+        body,
+        footer,
+        crate::ui::dismiss(&view, Layer::FeedbackEdit, |this, window, cx| {
+            this.cancel_feedback_edit(window, cx)
         }),
         window,
     )
@@ -201,6 +266,19 @@ fn shot(app: &AppState, feedback: &FeedbackForm, cx: &mut Context<AppState>) -> 
         .opacity(if busy { 0.5 } else { 1.0 }),
     );
     if feedback.shot.is_some() {
+        actions = actions.child(
+            ghost_button(
+                "feedback-edit-shot",
+                None,
+                "Edit",
+                cx.listener(|this, _, window, cx| this.open_feedback_edit(window, cx)),
+            )
+            .opacity(if busy { 0.5 } else { 1.0 })
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Annotate or crop the picture")
+                    .build(window, cx)
+            }),
+        );
         actions = actions.child(
             ghost_button(
                 "feedback-drop-shot",

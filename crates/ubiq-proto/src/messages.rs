@@ -19,7 +19,10 @@ use crate::catalog::{
 };
 use crate::connectors::{AuthKind, CertInfo, ConnectError, ConnectStage, Connection, ProviderId};
 use crate::conversation::{ConfigChoice, ConvUpdate, StopReason};
-use crate::feedback::{FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport};
+use crate::feedback::{
+    FeedbackError, FeedbackOffer, FeedbackReceipt, FeedbackReport, FeedbackSettings,
+    FeedbackSettingsChange, FeedbackTestResult,
+};
 use crate::update::{UpdateSettings, UpdateStatus};
 use crate::files::{
     DiffBase, DirListing, EntryKind, FileContents, FileDiff, FileError, FileVersion, HostDirEntry,
@@ -479,13 +482,15 @@ pub enum Message {
 
     // ── Feedback family: what the user says about Ubiq itself ───────
     // The only family whose destination is outside the user's own world — not their harness, not
-    // their repository host. Which service a build reports to is compiled in, so the interface
-    // asks once and the answer never changes while the process runs.
+    // their repository host. Which service a build reports to is compiled in as a default, and the
+    // user may override the URL and the key at run time; the host re-broadcasts the offer after
+    // every change, so the send button follows without a restart.
     /// Ask whether this build can send feedback, and where to. Answered with
     /// [`Message::FeedbackOffered`], to the asking client alone.
     QueryFeedback,
     /// Whether a destination is configured, and which. The interface draws its send button
-    /// disabled while this says `enabled: false`.
+    /// disabled while this says `enabled: false`. Also broadcast to every client after a
+    /// [`Message::SetFeedbackSettings`].
     FeedbackOffered {
         offer: FeedbackOffer,
     },
@@ -504,6 +509,27 @@ pub enum Message {
     /// It did not. A sentence the user reads, never a key and never a raw body.
     FeedbackFailed {
         failure: FeedbackError,
+    },
+    /// Ask how the destination resolves: the effective URL and where it comes from, and whether a
+    /// key is set — never the key. Answered with [`Message::FeedbackSettingsChanged`], to the
+    /// asking client alone.
+    QueryFeedbackSettings,
+    /// Set or clear the URL and key overrides. The URL is kept in the host settings file, the key
+    /// in the OS keychain. Answered with [`Message::FeedbackSettingsChanged`] and
+    /// [`Message::FeedbackOffered`], both to every client.
+    SetFeedbackSettings {
+        change: FeedbackSettingsChange,
+    },
+    /// The destination's settings as they now resolve. Carries no key material.
+    FeedbackSettingsChanged {
+        settings: FeedbackSettings,
+    },
+    /// Check the effective URL and key against the service's test endpoint, creating nothing.
+    /// Answered with [`Message::FeedbackTested`], to the asking client alone.
+    TestFeedback,
+    /// What the test found.
+    FeedbackTested {
+        result: FeedbackTestResult,
     },
 
     // ── Update family: Ubiq updating itself ─────────────────────────

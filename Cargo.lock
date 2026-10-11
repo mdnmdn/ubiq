@@ -12027,6 +12027,7 @@ dependencies = [
  "grep-searcher",
  "hostname",
  "ignore",
+ "keyring",
  "memory-stats",
  "minisign-verify",
  "notify",

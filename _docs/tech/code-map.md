@@ -189,7 +189,8 @@ crates/ubiq-host/src/
 ├── feedback/
 │   ├── api.rs
 │   ├── issues.rs
-│   └── mod.rs
+│   ├── mod.rs
+│   └── keychain.rs
 ├── help/
 │   ├── archive.rs
 │   └── mod.rs
@@ -326,12 +327,13 @@ crates/ubiq/src/
 │   │   ├── sql.rs
 │   │   ├── table.rs
 │   │   └── tree.rs
-│   └── archify/
-│       ├── animate.rs
-│       ├── compiled.rs
-│       ├── focus.rs
-│       ├── mod.rs
-│       └── motion.rs
+│   ├── archify/
+│   │   ├── animate.rs
+│   │   ├── compiled.rs
+│   │   ├── focus.rs
+│   │   ├── mod.rs
+│   │   └── motion.rs
+│   └── updates.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -576,7 +578,8 @@ crates/ubiq/src/
 │   │   ├── settings.rs
 │   │   ├── sql.rs
 │   │   └── table.rs
-│   └── unix_connect.rs
+│   ├── unix_connect.rs
+│   └── updates.rs
 ├── version.rs
 └── ext/
     ├── id.rs
@@ -703,6 +706,7 @@ the documents in its row.
 | `crates/ubiq-host/src/environment.rs` | [`agent-manager.md`](./agent-manager.md), [`operations.md`](./operations.md) |
 | `crates/ubiq-host/src/feedback/api.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/feedback/issues.rs` | [`transport-contract.md`](./transport-contract.md) |
+| `crates/ubiq-host/src/feedback/keychain.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/feedback/mod.rs` | [`transport-contract.md`](./transport-contract.md) |
 | `crates/ubiq-host/src/files/diff.rs` | [`architecture.md`](./architecture.md), [`version-control.md`](./version-control.md) |
 | `crates/ubiq-host/src/files/ignored.rs` | [`version-control.md`](./version-control.md) |
@@ -864,6 +868,7 @@ the documents in its row.
 | `crates/ubiq/src/app/teams.rs` | [`features/workbench-teams.md`](../features/workbench-teams.md), [`components.md`](./components.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/src/app/teams_span.rs` | [`features/workbench-teams.md`](../features/workbench-teams.md) |
 | `crates/ubiq/src/app/unix_connect.rs` | [`features/drone.md`](../features/drone.md), [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/src/app/updates.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/web_panel.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md), [`wip/kb.md`](../wip/kb.md), [`wip/web-panel-phase45.md`](../wip/web-panel-phase45.md), [`wip/web-panel-phase6.md`](../wip/web-panel-phase6.md) |
 | `crates/ubiq/src/app/wire.rs` | [`features/chat.md`](../features/chat.md), [`features/notifications.md`](../features/notifications.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/stats.md`](../features/stats.md), [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md) |
@@ -937,6 +942,7 @@ the documents in its row.
 | `crates/ubiq/src/state/teams.rs` | [`features/workbench-teams.md`](../features/workbench-teams.md), [`inbox/subagent-status-dictionaries-and-hexagon.md`](../inbox/subagent-status-dictionaries-and-hexagon.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/src/state/teamsim.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md), [`features/workbench-teams.md`](../features/workbench-teams.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `crates/ubiq/src/state/ui_id.rs` | [`wip/in-place-help.md`](../wip/in-place-help.md) |
+| `crates/ubiq/src/state/updates.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/viewport.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/src/state/vim/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/vim/motion.rs` | [`features/workbench.md`](../features/workbench.md) |

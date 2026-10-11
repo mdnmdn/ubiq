@@ -1123,6 +1123,17 @@ impl AppState {
                 window.remove_window();
                 return;
             }
+            // The Text tool's string lands on an open image, which a feedback picture's dialog has
+            // with no project at all, so it is answered here, before the project is looked up.
+            FileDialog::ImageText { key } => {
+                let typed = self.file_name.read(cx).value().trim().to_string();
+                if typed.is_empty() {
+                    return;
+                }
+                self.commit_image_text(&key, typed, cx);
+                self.close_file_dialog(cx);
+                return;
+            }
             // Names a tab rather than a path in a project, so it is answered here alongside the
             // other two questions a project has nothing to do with.
             FileDialog::RenameTab { kind, .. } => {
@@ -1225,12 +1236,6 @@ impl AppState {
                 }
                 self.save_untitled_as(&key, typed, cx);
             }
-            FileDialog::ImageText { key } => {
-                if typed.is_empty() {
-                    return;
-                }
-                self.commit_image_text(&key, typed, cx);
-            }
             FileDialog::ExportPlan { task_id } => {
                 if typed.is_empty() {
                     return;
@@ -1266,6 +1271,7 @@ impl AppState {
             | FileDialog::CloseWindow { .. }
             | FileDialog::RestartForUpdate
             | FileDialog::CloseProject { .. }
+            | FileDialog::ImageText { .. }
             | FileDialog::RenameTab { .. } => {}
         }
         self.close_file_dialog(cx);

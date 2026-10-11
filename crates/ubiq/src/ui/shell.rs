@@ -418,6 +418,14 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .filter(|form| !form.capturing)
                 .map(|_| crate::ui::feedback::render(app, window, cx)),
         )
+        // The picture editor, over the feedback modal that opened it.
+        .children(
+            app.workbench
+                .feedback
+                .as_ref()
+                .filter(|form| !form.capturing && form.shot_edit.is_some())
+                .map(|_| crate::ui::feedback::edit_dialog(app, window, cx)),
+        )
         // An agent's question, over the feedback modal on the same terms — except that it is
         // never actually raised over anything: an ask arriving while any layer is up leaves a
         // notification and a transcript entry instead, and the entry's button is what raises it

@@ -12,6 +12,12 @@
 use ubiq_proto::feedback::{FeedbackKind, FeedbackOffer};
 use ubiq_proto::ids::FeedbackId;
 
+use super::editor::{OpenFile, ViewLayout};
+
+/// The name the dialog's in-memory tab carries. Never a path on disk: it only keys the editor's
+/// viewport and handlers.
+const EDIT_NAME: &str = "~feedback-picture.png";
+
 /// The feedback modal, while it is up.
 #[derive(Default)]
 pub struct FeedbackForm {
@@ -23,6 +29,10 @@ pub struct FeedbackForm {
     /// The attached picture, PNG encoded: a window shot taken on request, or a pasted image.
     /// `None` is a valid report.
     pub shot: Option<Vec<u8>>,
+    /// The picture open in the editing dialog, while that is up: an in-memory capture tab over a
+    /// copy of [`Self::shot`] — the image editor's own buffer, never put in a project's editor.
+    /// Apply flattens it back into `shot`; Cancel drops it.
+    pub shot_edit: Option<OpenFile>,
     /// The modal is out of the picture while the window is photographed. The form (and so the
     /// fields) stays; only the drawing is skipped.
     pub capturing: bool,
@@ -55,6 +65,39 @@ impl FeedbackForm {
             && self.sending.is_none()
             && self.sent.is_none()
             && !self.title.trim().is_empty()
+    }
+
+    /// Open the attached picture in the editor. `false` is no picture, or bytes that do not decode.
+    pub fn begin_edit(&mut self) -> bool {
+        let Some(png) = self.shot.as_ref() else {
+            return false;
+        };
+        let mut file = OpenFile::untitled(EDIT_NAME, ViewLayout::default());
+        file.set_image_untitled(png.clone());
+        if file.image_edit().is_none() {
+            return false;
+        }
+        self.shot_edit = Some(file);
+        true
+    }
+
+    /// The editor's tab key, while the dialog is up.
+    pub fn edit_key(&self) -> Option<String> {
+        self.shot_edit.as_ref().map(OpenFile::key)
+    }
+
+    /// Apply: the flattened edit replaces the picture (PNG). An untouched scene keeps the original
+    /// bytes rather than a re-encode.
+    pub fn apply_edit(&mut self) {
+        let Some(file) = self.shot_edit.take() else {
+            return;
+        };
+        if let Some(edit) = file.image_edit()
+            && !edit.undo.is_empty()
+            && let Some(png) = edit.flatten()
+        {
+            self.shot = Some(png);
+        }
     }
 
     /// Whether an answer naming this report is still wanted.

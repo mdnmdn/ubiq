@@ -920,7 +920,14 @@ draws the strip and, in Edit, the tool layer over it, and converts a window poin
 through the stored panel and `scene::live_with_overlay()`. `FileBody::ImageEdit` is what
 `state/editor.rs` holds it in, `set_image()` is what a read builds it with, carrying the read's
 `FileVersion` in, and `editable_image()`, `savable()`, `touch_image()` and `saved()` are where a
-non-text body meets the tab's own lifecycle.
+non-text body meets the tab's own lifecycle. The feedback modal's **Edit** reuses all of it on bytes
+in memory: `FeedbackForm::begin_edit()` builds an untitled `OpenFile` over a copy of the attached PNG
+into `shot_edit` — never into a project's editor, and no file is written — and `image_file_mut()`
+and `active_file_key()` in `app/image_edit.rs` answer that tab's key from the form while the dialog
+is up, so every handler above works on it unchanged. `ui/feedback.rs`'s `edit_dialog()` hosts
+`ui/viewer/image_edit.rs`'s strip and canvas in a `modal_sized` on `Layer::FeedbackEdit`, above the
+modal and below an ask; `apply_edit()` flattens it back into `shot` (an untouched scene keeps the
+original bytes) and Cancel or Escape (`cancel_feedback_edit()`) drops it.
 
 `state/diagrams.rs` is the Mermaid renderer and its disk tier, and it is the only place in the
 interface that names `merman`. `render()` is one source in and one picture out, sized by `view_box()`
@@ -1031,7 +1038,7 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | A window has no project yet | A diagram still renders, with the memory tier alone. There is no workarea to write to until the catalogue has arrived |
 | The capture switch is off, the platform decodes no frame, or the backend does not answer | The titlebar has no capture button and the keystroke does nothing. There is nothing to dismiss and nothing to report |
 | A feedback screenshot is requested where no capture is possible, or the capture fails | The modal returns with no picture and a short inline note; Take screenshot is not offered where `capture_offered()` is false |
-| A build has no feedback destination compiled in | The balloon is still offered; the modal opens and its Send stays dimmed, naming the reason under the button |
+| No feedback destination resolves — none compiled in, no override in Settings → Feedback | The balloon is still offered; the modal opens and its Send stays dimmed, naming the reason under the button |
 | An answer names a report the window is no longer holding | Discarded — the modal was closed, or a second report started, since it was sent |
 | The platform refuses the capture, offers no display, or sends a frame this build does not read | The reason is logged and no tab opens. A capture that cannot land is not a half-drawn picture |
 | The window is minimised or wholly off its display | The capture is refused rather than saved as whatever the compositor had. A window hanging off an edge is clamped to the frame and captured |
