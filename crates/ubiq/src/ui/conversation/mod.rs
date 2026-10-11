@@ -1171,7 +1171,16 @@ fn build_row(
     };
     // A column of one, so the row fills the width the way it did as a child of the transcript's
     // own column: in a flex row it would be sized by its content instead.
+    //
+    // **`w_full` is what holds the row to the column.** The list lays each row out as a root of
+    // its own, and a root with no width of its own is as wide as its content's min-content —
+    // which for a `TextView` is its longest line *unwrapped*, since GPUI text answers an
+    // unconstrained probe without wrapping. Sized that way, a message is wider than the panel:
+    // its lines run past the right edge, and the text is wrapped at one width while its box is
+    // sized at another, which leaves a blank band under it. A definite width gives every probe
+    // below the same column to wrap against.
     div()
+        .w_full()
         .flex()
         .flex_col()
         .px(GUTTER)
@@ -1743,6 +1752,7 @@ fn copyable(
     let group = SharedString::from(format!("{}-msg-{ix}", view.id));
     let text = text.into();
     div()
+        .debug_selector(move || format!("transcript-block-{ix}"))
         .relative()
         .flex()
         .flex_none()

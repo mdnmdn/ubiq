@@ -2735,3 +2735,153 @@ fn assigning_a_task_links_names_and_briefs_the_agent(cx: &mut TestAppContext) {
         "the rename has to precede the first turn"
     );
 }
+
+/// The conversation drawn in a column of a fixed width, the way the chat panel holds it: the
+/// transcript's rows are measured at that width and the list lays them out there.
+struct NarrowHarness {
+    state: Entity<AppState>,
+    agent: AgentId,
+    width: f32,
+}
+
+impl Render for NarrowHarness {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let agent = self.agent;
+        let view = ConversationView {
+            id: SharedString::from("narrow-harness"),
+            slot: 0,
+            footer: false,
+            composer: false,
+            header: false,
+        };
+        let body = self
+            .state
+            .update(cx, |state, cx| match state.conversation(agent, cx) {
+                Some(live) => conversation::render(state, live, view, window, cx),
+                None => gpui::div().into_any_element(),
+            });
+        use gpui::{ParentElement as _, Styled as _};
+        gpui::div()
+            .flex()
+            .flex_col()
+            .w(px(self.width))
+            .h(px(4000.))
+            .child(body)
+    }
+}
+
+/// The chat panel's width in the test below: narrow, so every shape in the message has to wrap.
+const COLUMN: f32 = 320.;
+
+/// A message is held to the panel's width and wrapped there. The list lays each row out as a
+/// root of its own, and a row sized by its content took the markdown's longest line *unwrapped*
+/// as its width: the lines ran past the panel's right edge, and the text wrapped at one width
+/// while its box was sized at another, which left a blank band under the message. Lists, inline
+/// code, a long unbroken word, a code block and a table are the shapes that wrap the most.
+#[gpui::test]
+fn a_markdown_message_wraps_at_the_panel_width_and_leaves_no_band(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let id = AgentId::generate();
+    fixture.started(an_agent(id), cx);
+    let body = "Done. Summary of what changed:\n\n\
+        - **Lockfile:** `ubiq/Cargo.lock` was updated to add the new `keyring` dependency and \
+          everything it pulls in with it, which is a long line that has to wrap.\n\
+        - **Test uses saved values:** it checks the saved settings, not what is typed in the \
+          field, so an unsaved key is not what the test reads.\n\
+        - **Script edits:** the agent moved some code with scripts instead of edits, which left \
+          duplicated blocks behind.\n\n\
+        Things to know: averyveryveryveryveryveryveryveryveryveryverylongunbrokenwordwithnospaces \
+        and then some ordinary prose after it, long enough to wrap twice in a narrow column.\n\n\
+        ```rust\n\
+        let a_long_line_of_code = that_does_not_wrap(but_scrolls, inside_its_own_block, ok);\n\
+        ```\n\n\
+        | Column | A long cell |\n\
+        |---|---|\n\
+        | one | a cell whose text is long enough to need more than the column it is given |\n\n\
+        I'll report and commit once the review and the checks are back.";
+    fixture.update(id, 1, chunk(body), cx);
+    fixture.update(id, 2, a_tool_call("c1", "Read the file", None), cx);
+    fixture.update(
+        id,
+        3,
+        ConvUpdate::AgentChunk {
+            content: ConvContent::Text("The review found five defects.".to_string()),
+            message_id: Some("m2".to_string()),
+            subagent: None,
+        },
+        cx,
+    );
+
+    let window = cx.add_window(|_, _cx| NarrowHarness {
+        state: fixture.state.clone(),
+        agent: id,
+        width: COLUMN,
+    });
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    // The first frame draws at the estimate and measures; the frames after it draw at the
+    // measurement. Several, so a width or a height that only goes wrong later is caught too.
+    for _ in 0..4 {
+        vcx.update(|window, _| window.refresh());
+        vcx.run_until_parked();
+    }
+
+    let message = vcx
+        .debug_bounds("transcript-block-0")
+        .expect("the first message is drawn");
+    let next = vcx
+        .debug_bounds("tool-card-1")
+        .expect("the call under it is drawn");
+    assert!(
+        message.right() <= px(COLUMN),
+        "the message is held to the column rather than sized by its longest line: {message:?}"
+    );
+
+    // The same markdown in a plain column of the message's own width: how tall it is when it
+    // wraps there, which is what the transcript row has to be.
+    let column = f32::from(message.size.width);
+    let alone = cx.add_window(move |_, _| MarkdownColumn { width: column, body });
+    let mut acx = VisualTestContext::from_window(alone.into(), cx);
+    acx.run_until_parked();
+    let wrapped = acx
+        .debug_bounds("markdown-column")
+        .expect("the column is drawn");
+    assert_eq!(
+        message.size.height, wrapped.size.height,
+        "the message is wrapped at the column it is drawn in"
+    );
+
+    let gap = f32::from(next.top() - message.bottom());
+    assert!(
+        (0.0..=12.0).contains(&gap),
+        "the row under a message starts where the message ends, give or take the list's gap; \
+         it starts {gap}px under it"
+    );
+}
+
+/// One markdown body in a column of a fixed width, at the conversation's type size.
+struct MarkdownColumn {
+    width: f32,
+    body: &'static str,
+}
+
+impl Render for MarkdownColumn {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{InteractiveElement as _, ParentElement as _, Styled as _};
+        gpui::div()
+            .w(px(self.width))
+            .text_size(ubiq::theme::font(
+                ubiq::theme::Family::Conversation,
+                ubiq::theme::Role::Body,
+            ))
+            .child(
+                gpui::div()
+                    .debug_selector(|| "markdown-column".into())
+                    .flex()
+                    .flex_col()
+                    .child(gpui_component::text::TextView::markdown(
+                        "markdown-column-body",
+                        self.body,
+                    )),
+            )
+    }
+}

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-09
-verified: 2026-10-09
+updated: 2026-10-11
+verified: 2026-10-11
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -146,7 +146,10 @@ is in the viewport.
 every row below it) against the content, the width and the conversation family's body size. Unchanged is its
 measurement; changed is its *last*; never drawn is an estimate (a line per eighty characters). The last two
 are re-measured by the frame that draws them. The plan also records which block each row stands for, so the
-strip above can resolve a block to a row.
+strip above can resolve a block to a row. **Every row is `w_full`** (`build_row`): the list lays a row out as a
+root of its own, and a root with no width is as wide as its content's min-content — for markdown, the longest
+line unwrapped — so a message ran past the panel's edge and left a blank band where its box and its wrapping
+disagreed.
 
 **A forced re-measure runs on a timer** underneath `needs_measure`'s signature check, because a long busy
 conversation's rows drift in a way no signature explains (a resize always fixes it).
