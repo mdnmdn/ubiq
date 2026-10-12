@@ -323,6 +323,7 @@ pub fn logs() -> &'static Logs {
 /// file, so a diagnostic session survives a restart. `RUST_LOG` sets the filter;
 /// [`DEFAULT_FILTER`] is what it falls back to.
 pub fn install() {
+    install_panic_hook();
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::builder().parse_lossy(DEFAULT_FILTER));
 
@@ -338,6 +339,70 @@ pub fn install() {
         )
         .with(file_layer())
         .try_init();
+}
+
+/// Where a panic is appended, whether or not `UBIQ_LOG_FILE` is set: `crash.log` in the platform's
+/// log directory — `~/Library/Logs/Ubiq` on macOS, `%LOCALAPPDATA%\\Ubiq\\Logs` on Windows,
+/// `$XDG_STATE_HOME/ubiq` (else `~/.local/state/ubiq`) elsewhere. `None` when no home is known.
+pub fn crash_log_path() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let home = || std::env::var_os("HOME").map(PathBuf::from);
+    let dir = if cfg!(target_os = "macos") {
+        home()?.join("Library/Logs/Ubiq")
+    } else if cfg!(windows) {
+        PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Ubiq").join("Logs")
+    } else {
+        std::env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home().map(|h| h.join(".local/state")))?
+            .join("ubiq")
+    };
+    Some(dir.join("crash.log"))
+}
+
+/// Chains a panic hook in front of the existing one: it appends a timestamp, the thread, the
+/// message, the location and a forced backtrace to [`crash_log_path`], emits the same as a
+/// `tracing` error (so it reaches the ring and `UBIQ_LOG_FILE`), then runs the previous hook so
+/// standard error still reports. Idempotent, and never panics itself.
+fn install_panic_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let thread = std::thread::current();
+            let name = thread.name().unwrap_or("<unnamed>");
+            let message = match info.payload().downcast_ref::<&str>() {
+                Some(s) => (*s).to_string(),
+                None => match info.payload().downcast_ref::<String>() {
+                    Some(s) => s.clone(),
+                    None => "<non-string payload>".to_string(),
+                },
+            };
+            let location = info
+                .location()
+                .map_or_else(|| "<unknown>".to_string(), |l| l.to_string());
+            let backtrace = std::backtrace::Backtrace::force_capture();
+            let at = chrono::Local::now().to_rfc3339();
+            let report = format!(
+                "[{at}] panic in thread '{name}' at {location}: {message}\n{backtrace}\n\n"
+            );
+            if let Some(path) = crash_log_path() {
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                {
+                    use std::io::Write as _;
+                    let _ = file.write_all(report.as_bytes());
+                }
+            }
+            tracing::error!(target: "ubiq_proto::panic", "panic in thread '{name}' at {location}: {message}\n{backtrace}");
+            previous(info);
+        }));
+    });
 }
 
 /// The optional file layer `UBIQ_LOG_FILE` asks for, or nothing.
