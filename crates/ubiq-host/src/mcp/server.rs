@@ -1238,6 +1238,7 @@ mod tests {
                 "get_task",
                 "change_state",
                 "add_comment",
+                "submit_review",
                 "add_todo",
                 "update_todo",
                 "delete_todo",

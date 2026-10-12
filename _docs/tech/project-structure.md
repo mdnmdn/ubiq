@@ -88,7 +88,7 @@ project's own folder — `D30` — with one exception the person creating a proj
         ├── kb.toml                that project's knowledge-base roots, the user's data
         ├── db.toml                that project's database connections — never a password
         ├── plans/                 one markdown plan per task that carries a level, and its sidecar
-        ├── missions/<task ulid>/  one mission: mission.toml, docs/, journal.jsonl
+        ├── missions/<task ulid>/  one mission's documents: docs/, guidance included
         ├── wiki/                  knowledge-base pages the user wrote here
         ├── agent-definitions/     that project's own agent definitions (D174)
         └── local/                 everything one machine derives — never committed

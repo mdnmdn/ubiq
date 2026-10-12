@@ -36,6 +36,8 @@ const PATIENCE: Duration = Duration::from_millis(300);
 
 /// A second edition's id: a string literal in its own code, never a base `const` (`D178`).
 const DEMO: SlotId = SlotId::new("test.viewer.demo");
+/// The base's own viewer, offered for any `.json` beside whatever a test contributes.
+const ARCHIFY: SlotId = ubiq::ext::ids::ARCHIFY_VIEWER;
 
 static PICKED: AtomicBool = AtomicBool::new(false);
 
@@ -286,7 +288,11 @@ fn an_offer_appears_in_the_explorer_open_with_list() {
     install();
     assert_eq!(
         ViewerKind::open_with("data.json", None),
-        [ViewerKind::Editor, ViewerKind::Contributed(DEMO)]
+        [
+            ViewerKind::Editor,
+            ViewerKind::Contributed(ARCHIFY),
+            ViewerKind::Contributed(DEMO)
+        ]
     );
     let actions: Vec<_> = menu_entries(Some("data.json"), false, true, false, false)
         .into_iter()
@@ -365,6 +371,7 @@ fn the_explorer_open_with_stage_opens_the_file_in_the_picked_viewer(cx: &mut Tes
         second.iter().map(|entry| entry.action).collect::<Vec<_>>(),
         [
             ExplorerAction::OpenWithViewer(ViewerKind::Editor),
+            ExplorerAction::OpenWithViewer(ViewerKind::Contributed(ARCHIFY)),
             ExplorerAction::OpenWithViewer(ViewerKind::Contributed(DEMO)),
         ],
         "the same menu, on its second stage"
@@ -374,7 +381,7 @@ fn the_explorer_open_with_stage_opens_the_file_in_the_picked_viewer(cx: &mut Tes
         .update(cx, |_, window, cx| {
             fixture
                 .state
-                .update(cx, |state, cx| state.pick_explorer_action(1, window, cx));
+                .update(cx, |state, cx| state.pick_explorer_action(2, window, cx));
         })
         .expect("the window is open");
     cx.run_until_parked();

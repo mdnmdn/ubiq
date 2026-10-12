@@ -431,9 +431,8 @@ at this project; `Edit` on a row reopens it in the scope it was found in, becaus
 way to move an agent definition between roots. **The project's own rows appear nowhere else.** The application's own
 Agent definitions section lists the global ones only — "visible only in the project they were created
 in" is the ask, and a second listing under Settings would contradict it. The cost of reading it
-that way is that a surface holding no project offers none of them: the new-mission dialog's
-assistant picker is the one that bites, so a project-scoped agent definition cannot be a mission assistant
-yet — a row in the backlog rather than a hedge here.
+that way is that a surface holding no project offers none of them. The new-mission dialog holds one, so
+its planner and worker pickers list the project's own definitions beside the global ones.
 
 **Tasks says which lanes this project's board draws.** Every one of the seven statuses is listed —
 hidden ones included, since a page that dropped them would be a page with no way back — with two
@@ -1224,8 +1223,7 @@ from the status group and never by wording alone. A row whose harness is not ins
 faint, the same way a harness type is in the New-agent menu, because a definition survives a machine
 that cannot run it; a switched-off one reads faint for the same reason, being listed and not on
 offer. A definition carrying `AgentDefinition::description` draws it on a second line under the
-name, elided to one rather than wrapped — the field is written for another agent to read through
-the mission tools (`tech/transport-contract.md`), and the row is a summary, not the form it can be
+name, elided to one rather than wrapped — the field is written for another agent to read (`tech/transport-contract.md`), and the row is a summary, not the form it can be
 read in full from. Each row carries `Clone`, `Edit` and `Delete` (behind a confirm), and `+ Add agent` opens
 the same form empty. No definition can be renamed — typing a different name saves a second agent definition
 beside the first — so correcting a name means saving the corrected one and deleting the old.
@@ -1274,8 +1272,8 @@ target is chosen; everything else may be left unset, because "no answer" is a re
 can hold.
 
 **A `Mission assistant` checkbox sits under `Purpose::AgentDefinition` only**, beside `persistent`, and
-answers one question a start never asks: whether this agent definition should be offered by the new-mission
-dialog's assistant picker. Ticking it writes `AgentDefinition::mission_assistant`, read forward from the
+answers one question a start never asks, and nothing reads the answer today: the new-mission dialog's
+planner and worker pickers list every definition. Ticking it writes `AgentDefinition::mission_assistant`, read forward from the
 opened agent definition so a save never silently clears a flag already set. `None` and untucked both read as
 "not an assistant" to every filter over the field — the distinction exists only so an agent definition
 extending one that is ticked can un-mention it.

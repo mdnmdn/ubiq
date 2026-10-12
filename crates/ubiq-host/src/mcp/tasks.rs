@@ -1420,4 +1420,67 @@ mod tests {
         let missing = manage_call("get_task", &json!({"task_id": "T-999"}), &facts, &access);
         assert!(missing.is_err());
     }
+
+    /// A mission with a task and a review of it, on a board of their own.
+    fn review_board() -> (WorkAccess, bus::Hub, bus::HostEnd, TaskId, TaskId) {
+        let (access, hub, host) = access();
+        let project = project();
+        let reviewed = TaskRecord::new("work".into(), None, chrono::Utc::now());
+        let mut review = TaskRecord::new("review".into(), None, chrono::Utc::now());
+        review.review_of = Some(reviewed.id);
+        let (reviewed_id, review_id) = (reviewed.id, review.id);
+        let access = WorkAccess {
+            work: Handle::new(Work::open(Box::new(MemoryTaskStore::with(
+                project,
+                vec![reviewed, review],
+            )))),
+            ..access
+        };
+        (access, hub, host, reviewed_id, review_id)
+    }
+
+    #[test]
+    fn submit_review_writes_the_verdict_on_the_review_task_and_wakes_the_runner() {
+        let (access, _hub, _host, _reviewed, review) = review_board();
+        let result = use_call(
+            "submit_review",
+            &json!({"task_id": review.to_string(), "verdict": "fail", "findings": " no tests "}),
+            &facts(),
+            &access,
+        )
+        .unwrap();
+        assert_eq!(result["verdict"], json!("fail"));
+        let (_, tasks) = access.work.lock().tasks(project());
+        let comment = tasks
+            .iter()
+            .find(|t| t.id == review)
+            .unwrap()
+            .comments
+            .last()
+            .cloned()
+            .expect("a verdict comment");
+        assert_eq!(
+            comment.event,
+            Some(ubiq_proto::mission::RunEvent::ReviewVerdict { pass: false })
+        );
+        assert_eq!(comment.text, "no tests");
+    }
+
+    #[test]
+    fn submit_review_refuses_what_is_not_a_review_and_a_fail_without_findings() {
+        let (access, _hub, _host, reviewed, review) = review_board();
+        let call = |task: TaskId, verdict: &str, findings: Option<&str>| {
+            use_call(
+                "submit_review",
+                &json!({"task_id": task.to_string(), "verdict": verdict, "findings": findings}),
+                &facts(),
+                &access,
+            )
+        };
+        assert!(call(reviewed, "pass", None).is_err(), "not a review task");
+        assert!(call(review, "fail", None).is_err(), "a fail needs findings");
+        assert!(call(review, "maybe", None).is_err(), "pass or fail only");
+        let passed = call(review, "pass", None).unwrap();
+        assert_eq!(passed["verdict"], json!("pass"));
+    }
 }

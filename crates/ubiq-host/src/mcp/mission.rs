@@ -760,3 +760,163 @@ fn required_str<'a>(arguments: &'a Value, key: &str) -> Result<&'a str, String> 
         _ => Err(format!("{key} is required")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use ubiq_proto::bus;
+    use ubiq_proto::mission::MissionSettings;
+    use ubiq_proto::work::TaskRecord;
+
+    use super::*;
+    use crate::store::memory::MemoryTaskStore;
+    use crate::work::{Handle, Work};
+
+    /// A board holding one mission in `phase`, and the hub it broadcasts through.
+    fn board(
+        phase: Phase,
+        settings: MissionSettings,
+    ) -> (WorkAccess, ProjectId, TaskId, bus::Hub, bus::HostEnd) {
+        let project = ProjectId::generate();
+        let mut parent = TaskRecord::new("ship it".into(), None, Utc::now());
+        parent.level = Some(Level::Mission);
+        parent.status = phase.status();
+        parent.mission = Some(settings);
+        let mission = parent.id;
+        let (hub, host) = bus::hub();
+        let access = WorkAccess {
+            work: Handle::new(Work::open(Box::new(MemoryTaskStore::with(
+                project,
+                vec![parent],
+            )))),
+            everyone: host.mailbox(bus::To::Everyone),
+            wake: host.voice(),
+        };
+        (access, project, mission, hub, host)
+    }
+
+    fn record(access: &WorkAccess, project: ProjectId, id: &str) -> TaskRecord {
+        let (_, tasks) = access.work.lock().tasks(project);
+        tasks
+            .into_iter()
+            .find(|t| t.id.to_string() == id)
+            .expect("on the board")
+    }
+
+    #[test]
+    fn a_review_waits_on_what_it_reviews_even_when_no_prerequisite_is_named() {
+        let (access, project, mission, _hub, _host) =
+            board(Phase::Breakdown, MissionSettings::default());
+        let result = create_mission_tasks(
+            &json!({"tasks": [
+                {"title": "build it", "ref": "build"},
+                {"title": "check it", "review_of": "build"},
+            ]}),
+            project,
+            mission,
+            Some(&access),
+        )
+        .unwrap();
+        assert_eq!(result["failed"], json!([]));
+        let created = result["created"].as_array().unwrap();
+        let build = created[0]["task_id"].as_str().unwrap();
+        let check = record(&access, project, created[1]["task_id"].as_str().unwrap());
+        assert_eq!(
+            check.review_of.map(|id| id.to_string()),
+            Some(build.to_string())
+        );
+        assert_eq!(
+            check
+                .prerequisites
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec![build.to_string()],
+            "review_of implies the prerequisite"
+        );
+        assert_eq!(check.parent, Some(mission));
+    }
+
+    #[test]
+    fn a_named_prerequisite_is_not_added_twice_and_an_unknown_one_is_refused() {
+        let (access, project, mission, _hub, _host) =
+            board(Phase::Breakdown, MissionSettings::default());
+        let result = create_mission_tasks(
+            &json!({"tasks": [
+                {"title": "build it", "ref": "build"},
+                {"title": "check it", "review_of": "build", "prerequisites": ["build"]},
+                {"title": "orphan", "prerequisites": ["nowhere"]},
+            ]}),
+            project,
+            mission,
+            Some(&access),
+        )
+        .unwrap();
+        let created = result["created"].as_array().unwrap();
+        assert_eq!(created[1]["prerequisites"].as_array().unwrap().len(), 1);
+        let failed = result["failed"].as_array().unwrap();
+        assert_eq!(
+            failed.len(),
+            1,
+            "the entry naming nothing is refused, not created bare"
+        );
+        assert_eq!(failed[0]["title"], json!("orphan"));
+    }
+
+    #[test]
+    fn tasks_are_drafted_in_backlog_while_planning_and_ready_once_the_mission_runs() {
+        for (phase, expected) in [
+            (Phase::Planning, Status::Backlog),
+            (Phase::Breakdown, Status::Backlog),
+            (Phase::Running, Status::Ready),
+            (Phase::Paused, Status::Ready),
+        ] {
+            let (access, project, mission, _hub, _host) = board(phase, MissionSettings::default());
+            let result = create_mission_tasks(
+                &json!({"tasks": [{"title": "one"}]}),
+                project,
+                mission,
+                Some(&access),
+            )
+            .unwrap();
+            let id = result["created"][0]["task_id"].as_str().unwrap();
+            assert_eq!(record(&access, project, id).status, expected, "{phase:?}");
+        }
+    }
+
+    #[test]
+    fn approve_defaults_to_the_missions_setting_and_an_entry_can_override_it() {
+        let settings = MissionSettings {
+            approve: true,
+            ..MissionSettings::default()
+        };
+        let (access, project, mission, _hub, _host) = board(Phase::Breakdown, settings);
+        let result = create_mission_tasks(
+            &json!({"tasks": [
+                {"title": "default"},
+                {"title": "override", "approve": false},
+            ]}),
+            project,
+            mission,
+            Some(&access),
+        )
+        .unwrap();
+        let id = |n: usize| {
+            result["created"][n]["task_id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert!(record(&access, project, &id(0)).approve);
+        assert!(!record(&access, project, &id(1)).approve);
+    }
+
+    #[test]
+    fn an_empty_breakdown_is_an_error() {
+        let (access, project, mission, _hub, _host) =
+            board(Phase::Breakdown, MissionSettings::default());
+        assert!(
+            create_mission_tasks(&json!({"tasks": []}), project, mission, Some(&access)).is_err()
+        );
+    }
+}

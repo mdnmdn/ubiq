@@ -80,7 +80,7 @@ conversation at once, and the host is never told.
 
 **On the chat surface, the same `+` gains a third part: *New mission* and a searchable *Missions*
 list (§6.3).** A separator, then *New mission* (`AppState::open_new_mission`, the toolbar's own
-dialog) and *Missions*, disabled when the project has none open — every mission not `Completed` or
+dialog) and *Missions*, disabled when the project has none open — every mission not `Done` or
 `Abandoned`, most recently active first, searched by key and title (`AppState::open_missions`).
 Neither row is offered on the agents screen's own control or the kitchen sink's bench, since neither
 starts or opens a mission. Picking a row reveals that mission's side panel
@@ -271,7 +271,7 @@ once the row is written, which is `G223`.
 **The initial prompt is sent for the user.** The dialog's optional `Initial prompt` field is held
 until `Message::ConversationStarted` and then sent as the conversation's first user message, the
 preamble folded in front of it, so the agent starts working without a keystroke. The assign-to-agent
-and mission-spawn briefings prefill it, which is why those agents begin on their own.
+briefing prefills it, which is why that agent begins on its own.
 
 **The initial prompt is the form's keyboard rest.** The form opens with the keyboard in it, which
 is also what puts the modal on the focus path — `⌘⏎` confirms the form from inside a field, and
@@ -538,18 +538,18 @@ agent in a column comes to the front of it, and a benched one opens a column of 
 the focused column when the row is already full. The row folds its session, and the header's one
 control folds every session or opens every one. **Each agent row carries the hexagon status mark** (`ui::teams::status::status_mark`), a status chip showing the agent's current activity (`status.chip()`) in the status's color, and — for agents with live conversations — the shared three-dots lifecycle menu (`lifecycle_menu`).
 
-**A Missions section sits above the sessions (M14).** One row per mission not `Completed` or
+**A Missions section sits above the sessions (M14).** One row per mission not `Done` or
 `Abandoned`, most recently active first — closed ones sort last and draw only once the header's
 own *show closed* toggle is on, which itself is offered only where there is a closed mission to
 show. A row carries the same hexagon every other mission surface draws, a phase chip, the key and
-title, a *needs you* dot while anything is pending, and the roster's size; the chevron alone
-expands it to the roster, and the rest of the row opens the mission panel — a session row's own
+title, a *needs you* dot while anything is pending, and the count of its live agents; the chevron alone
+expands it to its live planner and workers, and the rest of the row opens the mission panel — a session row's own
 split between folding and opening, applied a second time. The header carries `New agent` beside
 `New mission`, so the first mission in an empty project is made from here without a trip to the
 board. **An agent inside a mission keeps its session group and carries a chip there instead of
 being moved out** — the same conversation is never listed as two different things — the chip
 naming the mission (its key, or its title) in the phase's own colour, read once from every
-mission's active roster rather than searched per row. The roster a mission's own row expands to is
+mission's live agents rather than searched per row. The list a mission's own row expands to is
 narrowed through `AgentsView::live_agents` on this screen's usual rule, so a mission member with no
 live conversation here is silent rather than drawn wrong.
 
@@ -714,10 +714,10 @@ status chip (`status.chip()` in the status's card colour), the hexagon status ma
 with live conversations — the three-dots lifecycle menu. `missions_section` (M14) reads `OpenProject::missions` straight, no view of its own
 beyond `AgentsView::mission_expanded`/`is_mission_expanded` (which rows are unfolded) and
 `show_closed_missions`, both toggled from the header; `mission_row` and `mission_roster` draw one
-row and its expansion, and `roster_of` narrows a `MissionRecord::roster` to the agents this window
-holds live, `left_at` excluded, the same shape `AgentsView::live_agents` gives every other reader.
+row and its expansion, and `roster_of` narrows a `MissionSnapshot::agents` to the agents this window
+holds live, the same shape `AgentsView::live_agents` gives every other reader.
 `mission_chips` is the one function behind a session member's chip: a `HashMap<AgentId, (String,
-Rgba)>` built once per render from every open mission's roster, read by `agent_row` rather than
+Rgba)>` built once per render from every open mission's live agents, read by `agent_row` rather than
 searched per agent.
 
 ## Failure

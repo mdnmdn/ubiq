@@ -1,6 +1,6 @@
 //! One mission, drawn.
 //!
-//! Two surfaces over one mission (`_docs/wip/note-plan.md`): the **side panel** in
+//! Two surfaces over one mission (`_docs/features/workbench-tasks.md`): the **side panel** in
 //! [`panel`] — a fast overview, short, no scrolling in the ordinary case — and the **full view**
 //! in [`full`], which is one view in two shapes, a modal and a document tab. They share
 //! [`crate::state::mission::MissionView`], so the panel's progress bar hands the full view a

@@ -3785,6 +3785,8 @@ task, every time, rather than once on write.
 
 ### D165 — A mission is its anchor task, keyed by that task's own `TaskId`, with no second id space
 
+**Superseded in part by `D217`.** The identity rule stands: a mission is its parent task and has no second id space. The sidecar record described below is gone — the phase is the parent's status and the settings sit on the task.
+
 A mission needed an identity, a phase, a roster and its own settings, and the obvious shape was a
 new record type with its own id, referencing the task it grew from. That was rejected: a
 `MissionId` distinct from the anchor's `TaskId` would mean every existing message, MCP tool and
@@ -3826,6 +3828,8 @@ rather than offered as a question.
 
 ### D167 — A phase request is attributed by the host, off the mission's own coordinator, never by a requester the wire carries
 
+**Superseded by `D217`.** A mission has no coordinator and no `RequestPhase` message; the planner's `request_phase` tool leaves a `PhaseRequested` comment and moves nothing.
+
 `RequestPhase` names no requester: `Missions::request_phase` reads `MissionRecord::coordinator` and
 stamps `Actor::Agent(id)`, or `Actor::Host` when no coordinator is attached yet. The alternative —
 an `Actor` field on the message, the way `PendingPhase::by` and `PhaseEntry::by` both carry one —
@@ -3840,6 +3844,8 @@ merely implausible.
 through `message_agent` or `report_progress` instead of a phase request of its own.
 
 ### D168 — `SetPhase` is one message carrying three acts, told apart by the phase it names
+
+**Superseded by `D217`.** `SetPhase` is gone; the phase moves through `MissionControl`'s named actions, each refused outside its own phase.
 
 A step on the stepper, the `⋯` menu's Complete and Abandon, and both answers in *Needs you* all send
 `SetPhase { phase }`, and `Missions::set_phase` reads which of three things happened from the
@@ -3859,6 +3865,8 @@ sound: a mission with nothing pending has no phase a free move could collide wit
 
 ### D169 — The mission journal is a real append-only log, and its documents are named on the record rather than through a listing message
 
+**Superseded by `D217`.** There is no journal file; history is computed from the tasks' comments, the plan's revisions and the guidance document. The documents are named on `MissionSnapshot::documents`.
+
 Two choices made together, both against inventing a moving part S3 does not need. `journal.jsonl` is
 written with `OpenOptions::append(true)` and one line per write
 (`crates/ubiq-host/src/store/mission.rs::append_journal`), never through
@@ -3876,6 +3884,8 @@ diff — both accepted because a mission's journal and document count are small 
 volume this design was built to scale past.
 
 ### D170 — The host relays a spawn request; the window applies the policy and mints the agent
+
+**Superseded by `D217`.** Spawn requests, kinds and policy are gone. What stands is the split: the host asks one window through `MissionLaunch`, and the window mints the agent.
 
 `spawn_agent` on `ubiq-mission` posts `Message::MissionSpawnRequest` and returns at once — the host
 never launches anything itself. The alternative was letting the host read `SpawnPolicy` and start
@@ -3895,6 +3905,8 @@ request (`G348`) — the same address gap `D120`'s own cost, paid a second time.
 
 ### D171 — The mission scheduler is a pure function on the coordinator's own loop, not a thread of its own
 
+**Superseded by `D217`.** `mission/runner.rs` replaces the scheduler on the same footing: a pure pass on the coordinator's loop, woken by events, with no pool, affinity or attempts.
+
 `mission::scheduler::plan()` takes the record, the tasks, the agents and a clock and returns a list
 of decisions; nothing about it touches the store, the bus or a clock of its own. The alternative — a
 timer thread ticking auto-mode missions on an interval — was rejected: a scheduler that runs on a
@@ -3912,6 +3924,8 @@ be later than five minutes after the grace actually expired if nothing else abou
 changes meanwhile.
 
 ### D172 — A coordinator handoff briefs by pointer, never by copy
+
+**Superseded by `D217`.** A mission has no coordinator to hand off.
 
 The incoming coordinator is told to call `read_brief`, `read_plan`, `list_documents` and
 `mission_overview` rather than being handed their contents in the handoff message itself. The
@@ -4029,6 +4043,8 @@ registered early in a turn is not seen until that turn ends, so a model that ign
 produces a question that arrives late rather than one that arrives wrong.
 
 ### D176 — Mission feedback that finds no coordinator spawns one, rather than refusing
+
+**Superseded by `D217`.** Feedback is guidance: a note in the guidance document that every later worker reads, optionally sent to running workers too.
 
 `AppState::send_mission_feedback` used to refuse a mission with no coordinator on the record: the
 composer read as faint, the button read "no coordinator to tell", and the line went nowhere. That
@@ -5409,6 +5425,24 @@ must still age out, or the run root grows without bound (`D97`).
 
 **Cost:** disk held for up to `retain_conversations_days` per conversation the user never marked, and a
 setting that is on by default for everyone with an ACP harness.
+
+### D217 — A mission has no coordinator: it is a task tree worked by a deterministic runner
+
+A mission is a parent task, its subtasks linked by prerequisites, a plan and its documents. The
+phase is the parent's status (`Phase::of`). `mission/runner.rs` is Ubiq code that starts ready tasks
+up to `parallel`, waits for **Confirm** on a task with `approve` set, and shows **Retry** for a worker
+that is gone. Human tasks and reviewer tasks are subtasks assigned to a person or a reviewer agent,
+and the planner exits at **Start mission**. The mission record, journal, roster, agent kinds, spawn
+policy and relay, scheduler, `use-mission` server and Teams fence are removed.
+
+**Why:** an LLM coordinator spent tokens deciding what a table of prerequisites already says, could
+stall or drift, and needed a second state store, a relay and a policy to be steered. A runner is
+testable as inputs and expected steps, its state is the board and the documents, and nothing is lost
+when the app closes.
+
+**Cost:** no agent decides mid-run to spawn another, split a task or re-plan. The user does that
+through Replan, guidance and the task board. A restart loses the live workers, and the runner starts
+nothing on its own afterwards.
 
 ## Related docs
 

@@ -11,6 +11,7 @@
 use chrono::{DateTime, Utc};
 use ubiq_proto::ids::{ProjectId, SessionId, StepId, TaskId, WorkspaceId};
 use ubiq_proto::messages::Message;
+use ubiq_proto::mission::MissionSettings;
 use ubiq_proto::work::{
     Activity, AgentId, Attachment, Bucket, Comment, CommentAuthor, Complexity, Kind, Label, Level,
     Priority, Shape, Speaker, Status, Step, StepState, TaskRecord,
@@ -87,6 +88,11 @@ fn a_task_with_everything_on_it_survives_the_wire_unchanged() {
             "leave a note".to_string(),
             moment(),
         )],
+        approve: true,
+        review_of: Some(TaskId::generate()),
+        worker: Some(AgentId::generate()),
+        auto_fails: 2,
+        mission: Some(MissionSettings::legacy()),
         created_at: moment(),
         updated_at: moment(),
     };

@@ -3,15 +3,16 @@ id: inbox-mission
 title: Proposal — the mission as a first-class entity
 kind: proposal
 status: proposal
-summary: Promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a fast-overview side panel and a full view (modal or document tab) with the WBS, open missions in the side docks' `+` menu, a New mission entry in the Teams `+` chevron, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, a `ubiq-mission` / `use-mission` MCP pair, task prerequisites with a derived "not ready" mark so the planner can lay out a WBS, and two execution modes — manual, or auto with a mission scheduler that feeds ready tasks to agents at a set parallelism with label affinity. The mission detail colours tasks by work state, waiting-on-prerequisites apart from blocked, and the Tasks board gains a searchable per-mission filter. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
+summary: Simplified since the original text below — a mission is a parent task plus subtasks plus a deterministic runner, with no coordinator, mission record, journal, agent kinds or second MCP server (the superseded decisions are marked, the built model is stated right after the intro). Original, partly superseded text — promote today's mission — a task carrying `Level::Mission`, its plan, its children and the new-mission dialog — into an entity with a lifecycle of its own. Four phases (requirements, refining, in progress, completed) with user-gated transitions, a mission record beside the task keyed by the same `TaskId`, a fast-overview side panel and a full view (modal or document tab) with the WBS, open missions in the side docks' `+` menu, a New mission entry in the Teams `+` chevron, a Missions section in the Agents sidebar, a fence with a drag handle on both Teams canvases, spawn and attach of coordinator and worker agents, a document set beyond the plan, a journal, a `ubiq-mission` / `use-mission` MCP pair, task prerequisites with a derived "not ready" mark so the planner can lay out a WBS, and two execution modes — manual, or auto with a mission scheduler that feeds ready tasks to agents at a set parallelism with label affinity. The mission detail colours tasks by work state, waiting-on-prerequisites apart from blocked, and the Tasks board gains a searchable per-mission filter. Everything that exists — the task record, parent/child, attachments and references, the plan store and annotations, `ubiq-plan`, `NewMissionForm`, `WorkAgent::task` — is reused rather than replaced. Every fork is a numbered decision with a recommendation and a cost.
 read_when: you are working on missions, the mission panel, the mission fence on the Teams graph, mission phases, or the mission MCP servers
-updated: 2026-09-24
+updated: 2026-10-12
 depends_on: [feat-workbench-tasks, feat-workbench-teams, feat-workbench-agents, feat-chat, feat-workbench, tech-transport, tech-decisions, wip-planning-system, inbox-hitl-dialogs, inbox-graph-layout, inbox-agent-graph-final]
 ---
 
 # Proposal — the mission as a first-class entity
 
-**A proposal to work on, not a settled design. Nothing here is built.** Every fork is a numbered
+**A proposal to work on, not a settled design. The simplified model in "The simplified model" below
+is built; the numbered decisions it supersedes are marked and kept as history.** Every fork is a numbered
 decision **M1–M27** with a recommendation and a cost; §12 stages the work; §13 lists what is still
 open for discussion. A decision that lands takes a `Dnn` row from **D164** upward.
 
@@ -29,6 +30,36 @@ piece of work* needs on top of those parts — a phase, a roster, documents, a j
 its own and a tool surface for its agents. It adds no parallel task model, no second plan store and
 no second id space.
 
+## The simplified model
+
+The heavy design below was cut down. **A mission is a task tree plus a runner**: a parent task
+(`Level::Mission`, carrying `TaskRecord::mission`, a `MissionSettings`), subtasks linked by
+prerequisites (M19), the plan and the attached documents. No mission entity, no state outside the
+tasks and their documents. Cut: M1, M2, M4, M10, M12, M13, M15, M16, M23, M24 and the coordinator in
+M22 (each marked where it stands); `MissionId`, `mission.toml`, the scheduler, agent kinds,
+`SpawnPolicy`, the spawn relay, the roster, the journal, the `use-mission` server and the Teams fence
+are gone. Kept, in the shapes below: M3, M5 (as gates), M6–M9, M14, M17–M21, M25–M27; M11's roster is replaced by each task's `worker` and the Running list.
+
+| Idea | Is |
+|---|---|
+| Task tree | Parent plus subtasks; a subtask `assigned_to` a person is a human task the runner never starts; one with `review_of` set is an agent review of that task |
+| Phase | The parent's **status**: `backlog` Planning, `ready` Breakdown, `in progress` Running, `blocked` Paused, `in review` Review, `done`, `abandoned`. `Phase::of(Status)` |
+| Settings | `driver` (`auto` / `manual`), `planner`, `worker` (agent definition ids), `parallel`, `approve` (default of new subtasks); per task `approve: bool` |
+| Runner | `mission/runner.rs`: pure decisions over the task tree (`pass()`, `needs_you()`, `snapshot()`), carried out by `Missions` on the coordinator's thread; no LLM coordinator |
+| Breakdown | Between **Approve plan** and **Start mission**: the planner drafts subtasks in `backlog`, the runner ignores them, the user edits; **Redo breakdown** sends a note to the planner |
+| Approve / confirm / reject / retry | A ready task starts a `worker` up to `parallel`; its worker moves it to `in review`; `approve` off counts as satisfied, on waits for **Confirm** or **Reject** (feedback becomes a comment and goes to the live worker, or rides the retry prompt); a worker gone with the task in progress shows **Retry**, no cap, no automatic retry |
+| Review tasks | A reviewer agent task (`review_of`) closes through `use-task`'s `submit_review`: pass, or fail with findings sent to the reviewed task; two consecutive automatic fails stop the loop and land in Needs you. Human tasks close with **Done** or **Fail** |
+| Guidance | The guidance document, a mission document; every worker started afterwards gets it in its prompt, and *also send to running workers* delivers it as a message |
+| History | Computed from the tasks' comments (the runner writes one `RunEvent` comment per transition), the plan revisions and the guidance document; there is no journal |
+| Restart | The runner is host code and resumes by itself; a task left in progress with no live worker shows **Retry**, a stopped planner shows **Resume planner**; nothing respawns on its own |
+| Needs you | The one list of items waiting on the user: planner asking, plan ready, tasks drafted, planner stopped, awaiting approval, human task ready, worker gone, review failed twice, ready for review (and the next ready task under `manual`) |
+
+Replan pauses the mission, the planner revises the plan and the unstarted tasks, and Breakdown shows
+the changes before **Start mission** resumes. Open annotation threads warn at the plan gate and do
+not block it. A new mission can start from an initial plan, a file or pasted text, copied in as the
+plan's first revision by the host. `features/workbench-tasks.md` owns the behaviour and
+`tech/transport-contract.md` the messages.
+
 ## 1. What exists, and what is missing
 
 | Already there | Where | Reused as |
@@ -40,7 +71,7 @@ no second id space.
 | Plan at `plans/<TaskId>.md`, annotations, provenance, `PlanConflict` | `store/plan.rs`, `plan/`, `D157`–`D161` | the mission's plan, unchanged |
 | `DocumentHandle` keyed family | `ubiq-proto/src/plan.rs` | extended with one arm for mission documents |
 | `ubiq-plan`, `manage-ubiq-tasks`, `use-task`, `ubiq-ask` | `ubiq-host/src/mcp/` | composed with, not duplicated |
-| `NewMissionForm`, `mission_briefing()`, `ProfileInfo::mission_assistant` | `state/new_mission.rs`, `app/new_mission.rs` | the new-mission dialog, widened |
+| `NewMissionForm`, `ProfileInfo::mission_assistant` | `state/new_mission.rs`, `app/new_mission.rs` | the new-mission dialog, widened |
 | `WorkAgent::task`, `WorkAgent::parent`, `AssignAgent`, `SendToAgent` | `work.rs`, work family | the roster, derived |
 | Task containers, delegate ring fences, project fences | `state::layout::fence`, `TeamsView` | the mission fence, one level up |
 | `mission_term` (app default and project override) | `HostSettings`, `ProjectRecord` | the entity's name everywhere it is drawn |
@@ -72,6 +103,8 @@ Roster  = agents whose WorkAgent::task is the mission or one of its children   �
 
 ### M1 — Identity: the anchor task's id, or a `MissionId` of its own
 
+**Superseded.** The mission is its parent task; there is no `MissionId`.
+
 **Settled: (a).** The anchor task is mandatory.
 
 - **(a) `TaskId`.** A mission *is* its anchor task; the mission record is a sidecar
@@ -86,6 +119,8 @@ independent id; a mission can never exist without a card on the board. Demoting 
 (`Level` → `None`) must be refused while a mission record exists, or archive it (M3).
 
 ### M2 — Where the mission's state lives
+
+**Superseded.** No `mission.toml`; the state is the parent's `MissionSettings` and the tasks' own fields, comments and documents.
 
 - **(a) Recommended:** a `MissionStore` beside `FilePlanStore`, one directory per mission under
   `<config root>/projects/<ProjectId>/missions/<TaskId>/`, held behind a `mission::Handle`
@@ -118,6 +153,8 @@ what the user exports or what an agent writes there as work.
 | *Abandoned* | — | terminal, from any phase | `Abandoned` |
 
 ### M4 — The phase is its own field; `Status` is derived from it
+
+**Superseded.** The phase is the parent task's status, read through `Phase::of`.
 
 - **Recommended:** `MissionRecord::phase` is the truth; the anchor's `Status` is written from it by
   the host on each transition (table above), so the board, the Teams tasks drawer and every
@@ -200,6 +237,8 @@ side docks' `+` menu (§6.3), not only the board.
 | Start | creates + launches | unchanged sequence + `CreateMission` (M17), briefing mentions `ubiq-mission` |
 
 ### M10 — Coordinator and assistant are one role
+
+**Superseded.** No coordinator in any form; a deterministic runner drives the mission and the planner exits at **Start mission**.
 
 - **Recommended:** one role, **coordinator**, held by at most one agent at a time; in Requirements
   and Refining it behaves as the assistant (its briefing says so), in In progress it plans work and
@@ -364,6 +403,8 @@ children), **or it was spawned by an agent that is in the mission**.
 
 ### M12 — The journal
 
+**Superseded.** No journal; history is computed from comments, plan revisions and the guidance document.
+
 - **Recommended:** `missions/<TaskId>/journal.jsonl`, append-only, one event per line: phase
   requested / changed, agent joined / left / role changed, task created / finished, document
   written, progress reported, feedback given, ask raised / answered. Written by the host at the
@@ -372,6 +413,8 @@ children), **or it was spawned by an agent that is in the mission**.
   contract says it lacks, scoped to missions.
 
 ### M13 — Spawning an agent from a mission
+
+**Superseded.** No agent kinds, spawn policy or relay; the runner launches the mission's `worker` on a ready task.
 
 The user spawns from the panel: the window composes `StartConversation` exactly as the New agent
 form does, with the mission's `project_id`/`session_id`, the mission's MCP servers ticked, and an
@@ -428,6 +471,8 @@ change" lands.
 
 ### M15 — The fence is derived; the handle is the only new object
 
+**Superseded.** No Teams fence, handle or mission filter; a mission opens from the board, the dock `+` menu and the Agents sidebar.
+
 - **Recommended:** the fence is the union of the mission's own task container and its children's,
   padded by `GROUP_PAD`, computed each frame like every enclosure today (`D41`: position is the
   interface's fact, membership the host's). Nesting, outermost first: project fence (All Teams) →
@@ -463,6 +508,8 @@ change" lands.
 ## 10. MCP
 
 ### M16 — Two servers, the `manage` / `use` split the task servers already have
+
+**Superseded.** One `ubiq-mission` server for the planner and final reviewer, trimmed to the brief, documents, `create_mission_task(s)` and `request_phase`; no `use-mission`, `spawn_agent`, `message_agent` or `read_feedback`; workers report through `use-task`, whose `submit_review` carries a reviewer's verdict.
 
 `ubiq-mission` for the coordinator, `use-mission` for workers. Both resolve the mission from the
 calling agent's `AgentFacts::mission` (M11); a call from an agent outside a mission answers with a
@@ -573,6 +620,8 @@ suggested agent kind. The tools are the task tools that exist, widened:
 
 ### M22 — Two execution modes
 
+**Partly superseded.** The coordinator is gone; the switch is the `driver`, `auto` or `manual`, changeable at any time, and `manual` lists ready tasks with a start button.
+
 `MissionRecord::execution`: **Manual** (default) or **Auto { parallelism }**, switchable by the user
 at any time from the panel header or the Teams handle's menu; a switch is journaled.
 
@@ -584,6 +633,8 @@ at any time from the panel header or the Teams handle's menu; a switch is journa
   scheduler's pool). Auto only runs in the In-progress phase; leaving it pauses the scheduler.
 
 ### M23 — The mission scheduler
+
+**Superseded.** The runner starts ready tasks up to `parallel`; no pool, `spawn_limit`, attempts or `on_finish`.
 
 - **Where:** in the host, `mission::scheduler`, run on the coordinator's own loop on the events it
   already receives — a task changed, an agent's activity or lifecycle changed, the mode or
@@ -617,6 +668,8 @@ Settings on `MissionRecord`, edited from the panel: `parallelism` (default 2), `
 bloated one), `max_attempts`, default kind.
 
 ### M24 — Affinity by labels
+
+**Superseded.** No affinity; a task's `assigned_to` definition, else the mission's `worker`.
 
 - **Recommended:** the labels the task already carries (`TaskRecord::labels`) are the affinity
   vocabulary; nothing new is added to the task. An agent's **affinity set** is the union of the

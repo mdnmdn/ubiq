@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use ubiq::state::layout::{CARD_GAP_X, CARD_GAP_Y};
 use ubiq::state::teams::{
-    Algo, CARD_WIDTH, GRAIN_CEILING, GRAIN_LIFE, GROUP_LABEL, GROUP_PAD, RING_PAD,
+    Algo, CARD_WIDTH, GRAIN_CEILING, GRAIN_LIFE, GROUP_LABEL, RING_PAD,
     TEAMS_CARD_HEIGHT, TeamsHeld, TeamsSelection, TeamsView, ZOOM_MAX, ZOOM_MIN,
 };
 use ubiq::state::work::WorkProjection;

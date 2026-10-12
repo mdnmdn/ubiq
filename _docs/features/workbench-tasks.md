@@ -3,11 +3,11 @@ id: feat-workbench-tasks
 title: Tasks mode — the board
 kind: feature
 status: draft
-summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
+summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions — a parent task worked by a deterministic runner — and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
 updated: 2026-10-12
 verified: 2026-10-12
-code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/queue.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
+code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/queue.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/ui/mission/note.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mission/prompts.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -96,11 +96,11 @@ cards would count only the ones on screen and land the drop above however many a
 below the last card, or into an empty column, is the end of that column. Reordering inside one column
 is the same act as moving between two, and neither disturbs the order of any other column.
 
-**Dropping a mission's own anchor card is a phase move, never a raw status write.** The window
-sends the same `MoveTask` a drop always sends; the host reads the column the card landed in as the
-phase it means and routes the drop through the phase rules — gate and all — before writing anything,
-so a mission cannot be dragged past `require_plan` any more than its stepper can. A drop that lands
-in the column the mission's phase already implies is an ordinary reorder, nothing else.
+**A mission's parent card does not drag to another column.** Its column is its phase, and a phase
+moves only through the mission's own controls (`MissionControl`), each refused outside the phase it
+belongs to. The window sends the same `MoveTask` a drop always sends, and the host answers a
+`MissionError` for a mission parent landing in a column other than its own. A drop in the column the
+phase already implies is an ordinary reorder.
 
 **A column shuts to a strip and a card shuts to its title.** A board is read by ignoring most of it,
 so both fold: a shut column keeps its dot, its count and its name written downwards, and still takes
@@ -137,15 +137,17 @@ is one project's work, so there is nothing to choose between. Starting an agent 
 "who should work on this" without leaving the board to do it; the task the agent ends up working
 still needs its own card.
 
-**`New mission`, beside them both, writes a card and launches its assistant in the same act.** The
-dialog asks a title, a description, a `require plan` flag and an assistant, picked from whichever
-agent definitions are marked fit to run one — the empty case reads as a sentence pointing at the agent definition
-editor rather than as an empty picker. Start is refused until a title is typed and an assistant is
-chosen. On Start the task is created, promoted to a mission and given its description, and the
-chosen agent definition is launched with `manage-ubiq-tasks` and `ubiq-plan` ticked and an opening turn
-carrying the mission's title, id and description — the `require plan` flag adds one more sentence to
-that turn, a reminder rather than anything the host enforces. The button is labelled with the
-project's own word for a mission, the same reading the board's level chip already gives it.
+**`New mission`, beside them both, writes a card and launches its planner in the same act.** The
+dialog asks a title, the requirements (markdown), attachments from the task attachment picker over
+the project and the knowledge base, existing tasks to include as subtasks, an optional initial plan
+(*None*, *File…* — the same picker answering with one target — or *Paste*), the **driver** (`Auto`
+or `Manual`), the **planner** and **worker** agent definitions, and under *More* `parallel` and
+`approve each task`. Start is refused until a title is typed. It sends one `CreateMission`; the host
+creates the parent in `backlog`, writes the requirements as its description, adopts the included
+tasks, saves the initial plan as the plan's first revision (reading a picked file itself, so the
+dialog waits for nothing) and asks this window to start the planner, which is told to refine a given
+plan rather than write one. The button is labelled with the project's own word for a mission, the
+same reading the board's level chip already gives it.
 
 **A card written as a description names itself.** A draft with a description and no title is
 created under a stand-in — the first line of that description, taken as plain text, cut to sixty
@@ -207,7 +209,7 @@ user never selected and refusing would leave a board that can never be cleared.
 
 **A task can wait on another, typed and directed, and readiness is never stored.** Prerequisites
 are `references`' typed sibling: a chip list on the panel naming the tasks this one needs
-`InReview` or `Done` before work should start, refused by the host for a self-reference, a task in
+to satisfy it before work should start (`ubiq_proto::mission::satisfies`: `Done`, `Abandoned`, or `InReview` with no pending `approve`, and always the task this one reviews), refused by the host for a self-reference, a task in
 another project, or one that would close a cycle in the DAG — three checks `parent`'s single-level
 cap never needed. Whether a task is ready, and what it is waiting on if it is not, is computed on
 demand rather than written down or sent as its own fact on the record, so it can never drift from
@@ -230,174 +232,136 @@ each row reports its threads and offers its actions — and beside it the rail o
 project's working tree at a path the user picks, never a continuous mirror. A mission nobody has
 planned says so instead of reporting an error, the same way a task with no sub-tasks does.
 
-**A mission's side panel is a fast overview**, opened from the task panel's *Open mission* row or
-the `+` menu's *Missions* list (below). `PanelKind::Mission(TaskId)` is `Free`-class and homed to
-the right region, the same as a chat tab, and several may be open at once — a mission read beside
-whatever the reader is doing rather than a place they have to go. Above a fixed top (the mission
-term, the key and title, a **live phase stepper**, and a segmented progress bar over the anchor's
-children by work state) and a fixed feedback composer at the foot, four **sections** scroll as one
-region between them: *Needs you*, *Documents*, the roster of agents pointed at the mission or one
-of its children, and *Latest* (T-184). **Every count and every segment of the bar is a filter
-toggle**: clicking one opens the full view on its Tasks tab, filtered to that state. One of the
-sections still draws its honest empty state rather than a sample — *Latest* (S3's journal).
+**A mission is a task tree worked by a deterministic runner.** The parent task carries the mission's
+settings (`driver`, `planner`, `worker`, `parallel`, `approve`), its subtasks are linked by
+prerequisites, and its **phase is the parent's status**: *Planning* is `backlog`, *Breakdown*
+`ready`, *Running* `in progress`, *Paused* `blocked`, *Review* `in review`, then `done` or
+`abandoned`. There is no coordinator agent: a planner agent writes the plan and drafts the tasks and
+then exits, and Ubiq's own runner does the rest.
 
-**The feedback composer's Send is never refused for want of a coordinator (`D176`).** A mission that
-has one gets the line as a turn, in front of the harness where it is loaded and through the same
-relaunch *Resume* asks for where it is not; a mission with none gets one spawned
-in the same act — the composition *Spawn ▾ → Coordinator* below builds, with the user's own line
-folded onto the end of its briefing, so the newly crowned agent reads it before its own first turn.
-`AppState::send_mission_feedback` is the one function behind both paths, and `ui/mission/panel.rs`'s
-`feedback()` reads which of the two the button will do — `Send` for a mission with a coordinator on
-the record, `Send — starts a <mission> coordinator` for one without — while the field's own border
-stays muted until there is a coordinator, the one remaining sign that the next line also starts one.
-The send still refuses where there is nothing to spawn a coordinator as: no kind named `coordinator`
-on the mission's own table and no agent definition ticked *mission assistant*, read back as an
-ordinary `work_error` sentence.
+1. **Planning.** The user chats with the planner, which writes the plan and any detail documents
+   through `ubiq-plan` and `ubiq-mission`. **Approve plan** moves to Breakdown. Open annotation
+   threads show as a warning on the approval and do not block it.
+2. **Breakdown.** The planner drafts the subtasks in `backlog`: prerequisites, an `approve` flag per
+   task, human tasks (assigned to a person) and review tasks. The runner ignores the draft. The user
+   edits it in the full view's Tasks tab; **Redo breakdown…** sends the planner a note to rewrite
+   it. **Start mission** moves the subtasks to `ready`, the parent to `in progress` and the planner
+   exits.
+3. **Running.** A task is ready when every prerequisite is satisfied (`done`, or `in review` with
+   `approve` off), it is assigned to no person and not started. Under `auto` the runner starts ready
+   tasks until `parallel` workers are live, launching the mission's `worker` (or the task's
+   `assigned_to` definition) with the task, the guidance and the plan in its prompt; under `manual`
+   they wait under *Next*, each with a start button. A worker moves its task to `in review`: with
+   `approve` off the task counts as satisfied, with it on the task waits for **Confirm** (`done`) or
+   **Reject…** (the feedback is recorded as a comment and sent to the live worker as its next turn,
+   or, when the worker is gone, rides the retry prompt). A worker that exits with its task still
+   `in progress` shows **⚠ worker gone** and **Retry**: no cap, no automatic retry.
+4. **Human and review tasks.** A task assigned to a person is never started: it shows in Needs you
+   with **Done** or **Fail…**, and a fail sends its feedback to the task it reviews. A task assigned
+   to a reviewer agent and placed after the task it reviews (`review_of`) launches a reviewer, which
+   closes through `submit_review`: a pass closes the review, a fail sends its findings to the
+   reviewed task and puts it back in progress. After two consecutive automatic fails the reviewed
+   task stops looping and lands in Needs you with **Confirm anyway**.
+5. **Review.** When no subtask is `backlog`, `ready` or `in progress` and no approval is pending,
+   the parent moves to `in review`. **Run agent review** starts a reviewer over the plan and the
+   mission's diff (its findings become a comment and fix tasks, which send the mission back to
+   Running), **Reject…** replans with the feedback as the note, **Mark reviewed** moves to `done`.
+   Neither review starts by itself.
+6. **Steering.** *Chat* on a Running row talks to one worker. A task that has not started is an
+   ordinary task: editing its text, `approve`, prerequisites or assignee, adding or abandoning
+   tasks, all apply because the runner reads a task when it starts it. **Guidance** appends a note
+   to the guidance document, a mission document that every worker started afterwards reads in its prompt;
+   *also send to running workers* delivers it as a message too. **Pause** starts nothing new and
+   lets the running workers finish. **Replan** pauses, resumes the planner with the plan, the board
+   state and a note, and returns through Breakdown, which marks what was added, changed or
+   abandoned; **Start mission** resumes.
+7. **App restart.** The state is the board plus the documents, so only the agents are lost. The
+   runner resumes by itself and marks each task left `in progress` with no live worker as gone;
+   nothing restarts on its own. A planner that stopped in Planning or Breakdown shows **Resume
+   planner**, which revives its conversation with *Ubiq restarted. Read the plan and the mission
+   state, and continue.*
+8. **Abandon** stops the mission's workers and sets open subtasks and the parent to `abandoned`;
+   **Complete** (the `⋯` menu, any phase) is **Mark reviewed**.
+
+**Needs you is the one list of what waits on the user**, derived by the host on every pass
+(`MissionSnapshot::needs_you`): the planner is asking, plan ready, tasks drafted, planner stopped,
+task awaiting approval, human task ready, worker gone, agent review failed twice, a worker's
+permission request, the next ready task (`manual` only) and mission ready for review, each with its
+own actions.
+
+**A mission's side panel is the cockpit**, opened from the task panel's *Open mission* row or the
+`+` menu's *Missions* list. `PanelKind::Mission(TaskId)` is `Free`-class and homed to the right
+region, the same as a chat tab, and several may be open at once. Above a fixed top — the mission
+term, the key and title, a **phase stepper** (display only, no click-to-move) and a segmented
+progress bar over the children by work state beside the **driver switch**, usable mid-run — four
+**sections** scroll as one region: *Needs you*, *Running* (one row per live worker: task, elapsed
+time, *Chat*), *Next* (only under `manual`) and *Documents* (the plan with its open-thread count,
+the guidance document and the mission's documents, each opening the existing document surface). **Every
+count and segment of the bar is a filter toggle** that opens the full view on its Tasks tab, filtered
+to that state. In **Breakdown** the middle shows the drafted task list and **Start mission** instead
+of Running and Next. A fixed **guidance composer** sits at the foot, with its *running* tick. The
+`⋯` menu offers *Pause / Resume*, *Replan*, *Open on board*, *Complete* and *Abandon*; every row is
+drawn, and one that means nothing in the current phase is dead with a tooltip saying why.
 
 **Every section opens and shuts on its own, and a mission remembers its own shape** (T-184).
-`kit::disclosure` draws each section's bar — a chevron, the title, a count — and
-`AppState::toggle_mission_section` flips `state::mission::MissionView::shut_sections`, a
-`HashMap<TaskId, HashSet<MissionSection>>` keyed by the mission's own anchor task rather than held
-once, so two side panels open on different missions never share a shape and a mission absent from
-the map opens with everything shown. This is UI-local persistence, not a fact carried on
-`MissionRecord` or a wire message — the host has no opinion about which of a window's panels are
-folded.
+`kit::disclosure` draws each section's bar and `AppState::toggle_mission_section` flips
+`state::mission::MissionView::shut_sections`, a `HashMap<TaskId, HashSet<MissionSection>>` keyed by
+the parent task, so two side panels open on different missions never share a shape. This is
+UI-local persistence, not a wire message.
 
-***Documents* draws the plan and every name in `MissionRecord::documents`** (M8), each a button onto
-the same document surface the full view's *Plan & docs* tab already raises — `ui/mission/full.rs`'s
-`doc_row` is shared by both rather than redrawn, and `documents` is derived host-side from
-`missions/<TaskId>/docs/` on every read, never queried a second time from the window.
+**Every "say why" gesture goes through one note dialog** (`ui/mission/note.rs`, `NoteKind`): a
+textarea and Send for *Reject…* and *Fail…* on a task and for *Replan…*, *Redo breakdown…* and the
+mission-level *Reject…*.
 
-**Moving a phase from a window is always `SetPhase`, never `RequestPhase`.** A step on the stepper,
-the `⋯`'s Complete and Abandon, and both answers in *Needs you* are the one message, and the host
-tells the three acts apart by the phase named: the pending request's phase confirms it, the phase
-the mission is already in declines it, anything else is a free user move. `RequestPhase` carries no
-requester — the host reads who asked off `MissionRecord::coordinator` — so a window sending one
-would be putting words in an agent's mouth. `AppState::set_mission_phase`,
-`confirm_mission_phase` and `decline_mission_phase` are the three call sites, and the plan gate is
-the host's refusal to make rather than the row's to pre-empt: with `require_plan` on, crossing
-forward into In progress is refused while the plan is empty or carries an open annotation thread,
-every open thread counted as blocking because no thread carries a separate blocking flag — stricter
-than the design called for, and tracked to loosen at T-172.
-
-***Needs you* is read off the record.** `MissionRecord::pending_phase` rides `MissionChanged`, so
-the section is a read with no second store: the phase asked for, the requester's sentence, who
-asked, and Confirm / Decline. The side panel draws the first item and a count of the rest; the full
-view's Overview draws the list, under a stepper that is live in every phase. Attention is **a flag,
-not a phase**: the mission's hexagon takes the `NeedsYou` inner mark and pulses while anything is
-pending, and its outer ring is the worst thing happening in its roster — `ui::work::worst_bucket`,
-the one rule a session group's left bar already follows, read in both places rather than written
-twice.
-
-**A member asks the mission for another agent, and the window is where that is decided.** The host
-only relays: `spawn_agent` posts a `MissionSpawnRequest` naming a *kind* — one of the mission's
-agent kinds, a name, a resolved agent definition and a description the requester read off
-`list_agent_kinds` — and returns a request id at once, without launching anything. The window
-applies the mission's spawn policy. `never` declines with a sentence over `AnswerSpawn`. `auto up
-to N` launches while the roster's workers (the coordinator excluded from the count) are under the
-mission's `spawn_limit`, and otherwise leaves the request as a row in *Needs you* rather than
-refusing it outright — over the cap is a reason to ask, not a reason to refuse (`G349`). `ask`
-leaves every request in *Needs you* too, except the scheduler's own (below), which carries its own
-consent. The *Needs you* row lets the user change the kind or the agent definition before allowing it, and
-the composition it launches with — the New agent form's own, `manage-ubiq-tasks`/`ubiq-plan` etc.
-ticked the way a coordinator's own launch is — is one function shared by this path and the panel's
-own *Spawn ▾*. **`StartConversation` carries `spawned_by`**, set to the requesting agent, which
-becomes `WorkAgent::parent` — the field M17 once said this wave would add nothing to, and does; it
-is what makes the Teams spawn connector and the roster's transitive membership (M11) real rather
-than mock-only. The answer, `AnswerSpawn`, names the kind **actually used** — the user may have
-changed it — and reaches the requester as its next prompt and a journal line; two windows open on
-the same project can each answer the same broadcast request, which is `G348`.
-
-**Spawning from the panel is the same composition, chosen rather than asked for.** *Spawn ▾* on
-the roster section offers the mission's own agent kinds plus *Custom…*, and picking one calls the
-identical `compose_mission_launch` the policy above calls, with `spawned_by` left unset — a
-person started it, not another agent. A kind naming no resolvable agent definition is the one refusal, read
-back as the sentence a request would have gotten.
-
-**A coordinator handoff detaches, and never kills.** Setting `MissionRecord::coordinator` to a
-different agent demotes the outgoing one to a worker on the same roster entry rather than ending
-its conversation, and tells it so in one sentence: finish what is running, start nothing new for
-the mission, stop asking for phase moves. The incoming coordinator is told **by pointer, not by
-copy** — `read_brief`, `ubiq-plan`'s `read_plan`, `list_documents`/`read_document` and
-`mission_overview`, in that order — because a briefing that pasted the brief, the plan or the
-journal would be a briefing that goes stale the moment any of them changes after the handoff, and
-every one of the four is one tool call away on `ubiq-mission` regardless.
-
-**A prompt landing mid-turn is a bridge's own limit, not a mission one.** The ACP bridge refuses a
-`spawn_agent` reply or a `message_agent` prompt that lands while its one turn slot is held —
-"acp runs one turn at a time" — where the Claude Code bridge's native `stream-json` path takes it.
-The smoothing queue a busy agent's prompt waits on is the interface's own `Conversation::queued`
-(above), never the host's — `message_agent`'s `SendToAgent` is journalled the moment it is sent, so
-`read_feedback` always finds it, but a prompt queued in a window that is later closed is a line the
-agent will not see until some window re-sends it, which is `inbox/message-queue-and-steering.md`'s
-subject, not this family's.
+**The task panel and the card show the mission's work.** A card gains a mission chip on a child
+(`⬡ T-200`), `waits on n`, `✋` for `approve`, `👤` for a human task and `⚠ worker gone`. The task
+detail has one **Mission** block: the approve toggle, **+ Agent review** and **+ Human review** (each
+adds a review subtask that depends on this task), **Confirm** / **Reject…** on an `in review` task
+with `approve` on, **Retry** on a task whose worker is gone, and **Done** / **Fail…** on a human
+task.
 
 **A task's work state is derived, never stored, and is not its `Status`.**
 `WorkProjection::work_state` reads a task's `Status`, whether `TaskRecord::ready` calls it ready,
 and whether any agent is assigned to it, into one `WorkState` — `Blocked`, `Waiting`, `Ready`,
 `InProgress`, `InReview`, `Done` or `Abandoned` — the same reading the mission surfaces draw their
-colour from and no other surface draws by yet. `ui::work::work_state_colour`/`work_state_soft` are
-the one place the value becomes a colour, both theme tokens.
+colour from. `ui::work::work_state_colour`/`work_state_soft` are the one place the value becomes a
+colour, both theme tokens.
 
 **The full view is one view state, drawn in two shapes.** `state::mission::MissionView` — which tab
-is on screen, the WBS zoom and selection, and the work-state filter — is read by both a
-`Layer::Mission` modal, raised by the side panel's `⤢` outside IDE mode, and a
+is on screen, the WBS zoom and selection, the work-state filter and the History filter — is read by
+both a `Layer::Mission` modal, raised by the side panel's `⤢` outside IDE mode, and a
 `PanelKind::MissionView(TaskId)` document tab in the centre region, which `⤢` opens directly in IDE
-mode instead, where the centre is already a strip of documents a modal would only cover. *Open as
-tab*, on the modal, moves the view into the tab rather than copying it — the modal closes, because
-a mission open twice would be the same thing said twice, not two things to compare. All seven tabs
-are drawn — Overview, WBS, Tasks, Agents, Plan & docs, Activity, Settings — reading the phase
-history, the anchor's own brief, the work-state counts, the prerequisite graph, the agents pointed
-at the mission, the plan on its own existing surface, and every scheduler setting on the record.
-Spend is omitted rather than shown as zero, because nothing measures a mission's yet, and the
-roster shown is `WorkAgent::task` read live rather than the stored roster, which nothing writes
-until S3.
+mode. *Open as tab*, on the modal, moves the view into the tab rather than copying it. There are
+five tabs: **Overview** (the brief, the phase history, counts per state that filter Tasks, the full
+Needs you list), **Tasks** (the prerequisite graph with a Graph/Table toggle; in Breakdown this is
+where the draft is edited), **Plan & docs** (the plan with its annotations, the document list,
+*Approve plan* and *Replan*), **History** and **Settings** (the five mission fields, each one
+`SetMissionField`, each described in a sentence).
 
-**The WBS tab is a topological layering, drawn with the Teams canvas rather than a graph engine of
+**History is computed, not stored.** `LoadHistory` asks the host for one merged, newest-first read
+of what already exists: the parent's and the subtasks' comments (the runner writes one `RunEvent`
+comment per transition — spawned, finished, rejected, retried, confirmed, a verdict, guidance), their
+status changes, the plan's revision log and the guidance document. The tab filters it by `HistoryKind`. No
+journal file exists; an event with no record gets a runner comment, not a store.
+
+**The Tasks tab is a topological layering, drawn with the Teams canvas rather than a graph engine of
 its own.** `state::wbs::layers` knows nothing about pixels: a task's level is one past the deepest
 prerequisite it names *inside the mission*, so level 0 is what can start now, and the critical path
-is the longest chain by hops — nothing on a task measures duration, so a path weighted by time
-would be a made-up number. `ui::mission::wbs` turns that into a picture out of `kit::blocks` and
-`kit::canvas`: a `Fence` per level, a `blocks::block` per task in its M26 work-state colour, a
-`Board::link` curve per prerequisite, on the same dotted ground and the same `blocks::scroller` the
-Teams graph uses. The levels run **down** the canvas because the curve's control points are
-vertical. A *Table* toggle says the same thing in columns — key, title, level, state, waits on,
-blocks, labels, assignee — and both shapes honour `MissionView::state_filter`, so the narrowing a
-progress segment set survives the move between tabs: the table lists only that state, the graph
-dims the rest rather than dropping nodes and leaving edges to nowhere. **A mission with no
-prerequisites at all is one level holding every task, and a disconnected graph is several chains
-against the same levels**; neither collapses, and a prerequisite outside the mission makes its task
-a root here rather than a dangling edge. Selecting a node opens **the board's own**
-`ui/board/detail.rs` beside the graph, so a task is edited here exactly as on the board,
-prerequisites included — `select_wbs_task` moves the board's selection, and the detail's close
-clears both. Editing a prerequisite by dragging an edge is deliberately not built; the detail's
-Prerequisites chip list is the way in.
-
-**Settings is every `MissionRecord` knob, each one a `SetMissionField`.** `require_plan`,
-`auto_refine`, execution mode and parallelism, `on_finish`, `max_tasks_per_agent`, `max_attempts`,
-spawn policy and its limit, the default kind, and the agent-kinds table — which is the Agents tab's
-own table drawn again rather than a second copy of those controls. Each row says what the setting
-does to the mission's behaviour, because these are the knobs that decide how much autonomy it has.
-The window writes nothing and journals nothing: a switch of execution mode is journaled by the host
-(M22), which is the only side that knows it landed.
-
-**The mission's `⋯` menu draws every row it will ever have, and two of them are still dead.** Six
-rows — Complete, Abandon, Pause all agents, Open on board, Open on Teams, Execution mode. Four are
-live: the two phase moves, *Open on board* — which switches to Tasks mode and selects the anchor
-card, not M27's board filter below, a separate control built beside this one — and *Pause all
-agents*, which unloads every roster member's harness and ends nothing, so every one of them
-resumes. The other two are disabled with a tooltip naming what they are waiting on: *Open on
-Teams* still says the graph has no mission fence, though Teams has drawn one since S4 — the row's
-own note has not caught up with it — and *Execution mode* is the Settings tab's, and its note now
-says so rather than claiming mission settings are not editable.
+is the longest chain by hops. `ui::mission::wbs` turns that into a picture out of `kit::blocks` and
+`kit::canvas`: a `Fence` per level, a `blocks::block` per task in its work-state colour, a
+`Board::link` curve per prerequisite. A *Table* toggle says the same thing in columns, and both
+shapes honour `MissionView::state_filter`. A mission with no prerequisites is one level holding
+every task, and a prerequisite outside the mission makes its task a root. Selecting a node opens
+**the board's own** `ui/board/detail.rs` beside the graph, so a task is edited here exactly as on the
+board; editing a prerequisite by dragging an edge is not built.
 
 **The board's toolbar carries a second filter, one mission at a time (M27).** A single-choice
-`kit::Picker`, `All tasks` plus every mission not `Completed`/`Abandoned` first and the closed ones
-last and dimmed but still pickable, stacks with the text filter and `Ready only` — all three ANDed
-in `BoardState::matches` — and the status bar's counts follow. A mission card's own *Show only this
-mission* row sets the same filter. It is saved with the board's view state per project, the same as
-every other filter on the toolbar (`T-169`), and is cleared rather than left pointing at nothing
-when the mission it names is deleted or demoted off `Level::Mission`.
+`kit::Picker`, `All tasks` plus every mission not `Done`/`Abandoned` first and the closed ones last
+and dimmed but still pickable, stacks with the text filter and `Ready only` — all three ANDed in
+`BoardState::matches` — and the status bar's counts follow. A mission card's own *Show only this
+mission* row sets the same filter. It is saved with the board's view state per project (`T-169`)
+and cleared rather than left pointing at nothing when the mission it names is deleted or demoted
+off `Level::Mission`.
 
 **The plan surface is a markdown view with its annotation layer on** (T-302). The page is an
 `MdView` — the same view a markdown tab's preview is: one row per root block of the `ubiq_md`
@@ -565,7 +529,7 @@ reply on a bound document with `auto_send` on. With it off nothing goes on its o
 `Agent` or not: the threads wait on the document, and the header's **Ask agent (n)** — shown
 whenever a bound document has open threads ending on the user's comment and `auto_send` is off —
 sends them all in one prompt. On an unbound plan or mission document
-an addressed comment goes to the mission's coordinator, else the task's assignee. An unbound file
+an addressed comment goes to the mission's planner, else the task's assignee. An unbound file
 document, a refused mutation or nobody to tell delivers nothing; the comment and its Agent mark
 stand either way. The host keeps **at most one pending prompt per agent**, merging every new thread
 into it, and delivers it the moment the agent is live, takes input and is between turns — at once
@@ -783,7 +747,7 @@ in a `Chat` tab in the right dock next to the task that named it.
 worker — tag one in Settings › Agent definitions.` rather than showing an empty dropdown; there is
 no fallback to other definitions. **Start links and renames**: on `ConversationStarted` the window
 sends `AssignAgent` for the task and renames the agent to the task's key, both before the opening
-prompt. The mission's *Any agent* does the same, with no tag filter.
+prompt.
 
 **A board can be a mirror of a board somewhere else, and a card says what that made of it** — a
 Trello board, a work-item query, a column of issues. What the binding is and how it is configured
@@ -870,27 +834,24 @@ Annotations are their own sub-family: `ListPlanAnnotations`, `AnnotatePlan`, `Re
 thread, and `PlanAnnotationsChanged` tells every other window to re-ask if it still cares. The full
 family is in `tech/transport-contract.md`, with the rest.
 
-**A mission is a third family beside the task and the plan, and it is a sidecar on the anchor task
-rather than a second record type (`D165`).** `ListMissions` goes out beside `ListWork` when a
-project is taken; `CreateMission` and `SetMissionField` go out from the surfaces above.
-`MissionList` answers the asker whole, `MissionChanged` and `MissionDeleted` are broadcasts every
-window filters by project itself, and `MissionError` reaches only whoever asked. The window keeps
-what it is told in a per-project `missions: HashMap<TaskId, MissionRecord>`
-(`app::OpenProject::missions`), replaced whole on `MissionList`, upserted on `MissionChanged`, and
-removed on `MissionDeleted` — which also drops a `MissionView::selected` pointed at the task that
-was removed. The full family, its payloads and the phase-inference rule are in
+**A mission is a fourth family beside the task, the plan and the document, and it is the parent
+task rather than a second record type (`D165`, `D217`).** `ListMissions` goes out beside `ListWork`
+when a project is taken; `CreateMission` carries the whole dialog, `SetMissionField`,
+`MissionControl`, `MissionTask` and `AddGuidance` carry every gesture, and `LoadHistory` asks for
+the timeline. `MissionList` answers the asker whole, `MissionHistory` the asker, `MissionChanged`
+and `MissionDeleted` are broadcasts every window filters by project itself, and `MissionError`
+reaches only whoever asked. The window keeps what it is told in a per-project
+`missions: HashMap<TaskId, MissionSnapshot>` (`app::OpenProject::missions`), replaced whole on
+`MissionList`, upserted on `MissionChanged` and removed on `MissionDeleted`, which also drops a
+`MissionView::selected` pointed at the task that was removed. The full family and its payloads are in
 [`../tech/transport-contract.md`](../tech/transport-contract.md).
 
-**The spawn half of the family is `MissionSpawnRequest` out and `AnswerSpawn` back, both naming a
-`SpawnId`.** The host broadcasts the request — every window holding the project sees it, which is
-`G348` — carrying a `PendingSpawn` the record also holds under `MissionRecord::pending_spawns`
-(plural, beside the singular `pending_phase`, since more than one may be open at once); the window
-answers with `SpawnOutcome::Launched { agent, kind }` or `::Declined { reason }`, and the host
-discards an answer naming a request id the record has already dropped, the same `AskId` rule every
-other ask family follows. `StartConversation` carries `spawned_by: Option<AgentId>` — the one field
-M17 said this wave would add nothing to — which the host writes onto the new agent's
-`WorkAgent::parent`. `Message::MissionSchedule` is the host's own wake, named on the wire because it
-crosses the same coordinator inbox every other message does, though no window ever sends one.
+**The runner's one request of a window is a launch.** The host posts `MissionLaunch`, addressed to
+one client, carrying a `LaunchRequest` (role, task, definition, MCP servers, prompt and, for a
+planner, the conversation to resume); the window starts or revives the conversation, assigns it,
+prompts it and answers `MissionLaunched` naming the same `SpawnId`. `Message::MissionSchedule` is the
+host's own wake to the runner, named on the wire because it crosses the same coordinator inbox every
+other message does, though no window sends one.
 
 **The mission's two surfaces are two more panel kinds and one more overlay rung.**
 `PanelKind::Mission(TaskId)` is the side panel (`Free`-class, right region); `PanelKind::MissionView(TaskId)`
@@ -1026,8 +987,7 @@ row it is about to rewrite, copies forward any key that is not one of `TaskRecor
 a field a newer Ubiq wrote, or one a Studio sidecar keeps on the same row, survives a base
 load/modify/save cycle instead of being dropped as an unrecognised field. `FileProjectStore::flush`
 does the same for `[[project]]` rows in `projects.toml`, keyed by `id` the same way. Neither store
-carries the extra keys in memory between reads — like `store/mission.rs`'s own merge, which this
-generalises from one record per file to a list of them keyed by `id` — so a key survives only from
+carries the extra keys in memory between reads — the merge is a list of records keyed by `id` — so a key survives only from
 the file last on disk, never from an in-memory copy this build never learned to read. Both stores
 refused a file whose `version` is above `TASKS_VERSION`/`CATALOGUE_VERSION` rather than opening it,
 from before this change (`StoreError::UnknownVersion`); `D179`'s addition is the unknown-field bag,
@@ -1182,39 +1142,14 @@ form. A `DocOwnershipConflict` raises `Layer::DocConflict`'s confirm and, on yes
 the requester.
 
 The new-mission dialog is three modules on the New agent form's own division: `state/new_mission.rs`'s
-`NewMissionForm` holds what was typed and `ready()`, plus `assistants()` — agent definitions filtered to
-`AgentDefinition::mission_assistant == Some(true)` — and `mission_briefing()`, the one place the opening
-turn's text is built. It collects a **whole brief**: the title (taken from the requirements' first
-line when it is left blank, as a task draft's is), the requirements as markdown, attachments from
-the task attachment picker over the project tree *and* the knowledge base, linked tasks from the
-multi-select picker with its own filter field, the `require plan` gate, the coordinator, and an
-optional plan to start from. **The brief is the anchor task's own fields**: the requirements are its
-`description`, the attachments its `attachments`, the linked tasks its `references`, so nothing new
-crosses the bus for any of them. `Coordinator` is one role in two shapes (M10) — an agent definition to launch
-or an agent already running here to adopt — and both end with one `AgentId` on the record and the
-briefing as its next turn. **Already running is checked, not assumed**: the adopt list and the
-roster's own *Attach running agent…* row (`AppState::mission_attach_candidates`) both keep only an
-agent whose conversation `conversation_live` still finds live — `work.agents` keeps a row for one
-whose harness has since been unloaded or stopped, so its transcript stays reachable, and that row is
-not a candidate to adopt. A plan pasted in is saved as the plan's first revision (`SavePlan` at
-revision `0`) and the mission opens in `Refining`; a project file and a KB document are the two
-sources not built, because both need the file's bytes read back first.
-`assistants()` itself is scope-blind; `ui/new_mission.rs` is what hands it
-`SettingsState::profiles_in(app.project(cx))` rather than the global list alone, so an agent definition scoped
-to the dialog's own project is offered beside the global ones, and `app/new_mission.rs`'s
-`settle_new_mission()` resolves the picked id through the same `profiles_in(project_id)` at launch
-time. `ui/new_mission.rs` draws it, titled with `AppState::mission_term`. `app/new_mission.rs`
-carries the mutators and `start_new_mission()`, which composes the launch out of messages that already
-exist: a `CreateTask` first, and the rest — `SetTaskField(Level::Mission)`, the description's
-`UpdateTask`, the brief's `Attachments` and `References`, `CreateMission`, `SetMissionField` for the
-gate and the coordinator, the plan's `SavePlan` and `SetPhase`, `StartConversation` and the
-briefing's `PromptAgent` — waits on the id
-`TaskCreated` answers with, parked on `BoardState::pending_mission` the way `PendingTask` already
-parks an ordinary draft, and run once by `settle_new_mission()` from `TaskCreated`'s arm. No wait is
-needed between starting the conversation and prompting it: `StartConversation.agent_id` is minted by
-the window (`AgentId::generate()`, `start_new_agent`'s own convention), so `PromptAgent` can name it
-immediately, and the coordinator's `launch_pending` already launches a pending conversation on its
-first prompt (`crates/ubiq-host/src/coordinator.rs`) — the host's own supported path, not a race.
+`NewMissionForm` holds what was typed and turns it into one `NewMission` (`ready()` needs a title),
+`ui/new_mission.rs` draws it titled with `AppState::mission_term`, and `app/new_mission.rs` carries
+the mutators and `start_new_mission()`, which sends one `CreateMission`. The host does everything
+else — `Missions::create` (`crates/ubiq-host/src/mission/mod.rs`) makes the parent, writes the brief
+(the requirements are its `description`, the attachments its `attachments`), adopts the included
+tasks, saves the initial plan as revision one, reading a picked file itself, and posts the planner's
+`MissionLaunch`. The planner and worker pickers list every agent definition the project can see
+(`SettingsState::definitions_in`); `None` leaves the choice to the window's default for the role.
 `Layer::NewMission` raises the dialog over the board.
 
 `state/board.rs` is the board's view of the same projection, and holds nothing that is a fact about a
@@ -1369,124 +1304,56 @@ report and controls again, wrapped in `kit::modal_sized` instead of the panel's 
 read the same `selected`/`editing`, so the toggle only moves where the task is drawn.
 
 **The mission surfaces are `state::mission`, `app::mission` and `ui::mission`, one module family
-each.** `state::mission::MissionView` holds the tab, the WBS zoom and selection and the work-state
-filter; `MissionMenuRow` is the `⋯`'s six rows, `enabled()` and `note()` saying which are live and
-what the rest wait on. `app::mission.rs` carries the reads (`AppState::mission`,
-`AppState::mission_view`, `AppState::open_missions` for the `+` menu's *Missions* stage) and the
-window edits — `open_mission_panel`/`open_mission_full`/`open_mission_modal`/`open_mission_tab`
-choose the shape and queue a `PanelEdit::Reveal`, the chat tab's own device for bringing a panel the
-dock already holds forward rather than opening it twice; `open_mission_tasks` is what a progress-bar
-segment calls, setting the Tasks tab and the state filter before opening the full view.
-`ui/mission/panel.rs::render` draws the side panel's fixed chrome, its four foldable sections
-(`MissionSection`) inside their own scrolling region, and the fixed composer;
+each.** `state::mission::MissionView` holds the tab, the WBS zoom and selection, the work-state
+filter and the History filter; `MissionMenuRow` is the `⋯`'s five rows, `enabled()` and `note()`
+saying which are live and what the rest wait on. `app/mission.rs` carries the reads
+(`AppState::mission`, `AppState::mission_view`, `AppState::open_missions` for the `+` menu's
+*Missions* stage), the window edits (`open_mission_panel`/`open_mission_full`/`open_mission_modal`/
+`open_mission_tab` choose the shape and queue a `PanelEdit::Reveal`; `open_mission_tasks` is what a
+progress-bar segment calls) and every gesture as one message. **`launch_for_mission` is the one thing
+only a window can do**: it answers a `MissionLaunch` by starting or reviving the conversation
+(`compose_mission_launch`) and sending `MissionLaunched`. `ui/mission/panel.rs::render` draws the side
+panel's fixed chrome, its foldable sections (`MissionSection`) and the guidance composer;
 `ui/mission/full.rs::modal`/`tab` are the two frames over the shared `body()`, with `TABS` the five
-drawn today; `ui/mission/menu.rs`
-draws the `⋯` from `MissionMenuRow::all()`. `crate::state::work::WorkProjection::work_state` and
-`work_state_counts` are the derivation the progress bar and the Tasks tab read; `ui::work::work_state_colour`/`work_state_soft`
-are its tokens. `app/wire.rs`'s `Message::MissionList`/`MissionChanged`/`MissionDeleted`/`MissionError`
-arms are the receive path into `OpenProject::missions`, described in Contract above.
+tabs; `ui/mission/menu.rs`, `settings.rs`, `wbs.rs` and `note.rs` are the `⋯`, the Settings tab, the
+Tasks tab and the note dialog. `ui/board/detail.rs` draws the Mission block and `ui/board/mod.rs` the
+card chips. `crate::state::work::WorkProjection::work_state` and `work_state_counts` are the derivation
+the progress bar and the Tasks tab read. `app/wire.rs`'s `MissionList`/`MissionChanged`/
+`MissionDeleted`/`MissionHistory`/`MissionError`/`MissionLaunch` arms are the receive path.
 
 `crate::mission::Missions` (`crates/ubiq-host/src/mission/mod.rs`) is the family's own service,
-holding the `MissionStore` (`crates/ubiq-host/src/store/mission.rs`) and reached the same way
-`Plans` reaches its own store. Every phase move — `request_phase` and `set_phase` — goes through
-`Missions::apply`, which writes the `PhaseEntry`, the anchor's `Status` (`Phase::anchor_status()`)
-and a journal line in that order before it saves and broadcasts, so the history, the board and the
-journal can never read three different moments for the same move. `Missions::join` and `::leave`
-write the roster; `Coordinator::settle_mission` (`crates/ubiq-host/src/coordinator.rs`) calls
-`join` at every mission launch and again on every `AssignAgent`, working out membership from an
-explicit assignment first and the spawner's `crate::mcp::AgentFacts::mission` otherwise.
+reached the way `Plans` reaches its store and held behind a `Handle` so the coordinator and the
+`ubiq-mission` listener share one instance (`D120`). It keeps no store: the mission is the parent
+task, its `MissionSettings` and its documents under `missions/<TaskId>/docs/` (the guidance document
+among them, `ProjectData::mission_docs`). **The runner is `mission/runner.rs`, a pure pass.**
+`runner::pass()` takes the parent, the project's tasks, the liveness of their agents, the launches
+in flight, the tasks whose launch failed and the project's definition ids, and answers `Step`s
+(launch, move the parent, act on a verdict, write a `Finished` or `Gone` line, unload a closed
+task's worker, abandon an orphaned review); `needs_you()` and `snapshot()` derive what a window
+draws from the same inputs. `Missions` carries the steps out on the coordinator's thread, writing
+each transition as a `RunEvent` comment (`CommentAuthor::Ubiq`) on the task it concerns. The
+coordinator wakes it (`Coordinator::wake_runner`) on a task change, an agent's end, a setting
+change, `MissionLaunched` and `MissionSchedule`; it keeps no thread and no timer. `AUTO_FAIL_CAP` is
+two. `mission/prompts.rs` composes what the runner says to the agents it launches: a worker gets the
+task, the plan and the guidance inline, because it has no mission server; the planner and the mission
+reviewer carry `ubiq-mission` and `ubiq-plan` and are pointed at the tools. Everything held only in
+memory — launches in flight, the window to address, failed launches, feedback waiting on a busy
+worker — is lost on a restart, and the first pass afterwards marks tasks with no live worker as gone.
 
-**The mission scheduler is a pure planner over one existing loop, with no thread and no timer of
-its own (M23).** `mission::scheduler::plan()` (`crates/ubiq-host/src/mission/scheduler.rs`) takes
-the record, the project's tasks, its agents and a clock, and answers a `Vec<Decision>` — nothing
-else touches the record, the store or the bus, which is what makes an auto-mode rule testable as a
-table of inputs and an expected list. `Missions::schedule_at` is the half that carries a plan out:
-one assignment, a prompt over `SendToAgent`, a spawn request, or a journal line, applied against
-one copy of the record and saved once so a pass that moves three tasks still writes `mission.toml`
-once and broadcasts a single `MissionChanged`. `Missions::schedule` runs it at `Utc::now()`; `plan`
-answers nothing at all for a mission not in `ExecutionMode::Auto` and in the In-progress phase
-(`MissionRecord::scheduling()`) — leaving auto mode pauses the scheduler rather than clearing the
-setting, so it resumes where it left off. There is no window control that sets `Execution::Auto`
-yet — `SetMissionField(Execution(_))` is on the wire and the host applies it, but the panel's own
-row is still disabled (above) — so this wave is reachable only from a mission already switched by
-a test or a hand-edited record.
-
-**It runs woken, on events the coordinator already receives.** A task changed, an agent's activity
-or lifecycle changed, the mode or the parallelism changed, `AnswerSpawn`, and a new
-`Message::MissionSchedule` — the host's own wake to itself, said into its inbox through a `Voice`
-the same way `Missions::tell_agent` reaches a conversation (`D138`'s pattern again) — are each
-followed by `Coordinator::wake_scheduler`, so a scheduler that has nothing to do costs one record
-read and nothing more.
-
-**The pool is the mission's `Ready` children, ready by M20, not already held.** `Backlog` is never
-picked — promoting to `Ready` is the release step — and "already held" reads both the scheduler's
-own roster bookkeeping *and* the board, because a hand-assigned agent that the scheduler had not
-yet recorded once looked idle and was stacked with a second task; the candidate filter now checks
-`agents.iter().any(|agent| agent.task == Some(task.id))` as well as its own roster. The pool sorts
-by priority, then by WBS level (`scheduler::wbs_levels`, a bounded topological layering over
-`prerequisites`, shallowest first so the work that unblocks the most goes out first), then by board
-order.
-
-**Slots are `parallelism` minus what the scheduler currently holds**, counting a pending auto spawn
-as a committed slot so a second pass cannot commit it twice; an agent waiting on a person
-(`Activity::NeedsYou`) keeps its slot. For each free slot, an idle scheduler agent already in the
-mission with affinity — the overlap between the task's labels and `RosterEntry::labels`, the union
-of every label a task it has held in this mission carried (`RosterEntry::learn`), ties to the most
-recent holder (`last_held_at`), **zero overlap never reuses** (`AFFINITY_THRESHOLD = 1`) — and
-still under `max_tasks_per_agent` gets it first; failing that, a fresh agent is spawned for the
-task's own kind, else the kind whose labels match best, else the mission's default kind, with the
-task already in its briefing. A task moved to `InReview` or `Done` frees its agent's slot for the
-same pass to refill; an agent that ends, or holds a task past `IDLE_GRACE` — five minutes, measured
-from `RosterEntry::held_since` and only ever checked at the next wake, long enough that a
-cold-starting harness is never mistaken for a stall — releases the task back to `Ready` and counts
-an attempt, and the mission's `max_attempts`th failure sends it to `Blocked` and tells the
-coordinator rather than retrying again. An agent left with nothing to go on to after every slot has
-had its turn is retired — unloaded, never ended, so its conversation stays resumable — on
-`OnFinish::Stop`, or kept idle for the next ready task on `OnFinish::ReuseOrStop`. Every child in
-review or done stops the scheduler and prompts the coordinator to request the `Completed` phase.
-
-**Six journal events are the scheduler's own record of every decision** —
-`ExecutionChanged`, `TaskScheduled` (naming the affinity it chose on, not the task's whole label
-set, so a read-back says *why*), `TaskReleased`, `TaskBlocked`, `AgentRetired` and
-`SchedulerFinished` — so auto mode is auditable by construction: every assignment, retry and
-retirement it ever makes is a line, not an inference. `create_mission_tasks`
-(`crates/ubiq-host/src/mcp/mission.rs`) is the planner's own batch form of `create_mission_task`,
-resolving a prerequisite named by a key or an id created earlier in the same call so a whole
-breakdown lands in one round trip rather than threading ids through a dozen.
-
-`MissionStore::save` merges what it writes into whatever `mission.toml` already holds on disk
-rather than replacing the file, so a key this build does not know survives a save — the fix this
-wave makes is `our_keys()`, read off a probe record with every optional field populated, so the
-merge carries over only keys the record's own serialisation would not emit; before it, an unknown
-key carried over unconditionally could resurrect a coordinator or a pending request a save had just
-cleared, since a cleared `Option` writes no key at all in TOML. Separately, `Work::with_agent`
-(`crates/ubiq-host/src/work/mod.rs`) searches the live agent list, so `SendToAgent` and
-`AssignAgent` — `message_agent`'s host side among them — reach a real running agent.
-
-The `ubiq-mission` (13 tools) and `use-mission` (6, a strict subset) MCP servers
-(`crates/ubiq-host/src/mcp/mission.rs`, catalogued as `mcp::catalogue::UBIQ_MISSION`/`USE_MISSION`)
-are built the way `manage-ubiq-tasks`/`use-task` already are: two tables sharing the tools both
-answer — `mission_overview`, `read_brief`, `list_documents`, `read_document`, `report_progress`,
-`list_agents` — plus `ubiq-mission`'s own `write_document`, `attach_document`, `detach_document`,
-`create_mission_task`, `request_phase`, `message_agent` and `read_feedback`.
-
-**An attached document is an attachment on the anchor task, and there is no second set.** The brief
-is the anchor's own fields (M7), so `attach_document` and `detach_document` write
-`TaskField::Attachments` on it through the same board every task write goes through, and
-`read_brief` — which already listed them — is where they read back. A reference is the shape a task
-attachment already has: a project-relative path, or a `kb:{source}:{path}` address, optionally
-labelled. The host **stores it and never resolves it**, exactly as the tasks server does; the only
-refusal is a target that is empty or a `kb:` address that is not `kb:{source}:{path}`, because that
-one names nothing any reader could ask `ubiq-kb` for. Attaching a target twice replaces its label
-rather than writing a second row. The mission panel needed nothing: `ui/mission/full.rs` draws the
-anchor's attachments already, and clicking one opens it as a task attachment does. Do not read these
-as mission *documents*: `write_document` creates one of the mission's own, in the mission store,
-and these two only point at something that exists elsewhere. Neither takes a mission argument: `MissionReach` resolves
-"which mission am I in" from the calling agent's own `AgentFacts::mission`, off the URL identity
-with no argument (`D102`), and a call from an agent in no mission answers with a sentence rather
-than an error. `read_feedback`'s watermark — what "since you last asked" means — is held in memory
-on the reach rather than written down, a read position rather than a fact about the mission, so the
-first call of a fresh host run answers with everything since the mission began.
+**The `ubiq-mission` server is the planner's and the final reviewer's, and it is small.**
+`crates/ubiq-host/src/mcp/mission.rs`, catalogued as `mcp::catalogue::UBIQ_MISSION`, offers
+`mission_overview`, `read_brief`, `list_documents`, `read_document`, `write_document`,
+`attach_document`, `detach_document`, `create_mission_task`, `create_mission_tasks` (the batch form,
+resolving a prerequisite named by a key or an id created earlier in the same call) and
+`request_phase`. Workers have no mission server: they report through `use-task`, whose
+`change_state` and `add_comment` move and comment on the task and whose `submit_review` gives a
+reviewer's verdict (pass, or fail with findings, sent to the task under review). Neither takes a
+mission argument: `AgentFacts::mission` resolves "which mission am I in" off the URL identity
+(`D102`), and a call from an agent in no mission answers with a sentence rather than an error. Every
+write that changes what the runner sees says `MissionSchedule` to wake it. `request_phase` records a
+`PhaseRequested` comment and moves nothing. An attached document is an attachment on the parent
+task, stored and never resolved by the host, as in the tasks server; `write_document` creates one of
+the mission's own.
 
 ## Failure
 
@@ -1503,11 +1370,13 @@ first call of a fresh host run answers with everything since the mission began.
 | A block a save's matching could not carry forward | Its annotations are flagged `orphaned` rather than deleted, and the thread panel shows the banner instead of silently losing the comment |
 | An annotation names a block the index no longer has | The host refuses with `PlanError` rather than creating one already orphaned |
 | A mission panel or full view is open in a window that does not hold the project it was opened for | Both surfaces draw an empty page saying so, rather than nothing or a stale record |
-| A mission panel or full view is open for a task whose `TaskRecord` has not arrived yet | Both draw a "Loading" empty page — a frame, not a state, since the record and its `MissionRecord` sidecar answer separately |
-| A `MissionDeleted` names the task a `MissionView` is selected on | The selection clears. The record leaves `OpenProject::missions`, so a panel or a full view still open for that task falls back to the "not held" empty page above rather than reporting a stale mission |
-| A spawn request names a kind that resolves to no agent definition | `AnswerSpawn::Declined` with the reason, read back to the requester as its next prompt and the journal |
-| An agent ends, or holds an auto-mode task past the idle grace, without moving it off `InProgress` | The scheduler releases the task to `Ready` and counts an attempt; past `max_attempts` it goes to `Blocked` and the coordinator is told |
-| Two windows on one project both answer the same `MissionSpawnRequest` | Both launch (`G348`); the host keeps only the first `AnswerSpawn`'s outcome on the record, so the second agent runs with nobody asked for it |
+| A mission panel or full view is open for a task whose `TaskRecord` has not arrived yet | Both draw a "Loading" empty page — a frame, not a state, since the task and its `MissionSnapshot` answer separately |
+| A `MissionDeleted` names the task a `MissionView` is selected on | The selection clears. The snapshot leaves `OpenProject::missions`, so a panel or a full view still open for that task falls back to the "not held" empty page above rather than reporting a stale mission |
+| A mission action is asked outside the phase it belongs to, or **Approve plan** with an empty plan | `MissionError` with a sentence; nothing is written |
+| A launch fails — no definition tagged for the role, or the definition is gone | `MissionLaunched` carries `Failed`, the runner writes a `LaunchFailed` comment, and the task waits for **Start** or **Retry** rather than relaunching |
+| A worker exits, or is stopped, with its task still `in progress` | The task shows **⚠ worker gone** and **Retry**; nothing restarts on its own, and the same holds after a restart of the app |
+| A reviewer fails the same task twice in a row | The loop stops and the task shows in Needs you with **Confirm anyway** |
+| A mission parent is dragged to another column | The host refuses with `MissionError`: the phase moves through the mission's own controls |
 
 ## Related docs
 
@@ -1516,9 +1385,9 @@ first call of a fresh host run answers with everything since the mission began.
 - [`workbench-agents.md`](./workbench-agents.md) — the New agent form a task assignment raises
 - [`../tech/transport-contract.md`](../tech/transport-contract.md) — the work and plan families on the wire
 - [`../tech/decisions.md`](../tech/decisions.md) — `D157` through `D161`, and `D203`, the planning flow's own
-  choices; `D164`, readiness derived rather than stored; `D165` through `D169`, the mission's own;
-  `D170` through `D172`, the spawn relay, the scheduler's own loop and a handoff briefed by pointer;
-  `D176`, feedback that finds no coordinator spawning one; `D179`, the catalogue and task stores'
+  choices; `D164`, readiness derived rather than stored; `D165` and `D166`, the mission as its
+  parent task and one full-view state; `D217`, a deterministic runner and no coordinator (it
+  supersedes `D167` through `D172` and `D176`); `D179`, the catalogue and task stores'
   unknown-field bag
 - [`../backlog.md`](../backlog.md) — what this mode still lacks
 

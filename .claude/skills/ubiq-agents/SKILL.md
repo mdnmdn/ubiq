@@ -164,8 +164,8 @@ The load-bearing points:
 What the *interface* can set today is harness, account, model, mode, thinking, `max_subagents`,
 an opening prompt, and an explicit MCP tick-list: the launch form draws an MCP checklist and
 `Message::StartConversation` carries an `mcps: Vec<String>` alongside `account`/`profile`/`model`/
-`thinking`/`mode`. `ProfileInfo` mirrors the same set (plus `mission_assistant`, a filter-only flag
-the interface reads but never composes a run from) for what a saved profile remembers.
+`thinking`/`mode`. `ProfileInfo` mirrors the same set (plus `mission_assistant`, a flag nothing
+reads today; the new-mission dialog's planner and worker pickers list every definition) for what a saved profile remembers.
 
 ## Verifying
 
