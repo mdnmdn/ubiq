@@ -1367,8 +1367,9 @@ impl AppState {
     ///
     /// The revive is a **re-attach**: `source == agent_id`, so the harness resumes its own session
     /// in the run directory it kept, and the answer arrives as `ConversationStarted` like any
-    /// other start. Everything in the blob was persistent when it was written — [`Self::remember`]
-    /// writes nothing else down — so every id here is one the host still has a row for.
+    /// other start. Everything in the blob was persistent or restorable when it was written —
+    /// [`Self::remember`] writes nothing else down — so every id here is one the host still has a
+    /// row for, unless the retention window has since collected it.
     fn restore_chats(&mut self, project: ProjectId, view: &prefs::ViewPrefs) {
         if view.chats.is_empty() {
             return;
@@ -1378,7 +1379,15 @@ impl AppState {
         };
         open.chats = seeded_chats(&view.chats);
         let agents: Vec<AgentId> = open.chats.iter().filter_map(|tab| tab.attached).collect();
+        // A tab kept only because its conversation can be loaded back comes back on its own
+        // while automatic restore is on; off, it reopens on a *Restore* page and waits. A
+        // persistent one is brought back either way, as it always was.
+        let automatic = self.workbench.settings.host.restore_conversations;
         for agent in agents {
+            if !automatic && view.chats_restorable.contains(&agent.to_string()) {
+                open.stopped_chats.insert(agent);
+                continue;
+            }
             self.bus.send(Message::ReviveConversation {
                 source: agent,
                 agent_id: agent,
@@ -1453,19 +1462,41 @@ impl AppState {
             // same guard `Self::settle_persistent_chat` makes, for the same reason. Reading an
             // empty projection as "nothing was persistent" would throw away a persistent tab the
             // previous blob was right about.
+            //
+            // **A restorable conversation is written down too** — one whose harness loads its
+            // session back — so a quit or a crash brings it back without anyone having marked it,
+            // and so is a tab still waiting on its *Restore* page, which has no record yet.
+            //
+            // **A saved tab with no record yet is carried over as it was saved.** That is a revive
+            // still in flight, or one waiting on its *Restore* page: the host has not reported the
+            // agent, so there is nothing to judge it by, and dropping it would lose it to a crash
+            // before `ConversationStarted` lands.
             if !open.work.agents.is_empty() {
                 let mut chats = Vec::new();
+                let mut restorable = Vec::new();
                 for tab in &open.chats {
-                    if let Some(agent) = tab.attached
-                        && open
-                            .work
-                            .agent(agent)
-                            .is_some_and(|record| record.persistent)
-                    {
-                        chats.push(agent.to_string());
+                    let Some(agent) = tab.attached else { continue };
+                    let key = agent.to_string();
+                    let (keep, auto) = match open.work.agent(agent) {
+                        Some(record) => (
+                            record.persistent || record.restorable,
+                            !record.persistent && record.restorable,
+                        ),
+                        None if !open.conversations.contains_key(&agent) => (
+                            open.prefs.chats.contains(&key),
+                            open.prefs.chats_restorable.contains(&key),
+                        ),
+                        None => (false, false),
+                    };
+                    if keep {
+                        if auto {
+                            restorable.push(key.clone());
+                        }
+                        chats.push(key);
                     }
                 }
                 open.prefs.chats = chats;
+                open.prefs.chats_restorable = restorable;
             }
             open.prefs.expanded = open.explorer.expanded();
             open.prefs.selected = open.explorer.selected.clone();

@@ -1823,9 +1823,18 @@ impl AppState {
             Message::AgentChanged { project_id, agent } => {
                 self.workbench.work_error = None;
                 let open = self.projects.get_mut(&project_id)?;
+                // Whether this change moves what a restart brings back — the remembered chat tabs
+                // are the persistent and restorable ones — read before the record is replaced.
+                let kept =
+                    |agent: &ubiq_proto::work::WorkAgent| (agent.persistent, agent.restorable);
+                let rekept = open.work.agent(agent.id).map(kept) != Some(kept(&agent));
                 open.work.apply_agent(*agent);
                 open.teams
                     .absorb_new(&live_work(&open.work, &open.agents.live));
+                if rekept {
+                    self.remember(project_id, cx);
+                }
+                let open = self.projects.get_mut(&project_id)?;
                 // An arriving agent is not put in a column: the arrangement is the user's, and the
                 // sidebar lists it on the bench with one click to bring it on. What a change *can*
                 // do is take a column's tab away, if the agent behind it has gone.
@@ -2500,7 +2509,17 @@ impl AppState {
                     .values_mut()
                     .find(|open| open.conversations.contains_key(&agent_id))?;
                 let conversation = open.conversations.get_mut(&agent_id)?;
-                if !conversation.is_next(seq) {
+                // Model discovery answers from a thread of its own at a fixed seq 1, so it lands
+                // wherever its probe finishes — after a restore's replayed turns or a fast launch's
+                // first frames. That is not a gap, and saying so would be a false alarm — neither
+                // is seq 2 arriving before it, onto a transcript that has applied nothing yet.
+                let discovery = seq == 1
+                    && matches!(
+                        update.as_ref(),
+                        ubiq_proto::conversation::ConvUpdate::ConfigOptions(_)
+                    );
+                let ahead_of_discovery = seq == 2 && conversation.is_next(1);
+                if !discovery && !ahead_of_discovery && !conversation.is_next(seq) {
                     tracing::warn!(
                         "conversation {agent_id}: update {seq} does not follow the last one \
                              applied, so something was lost between them; applying it anyway"
@@ -2932,6 +2951,22 @@ impl AppState {
                 cx.notify();
             }
 
+            // The ACP registry as this machine sees it. The host re-offers the added agents after
+            // a check and broadcasts `AgentTypes` itself.
+            Message::AcpRegistryChecked { agents, note } => {
+                let view = &mut self.workbench.settings.acp_registry;
+                view.checking = false;
+                view.agents = Some(agents);
+                view.note = note;
+                cx.notify();
+            }
+            Message::AcpAdapterInstalled { id, ok, detail } => {
+                let view = &mut self.workbench.settings.acp_registry;
+                view.installing.remove(&id);
+                view.installed.insert(id, (ok, detail));
+                cx.notify();
+            }
+
             other => return Some(other),
         }
         None
@@ -3134,6 +3169,10 @@ impl AppState {
             }
             Message::AccountError { error } => {
                 self.workbench.settings.error = Some(error);
+                // A host that refuses the harness family (a drone) refuses a registry check or
+                // install with this, so neither may be left reading as in flight.
+                self.workbench.settings.acp_registry.checking = false;
+                self.workbench.settings.acp_registry.installing.clear();
                 cx.notify();
             }
 

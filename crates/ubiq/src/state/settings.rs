@@ -375,6 +375,21 @@ pub enum LoginStep {
     Done { signed_in: bool, message: String },
 }
 
+/// What the Harnesses page knows about the ACP registry: only ever what the host last answered.
+#[derive(Clone, Debug, Default)]
+pub struct AcpRegistryView {
+    /// A check is running; the button is dimmed.
+    pub checking: bool,
+    /// The last check's rows. `None` until a check answers.
+    pub agents: Option<Vec<ubiq_proto::messages::AcpRegistryAgent>>,
+    /// Why the list is a cached copy, or why there is none.
+    pub note: Option<String>,
+    /// Agents whose adapter install is running.
+    pub installing: HashSet<String>,
+    /// The last install's outcome per agent: whether it worked, and its output's tail.
+    pub installed: HashMap<String, (bool, String)>,
+}
+
 /// The login modal: which account is signing which harness's home in (`D194`), and how far it
 /// has got — or, with [`Self::command_only`] set, the harness command editor, which shares the
 /// `Choosing` step because it asks the same first question.
@@ -870,6 +885,8 @@ pub struct SettingsState {
     /// What the host last refused — a rename, a delete, a sign-out. Cleared the next time the
     /// user acts: opens a dialog, starts a login, or dismisses it.
     pub error: Option<String>,
+    /// The ACP registry check on the Harnesses page.
+    pub acp_registry: AcpRegistryView,
     /// The tool row being added or edited, in either tools panel. The four textboxes live on
     /// `AppState` — one set, shared by both panels, which never stand open together — and this
     /// carries the rest of the form: which list it writes, which row, and the two choices.
@@ -1156,6 +1173,7 @@ impl Default for SettingsState {
             failed_hosts: HashSet::new(),
             reconnects: HashMap::new(),
             error: None,
+            acp_registry: AcpRegistryView::default(),
             tool_editor: None,
             quotas: HashMap::new(),
             quota_errors: HashMap::new(),

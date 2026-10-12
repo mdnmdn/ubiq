@@ -761,6 +761,13 @@ pub struct WorkAgent {
     /// record, on every surface that draws an agent.
     #[serde(default)]
     pub accept_all: bool,
+    /// Whether this conversation can be brought back after Ubiq stops: its harness loads a past
+    /// session by id (ACP `loadSession`), so a chat tab left open on it is remembered and reopened
+    /// at the next start — on its own when [`crate::settings::HostSettings::restore_conversations`]
+    /// says so, on request otherwise. Set by the host, which is the only side that knows what the
+    /// harness said it can do; `false` until a handshake on that harness has been seen.
+    #[serde(default)]
+    pub restorable: bool,
     /// Where this conversation's traffic goes, while anyone has asked for it. `None` — the normal
     /// case — is a conversation nobody asked to capture.
     ///

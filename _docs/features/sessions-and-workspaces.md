@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: A session is a named piece of work that owns a folder and outlives the agents inside it; a workspace is one running agent within it, and the two have separate lifecycles.
 read_when: you are changing how sessions are created, attached to, persisted, or how an agent is spawned into one
-updated: 2026-10-04
-verified: 2026-10-04
+updated: 2026-10-12
+verified: 2026-10-12
 code_anchors: [crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/agent-manager/src/session.rs]
 depends_on: [tech-transport]
 review_cycle: monthly
@@ -97,7 +97,19 @@ rather than a resume — the resume is the store in the run directory, not the c
 one thing it is still owed is a redraw for Claude Code's native bridge, which restores its memory
 and replays no transcript. Old records for unmarked conversations are collected after
 `HostSettings.retain_conversations_days`; a marked one is never collected on a timer, only by an
-explicit delete.
+explicit delete. The sweep runs once per start on a thread of its own, and an age is the later of
+`finished_at` and `created_at`, both milliseconds.
+
+**A conversation whose harness can load a session is kept without being marked** (`D216`). When the
+ACP handshake advertises `loadSession`, the host sets `ConversationRecord::restorable` and
+`WorkAgent::restorable`; the startup sweep and the quit path spare the run directory of such a row
+exactly as they spare a persistent one, but the retention window still collects it. The interface
+remembers the tab (`ViewPrefs.chats_restorable`) and, while `HostSettings.restore_conversations` is
+on (the default), reopens it at the next start and loads the session; off, the tab comes back
+waiting on the Restore page. **The user's prompts are written down** to `sessions/<agent id>/prompts.jsonl`
+as they are sent. When an ACP agent could not load its session, or refused the handshake, the host
+replays them into the transcript so the user's side is not lost; an agent that loaded its session
+replays its own history, and a non-ACP harness is never given the file's replay (`D215`).
 
 **The row carries every flag that is Ubiq's rather than the harness's**, and persistence is one of
 three. `ConversationRecord` in `crates/ubiq-host/src/conversation_record.rs` holds `persistent`

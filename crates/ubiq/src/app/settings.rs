@@ -582,6 +582,37 @@ impl AppState {
         cx.notify();
     }
 
+    /// Ask the host to refresh the ACP registry and classify it against this machine.
+    pub fn check_acp_registry(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.acp_registry.checking = true;
+        self.bus.send(Message::CheckAcpRegistry);
+        cx.notify();
+    }
+
+    /// Ask the host to install registry agent `id`'s adapter package.
+    pub fn install_acp_adapter(&mut self, id: String, cx: &mut Context<Self>) {
+        let view = &mut self.workbench.settings.acp_registry;
+        view.installed.remove(&id);
+        view.installing.insert(id.clone());
+        self.bus.send(Message::InstallAcpAdapter { id });
+        cx.notify();
+    }
+
+    /// Add registry agent `id` as a harness, or remove it. Rides the host settings whole;
+    /// `ListAgentTypes` follows because the host rebuilds its harness list on that write.
+    pub fn toggle_acp_agent(&mut self, id: String, cx: &mut Context<Self>) {
+        let added = &mut self.workbench.settings.host.acp_agents;
+        match added.iter().position(|it| *it == id) {
+            Some(at) => {
+                added.remove(at);
+            }
+            None => added.push(id),
+        }
+        self.remember_host_settings();
+        self.bus.send(Message::ListAgentTypes);
+        cx.notify();
+    }
+
     /// Show or hide the cached-token ring in a conversation footer.
     pub fn toggle_cache_ring(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.ui.show_cache_ring = !self.workbench.settings.ui.show_cache_ring;
@@ -677,6 +708,15 @@ impl AppState {
     pub fn toggle_auto_name_conversations(&mut self, cx: &mut Context<Self>) {
         self.workbench.settings.host.auto_name_conversations =
             !self.workbench.settings.host.auto_name_conversations;
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Whether a conversation left open when Ubiq stopped comes back on its own at the next start.
+    /// Host-owned like the toggle above; only the interface reads it, when it restores the tabs.
+    pub fn toggle_restore_conversations(&mut self, cx: &mut Context<Self>) {
+        self.workbench.settings.host.restore_conversations =
+            !self.workbench.settings.host.restore_conversations;
         self.remember_host_settings();
         cx.notify();
     }

@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-10-11
-verified: 2026-10-09
+updated: 2026-10-12
+verified: 2026-10-12
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -81,6 +81,8 @@ The control path. Lower volume, request-and-response.
 | `CheckAgentCommand` | UI → coordinator | `agent_type`, `command` | `AgentCommandChecked` |
 | `ListHarnessCatalogue` | UI → coordinator | `agent_type`, `account?` | `HarnessCatalogue` |
 | `ListAcpCapabilities` | UI → coordinator | `agent_type` | `AcpCapabilities` |
+| `CheckAcpRegistry` | UI → coordinator | — | `AcpRegistryChecked` |
+| `InstallAcpAdapter` | UI → coordinator | `id` | `AcpAdapterInstalled`, then `AcpRegistryChecked` |
 | `SessionList` | coordinator → UI | `sessions[]` | — |
 | `SessionCreated` | coordinator → UI | `session` | — |
 | `SessionAttached` | coordinator → UI | `session`, `workspaces[]` | — |
@@ -89,6 +91,8 @@ The control path. Lower volume, request-and-response.
 | `AgentCommandChecked` | coordinator → UI, asking client only | `agent_type`, `ok`, `detail` | — |
 | `HarnessCatalogue` | coordinator → UI, asking client only | `agent_type`, `account?`, `models[]`, `last_model`, `last_thinking` | — |
 | `AcpCapabilities` | coordinator → UI, asking client only | `agent_type`, `capabilities?` | — |
+| `AcpRegistryChecked` | coordinator → UI, asking client only | `agents[]` (`AcpRegistryAgent`), `note?` | — |
+| `AcpAdapterInstalled` | coordinator → UI, asking client only | `id`, `ok`, `detail` | — |
 | `Status` | coordinator → UI | `message` | — |
 | `Error` | coordinator → UI | `message` | — |
 
@@ -1578,7 +1582,9 @@ config options under ids the harness advertised, and the host forwards them with
 they mean. Persistence is Ubiq's own property of the conversation — whether its record and run
 directory outlive the window and survive a restart. The harness has never heard of it, and nothing
 about it reaches the child process. It lands on the record as `WorkAgent.persistent`, so every
-surface that draws an agent draws the mark from what it already holds.
+surface that draws an agent draws the mark from what it holds. **`WorkAgent.restorable` is the host's
+and only the host's**: it is true once an ACP handshake on that harness advertised `loadSession`, `false`
+before one has been seen, and it is not a flag the interface sets (`D216`).
 
 **Three flags are Ubiq's own, and they are set the same way.** `SetConversationPersistent`,
 `SetConversationAcceptAll` and `SetConversationDebugDump` each name one agent and one boolean, each
@@ -1960,7 +1966,7 @@ Forty-seven records travel inside payloads.
 | `Comment` | `id`, `author`, `text`, `created_at` |
 | `TaskField` | one of `Shape?`, `Kind?`, `Level?`, `Parent?`, `References[]`, `Prerequisites[]`, `Attachments[]`, `Complexity?`, `AssignedTo?`, `Key?`, `Link?`, `Labels[]`, `Colour?` |
 | `WorkSession` | `id`, `name`, `branch`, `worktree` |
-| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `title?`, `definition?`, `summary?`, `activity`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
+| `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `title?`, `definition?`, `summary?`, `activity`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `restorable`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |
 
 | `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |
@@ -2789,6 +2795,20 @@ machine.** The stream is the socket and the handshake is the same; nothing is la
 only records how that drone was started. `HOST_SETTINGS_SCHEMA` is 20 for the variant: an older
 build cannot parse the new `kind`, so the whole record would fail to load and be moved aside as
 corrupt; the bump makes it refuse the file and leave it intact instead.
+
+**The ACP registry is three messages and two settings.** `CheckAcpRegistry` is answered to the asker
+alone with `AcpRegistryChecked`: one `AcpRegistryAgent` per registry agent Ubiq could drive, in registry
+order, each `id`, `name`, `version`, `description`, an `AcpRegistryStatus` (`installed`, `needs_adapter`,
+`needs_installer`, `not_installed`), a `detail` that is shown and never composed into anything, and
+`builtin?` naming the built-in harness it is (`copilot`, `grok`, `opencode`), which is never added
+a second time. `note` says why the list is a cached copy or absent. `InstallAcpAdapter { id }` runs the
+validated package install and is answered with `AcpAdapterInstalled`, then a fresh check. Both requests
+run on threads of their own and a drone refuses them. `HostSettings.acp_agents` is the registry ids the
+user added, resolved at start from the cached registry with no network call; `HOST_SETTINGS_SCHEMA` is 22
+for it. `HostSettings.restore_conversations` is whether a conversation left open when Ubiq stopped, and
+whose harness can load a session, is reopened on its own at the next start — on by default; `HOST_SETTINGS_SCHEMA`
+is 23 for it, so an older build refuses the file rather than turning the restore back on for a user who
+switched it off.
 
 **An embedder reaches a saved remote without the modal.** `AppState::upsert_saved_remote(saved, cx)`
 inserts or updates a `SavedRemoteHost` by id (an empty id mints one; a `Unix` entry's `address` is

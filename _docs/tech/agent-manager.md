@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-10-08
-verified: 2026-10-08
+updated: 2026-10-12
+verified: 2026-10-12
 code_anchors: [crates/ubiq-host/src/catalog.rs, crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -310,7 +310,21 @@ is `harness.io_support().structured`, all three answer it `true`, and
 each speak ACP a second way instead: one provisioner, a second id — `claude-code-acp` and
 `codex-acp` — sharing every non-wire concern (config dir, skills, MCP, account/login) with its
 native sibling and only swapping `structured_bridge` for `AcpBridge` over `claude-agent-acp` /
-`codex-acp`. **`initialize` is the only discovery an ACP agent offers, so the bridge takes all of it**: `io/acp_caps.rs` reads that answer once into an `AcpCapabilities` and `IoBridge::acp_capabilities` hands it to a type-erased caller, `None` for every bridge on a wire of its own — `_docs/tech/transport-contract.md` owns what Ubiq does with it. **Two things ACP does not say, the bridge says for it.** `from_acp` is a pure per-notification
+`codex-acp`. **Any other ACP agent comes from the public registry, added by the user**
+(`D213`, `D214`): `crates/agent-manager/src/acp_registry.rs` fetches
+`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, keeps a copy at
+`<config root>/cache/acp-registry.json`, and `detect` classifies each agent as installed,
+needing its adapter package, needing `node`/`uv` first, or absent, against the `PATH` the embedder
+passes (`ubiq-host`'s login-shell probe). The registry is untrusted: a `cmd` is reduced to a
+basename and looked up, never executed from the document; `claude-acp`, `codex-acp` and any CLI
+named `claude` or `codex` are dropped. `install_command` only names the command — `npm install -g --`
+or `uv tool install --`, the package validated — and `crates/ubiq-host/src/acp.rs` runs it on a
+thread of its own with a five-minute timeout. An added agent becomes a harness through
+`harness/registry.rs` (`RegistryHarness`, installed by `set_registry_harnesses`): one generic
+`Harness` driving the executable over `AcpBridge`, with no config home, account, skill or hook of
+the library's — it inherits the user's own environment, and registry-supplied command and
+environment values pass safety filters. Its isolation grants (`run_grants()` in
+`isolate.rs`) are the per-id config homes read-write and the install prefix read-only. **`initialize` is the only discovery an ACP agent offers, so the bridge takes all of it**: `io/acp_caps.rs` reads that answer once into an `AcpCapabilities` and `IoBridge::acp_capabilities` hands it to a type-erased caller, `None` for every bridge on a wire of its own — `_docs/tech/transport-contract.md` owns what Ubiq does with it. **Two things ACP does not say, the bridge says for it.** `from_acp` is a pure per-notification
 mapping, so the pieces of the `AgentEvent::UsageUpdate` and `Origin` contracts that need memory live
 in `AcpBridge`'s reader instead. ACP states `cost.amount` as a session-cumulative figure while
 `UsageUpdate.cost` is contractually a per-report delta, so the reader subtracts the running total —

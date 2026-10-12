@@ -20,8 +20,10 @@ pub(crate) mod codex;
 mod copilot;
 mod grok;
 mod opencode;
+mod registry;
 mod shared;
 pub use claude::Claude;
+pub use registry::{RegistryHarness, builtin_for, registry_harnesses, set_registry_harnesses};
 pub use codex::{
     Codex, DeviceLogin as CodexDeviceLogin, begin_device_login as begin_codex_device_login,
 };
@@ -510,6 +512,13 @@ pub trait Harness {
     fn default_homes(&self) -> Vec<PathBuf> {
         Vec::new()
     }
+    /// Paths a confined run of this harness needs whatever its config strategy: read-write
+    /// (its own config and state), then read-only (where its executable and runtime are
+    /// installed). Granted by [`crate::isolate::IsolateOptions::grant_config_home`]. Default:
+    /// none — a built-in harness states its homes through [`Self::default_homes`] instead.
+    fn run_grants(&self) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        (Vec::new(), Vec::new())
+    }
     /// Compose a run against the shared config `home`, writing nothing per-run into it: every
     /// per-run file goes into `scratch` and reaches the harness by flag. `None` is
     /// [`crate::spec::ConfigStrategy::Native`]: the launch names no config home, so the harness
@@ -724,9 +733,20 @@ pub trait Harness {
     }
 }
 
-/// Every harness `am` knows how to wrap. (P1: Claude Code only; more are
-/// added by writing more `Harness` impls.)
+/// Every harness `am` knows how to wrap: the built-in ones, then the ACP registry agents the
+/// embedder installed with [`set_registry_harnesses`].
 pub fn all() -> Vec<Box<dyn Harness>> {
+    let mut all = builtins();
+    all.extend(
+        registry_harnesses()
+            .into_iter()
+            .map(|h| Box::new(h) as Box<dyn Harness>),
+    );
+    all
+}
+
+/// The harnesses written as their own impls in this crate.
+pub(crate) fn builtins() -> Vec<Box<dyn Harness>> {
     vec![
         Box::new(Claude::new()),
         // Same harness, second wire: `claude-code-acp` provisions Claude Code exactly as

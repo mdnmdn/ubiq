@@ -62,6 +62,9 @@ Plus the standing architecture rule: `crates/ubiq` does not depend on `crates/ub
 | The one translation from `AgentEvent` onto the bus | Ubiq |
 | Whether an agent is confined at all, and where its run directory lives | Ubiq |
 | Which `$HOME` a confined agent runs with, and every extra grant | Ubiq |
+| What the public ACP registry lists, how an entry is classified and its install command is named (`acp_registry.rs`); never Claude Code or Codex (`D214`) | the library |
+| Which registry agents the user added (`HostSettings::acp_agents`, `D213`), where the cache lives, the `PATH` probed, running the install | Ubiq |
+| Whether a conversation is `restorable`, its saved `prompts.jsonl` and their ACP-only replay (`D215`, `D216`) | Ubiq |
 | That a harness runs under a pseudo-terminal in a pane; which panes exist | Ubiq |
 
 ## The host side, in one paragraph each

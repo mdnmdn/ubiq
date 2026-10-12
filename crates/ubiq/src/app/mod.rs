@@ -406,6 +406,10 @@ pub struct OpenProject {
     /// a `WorkList` sent again later would reopen a persistent agent's tab the user has since
     /// closed on purpose.
     persistent_settled: bool,
+    /// The conversations a restore reopened a chat tab for without bringing back, because
+    /// automatic restore is off: each tab draws a *Restore* page until the user asks
+    /// ([`AppState::restore_stopped_chat`]). Kept in the blob while it waits.
+    pub stopped_chats: HashSet<AgentId>,
     /// Folders a blob said were open and that are still out of reach, because a deep folder cannot
     /// be opened before its parents have been listed.
     wanted: Vec<String>,
@@ -530,6 +534,7 @@ impl OpenProject {
             prefs,
             restored: false,
             persistent_settled: false,
+            stopped_chats: HashSet::new(),
             wanted: Vec::new(),
             git: None,
             git_truncated: false,

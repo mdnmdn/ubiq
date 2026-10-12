@@ -87,6 +87,17 @@ fn attached<'a>(app: &'a AppState, host: ChatHost, cx: &App) -> Option<(&'a Conv
     }
 }
 
+/// The conversation a chat tab is attached to when it is one waiting on its *Restore* page.
+fn stopped_agent(
+    app: &AppState,
+    id: crate::state::ChatId,
+    cx: &App,
+) -> Option<ubiq_proto::work::AgentId> {
+    let open = app.open_project(cx)?;
+    let agent = open.chats.iter().find(|tab| tab.id == id)?.attached?;
+    open.stopped_chats.contains(&agent).then_some(agent)
+}
+
 /// The attached conversation, or a note saying there is nothing to draw.
 ///
 /// The transcript and the composer are the shared view's, not the tab's: a second transcript
@@ -134,6 +145,27 @@ fn body(
             None,
         )
         .into_any_element(),
+        // A conversation a restore reopened without bringing back — automatic restore is off —
+        // waits here for the user to ask.
+        (None, ChatHost::Tab(id)) if stopped_agent(app, id, cx).is_some() => {
+            let agent = stopped_agent(app, id, cx).expect("checked by the guard");
+            crate::ui::empty::empty_page(
+                "Conversation stopped",
+                "Ubiq stopped while this conversation was open. Restore it to load its session \
+                 back and carry on.",
+                IconName::Redo,
+                Some(
+                    crate::ui::kit::ghost_button(
+                        SharedString::from(format!("chat-restore-{id}")),
+                        Some(IconName::Play),
+                        "Restore",
+                        cx.listener(move |this, _, _, cx| this.restore_stopped_chat(agent, cx)),
+                    )
+                    .into_any_element(),
+                ),
+            )
+            .into_any_element()
+        }
         // Nothing attached, and nothing to explain: a tab with no conversation in it is the
         // ordinary state of a fresh tab, not a fault. So the page is the one thing there is to do
         // about it — no title and no note, which said in two lines what the icon says. Not

@@ -952,6 +952,8 @@ fn refusal(message: &Message) -> Option<Message> {
         // ── accounts, logins, definitions, MCP servers, agent types ──
         ListAgentTypes
         | CheckAgentCommand { .. }
+        | CheckAcpRegistry
+        | InstallAcpAdapter { .. }
         | ListHarnessCatalogue { .. }
         | ListAccounts
         | BeginHarnessLogin { .. }

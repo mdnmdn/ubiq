@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: What a pane shows, how exactly one of them holds focus, how a resize reaches the harness, and how a pane is moved around the window's dock.
 read_when: you are changing where a pane sits, pane focus, resize, pane chrome, or how terminal bytes reach the screen
-updated: 2026-10-02
+updated: 2026-10-12
 verified: 2026-10-12
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/new_pane_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/tools.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/tests/coordinator.rs, crates/ubiq-host/src/pty/mod.rs, crates/ubiq-host/src/shells.rs, vendor/gpui-terminal/src/view.rs, vendor/gpui-terminal/src/render.rs, vendor/gpui-terminal/src/input.rs, vendor/gpui-terminal/src/mouse.rs, vendor/gpui-terminal/src/clipboard.rs, vendor/gpui-terminal/src/event.rs, vendor/gpui-terminal/src/terminal.rs, crates/ubiq-host/src/runners/mod.rs]
 depends_on: [tech-transport]
@@ -399,7 +399,10 @@ way a program does, through the same short-name rule.
 usual homes, and always includes `default_program()`; the extra lookups exist because the `PATH` Ubiq was
 launched with cannot be trusted (a desktop launcher hands over a thin environment). The login shell is
 asked once per process with `-lic`, because the login and interactive files are where a toolchain
-installer writes its directory. On Windows, `windows_shells()` walks the install layout under
+installer writes its directory. `user_path()` is the same probe for the ACP registry check: on Unix
+`$SHELL -l -i -c` under `setsid`, the `PATH` read between two markers so a profile's chatter cannot
+corrupt it; on Windows a PowerShell. The registry check looks for an agent's CLI there, not on the
+thin `PATH` a desktop launch carries. On Windows, `windows_shells()` walks the install layout under
 `%ProgramFiles%\PowerShell\` (each version directory's major and preview flag), then the Store alias, a
 bare `pwsh.exe` on `PATH`, `powershell.exe`, then `COMSPEC`; duplicates naming one file are dropped by
 path, case-insensitively, keeping the first label; the 32-bit `%ProgramFiles(x86)%` and `SysWOW64`

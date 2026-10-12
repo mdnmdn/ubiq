@@ -510,6 +510,7 @@ fn a_live_agent(work: &mut Work, project: ProjectId, parent: Option<AgentId>) ->
         context_pct: 0,
         persistent: false,
         accept_all: false,
+        restorable: false,
         debug_dump: None,
         run_dir: None,
         config_dir: None,

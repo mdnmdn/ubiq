@@ -136,7 +136,12 @@ pub fn stale_conversations(
             continue;
         };
 
-        let age = UNIX_EPOCH + Duration::from_millis(meta.finished_at.unwrap_or(meta.created_at));
+        // The later of the two: a run archived by an older build stamped `finished_at` in seconds,
+        // which read as milliseconds is 1970 and would collect a conversation finished yesterday.
+        let stamp = meta
+            .finished_at
+            .map_or(meta.created_at, |finished| finished.max(meta.created_at));
+        let age = UNIX_EPOCH + Duration::from_millis(stamp);
         if now.duration_since(age).unwrap_or_default() >= window {
             found.push(entry.path());
         }
@@ -202,6 +207,7 @@ mod tests {
             summary: None,
             persistent,
             accept_all: false,
+            restorable: false,
             debug_dump: false,
             forked_from: None,
             agent_home: AgentHome::Inherit,

@@ -398,53 +398,163 @@ fn basename(program: &str) -> String {
 #[cfg(unix)]
 fn login_path() -> &'static [PathBuf] {
     static DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
-    DIRS.get_or_init(|| {
-        let shell = default_program();
-        // `-lic` rather than `-c`: the directories a toolchain installer adds are written into the
-        // login and interactive files, not into a non-interactive shell's environment.
-        use std::io::Read as _;
-        use std::process::Stdio;
-        use std::time::{Duration, Instant};
-
-        // This runs before the first window, so a slow or wedged rc file (a stale lock, a network
-        // call) must cost a bounded wait, not the whole boot: no tty to block on, and after
-        // `LOGIN_PATH_BUDGET` the shell is killed and `PATH` falls back to the usual homes.
-        const LOGIN_PATH_BUDGET: Duration = Duration::from_secs(2);
-        let Ok(mut child) = std::process::Command::new(&shell)
-            .args(["-lic", "printf %s \"$PATH\""])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        else {
-            return Vec::new();
-        };
-        let mut stdout = child.stdout.take().expect("stdout was piped");
-        // ponytail: a PATH is far below the pipe buffer, so waiting before reading cannot deadlock.
-        let deadline = Instant::now() + LOGIN_PATH_BUDGET;
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(20))
-                }
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Vec::new();
-                }
-            }
-        }
-        let mut path = String::new();
-        let _ = stdout.read_to_string(&mut path);
-        std::env::split_paths(path.trim()).collect()
-    })
+    // This runs before the first window, so a slow or wedged rc file (a stale lock, a network
+    // call) must cost a bounded wait, not the whole boot: after the budget the shell is killed and
+    // `PATH` falls back to the usual homes.
+    DIRS.get_or_init(|| ask_user_path(std::time::Duration::from_secs(2)).unwrap_or_default())
 }
 
-/// Windows has no login shell to ask, so there is nothing beyond `PATH` and the usual homes.
+/// Windows has no login shell to ask at startup, so there is nothing beyond `PATH` and the usual
+/// homes until [`user_path`] asks PowerShell.
 #[cfg(windows)]
 fn login_path() -> &'static [PathBuf] {
     &[]
+}
+
+/// Marks the value in a probe's output, which an interactive rc file may have printed around.
+const PATH_BEGIN: &str = "__UBIQ_PATH_BEGIN__";
+const PATH_END: &str = "__UBIQ_PATH_END__";
+
+/// The user's `PATH` as their own shell sees it — unix: the login, interactive shell (`$SHELL`,
+/// else zsh, else sh); Windows: the machine and user `Path` from the registry, through PowerShell
+/// with no window. `None` when the probe failed or ran past `budget`.
+#[cfg_attr(all(windows, not(feature = "full")), allow(dead_code))]
+fn ask_user_path(budget: std::time::Duration) -> Option<Vec<PathBuf>> {
+    #[cfg(unix)]
+    let mut cmd = {
+        let shell = [default_program(), "/bin/zsh".into(), "/bin/sh".into()]
+            .into_iter()
+            .find(|shell| Path::new(shell).is_file())?;
+        let mut cmd = std::process::Command::new(shell);
+        // `-l -i` rather than `-c` alone: the directories a toolchain installer adds are written
+        // into the login and interactive files, not into a non-interactive shell's environment.
+        cmd.args([
+            "-l",
+            "-i",
+            "-c",
+            &format!("printf '%s%s%s' '{PATH_BEGIN}' \"$PATH\" '{PATH_END}'"),
+        ]);
+        cmd
+    };
+    #[cfg(windows)]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &format!(
+                "Write-Output ('{PATH_BEGIN}' + [Environment]::GetEnvironmentVariable('Path','Machine') \
+                 + ';' + [Environment]::GetEnvironmentVariable('Path','User') + '{PATH_END}')"
+            ),
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    };
+    let out = run_bounded(&mut cmd, budget)?;
+    let start = out.find(PATH_BEGIN)? + PATH_BEGIN.len();
+    let len = out[start..].find(PATH_END)?;
+    let value = out[start..start + len].trim();
+    Some(
+        std::env::split_paths(value)
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .collect(),
+    )
+}
+
+/// Run `cmd` with no stdin and stderr dropped, and return its stdout — or `None` when it could not
+/// start or ran past `budget`, in which case it is killed. Stdout is drained on a thread of its own
+/// so a chatty rc file cannot fill the pipe and wedge the child, and is waited for only for what
+/// is left of `budget` — a grandchild holding the pipe open costs the budget, not forever.
+///
+/// On unix the child runs in a session of its own (`setsid`), so an interactive shell (`-i`) has
+/// no controlling terminal to take over.
+#[cfg_attr(all(windows, not(feature = "full")), allow(dead_code))]
+fn run_bounded(cmd: &mut std::process::Command, budget: std::time::Duration) -> Option<String> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        unsafe extern "C" {
+            fn setsid() -> i32;
+        }
+        // SAFETY: `setsid` is async-signal-safe and touches nothing of this process's memory,
+        // which is all `pre_exec` asks of the closure.
+        unsafe {
+            cmd.pre_exec(|| {
+                setsid();
+                Ok(())
+            });
+        }
+    }
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        let _ = sender.send(String::from_utf8_lossy(&buf).into_owned());
+    });
+    let deadline = Instant::now() + budget;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    receiver
+        .recv_timeout(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .max(Duration::from_millis(200)),
+        )
+        .ok()
+}
+
+static USER_PATH: std::sync::OnceLock<OsString> = std::sync::OnceLock::new();
+
+/// The `PATH` to look for an agent on: this process's own, then the user's real one as their shell
+/// sees it ([`ask_user_path`], up to five seconds), then the usual homes — de-duplicated, order
+/// preserved. Asked once per process; a probe that fails is not retried, and the answer is then
+/// the process's `PATH` and the homes. Blocking: call it from a worker thread.
+#[cfg_attr(not(feature = "full"), allow(dead_code))]
+pub(crate) fn user_path() -> &'static OsStr {
+    USER_PATH.get_or_init(|| {
+        let current = std::env::var_os("PATH").unwrap_or_default();
+        let asked = ask_user_path(std::time::Duration::from_secs(5)).unwrap_or_default();
+        effective_path(&current, &asked, EXTRA_DIRS)
+    })
+}
+
+/// [`user_path`] if it has been asked already — never blocks.
+#[cfg_attr(not(feature = "full"), allow(dead_code))]
+pub(crate) fn user_path_if_known() -> Option<&'static OsStr> {
+    USER_PATH.get().map(OsString::as_os_str)
+}
+
+/// [`user_path`] if it has been asked already, else this process's `PATH` — never blocks.
+#[cfg_attr(not(feature = "full"), allow(dead_code))]
+pub(crate) fn known_path() -> OsString {
+    USER_PATH
+        .get()
+        .cloned()
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default()
 }
 
 /// Where a named program is on this machine: `PATH` first, then the login shell's own `PATH`, then
@@ -460,8 +570,15 @@ pub(crate) fn locate(name: &str) -> Option<PathBuf> {
         .map(std::env::split_paths)
         .into_iter()
         .flatten();
+    // The user's real `PATH`, when a registry check has already asked for it — never asked from
+    // here, because `locate` runs on the coordinator's thread.
+    let from_user = USER_PATH
+        .get()
+        .map(|path| std::env::split_paths(path).collect::<Vec<_>>())
+        .unwrap_or_default();
     from_path
         .chain(login_path().iter().cloned())
+        .chain(from_user)
         .chain(EXTRA_DIRS.iter().map(PathBuf::from))
         .find_map(|dir| {
             names

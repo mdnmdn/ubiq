@@ -282,6 +282,28 @@ pub enum Message {
         ok: bool,
         detail: String,
     },
+    /// Refresh the public ACP agent registry and classify every agent in it against this
+    /// machine, using the user's login-shell `PATH`. Answered with [`Message::AcpRegistryChecked`]
+    /// to the asker only. Runs on a thread of its own: it is a network call and a shell spawn.
+    CheckAcpRegistry,
+    /// What the registry check found: one row per registry agent Ubiq could drive, in registry
+    /// order. `note` says why the list is a cached copy, or why there is no list at all.
+    AcpRegistryChecked {
+        agents: Vec<AcpRegistryAgent>,
+        note: Option<String>,
+    },
+    /// Install the adapter package registry agent `id` needs (`npm install -g` / `uv tool
+    /// install`). Answered with [`Message::AcpAdapterInstalled`], then a fresh
+    /// [`Message::AcpRegistryChecked`].
+    InstallAcpAdapter {
+        id: String,
+    },
+    /// What the install did: whether it succeeded, and the tail of its output.
+    AcpAdapterInstalled {
+        id: String,
+        ok: bool,
+        detail: String,
+    },
     /// Which models — and which reasoning levels for each — `agent_type` will answer for, asked
     /// before anything is started. Answered with [`Message::HarnessCatalogue`].
     ///
@@ -3979,6 +4001,37 @@ pub struct ShellInfo {
     pub program: String,
     /// Whether this is the one a bare click on the new-pane control already starts.
     pub is_default: bool,
+}
+
+/// One agent of the public ACP registry, as [`Message::AcpRegistryChecked`] reports it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcpRegistryAgent {
+    /// The registry's id, e.g. `gemini` — the harness id it becomes once added.
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub status: AcpRegistryStatus,
+    /// What the status is about: the executable found, the package an install would add, or the
+    /// tool (`node`, `uv`) that is missing. Shown, never composed into anything.
+    pub detail: String,
+    /// The built-in harness this registry agent already is (`copilot`, `grok`, `opencode`), when
+    /// it is one. Such an agent is never added as a second harness.
+    pub builtin: Option<String>,
+}
+
+/// What this machine can do about one registry agent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcpRegistryStatus {
+    /// Runnable as is; it can be added as a harness.
+    Installed,
+    /// Its CLI is here but its ACP adapter package is not, and the installer is.
+    NeedsAdapter,
+    /// As `NeedsAdapter`, but the installer (`node`, `uv`) is missing too.
+    NeedsInstaller,
+    /// Nothing usable found.
+    NotInstalled,
 }
 
 /// One agent type a workspace can be, as the UI is told about it.

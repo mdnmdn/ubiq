@@ -52,6 +52,7 @@
 #![warn(missing_docs)]
 
 pub mod account;
+pub mod acp_registry;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;

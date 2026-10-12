@@ -412,6 +412,8 @@ impl Agents {
     /// the shell list is: a harness installed after the window was opened
     /// should be offered without a restart.
     pub fn types(&self) -> Vec<AgentTypeInfo> {
+        // A registry harness was resolved to a full path, which need not be on any `PATH`.
+        let registry = harness::registry_harnesses();
         harness::all()
             .into_iter()
             .map(|harness| {
@@ -419,7 +421,10 @@ impl Agents {
                 // An override makes a harness available even when its own binary is not on
                 // this machine's `PATH` — that is the whole point of setting one.
                 let available = self.commands.contains_key(&id)
-                    || crate::shells::locate(harness.command()).is_some();
+                    || crate::shells::locate(harness.command()).is_some()
+                    || registry
+                        .iter()
+                        .any(|it| it.id == id && it.program.is_file());
                 AgentTypeInfo {
                     id,
                     label: harness.display_name().to_string(),
@@ -466,6 +471,15 @@ impl Agents {
     /// [`Self::is_agent_type`] is what tells the two refusals apart.
     pub fn converses(&self, agent_type: &str) -> bool {
         harness::resolve(agent_type).is_some_and(|harness| harness.io_support().structured)
+    }
+
+    /// Whether `agent_type`'s structured bridge speaks ACP rather than a wire of its own — the
+    /// library's declaration, available before anything is spawned.
+    pub fn speaks_acp(&self, agent_type: &str) -> bool {
+        harness::resolve(agent_type).is_some_and(|harness| {
+            let io = harness.io_support();
+            io.structured && io.acp
+        })
     }
 
     /// Whether one process of `agent_type` survives its own first answer.
@@ -1519,6 +1533,18 @@ impl Agents {
         // whole environment, and `CLAUDE_CONFIG_DIR` and its siblings are what pin a run to its
         // throwaway configuration.
         self.add_machine_env(&mut provisioned.launch);
+        // A registry agent is often a script whose interpreter (node, python) lives on the
+        // user's real `PATH`, so it gets that `PATH` once a registry check has asked for it —
+        // unless the machine's own variables already named one.
+        if harness::registry_harnesses().iter().any(|it| it.id == agent_type)
+            && !provisioned.launch.env.iter().any(|(name, _)| name == "PATH")
+            && let Some(path) = crate::shells::user_path_if_known()
+        {
+            provisioned
+                .launch
+                .env
+                .push(("PATH".to_string(), path.to_string_lossy().into_owned()));
+        }
 
         // Every confined run keeps the real home unless the user said otherwise. A home of its
         // own was once the answer to "a second run of the same definition should find its caches,
@@ -1635,11 +1661,13 @@ impl Agents {
             }
         }
 
+        // Unix milliseconds, the library's unit (`session::SessionMeta::created_at` is the same)
+        // and the one the retention collector (`gc::stale_conversations`) reads.
         meta.finished_at = Some(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs(),
+                .as_millis() as u64,
         );
         let _ = session::save(&sessions, &meta);
     }
@@ -1740,8 +1768,12 @@ impl Agents {
     /// parks or deletes, whether the boot sweep passes a directory over, and
     /// whether the collector may take a record — and three readers of one
     /// field is how they drift apart.
+    ///
+    /// A conversation whose harness can load it back (`restorable`) is spared
+    /// the sweep too, so one left open when Ubiq stopped still finds its run
+    /// directory at the next start.
     fn is_persistent(&self, key: &str) -> bool {
-        crate::conversation_record::is_persistent_at(&self.sessions_dir(), key)
+        crate::conversation_record::is_kept_at(&self.sessions_dir(), key)
     }
 
     /// Remove what a pane's run left behind. Best effort: a directory that

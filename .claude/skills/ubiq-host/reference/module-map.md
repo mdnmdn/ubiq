@@ -170,7 +170,12 @@ and agents stay its mocks.
 `shells::repair_path` is `D62`: a desktop-launched host asks the user's login shell for its `PATH`
 once, with `-lic`, because the environment a Finder launch inherits is exactly the one that cannot
 be trusted. `available()` checks `PATH`, that repaired `PATH` and `EXTRA_DIRS`, and always includes
-`default_program()` whatever it is.
+`default_program()` whatever it is. `shells::user_path` is the ACP registry check's probe of the same
+`PATH` (Unix `$SHELL -l -i -c` under `setsid`, read between markers; Windows PowerShell), and
+`acp.rs` holds the registry check and adapter install jobs (five-minute timeout, each on its own
+thread) and turns `HostSettings::acp_agents` into harnesses (`D213`). `gc::collect_conversations`
+runs once at start on a thread of its own; a conversation's `restorable` flag keeps its run
+directory until retention collects it (`D216`).
 
 `cli_shortcut` writes a *script*, not a symlink (`D56`): on macOS it runs `open -a Ubiq.app` so
 `ubiq .` reaches the running window through LaunchServices instead of starting a second application.

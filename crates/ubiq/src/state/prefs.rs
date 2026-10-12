@@ -378,6 +378,12 @@ pub struct ViewPrefs {
     /// sake of a convenience.
     #[serde(default)]
     pub chats: Vec<String>,
+    /// The entries of [`Self::chats`] that are there only because their harness can load the
+    /// conversation back (`WorkAgent::restorable`), not because the user marked them persistent.
+    /// A restore brings these back on its own only while `HostSettings::restore_conversations`
+    /// says so; otherwise their tabs reopen waiting for the user to restore them.
+    #[serde(default)]
+    pub chats_restorable: Vec<String>,
     /// Which of `open_files` or `scratch` was in front. A key rather than an index, because a
     /// file that fails to open must not shift what "active" meant.
     #[serde(default)]
@@ -508,6 +514,7 @@ impl Default for ViewPrefs {
             scratch: Vec::new(),
             pinned_files: Vec::new(),
             chats: Vec::new(),
+            chats_restorable: Vec::new(),
             active_file: None,
             expanded: Vec::new(),
             selected: None,

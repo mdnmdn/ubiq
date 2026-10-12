@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-11
-verified: 2026-10-11
+updated: 2026-10-12
+verified: 2026-10-12
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -69,7 +69,10 @@ and Hide on the shared tab menu; Rename, Close and Pin/Unpin still work (`AppSta
 `AppState::pinned_tabs`, in memory only, as a `ChatId` is reminted every run). **A persistent attachment
 survives a restart**: `ViewPrefs.chats` remembers the agent of each *persistently* attached tab. A tab whose
 conversation the host was not asked to keep is written as nothing, because the boot sweep deletes the run
-directory (`D97`).
+directory (`D97`). **A restorable conversation is the exception** (`D216`): `ViewPrefs.chats_restorable`
+names the `chats` entries kept only because the harness can load the session (`WorkAgent::restorable`),
+and they reopen on their own while `HostSettings.restore_conversations` is on; off, the tab reopens
+waiting for the user to restore it.
 
 **Deleting the conversation closes its tabs** (`D100`, see Implementation).
 

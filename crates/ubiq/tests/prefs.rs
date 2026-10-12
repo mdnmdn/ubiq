@@ -34,6 +34,7 @@ fn a_blob_survives_the_round_trip() {
         // A chat tab is remembered by what it was attached to, never by its own id: a `ChatId` is
         // a process-local counter, and the agent is what the host can bring back.
         chats: vec![AgentId::generate().to_string()],
+        chats_restorable: Vec::new(),
         // A buffer that was never written anywhere travels with the blob, because there is nowhere
         // else for it to come back from.
         scratch: vec![prefs::Scratch {

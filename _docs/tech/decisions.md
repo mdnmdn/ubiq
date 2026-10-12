@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-11
+updated: 2026-10-12
 verified: 2026-10-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5357,6 +5357,58 @@ not the file, answers both.
 worker at every start — a macOS keychain prompt on a rebuilt, differently signed binary once an
 override exists. Schema 21 so an older build refuses the file rather than dropping the URL while the
 key stays. The message family is in [`transport-contract.md`](./transport-contract.md).
+
+### D213 — A registry agent becomes a harness only when the user adds it
+
+The public ACP registry lists dozens of agents. Settings → Harnesses shows the ones this machine has
+something of and offers `Add`; the added ids are `HostSettings::acp_agents`, and only those become
+harnesses (`harness/registry.rs`). Nothing is added because it is installed or listed.
+
+**Why:** a harness is offered on every surface a run begins, and a registry entry is untrusted data
+that names a command. Auto-adding every installed agent would put commands the user never looked at
+into the launch picker, the sign-in picker and the definition form.
+
+**Cost:** an extra click per agent, and an agent installed by hand is invisible until the user runs
+`Check`. A registry agent has no config home or account of the library's, so it inherits the user's
+own (`G426`).
+
+### D214 — Claude Code and Codex never come from the registry
+
+`acp_registry::detect` drops `claude-acp`, `codex-acp` and any entry whose CLI is `claude` or `codex`.
+Both are driven through their native protocols, with the second-id ACP harnesses of `D95` as the only
+ACP route and off by default.
+
+**Why:** the native wires carry what an ACP adapter does not state (`D95`), and a registry copy would
+be a third path to the same tool with none of the account, skill and MCP provisioning.
+
+**Cost:** a registry entry for either tool is never shown, even when the user would want it.
+
+### D215 — Saved prompts are replayed only for ACP harnesses
+
+The host writes each user prompt to `sessions/<agent id>/prompts.jsonl` and replays them into the
+transcript when an ACP agent could not load its session or refused the handshake. A harness with a
+wire of its own is never replayed from the file.
+
+**Why:** ACP agents replay their history on `session/load` themselves, so the file is the fallback for
+the cases where they cannot; a native harness restores its own memory, and a second source would
+duplicate turns it shows.
+
+**Cost:** the user's side only, never the agent's answers, so a revived conversation reads as a run
+of questions. An agent that loads a session and is then unloaded and resumed in the same run may show
+a transcript twice (`G427`).
+
+### D216 — A conversation whose harness can load a session is kept and expires with retention
+
+`restorable` is set by the host when the handshake advertises `loadSession`. Such a conversation's run
+directory survives quit and the startup sweep, and the retention window still collects it. Restoring on
+the next start is `HostSettings::restore_conversations`, on by default; off, the tab waits on the
+Restore page.
+
+**Why:** a crash or quit should not lose a chat that could be loaded back, and an unmarked conversation
+must still age out, or the run root grows without bound (`D97`).
+
+**Cost:** disk held for up to `retain_conversations_days` per conversation the user never marked, and a
+setting that is on by default for everyone with an ACP harness.
 
 ## Related docs
 

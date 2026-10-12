@@ -93,6 +93,15 @@ pub struct ConversationRecord {
     /// conversation, and a user who said "stop asking me" said it about the conversation.
     #[serde(default)]
     pub accept_all: bool,
+    /// Whether this conversation's harness can load it back by id (ACP `loadSession`), which is
+    /// what lets a conversation left open when Ubiq stopped come back at the next start.
+    ///
+    /// Read beside [`Self::persistent`] by [`is_kept_at`]: a restorable conversation's run
+    /// directory is parked rather than deleted when its window goes, and spared by the boot sweep,
+    /// so a restore finds whatever the harness kept there. Unlike `persistent` it does not exempt
+    /// the row from the retention collector — a conversation nobody asked to keep still ages out.
+    #[serde(default)]
+    pub restorable: bool,
     /// Whether this conversation's traffic is being written to a file.
     ///
     /// The flag is durable; the file is not. Each launch opens its own capture, appending to the
@@ -177,6 +186,81 @@ pub fn is_persistent_at(sessions: &Path, key: &str) -> bool {
     }
 }
 
+/// Whether a run's directory is to be kept when its process goes — the conversation is
+/// persistent, or its harness can load it back after a restart. The question the close and the
+/// boot sweep ask; the retention collector asks [`is_persistent_at`] instead.
+///
+/// Fails safe the same way: a row that will not parse counts as kept.
+pub fn is_kept_at(sessions: &Path, key: &str) -> bool {
+    let path = path_at(sessions, key);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    match serde_json::from_str::<ConversationRecord>(&text) {
+        Ok(record) => record.persistent || record.restorable,
+        Err(error) => {
+            tracing::warn!(
+                "{} will not parse ({error}); keeping the run directory",
+                path.display()
+            );
+            true
+        }
+    }
+}
+
+/// The user prompts written down for one conversation, one JSON object per line.
+const PROMPTS: &str = "prompts.jsonl";
+
+/// One user prompt, as [`append_prompt`] writes it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SavedPrompt {
+    /// When it was sent, epoch milliseconds.
+    pub at: i64,
+    pub text: String,
+}
+
+/// Append one prompt the user sent to the conversation's own log, beside its row.
+///
+/// One line per turn, appended, so a crash loses at most the turn in flight. It is what a
+/// restore draws the user's side of the conversation from when the harness will not replay it
+/// itself. Best effort: a log that cannot be written must never stop a turn going out.
+pub fn append_prompt(sessions: &Path, agent: AgentId, at: i64, text: &str) {
+    use std::io::Write as _;
+    let path = sessions.join(agent.to_string()).join(PROMPTS);
+    let Ok(mut line) = serde_json::to_vec(&SavedPrompt {
+        at,
+        text: text.to_string(),
+    }) else {
+        return;
+    };
+    line.push(b'\n');
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+        })
+        .and_then(|mut file| file.write_all(&line));
+    if let Err(error) = written {
+        tracing::warn!("could not append to {}: {error}", path.display());
+    }
+}
+
+/// Every prompt written down for one conversation, oldest first. A line that will not parse — the
+/// one a crash cut short — is skipped rather than costing the rest.
+pub fn prompts(sessions: &Path, agent: AgentId) -> Vec<SavedPrompt> {
+    let path = sessions.join(agent.to_string()).join(PROMPTS);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
 /// Write one row, atomically.
 ///
 /// Best effort, like every other write under the sessions root: a root that cannot be written must
@@ -244,6 +328,7 @@ mod tests {
             summary: Some("Fixing the markdown parser".to_string()),
             persistent: true,
             accept_all: false,
+            restorable: false,
             debug_dump: false,
             forked_from: None,
             agent_home: AgentHome::Inherit,
@@ -323,6 +408,44 @@ mod tests {
 
         save(dir.path(), agent, &row());
         assert!(is_persistent_at(dir.path(), &agent.to_string()));
+    }
+
+    /// A restorable row keeps its run directory without being exempt from the collector.
+    #[test]
+    fn a_restorable_row_is_kept_but_not_persistent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let agent = AgentId::generate();
+        let key = agent.to_string();
+        let mut restorable = row();
+        restorable.persistent = false;
+        restorable.restorable = true;
+        save(dir.path(), agent, &restorable);
+        assert!(is_kept_at(dir.path(), &key));
+        assert!(!is_persistent_at(dir.path(), &key));
+
+        restorable.restorable = false;
+        save(dir.path(), agent, &restorable);
+        assert!(!is_kept_at(dir.path(), &key));
+    }
+
+    /// Prompts append in order, and a line a crash cut short costs only itself.
+    #[test]
+    fn prompts_append_in_order_and_survive_a_torn_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let agent = AgentId::generate();
+        assert!(prompts(dir.path(), agent).is_empty());
+        append_prompt(dir.path(), agent, 1, "first");
+        append_prompt(dir.path(), agent, 2, "second\nwith a newline");
+        let path = dir.path().join(agent.to_string()).join(PROMPTS);
+        let mut text = std::fs::read_to_string(&path).expect("read");
+        text.push_str(r#"{"at":3,"te"#);
+        std::fs::write(&path, text).expect("write");
+
+        let read: Vec<String> = prompts(dir.path(), agent)
+            .into_iter()
+            .map(|prompt| prompt.text)
+            .collect();
+        assert_eq!(read, vec!["first", "second\nwith a newline"]);
     }
 
     #[test]

@@ -78,6 +78,8 @@
 //! headless drone with no window, no account, no network surface) can each leave off; `full`,
 //! which `default` turns on, is all five together and is what `coordinator` needs.
 
+#[cfg(feature = "full")]
+pub(crate) mod acp;
 #[cfg(feature = "harness")]
 pub mod agent;
 pub mod armed;

@@ -210,6 +210,7 @@ fn an_agent(id: AgentId, name: &str) -> WorkAgent {
         context_pct: 0,
         persistent: false,
         accept_all: false,
+        restorable: false,
         debug_dump: None,
         run_dir: None,
         config_dir: None,

@@ -234,7 +234,8 @@ crates/ubiq-host/src/
 │   ├── apply.rs
 │   ├── feed.rs
 │   └── mod.rs
-└── .DS_Store
+├── .DS_Store
+└── acp.rs
 
 crates/ubiq/src/
 ├── state/
@@ -1153,6 +1154,7 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 
 | File |
 |---|
+| `crates/ubiq-host/src/acp.rs` |
 | `crates/ubiq-host/src/archify.rs` |
 | `crates/ubiq-host/src/assist/apple.rs` |
 | `crates/ubiq-host/src/atomic.rs` |

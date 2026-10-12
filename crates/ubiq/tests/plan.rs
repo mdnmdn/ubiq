@@ -1297,6 +1297,7 @@ fn a_started_agent_is_bound_to_its_document(cx: &mut TestAppContext) {
         context_pct: 0,
         persistent: false,
         accept_all: false,
+        restorable: false,
         debug_dump: None,
         run_dir: None,
         config_dir: None,

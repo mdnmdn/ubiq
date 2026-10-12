@@ -57,6 +57,15 @@ pub struct HostSettings {
     /// on request and still not want every conversation to cost a call it did not ask for.
     #[serde(default = "auto_name_conversations_default")]
     pub auto_name_conversations: bool,
+    /// Whether a conversation that was still open when Ubiq stopped — a quit, a crash, a kill —
+    /// is brought back on its own at the next start, its chat tab reopened and its harness session
+    /// loaded again.
+    ///
+    /// On by default. Only a conversation whose harness can load a past session
+    /// ([`crate::work::WorkAgent::restorable`]) or one the user marked persistent is ever
+    /// remembered; off, the chat tab still comes back but waits for the user to restore it.
+    #[serde(default = "restore_conversations_default")]
+    pub restore_conversations: bool,
     /// Which `$HOME` a confined agent runs with.
     ///
     /// [`AgentHome::Inherit`] by default, and that is not a soft default: a replaced home aims
@@ -85,6 +94,11 @@ pub struct HostSettings {
     /// the library composed. An id with no entry resolves exactly as before.
     #[serde(default)]
     pub agent_commands: BTreeMap<String, String>,
+    /// ACP registry agents the user added as harnesses, by registry id. The host turns each into a
+    /// harness from its cached copy of the registry and what it finds on this machine, so a
+    /// restart needs no network call; an id it can no longer resolve is simply not offered.
+    #[serde(default)]
+    pub acp_agents: Vec<String>,
     /// Runnable tools defined for this machine — named commands the new-pane menu offers and
     /// [`Message::RunTool`] runs in a project's folder. Rides `SetSettings` whole like
     /// `search_excludes` above: nothing runs unattended from this list, so there is no
@@ -536,13 +550,23 @@ pub enum RemoteScheme {
 /// Twenty-one adds [`HostSettings::feedback_url`]. An older build drops it on its next write and
 /// reports go back to the compiled destination while the key override in the keychain stays —
 /// a pair that no longer matches, which is the silent half-revert the bump exists to refuse.
-pub const HOST_SETTINGS_SCHEMA: u32 = 21;
+///
+/// Twenty-two adds [`HostSettings::acp_agents`]. An older build drops the list on its next write
+/// and every registry agent the user added stops being offered as a harness.
+///
+/// Twenty-three adds [`HostSettings::restore_conversations`]. It defaults to on, so an older build
+/// dropping it turns automatic restore back on for a user who had switched it off.
+pub const HOST_SETTINGS_SCHEMA: u32 = 23;
 
 fn isolate_agents_default() -> bool {
     true
 }
 
 fn auto_name_conversations_default() -> bool {
+    true
+}
+
+fn restore_conversations_default() -> bool {
     true
 }
 
@@ -587,9 +611,11 @@ impl Default for HostSettings {
             isolate_agents: isolate_agents_default(),
             assist: AssistProvider::default(),
             auto_name_conversations: auto_name_conversations_default(),
+            restore_conversations: restore_conversations_default(),
             agent_home: AgentHome::default(),
             extra_grants: Vec::new(),
             agent_commands: BTreeMap::new(),
+            acp_agents: Vec::new(),
             tools: Vec::new(),
             retain_conversations_days: retain_conversations_days_default(),
             search_excludes: search_excludes_default(),

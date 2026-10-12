@@ -19,7 +19,8 @@ use ubiq_proto::connectors::{
 };
 use ubiq_proto::ids::{PaneId, ProjectId};
 use ubiq_proto::messages::{
-    AccountInfo, AgentDefinition, CliShortcutAction, LoginStatus, ShellIntegrationAction,
+    AccountInfo, AcpRegistryStatus, AgentDefinition, CliShortcutAction, LoginStatus,
+    ShellIntegrationAction,
 };
 use ubiq_proto::projects::IndexLevel;
 use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
@@ -1356,6 +1357,19 @@ fn editor(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 |this, choice, cx| this.set_agent_chat_close(choice, cx),
             ),
         ),
+        setting_row(
+            "Restore conversations",
+            "A chat left open when Ubiq stops \u{2014} a quit, a crash \u{2014} comes back at the \
+             next start, its harness loading the session again. Only for an agent that can load \
+             a past session, or a conversation marked persistent. Off, the tab comes back and \
+             waits for Restore.",
+            check_box(
+                "app-settings-restore-conversations",
+                app.workbench.settings.host.restore_conversations,
+                cx.listener(|this, _, _, cx| this.toggle_restore_conversations(cx)),
+            )
+            .into_any_element(),
+        ),
         heading(
             "Board",
             "What the tasks board calls things, application-wide. A project may override this in \
@@ -2025,6 +2039,8 @@ fn harnesses(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     }
     rows.push(section_label("Installed").into_any_element());
     rows.push(harness_list(app, cx));
+    rows.push(section_label("ACP registry").into_any_element());
+    rows.push(acp_registry(app, cx));
     rows.push(section_label("Identities").into_any_element());
     rows.push(
         div()
@@ -2089,6 +2105,178 @@ fn acp_switches(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
         .collect()
 }
 
+/// The ACP registry: a `Check` button, then one row per registry agent this machine has
+/// something of — installed (`Add` / `Remove` as a harness), needing an adapter (`Install`), or
+/// needing node / uv first. Agents with nothing here are counted, not listed.
+fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let view = &app.workbench.settings.acp_registry;
+    let added = &app.workbench.settings.host.acp_agents;
+    let small = theme::font(Family::Chrome, Role::Meta);
+    let body = theme::font(Family::Chrome, Role::Body);
+
+    let check = if view.checking {
+        div()
+            .text_size(body)
+            .text_color(theme::text_faint())
+            .child("Checking\u{2026}")
+            .into_any_element()
+    } else {
+        ghost_button(
+            "app-settings-acp-registry-check",
+            Some(IconName::Search),
+            "Check",
+            cx.listener(|this, _, _, cx| this.check_acp_registry(cx)),
+        )
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new(
+                "Fetch the ACP agent registry and look for its agents on this machine",
+            )
+            .build(window, cx)
+        })
+        .into_any_element()
+    };
+    let mut col = div().flex().flex_col().gap_1().child(
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(check)
+            .children(view.note.clone().map(|note| {
+                div()
+                    .text_size(small)
+                    .text_color(theme::warning())
+                    .child(note)
+            })),
+    );
+    let Some(agents) = &view.agents else {
+        return col.into_any_element();
+    };
+
+    let mut absent = 0;
+    for agent in agents {
+        let id = agent.id.clone();
+        let action: AnyElement = if let Some(builtin) = &agent.builtin {
+            div()
+                .text_size(small)
+                .text_color(theme::text_faint())
+                .child(format!("Built in as {builtin}"))
+                .into_any_element()
+        } else {
+            match agent.status {
+                AcpRegistryStatus::NotInstalled => {
+                    absent += 1;
+                    continue;
+                }
+                AcpRegistryStatus::Installed => {
+                    let on = added.contains(&agent.id);
+                    ghost_button(
+                        ElementId::Name(format!("app-settings-acp-{}-add", agent.id).into()),
+                        Some(if on { IconName::Minus } else { IconName::Plus }),
+                        if on { "Remove" } else { "Add" },
+                        cx.listener(move |this, _, _, cx| this.toggle_acp_agent(id.clone(), cx)),
+                    )
+                    .into_any_element()
+                }
+                AcpRegistryStatus::NeedsAdapter if view.installing.contains(&agent.id) => div()
+                    .text_size(small)
+                    .text_color(theme::text_faint())
+                    .child("Installing\u{2026}")
+                    .into_any_element(),
+                AcpRegistryStatus::NeedsAdapter => {
+                    let command = SharedString::from(agent.detail.clone());
+                    ghost_button(
+                        ElementId::Name(format!("app-settings-acp-{}-install", agent.id).into()),
+                        Some(IconName::ArrowDown),
+                        "Install",
+                        cx.listener(move |this, _, _, cx| {
+                            this.install_acp_adapter(id.clone(), cx)
+                        }),
+                    )
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(command.clone()).build(window, cx)
+                    })
+                    .into_any_element()
+                }
+                AcpRegistryStatus::NeedsInstaller => div()
+                    .text_size(small)
+                    .text_color(theme::warning())
+                    .child(format!("Needs {} to install its adapter", agent.detail))
+                    .into_any_element(),
+            }
+        };
+        let detail = match agent.status {
+            AcpRegistryStatus::Installed => agent.detail.clone(),
+            _ => agent.description.clone(),
+        };
+        let outcome = view.installed.get(&agent.id).cloned();
+        col = col.child(
+            div()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .py_1()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .gap_2()
+                                        .text_size(body)
+                                        .text_color(theme::text())
+                                        .child(agent.name.clone())
+                                        .child(
+                                            div()
+                                                .text_size(small)
+                                                .text_color(theme::text_faint())
+                                                .child(agent.version.clone()),
+                                        ),
+                                )
+                                .child(elided(
+                                    ElementId::Name(
+                                        format!("app-settings-acp-{}-detail", agent.id).into(),
+                                    ),
+                                    detail,
+                                    theme::text_muted(),
+                                    small,
+                                )),
+                        )
+                        .child(action),
+                )
+                .children(outcome.map(|(ok, detail)| {
+                    div()
+                        .text_size(small)
+                        .text_color(if ok { theme::success() } else { theme::danger() })
+                        .child(if detail.is_empty() {
+                            if ok { "Installed".to_string() } else { "Install failed".to_string() }
+                        } else {
+                            detail
+                        })
+                })),
+        );
+    }
+    if absent > 0 {
+        col = col.child(
+            div()
+                .text_size(small)
+                .text_color(theme::text_faint())
+                .child(format!(
+                    "{absent} more registry agent{} not installed on this machine.",
+                    if absent == 1 { " is" } else { "s are" }
+                )),
+        );
+    }
+    col.into_any_element()
+}
+
 /// One row per harness the host lists: its name, drawn faint when it is not installed, how much
 /// of its plan is left, the command Ubiq starts it with where that is still a question, and what
 /// an ACP harness said it can do.
@@ -2096,13 +2284,9 @@ fn acp_switches(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
 /// Nothing here is signed in — that is the identity's, one list down. This says which tools
 /// exist, how much each one has left and how it is launched.
 ///
-/// **`Command` is drawn only where the harness was not found on its own.** The button writes a
-/// custom launch command, and a harness this machine discovered has nothing for the user to
-/// answer. `available` alone does not say that, because it is true for a discovered harness *and*
-/// for one a custom command was typed for — so the override itself is the other half of the test,
-/// and it is readable here: `HostSettings::agent_commands` is on this side of the wire. A harness
-/// with an override keeps its button whatever else is true, or the path it names becomes
-/// uneditable.
+/// **`Command` is drawn on every row**, built-in and registry alike: the harness this machine
+/// found is not always the one the user wants run. A row with an override reads `Custom command`,
+/// read from `HostSettings::agent_commands`, which is on this side of the wire.
 ///
 /// **An ACP harness with a native sibling and its switch off draws no row here at all**
 /// ([`crate::state::WorkbenchState::acp_sibling_gated`]) — this list is the inventory of what is
@@ -2128,7 +2312,6 @@ fn harness_list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         .host
                         .agent_commands
                         .contains_key(&info.id);
-                    let discovered = info.available && !custom;
                     // A harness row runs as nobody, so the reading it shows is its first signed-in
                     // identity's — the same figure that identity's own block draws, not a second one, and
                     // named as that identity's rather than left to read as the harness's own total. With
@@ -2165,23 +2348,20 @@ fn harness_list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                                         .flex()
                                         .items_center()
                                         .gap_1()
-                                        .children((!discovered).then(|| {
-                                            ghost_button(
-                                                ElementId::Name(
-                                                    format!("app-settings-{}-command", info.id)
-                                                        .into(),
-                                                ),
-                                                None,
-                                                "Command",
-                                                cx.listener(move |this, _, window, cx| {
-                                                    this.open_harness_command(
-                                                        Some(id.clone()),
-                                                        window,
-                                                        cx,
-                                                    )
-                                                }),
-                                            )
-                                        }))
+                                        .child(ghost_button(
+                                            ElementId::Name(
+                                                format!("app-settings-{}-command", info.id).into(),
+                                            ),
+                                            None,
+                                            if custom { "Custom command" } else { "Command" },
+                                            cx.listener(move |this, _, window, cx| {
+                                                this.open_harness_command(
+                                                    Some(id.clone()),
+                                                    window,
+                                                    cx,
+                                                )
+                                            }),
+                                        ))
                                         .children(capabilities_button(app, &info.id, cx)),
                                 ),
                         )

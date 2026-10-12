@@ -151,6 +151,31 @@ impl AppState {
             tab.attached = agent;
             tab.picker_open = false;
         }
+        // What the tabs are attached to is what a restart brings back, so it is written down as
+        // it changes rather than at the next layout edit — a crash in between would lose it.
+        self.remember(project, cx);
+        cx.notify();
+    }
+
+    /// Bring back a conversation a restore reopened on its *Restore* page — automatic restore was
+    /// off. The same re-attach a start-up restore sends: the host relaunches the harness and loads
+    /// its session, and `ConversationStarted` turns the page into the transcript.
+    pub fn restore_stopped_chat(&mut self, agent: AgentId, cx: &mut Context<Self>) {
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        if !open.stopped_chats.remove(&agent) {
+            return;
+        }
+        self.bus.send(Message::ReviveConversation {
+            source: agent,
+            agent_id: agent,
+            project_id: project,
+            session_id: self.session,
+        });
         cx.notify();
     }
 

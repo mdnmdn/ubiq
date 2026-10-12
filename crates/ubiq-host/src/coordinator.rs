@@ -1000,12 +1000,19 @@ impl Coordinator {
 
         // A run directory outlives its pane only when Ubiq did not get to close it, and no pane
         // from a previous process is still running, so the sweep happens once here.
+        let acp_voice = host.voice();
         let agents = {
             let host = settings.host();
             let mut agents = Agents::new(root.path.clone(), host.isolate_agents);
             agents.set_policy(host.agent_home.clone(), host.extra_grants.clone());
             agents.set_environment(crate::environment::Environment::load(&root.path));
             agents.set_commands(host.agent_commands.clone());
+            crate::acp::install_harnesses(
+                &root.path,
+                &host.acp_agents,
+                &host.agent_commands,
+                &acp_voice,
+            );
             if let Some(serving) = &mcp {
                 agents.set_mcp(serving.base_url(), mcp_agents.clone());
             }
@@ -1138,6 +1145,26 @@ impl Coordinator {
                 )
             })
             .collect();
+        // The retention window, swept once per start on a thread of its own: a directory walk and
+        // a delete per stale conversation are nothing the first window should wait behind. Nothing
+        // is live yet, so nothing needs keeping beyond what the collector already exempts — a
+        // persistent row, and anything younger than the window. A restorable conversation left
+        // untouched past the window ages out with everything else, revive or not.
+        {
+            let sessions = root.path.join("sessions");
+            let retain_days = settings.host().retain_conversations_days;
+            let _ = thread::Builder::new()
+                .name("ubiq-retention".to_string())
+                .spawn(move || {
+                    let removed = crate::gc::collect_conversations(
+                        &sessions,
+                        &HashSet::new(),
+                        retain_days,
+                        std::time::SystemTime::now(),
+                    );
+                    tracing::info!(removed, retain_days, "retention: collected stale conversations");
+                });
+        }
         let updates = crate::updates::Updater::start(root.path.clone(), host.mailbox(To::Everyone));
         let feedback =
             crate::feedback::Feedback::start(Arc::clone(&settings), host.mailbox(To::Everyone));
@@ -1843,6 +1870,21 @@ impl Coordinator {
             Message::SetPreferences { scope, value } => {
                 self.projects.set_preferences(scope, value, Instant::now());
             }
+            // The host's own voice asking means the registry harnesses may have changed — a
+            // registry check or install finished, or the user's `PATH` arrived: re-offer them from
+            // the settings as they stand now, and tell every window.
+            Message::ListAgentTypes if client.is_host_voice() => {
+                let host = self.settings.host();
+                crate::acp::install_harnesses(
+                    &self.root.path,
+                    &host.acp_agents,
+                    &host.agent_commands,
+                    &self.host.voice(),
+                );
+                let agent_types = self.agents.types();
+                self.host
+                    .send(To::Everyone, Message::AgentTypes { agent_types });
+            }
             Message::ListAgentTypes => {
                 let agent_types = self.agents.types();
                 self.host
@@ -1854,6 +1896,8 @@ impl Coordinator {
             } => {
                 self.check_agent_command_job(client, agent_type, command);
             }
+            Message::CheckAcpRegistry => self.acp_registry_job(client, None),
+            Message::InstallAcpAdapter { id } => self.acp_registry_job(client, Some(id)),
             Message::ListHarnessCatalogue {
                 agent_type,
                 account,
@@ -2424,6 +2468,12 @@ impl Coordinator {
                 self.agents
                     .set_policy(host.agent_home.clone(), host.extra_grants.clone());
                 self.agents.set_commands(host.agent_commands.clone());
+                crate::acp::install_harnesses(
+                    &self.root.path,
+                    &host.acp_agents,
+                    &host.agent_commands,
+                    &self.host.voice(),
+                );
                 // The assist backend is the exception to re-reading: selecting one can mean
                 // opening an FFI handle or reading a key, so it is held and rebuilt only when the
                 // provider itself moved.
@@ -3482,6 +3532,17 @@ impl Coordinator {
                 {
                     pending.opening_prompt = Some(text.clone());
                 }
+                // The user's side of the conversation, written down a turn at a time so a restore
+                // can draw it when the harness will not replay it (`revive_conversation`). Only
+                // the user's own turns, and only into a conversation this window owns.
+                if !voiced
+                    && self
+                        .conversation_owners
+                        .get(&agent_id)
+                        .is_some_and(|(owner, _)| *owner == client)
+                {
+                    conversation_record::append_prompt(&self.sessions(), agent_id, now_ms(), &text);
+                }
                 if self.conversations.contains_key(&agent_id) {
                     self.drive(client, agent_id, |conversation| conversation.prompt(text));
                 } else if !voiced {
@@ -3895,6 +3956,7 @@ impl Coordinator {
             return;
         }
 
+        let held_row = conversation_record::load(&self.sessions(), agent_id);
         let label = self
             .agents
             .types()
@@ -3935,8 +3997,12 @@ impl Coordinator {
             // knows, and guessing would put a wrong name under a real conversation.
             model: String::new(),
             context_pct: 0,
-            persistent: false,
-            accept_all: false,
+            // A fresh agent has no row, so both read false; a revive's row says what the user set
+            // before the restart, and a revived conversation that came back unmarked would be
+            // dropped from the window's remembered tabs the next time it wrote them down.
+            persistent: held_row.as_ref().is_some_and(|row| row.persistent),
+            accept_all: held_row.as_ref().is_some_and(|row| row.accept_all),
+            restorable: self.loads_sessions(&agent_type),
             debug_dump: None,
             // Known already, and without composing anything: a run's directory is named after the
             // agent's own id, which was minted before this message was sent. The configuration
@@ -4253,6 +4319,11 @@ impl Coordinator {
                 now_ms(),
                 crate::agent::acp_capabilities(capabilities),
             );
+            // The first handshake on a harness is what says whether it can load a session back,
+            // so the row and the live record learn it now: a crash from here on is restorable.
+            let restorable = self.loads_sessions(&pending.agent_type);
+            self.remember_conversation(agent_id);
+            self.publish_conversation_flags(agent_id, |agent| agent.restorable = restorable);
         }
 
         // What actually reached the harness, not what the picker merely showed — a pick the user
@@ -4728,6 +4799,12 @@ impl Coordinator {
             }
         };
 
+        // Read before `agent_type` moves into the start: only an ACP conversation's user turns are
+        // drawn back from the saved prompts — the native bridges are left as they were.
+        let acp = self.agents.speaks_acp(&agent_type);
+        // A one-shot harness is not launched by a revive at all — its next prompt is — so whether
+        // it loads is only known then; it is left to that launch, as before.
+        let multi_turn = self.agents.multi_turn(&agent_type);
         self.start_conversation(
             client,
             agent_id,
@@ -4792,6 +4869,14 @@ impl Coordinator {
                 "no harness session id was recorded; this conversation comes back empty"
             );
         }
+        // An ACP re-attach with no session id to load can only start a fresh session, so its user
+        // turns are drawn from the saved prompts now, before the launch, where the pump numbers on
+        // after them. One with an id is decided by what the launch does — below.
+        let replay = acp && !forking;
+        let loading = resume.is_some();
+        if replay && !loading {
+            self.replay_saved_prompts(agent_id, None);
+        }
         if let Some(pending) = self.pending_conversations.get_mut(&agent_id) {
             pending.resume = resume;
             // A harness whose conversations live in a shared home (Codex on an account home) has
@@ -4811,6 +4896,72 @@ impl Coordinator {
         // Launch it with nothing to forward — already a no-op for a one-shot harness, whose next
         // prompt is what starts its next process.
         self.resume_conversation(client, agent_id);
+        // An ACP bridge opened with a session id either loaded it — `session/load` succeeded and
+        // replayed the whole history, user turns included — or refused the handshake, and the
+        // launch failed. So a running conversation here is one that loaded, and a second copy
+        // would only duplicate it; one that failed draws the saved prompts instead. No pump is
+        // running in that case, so their numbering cannot interleave with one.
+        if replay && loading && multi_turn && !self.conversations.contains_key(&agent_id) {
+            // The launch's own `ConversationError` has gone out already, and any update clears a
+            // window's error line — so the closing `TurnEnded` says it again.
+            self.replay_saved_prompts(
+                agent_id,
+                Some(
+                    "the session could not be loaded back; the turns above are from Ubiq's own \
+                     record"
+                        .to_string(),
+                ),
+            );
+        }
+    }
+
+    /// Draw a restored conversation's user turns from the prompts written down for it
+    /// ([`conversation_record::append_prompt`]), for a harness that will not replay them itself.
+    ///
+    /// Sent to the owning window as ordinary updates, numbered on from the recipe's sequence while
+    /// no pump is running, so a later pump picks the numbering up after them. One block per prompt
+    /// — a distinct `message_id` each — and one `TurnEnded` after the last, so the restored
+    /// transcript reads as idle rather than as a turn still running; `error` is what that turn end
+    /// says, when the restore failed.
+    fn replay_saved_prompts(&mut self, agent_id: AgentId, error: Option<String>) {
+        let saved = conversation_record::prompts(&self.sessions(), agent_id);
+        if saved.is_empty() {
+            return;
+        }
+        let Some((client, _)) = self.conversation_owners.get(&agent_id).copied() else {
+            return;
+        };
+        let Some(pending) = self.pending_conversations.get_mut(&agent_id) else {
+            return;
+        };
+        let updates = saved
+            .into_iter()
+            .enumerate()
+            .map(|(n, prompt)| ConvUpdate::UserChunk {
+                content: ubiq_proto::conversation::ConvContent::Text(prompt.text),
+                message_id: Some(format!("restored-{n}")),
+            })
+            .chain(std::iter::once(ConvUpdate::TurnEnded {
+                stop_reason: if error.is_some() {
+                    StopReason::Failed
+                } else {
+                    StopReason::EndTurn
+                },
+                error,
+            }));
+        for update in updates {
+            pending.next_seq += 1;
+            self.host.send(
+                To::Client(client),
+                Message::ConversationUpdate {
+                    agent_id,
+                    seq: pending.next_seq,
+                    update: Box::new(update),
+                    raw: None,
+                },
+            );
+        }
+        self.remember_conversation(agent_id);
     }
 
     /// Kill the harness without ending the conversation. The transcript, the run directory and the
@@ -4970,6 +5121,22 @@ impl Coordinator {
         self.root.path.join("sessions")
     }
 
+    /// Whether `agent_type`'s agent said it can load a past session by id — ACP's
+    /// `agentCapabilities.loadSession`, as the last handshake on that harness recorded it. What
+    /// makes a conversation [`WorkAgent::restorable`]. `false` for every harness on a wire of its
+    /// own, and for an ACP one nothing has conversed with yet.
+    fn loads_sessions(&self, agent_type: &str) -> bool {
+        self.catalogue
+            .acp_capabilities(agent_type)
+            .is_some_and(|record| {
+                record
+                    .groups
+                    .iter()
+                    .flat_map(|group| &group.entries)
+                    .any(|entry| entry.id == "loadSession" && entry.supported)
+            })
+    }
+
     /// Write down one conversation's launch recipe, as it stands now.
     ///
     /// Called from every site that changes what a relaunch would do — the start, a `SetAgentConfig`
@@ -5003,6 +5170,9 @@ impl Coordinator {
             summary: held.as_ref().and_then(|row| row.summary.clone()),
             persistent: held.as_ref().is_some_and(|row| row.persistent),
             accept_all: held.as_ref().is_some_and(|row| row.accept_all),
+            // Recomputed rather than carried: the harness's own answer, which a first launch is
+            // what discovers — `launch` writes the row again once it has.
+            restorable: self.loads_sessions(&pending.agent_type),
             debug_dump: held.as_ref().is_some_and(|row| row.debug_dump),
             forked_from: held.and_then(|row| row.forked_from),
             // What the run was composed under, read from the settings rather than from `Agents`.
@@ -5334,7 +5504,9 @@ impl Coordinator {
         // conversation be resumed later. A conversation the user marked persistent keeps it, minus
         // the login it was seeded with; one nobody asked to keep is deleted as it always was, and
         // the credentials seeded into it go with it.
-        if conversation_record::load(&self.sessions(), agent_id).is_some_and(|row| row.persistent) {
+        // A restorable one is kept the same way: a window closing — a quit among them — is not
+        // the user deleting it, and the next start may bring it back.
+        if conversation_record::is_kept_at(&self.sessions(), &agent_id.to_string()) {
             self.agents.park_agent(agent_id);
         } else {
             self.agents.retire_agent(agent_id);
@@ -6222,6 +6394,31 @@ impl Coordinator {
                     ok,
                     detail,
                 });
+            })
+            .ok();
+    }
+
+    /// Check the ACP registry — or, with `install`, install that agent's adapter and re-check —
+    /// on a thread of its own: a fetch, a login-shell probe and a package install are all slow.
+    /// Answered only to the asker. The added agents are re-offered afterwards on the coordinator,
+    /// through the host's voice, from the settings as they stand then — never from a copy taken
+    /// here, which a settings write during the check would make stale.
+    fn acp_registry_job(&self, client: ClientId, install: Option<String>) {
+        let mailbox = self.host.mailbox(To::Client(client));
+        let voice = self.host.voice();
+        let root = self.root.path.clone();
+        let commands = self.settings.host().agent_commands;
+        thread::Builder::new()
+            .name("acp-registry".to_string())
+            .spawn(move || {
+                let replies = match install {
+                    Some(id) => crate::acp::install(&root, &id, &commands),
+                    None => vec![crate::acp::check(&root, &commands)],
+                };
+                voice.say(Message::ListAgentTypes);
+                for reply in replies {
+                    mailbox.send(reply);
+                }
             })
             .ok();
     }
@@ -8091,6 +8288,7 @@ mod tests {
             context_pct: 0,
             persistent: false,
             accept_all: false,
+            restorable: false,
             debug_dump: None,
             run_dir: None,
             config_dir: None,

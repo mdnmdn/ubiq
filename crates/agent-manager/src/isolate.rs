@@ -167,22 +167,31 @@ impl IsolateOptions {
     /// [`ConfigStrategy::Home`], the harness's own [`Harness::default_homes`] under
     /// [`ConfigStrategy::Native`]. The policy grants the run's scratch dir by itself, never the
     /// home, which is shared by every run as the account — or is the user's own. A per-run dir
-    /// needs nothing more.
+    /// needs nothing more. Whatever the strategy, the harness's own [`Harness::run_grants`] are
+    /// added too.
     ///
     /// [`Harness::default_homes`]: crate::harness::Harness::default_homes
+    /// [`Harness::run_grants`]: crate::harness::Harness::run_grants
     pub fn grant_config_home(
         &mut self,
         harness: &dyn crate::harness::Harness,
         config: &ConfigStrategy,
     ) {
-        let homes = match config {
+        let mut homes = match config {
             ConfigStrategy::Home { home, .. } => vec![home.clone()],
             ConfigStrategy::Native { .. } => harness.default_homes(),
             ConfigStrategy::Ephemeral | ConfigStrategy::Fixed(_) => Vec::new(),
         };
+        let (rw, ro) = harness.run_grants();
+        homes.extend(rw);
         for home in homes {
             if !self.extra_rw.contains(&home) {
                 self.extra_rw.push(home);
+            }
+        }
+        for path in ro {
+            if !self.extra_ro.contains(&path) {
+                self.extra_ro.push(path);
             }
         }
     }
