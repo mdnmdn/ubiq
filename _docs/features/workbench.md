@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-10-09
+updated: 2026-10-11
 verified: 2026-10-09
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/updates.rs, crates/ubiq/src/app/updates.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs, crates/ubiq/src/state/about.rs, crates/ubiq/src/app/about.rs, crates/ubiq/src/ui/about.rs]
 depends_on: [tech-ui]
@@ -946,17 +946,25 @@ screenshot is start, take one, stop. Where the platform asks for consent the fir
 asks it, and where it does not the Appearance switch is the only thing between the application and
 a screenshot. Nothing crosses the bus.
 
-**The balloon beside the bell photographs the window before it raises anything over it.** Pressing
-it runs the same capture the capture button does — `capture_offered()`'s three gates apply, the
-platform's own permission prompt on macOS and Wayland included — and only once the picture is back
-does the feedback modal open, so the modal is never in its own screenshot. Where no capture is
-possible the modal still opens, with no picture, because a report is worth sending without one.
-It carries a title, a Type dropdown (Bug, Feature, Eco feature), a description, the screenshot with
-a Remove button, and Send. Send is dimmed while the title is blank, while a report is already in
-flight, and in a build compiled with no feedback destination at all — the sentence under the button
-says which of the three. A report that lands turns the footer into a receipt, with an Open link
-when the destination returned one. The balloon is drawn always, project or none, because it says
-something about Ubiq itself rather than about a project.
+**The balloon beside the bell opens the feedback modal at once, with no picture.** Nothing is
+captured on open, so the platform's screen-recording prompt (macOS, Wayland) never fires from the
+balloon. The modal carries a title, a Type dropdown (Bug, Feature, Eco feature), a description, a
+Screenshot section, and Send. The section has **Take screenshot**, offered where `capture_offered()`
+is true: it hides the modal (title, type and description are kept), waits for a frame without it
+plus a short settle, photographs the window, and restores the modal with the picture attached; if
+the capture fails or permission is denied the modal returns with no picture and an inline note.
+**Paste image** (and Cmd/Ctrl+V while the modal is up and focus is not in one of its text inputs)
+attaches the clipboard's image, re-encoded as PNG when it is another format, or notes that the
+clipboard has no image. The preview carries a ✕ that removes the picture, and an **Edit** that opens the image editor
+(the toolbar and canvas of an image tab) in a dialog over the modal, on the attached PNG: **Apply**
+replaces the picture with the edited PNG, **Cancel** or Escape discards the edit — Escape peels the
+dialog (`Layer::FeedbackEdit`) before the modal — and the rest of the form is untouched. Send is dimmed while the
+title is blank, while a report is already in flight, and while no feedback destination resolves —
+none compiled in and none set under Settings → Feedback — the sentence under the button says which
+of the three. A change on that page re-enables or dims Send live, without a restart. A report without a
+picture is valid. A report that lands turns the footer into a receipt, with an Open link when the
+destination returned one. The balloon is drawn always, project or none, because it says something
+about Ubiq itself rather than about a project.
 
 **The mark beside the balloon opens About Ubiq**, a fixed-size modal (`ABOUT_WIDTH` by
 `ABOUT_HEIGHT`, so switching tabs never resizes it) with a `kit::tab_strip` of three tabs, drawn
@@ -1034,7 +1042,15 @@ configured here — each with its key typed once, its models picked from what th
 a test that streams a real answer back), **Tools** (the runnable tools
 every project inherits, edited at machine scope),
 **Command line** (the `ubiq`
-command on the shell's `PATH`), **Updates** (the running version, the channel — Stable, Beta or
+command on the shell's `PATH`), **Feedback** (where the feedback modal posts: the effective
+intake URL and key, each badged *compiled* or *override*, the key shown only as its first twelve
+characters; a URL field and a masked key field with a show toggle, **Save**, **Clear URL
+override** and **Clear key override**, and **Test**, whose result — connected and the key's name,
+or the error — is drawn inline; a note says so when no destination is configured at all. The URL
+is kept in the host settings, the key in the system keychain, and the key never reaches the
+window — see the feedback family in the transport contract. The URL override is read once, when
+the host starts; a changed URL takes effect through the page's Save, which updates the running
+host, and a hand edit of the settings file is picked up at the next start), **Updates** (the running version, the channel — Stable, Beta or
 Nightly — two switches for checking and for downloading on its own, one status line and the
 buttons that status allows: *Check now*, *Download*, *Restart and install*, *Install on quit*, and
 *Open download page* where the host can only link it, *Release notes* beside any; the host does the

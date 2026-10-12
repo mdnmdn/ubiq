@@ -511,6 +511,16 @@ impl AppState {
             InputState::new(window, cx).placeholder("Type it once \u{2014} it is never read back")
         });
 
+        // The Feedback section's two overrides. Read at save time, so no subscription; the key box
+        // is masked and always left empty, because a stored key is never read back.
+        let feedback_url_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://\u{2026}/api/feedback"));
+        let feedback_key_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Paste a new key \u{2014} it is never read back")
+                .masked(true)
+        });
+
         // The remote-connect modal's fields. `remote_address_input` doubles as the paste target
         // for a whole connection string — see the `InputEvent::Change` subscription below.
         let remote_address_input =
@@ -1643,6 +1653,8 @@ impl AppState {
             ssh_user_input.read(cx).focus_handle(cx),
             ssh_key_path_input.read(cx).focus_handle(cx),
             ssh_secret_input.read(cx).focus_handle(cx),
+            feedback_url_input.read(cx).focus_handle(cx),
+            feedback_key_input.read(cx).focus_handle(cx),
             remote_address_input.read(cx).focus_handle(cx),
             remote_token_input.read(cx).focus_handle(cx),
             remote_root_input.read(cx).focus_handle(cx),
@@ -1765,7 +1777,8 @@ impl AppState {
         // conversation — a cached height that `needs_measure` had no signal to invalidate (T-194).
         // Resizing the panel always fixes it, because the width change forces every row's
         // signature to move; this is the same forced pass asked for on a timer instead, one per
-        // composer slot, so a transcript nobody is resizing straightens itself out too. Not
+        // composer slot, so a transcript nobody is resizing straightens itself out too. Asked only
+        // when the transcript's rows changed since the last pass (`note_rows`). Not
         // bounded: a settled transcript is not one that stays settled — the next long message can
         // leave a stale height behind — and stopping on the first quiet pass ended the loop within
         // seconds of boot. A pass re-measures only the rows on screen, which is cheap (T-284).
@@ -1774,14 +1787,22 @@ impl AppState {
                 loop {
                     let settle = cx.background_executor().timer(Duration::from_secs(4));
                     settle.await;
+                    // Only a transcript whose rows changed since the last forced pass is asked:
+                    // a quiet chat gets one pass after its last change, then none.
                     let asked = this.update(cx, |state, cx| {
-                        if let Some(scroll) = state.transcript_scrolls.get(slot) {
-                            scroll.force_relayout();
+                        let changed = state
+                            .transcript_scrolls
+                            .get(slot)
+                            .is_some_and(TranscriptScroll::relayout_if_changed);
+                        if changed {
+                            cx.notify();
                         }
-                        cx.notify();
+                        changed
                     });
-                    if asked.is_err() {
-                        break;
+                    match asked {
+                        Err(_) => break,
+                        Ok(false) => continue,
+                        Ok(true) => {}
                     }
                     // A frame to answer the request with, before the result is read back.
                     let answered = cx.background_executor().timer(Duration::from_millis(150));
@@ -1973,6 +1994,8 @@ impl AppState {
             ssh_user_input,
             ssh_key_path_input,
             ssh_secret_input,
+            feedback_url_input,
+            feedback_key_input,
             remote_address_input,
             remote_token_input,
             remote_root_input,
@@ -2041,7 +2064,8 @@ impl AppState {
         // there. Re-asked whenever the provider changes — see `set_assist_provider`.
         this.bus.send(Message::GetAssist);
         // Whether this build has anywhere to send feedback. Asked once: the destination is
-        // compiled into the host's binary, so the answer cannot change while the process runs.
+        // compiled into the host's binary, but an override set at run time can change the
+        // answer, and the host then broadcasts a fresh offer.
         this.ask_feedback_offer();
         this.ask_updates();
 

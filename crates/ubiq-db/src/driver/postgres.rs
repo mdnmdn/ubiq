@@ -33,6 +33,8 @@ use sqlx_core::connection::Connection as _;
 use sqlx_core::executor::Executor;
 use sqlx_core::raw_sql::raw_sql;
 use sqlx_core::row::Row;
+use sqlx_core::sql_str::{AssertSqlSafe, SqlSafeStr as _};
+use sqlx_core::statement::Statement as _;
 use sqlx_core::type_info::TypeInfo;
 use sqlx_core::value::ValueRef;
 use sqlx_postgres::{PgColumn, PgConnectOptions, PgConnection, PgRow, PgSslMode, PgValueFormat};
@@ -115,7 +117,7 @@ impl CancelHandle for PgCancel {
             .map_err(|e| DbError::Connect(format!("cannot start the async runtime: {e}")))?;
         rt.block_on(async {
             let mut side = open_one(&self.cfg, &self.home).await?;
-            let sent = raw_sql(&format!("SELECT pg_cancel_backend({pid})"))
+            let sent = raw_sql(AssertSqlSafe(format!("SELECT pg_cancel_backend({pid})")))
                 .execute(&mut side)
                 .await
                 .map_err(err);
@@ -270,7 +272,7 @@ impl Postgres {
     /// A catalog query on `db`'s session; rows as text.
     fn rows(&mut self, db: Option<&str>, sql: &str) -> Result<Vec<PgRow>> {
         let (rt, conn) = self.sess(db)?;
-        rt.block_on(raw_sql(sql).fetch_all(&mut *conn)).map_err(err)
+        rt.block_on(raw_sql(AssertSqlSafe(sql.to_owned())).fetch_all(&mut *conn)).map_err(err)
     }
 
     /// Point the cancel handle at the current session's backend (pid learnt once per session).
@@ -313,7 +315,7 @@ impl Postgres {
             let ms = opts.timeout.map(|t| t.as_millis().max(1));
             if ro {
                 // Parse takes exactly one statement: `SELECT 1; DELETE …` is refused here
-                rt.block_on((&mut *conn).prepare(sql)).map_err(err)?;
+                rt.block_on((&mut *conn).prepare(AssertSqlSafe(sql.to_owned()).into_sql_str())).map_err(err)?;
                 let rows = rt
                     .block_on(
                         raw_sql("BEGIN READ ONLY; SELECT current_setting('transaction_read_only')")
@@ -333,7 +335,7 @@ impl Postgres {
                 let set = if ro { "SET LOCAL" } else { "SET" };
                 let r = rt
                     .block_on(
-                        raw_sql(&format!("{set} statement_timeout = {ms}")).execute(&mut *conn),
+                        raw_sql(AssertSqlSafe(format!("{set} statement_timeout = {ms}"))).execute(&mut *conn),
                     )
                     .map_err(err);
                 if let Err(e) = r {
@@ -499,7 +501,7 @@ impl Connection for Postgres {
             rt.block_on(async {
                 let mut out = ResultSet::default();
                 {
-                    let mut stream = raw_sql(sql).fetch(&mut *conn);
+                    let mut stream = raw_sql(AssertSqlSafe(sql.to_owned())).fetch(&mut *conn);
                     while let Some(row) = stream.try_next().await? {
                         if out.columns.is_empty() {
                             out.columns = row.columns().iter().map(column_meta).collect();
@@ -512,7 +514,7 @@ impl Connection for Postgres {
                     }
                 }
                 if out.columns.is_empty()
-                    && let Ok(d) = (&mut *conn).describe(sql).await
+                    && let Ok(d) = (&mut *conn).prepare(AssertSqlSafe(sql.to_owned()).into_sql_str()).await
                 {
                     // no rows came back, so there was no row to read the columns from
                     out.columns = d.columns().iter().map(column_meta).collect();
@@ -525,7 +527,7 @@ impl Connection for Postgres {
 
     fn execute_with(&mut self, sql: &str, opts: &ExecOptions) -> Result<ExecOutcome> {
         self.guarded("execute", sql, opts, |rt, conn| {
-            let done = rt.block_on(raw_sql(sql).execute(&mut *conn)).map_err(err)?;
+            let done = rt.block_on(raw_sql(AssertSqlSafe(sql.to_owned())).execute(&mut *conn)).map_err(err)?;
             Ok(ExecOutcome {
                 rows_affected: done.rows_affected(),
             })
@@ -548,7 +550,7 @@ impl Connection for Postgres {
             self.arm_cancel()?;
             let (rt, conn) = self.sess(None)?;
             // one statement only: `EXPLAIN SELECT 1; DELETE …` would run the DELETE
-            rt.block_on((&mut *conn).prepare(body)).map_err(err)?;
+            rt.block_on((&mut *conn).prepare(AssertSqlSafe(body.to_owned()).into_sql_str())).map_err(err)?;
             let mut undo = None;
             if analyze {
                 // ANALYZE executes: inside the caller's transaction a savepoint, else our own
@@ -573,7 +575,7 @@ impl Connection for Postgres {
             } else {
                 format!("EXPLAIN (FORMAT JSON) {body}")
             };
-            let rows = rt.block_on(raw_sql(&stmt).fetch_all(&mut *conn));
+            let rows = rt.block_on(raw_sql(AssertSqlSafe(stmt.as_str())).fetch_all(&mut *conn));
             if let Some(u) = undo {
                 let _ = rt.block_on(raw_sql(u).execute(&mut *conn));
             }

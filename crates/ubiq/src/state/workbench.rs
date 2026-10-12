@@ -765,10 +765,10 @@ pub struct WorkbenchState {
     /// The feedback modal, while it is up. Beside `clone_project` for its reason: a question
     /// raised over the window, answered once, carrying its own dropdown's open state.
     pub feedback: Option<crate::state::feedback::FeedbackForm>,
-    /// Whether this build can send feedback at all, and where to. Asked once at boot and never
-    /// again: the destination is compiled into the binary, so it cannot change while the process
-    /// runs. Off until the host answers, which is what keeps the send button disabled in a build
-    /// that has no destination.
+    /// Whether this build can send feedback at all, and where to. Asked once at boot, then
+    /// re-sent by the host:the destination is compiled into the binary, but an override set at run time
+    /// can change it, and the host then broadcasts a fresh offer. Off until the host answers,
+    /// which is what keeps the send button disabled in a build that has no destination.
     pub feedback_offer: ubiq_proto::feedback::FeedbackOffer,
     /// The updater as the host last reported it. Asked at boot and re-sent on every change.
     pub updates: crate::state::updates::UpdatesState,
@@ -792,6 +792,10 @@ pub struct WorkbenchState {
     /// places that raise the dialog — the harnesses settings section and a conversation's info
     /// modal — reach it from different ends. One at a time, on the window's own rule.
     pub capabilities: Option<String>,
+    /// The permission request being read in full, while its dialog is up: the agent that asked and
+    /// the request id. The request itself stays on the conversation — the dialog is a second view
+    /// of it, so it closes by itself the moment the request is no longer pending.
+    pub permission_dialog: Option<(AgentId, String)>,
     /// The annotated document on screen — today always a task's plan, raised from the task panel
     /// for a task carrying a [`ubiq_proto::work::Level`]. One at a time, like `feedback`:
     /// opening another replaces whichever was open. The field keeps its name because the plan is
@@ -1095,6 +1099,7 @@ impl Default for WorkbenchState {
             all_projects: None,
             image_zoom: None,
             capabilities: None,
+            permission_dialog: None,
             plan: None,
             mission: None,
             new_agent: None,

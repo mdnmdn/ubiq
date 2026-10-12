@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-10-07
-verified: 2026-10-04
+updated: 2026-10-12
+verified: 2026-10-12
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -445,7 +445,9 @@ padding when there is not, so a resize never leaves a thin, uneven strip on one 
 one body line of top padding, and below it enough bottom padding that the last line scrolls clear
 of the frame rather than sitting flush against it. A table or a fenced code block keeps the
 paragraph's own left edge and may grow toward the far margin (the column's breakout) rather than
-spilling past the pane when it is wider than the measure. Inline code draws in
+spilling past the pane when it is wider than the measure. A table's columns are measured from the
+runs each cell draws, code spans in their monospace face, and no column is narrower than its
+content; a table wider than its frame scrolls sideways inside it (`ui/mdview/blocks.rs`). Inline code draws in
 a more contrasted chip-like background. Line height
 follows the width
 preset (tighter at Readable, looser at Full) and a separate density toggle — Comfortable, the
@@ -564,6 +566,21 @@ size in hand at parse time to seed the modal's camera with, unlike a diagram's o
 **An Excalidraw fence resizes but carries no zoom button either** — it is vector shapes painted
 straight into the panel, not one picture a modal or a clipboard button could hand off whole; only a
 Mermaid fence's `Arc<Image>` and a standalone image's `img(url)` are reachable today.
+
+**A code fence and a table in a Markdown view expand to a full-window dialog** (`ui/mdview/zoom.rs`).
+A button in the block's top-right corner shows on hover, and a click raises the block again, un-capped
+by the reading measure, in a body that scrolls both ways over the view. Esc, the × and a press on the
+scrim close it, and the dialog holds the keyboard while it is up, so the view handles its Esc itself.
+Copy all puts the whole content on the clipboard; a table copies as tab- and newline-separated text,
+which a spreadsheet pastes as a grid. The dialog draws no scrollbars, and its text selects like the
+page's.
+
+**Text in a Markdown view selects one block at a time** (`ui/mdview/selection.rs`). A drag that starts
+in a paragraph, a heading, a list, a quote, a footnote, a code fence or a table cell selects inside
+that one text element and stops at its edges; a table cell is an element of its own. Cmd+C copies the
+selection. Front matter and raw HTML do not select. A selection never spans two blocks, does not scroll
+the view while it is dragged past the viewport, and does not quote into a new annotation thread
+(`G420`, `G421`, `G406`).
 
 **An Excalidraw scene sits on Excalidraw's own white canvas.** A file that names a canvas colour
 keeps it; a file that names none — `transparent`, an absent key — gets the format's default white
@@ -898,13 +915,14 @@ together, `shoot_window()` is the whole of taking the picture — it streams one
 `cx.screen_capture_sources()` and hands `Option<Vec<u8>>` to whatever function pointer it was
 given, `None` where the platform, the setting or the decode said no — and `capture_window()` is
 `shoot_window()` with `open_untitled_image()` as that callback, which is what the capture button
-still does. The feedback balloon is `shoot_window()`'s other caller: `app/feedback.rs`'s
-`open_feedback()` passes a callback that raises the modal from the picture instead, on
+still does. The feedback modal's **Take screenshot** button is `shoot_window()`'s other caller:
+`app/feedback.rs`'s `take_feedback_shot()` hides the modal, waits a frame and a short settle, and
+passes a callback that attaches the picture and restores it, on
 `state/feedback.rs`'s `FeedbackForm` and drawn by `ui/feedback.rs`. `decode_window_png()`,
 `crop_rect()` and `crop_png()` are the crop and the encode — the frame becomes RGBA in
 `frame_rgba()` on the capturer's own thread, from `zed_scap::frame::Frame` on
 Windows and Linux and from a `CVImageBuffer` on macOS, which is why `gpui` and `gpui_platform` carry
-the `screen-capture` feature in `crates/ubiq/Cargo.toml` and `core-video` and `zed-scap` sit behind
+the `screen-capture` feature in `crates/ubiq/Cargo.toml` and `objc2-core-video` and `zed-scap` sit behind
 target `cfg`s there. The pixels land in `app/editor.rs`'s `open_untitled_image()`, and
 `clipboard.rs`'s `next_capture_name()` numbers the tab. `state/image_edit.rs` is the buffer:
 `ImageEdit::new()` builds the scene of `state/scene.rs` elements over the base bytes, `push()`,
@@ -919,7 +937,14 @@ draws the strip and, in Edit, the tool layer over it, and converts a window poin
 through the stored panel and `scene::live_with_overlay()`. `FileBody::ImageEdit` is what
 `state/editor.rs` holds it in, `set_image()` is what a read builds it with, carrying the read's
 `FileVersion` in, and `editable_image()`, `savable()`, `touch_image()` and `saved()` are where a
-non-text body meets the tab's own lifecycle.
+non-text body meets the tab's own lifecycle. The feedback modal's **Edit** reuses all of it on bytes
+in memory: `FeedbackForm::begin_edit()` builds an untitled `OpenFile` over a copy of the attached PNG
+into `shot_edit` — never into a project's editor, and no file is written — and `image_file_mut()`
+and `active_file_key()` in `app/image_edit.rs` answer that tab's key from the form while the dialog
+is up, so every handler above works on it unchanged. `ui/feedback.rs`'s `edit_dialog()` hosts
+`ui/viewer/image_edit.rs`'s strip and canvas in a `modal_sized` on `Layer::FeedbackEdit`, above the
+modal and below an ask; `apply_edit()` flattens it back into `shot` (an untouched scene keeps the
+original bytes) and Cancel or Escape (`cancel_feedback_edit()`) drops it.
 
 `state/diagrams.rs` is the Mermaid renderer and its disk tier, and it is the only place in the
 interface that names `merman`. `render()` is one source in and one picture out, sized by `view_box()`
@@ -1029,8 +1054,8 @@ library's own so they win — and the binary calls it beside its own quit bindin
 | The palette is switched with a diagram on screen | The picture is rendered again for the new palette. The two palettes are two entries, so switching back is a cache hit |
 | A window has no project yet | A diagram still renders, with the memory tier alone. There is no workarea to write to until the catalogue has arrived |
 | The capture switch is off, the platform decodes no frame, or the backend does not answer | The titlebar has no capture button and the keystroke does nothing. There is nothing to dismiss and nothing to report |
-| The balloon is pressed where no capture is possible | The feedback modal opens all the same, with no screenshot to show or remove |
-| A build has no feedback destination compiled in | The balloon is still offered; the modal opens and its Send stays dimmed, naming the reason under the button |
+| A feedback screenshot is requested where no capture is possible, or the capture fails | The modal returns with no picture and a short inline note; Take screenshot is not offered where `capture_offered()` is false |
+| No feedback destination resolves — none compiled in, no override in Settings → Feedback | The balloon is still offered; the modal opens and its Send stays dimmed, naming the reason under the button |
 | An answer names a report the window is no longer holding | Discarded — the modal was closed, or a second report started, since it was sent |
 | The platform refuses the capture, offers no display, or sends a frame this build does not read | The reason is logged and no tab opens. A capture that cannot land is not a half-drawn picture |
 | The window is minimised or wholly off its display | The capture is refused rather than saved as whatever the compositor had. A window hanging off an edge is clamped to the frame and captured |

@@ -165,33 +165,39 @@ fn frame_rgba(frame: &zed_scap::frame::Frame) -> Option<(Vec<u8>, u32, u32)> {
     scap_rgba(frame)
 }
 
-/// A `CVImageBuffer` as RGBA. ScreenCaptureKit is configured for `BGRA` by gpui, so that
-/// is the one format read; a planar or short buffer is refused rather than read wrong.
+/// A `CVImageBuffer` (a `CVPixelBuffer`, the same type) as RGBA. ScreenCaptureKit is
+/// configured for `BGRA` by gpui, so that is the one format read; a planar or short buffer
+/// is refused rather than read wrong.
 #[cfg(target_os = "macos")]
-fn frame_rgba(frame: &core_video::image_buffer::CVImageBuffer) -> Option<(Vec<u8>, u32, u32)> {
-    use core_video::pixel_buffer::{
-        CVPixelBuffer, kCVPixelBufferLock_ReadOnly, kCVPixelFormatType_32BGRA,
+fn frame_rgba(frame: &objc2_core_video::CVImageBuffer) -> Option<(Vec<u8>, u32, u32)> {
+    use objc2_core_video::{
+        CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight,
+        CVPixelBufferGetPixelFormatType, CVPixelBufferGetWidth, CVPixelBufferIsPlanar,
+        CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+        kCVPixelFormatType_32BGRA,
     };
 
-    let pixels: CVPixelBuffer = frame.downcast()?;
-    if pixels.get_pixel_format() != kCVPixelFormatType_32BGRA || pixels.is_planar() {
+    if CVPixelBufferGetPixelFormatType(frame) != kCVPixelFormatType_32BGRA
+        || CVPixelBufferIsPlanar(frame)
+    {
         return None;
     }
-    let (w, h) = (pixels.get_width(), pixels.get_height());
-    let stride = pixels.get_bytes_per_row();
+    let (w, h) = (CVPixelBufferGetWidth(frame), CVPixelBufferGetHeight(frame));
+    let stride = CVPixelBufferGetBytesPerRow(frame);
     if w == 0 || h == 0 || stride < w * 4 {
         return None;
     }
-    if pixels.lock_base_address(kCVPixelBufferLock_ReadOnly) != 0 {
+    let read_only = CVPixelBufferLockFlags::ReadOnly;
+    if unsafe { CVPixelBufferLockBaseAddress(frame, read_only) } != 0 {
         return None;
     }
-    let base = unsafe { pixels.get_base_address() } as *const u8;
+    let base = CVPixelBufferGetBaseAddress(frame) as *const u8;
     let rgba = (!base.is_null()).then(|| {
         // Held only until the copy below is done, and unlocked immediately after.
         let bytes = unsafe { std::slice::from_raw_parts(base, stride * h) };
         packed_rgba_rows(bytes, stride, w as u32, h as u32, [2, 1, 0], Some(3))
     });
-    pixels.unlock_base_address(kCVPixelBufferLock_ReadOnly);
+    unsafe { CVPixelBufferUnlockBaseAddress(frame, read_only) };
     rgba?.map(|rgba| (rgba, w as u32, h as u32))
 }
 

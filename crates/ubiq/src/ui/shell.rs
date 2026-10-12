@@ -414,7 +414,17 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             app.workbench
                 .feedback
                 .as_ref()
+                // Out of the picture while the window is photographed.
+                .filter(|form| !form.capturing)
                 .map(|_| crate::ui::feedback::render(app, window, cx)),
+        )
+        // The picture editor, over the feedback modal that opened it.
+        .children(
+            app.workbench
+                .feedback
+                .as_ref()
+                .filter(|form| !form.capturing && form.shot_edit.is_some())
+                .map(|_| crate::ui::feedback::edit_dialog(app, window, cx)),
         )
         // The About modal, after feedback on the same terms: both are raised from the titlebar.
         .children(
@@ -475,6 +485,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .capabilities
                 .as_ref()
                 .map(|_| crate::ui::acp_capabilities::dialog(app, window, cx)),
+        )
+        // A permission request read in full, with the same answers as the inline prompt.
+        .children(
+            app.permission_dialog_target()
+                .map(|(agent, pending)| {
+                    crate::ui::conversation::permission_dialog(agent, pending, window, cx)
+                }),
         )
         // The file question a gesture in the explorer or a save on an untitled buffer asked —
         // painted here rather than from either, because both raise the same one.

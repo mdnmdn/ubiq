@@ -1266,6 +1266,11 @@ pub struct AppState {
     // ponytail: this kit has no masked field, so a typed passphrase is on screen until the modal
     // closes — the same ceiling `ai_key_input` has, and the same fix.
     pub ssh_secret_input: Entity<InputState>,
+    /// The Feedback section's URL override, as typed. Read at save time.
+    pub feedback_url_input: Entity<InputState>,
+    /// The Feedback section's key override: masked, with a show toggle, and never seeded — the
+    /// host sends a prefix, not the key.
+    pub feedback_key_input: Entity<InputState>,
     /// The remote-connect modal's two fields: an address (which absorbs a whole pasted connection
     /// string — see `remote_connect::apply_remote_address_input`) and a token. Read at dial time
     /// rather than mirrored, for the same reason `connect_instance_input` is.

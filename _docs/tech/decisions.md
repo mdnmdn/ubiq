@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-08
+updated: 2026-10-11
 verified: 2026-10-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -3149,6 +3149,10 @@ what this decision fills in — `AdoptProject` is that message.
 
 ### D143 — Feedback's destination is compiled in, on `D71`'s discipline
 
+**Superseded in part by `D212`.** The compiled values are the defaults; the user may override the
+API URL and key at run time. The GitHub issues pair stays compiled-only, and the body below still
+explains why the default is compiled in rather than read from the environment.
+
 A report the user sends is the one thing Ubiq says to a service that is neither the user's harness
 nor a service they authorised, so `crates/ubiq-host/src/feedback` reads its URL, its API key, its
 repository and its token through `option_env!` and nothing else — the same choice `D71` makes for a
@@ -5333,6 +5337,26 @@ interface links the download. Chosen over an updater framework because the feed 
 a host the project uses for releases, there is no server to run, and the trust root is one public key in
 the binary. It costs a signing key to guard and rotate; a lost key means a release users install by
 hand. The message family is in [`transport-contract.md`](./transport-contract.md).
+
+### D212 — Feedback's compiled destination is a default the user may override, the key in the keychain
+
+`D143` compiled the destination in with no way to change it. A release build takes its default from
+CI (`vars.UBIQ_FEEDBACK_URL`, `secrets.UBIQ_FEEDBACK_API_KEY`), and Settings → Feedback overrides
+either half: the URL in `host-settings.toml` as `HostSettings::feedback_url`, host-mutated so a
+`SetSettings` blob never moves it, and the key in the OS keychain through the `keyring` crate the
+interface already links (`dev.ubiq.feedback` / `intake-key`). An override wins per field; clearing
+one returns that field to the default. The key never crosses to the interface — it gets a source and
+a twelve-character prefix — and every change re-broadcasts `FeedbackOffered`.
+
+**Why:** a self-hosted intake, a rotated key or a source build that should report somewhere needed
+a rebuild under `D143`. `D143`'s worry was the environment and a plaintext config file deciding
+where words go; an override set by a person on the settings page, with the key in the keychain and
+not the file, answers both.
+
+**Cost:** a second source of truth beside the compiled one, and a keychain read on the feedback
+worker at every start — a macOS keychain prompt on a rebuilt, differently signed binary once an
+override exists. Schema 21 so an older build refuses the file rather than dropping the URL while the
+key stays. The message family is in [`transport-contract.md`](./transport-contract.md).
 
 ## Related docs
 

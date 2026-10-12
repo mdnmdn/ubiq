@@ -3,7 +3,7 @@ use super::ssh_connect::{self, DroneState, HostCheck};
 use super::*;
 use crate::state::file_picker::PickerRequest;
 use crate::state::new_agent::{NewAgentForm, Purpose};
-use crate::state::settings::{DroneStopConfirm, ShellIntegration};
+use crate::state::settings::{DroneStopConfirm, FeedbackTest, ShellIntegration};
 use ubiq_proto::messages::ShellIntegrationAction;
 use ubiq_proto::tools::{ToolDef, parse_env};
 
@@ -3134,4 +3134,132 @@ impl AppState {
     }
 
     // ── Explorer ────────────────────────────────────────────────────
+}
+
+// ── Feedback destination ────────────────────────────────────────────
+//
+// The overrides on top of the compiled default. Always the local host's: the destination is the
+// one this binary's send button posts through, and a remote host's would be another build's.
+impl AppState {
+    /// Asked on arrival: the effective URL and key state can change from another window, and the
+    /// answer is one map read on the host's feedback worker.
+    pub(crate) fn on_show_feedback(&mut self, _cx: &mut Context<Self>) {
+        self.workbench.settings.feedback_test = None;
+        self.bus
+            .send_to(HostRef::Local, Message::QueryFeedbackSettings);
+    }
+
+    /// Send whatever the two fields hold as overrides — an empty field leaves its override as it
+    /// is. The fields are emptied when the host answers without an error (the key is not kept on
+    /// this side past that), and kept for another try when it answers with one.
+    pub fn save_feedback_settings(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let url = self.feedback_url_input.read(cx).value().trim().to_string();
+        let key = self.feedback_key_input.read(cx).value().trim().to_string();
+        if url.is_empty() && key.is_empty() {
+            return;
+        }
+        if !url.is_empty() {
+            if let Err(error) = ubiq_proto::feedback::validate_url(&url) {
+                // Said in the section's own error line, with the host's answers.
+                let state = &mut self.workbench.settings;
+                if let Some(feedback) = state.feedback.as_mut() {
+                    feedback.error = Some(error);
+                }
+                cx.notify();
+                return;
+            }
+        }
+        let change = ubiq_proto::feedback::FeedbackSettingsChange {
+            url: Some(url).filter(|url| !url.is_empty()),
+            key: Some(key)
+                .filter(|key| !key.is_empty())
+                .map(ubiq_proto::messages::Secret::new),
+            clear_url: false,
+            clear_key: false,
+        };
+        self.workbench.settings.feedback_save_pending = true;
+        self.bus
+            .send_to(HostRef::Local, Message::SetFeedbackSettings { change });
+        cx.notify();
+    }
+
+    /// Drop the URL override, the key override, or both — each field goes back to the compiled
+    /// default.
+    pub fn clear_feedback_override(&mut self, url: bool, key: bool, cx: &mut Context<Self>) {
+        let change = ubiq_proto::feedback::FeedbackSettingsChange {
+            clear_url: url,
+            clear_key: key,
+            ..Default::default()
+        };
+        self.bus
+            .send_to(HostRef::Local, Message::SetFeedbackSettings { change });
+        cx.notify();
+    }
+
+    /// Ask the host to check the effective URL and key against the service's test endpoint.
+    pub fn test_feedback(&mut self, cx: &mut Context<Self>) {
+        if matches!(
+            self.workbench.settings.feedback_test,
+            Some(FeedbackTest::Running)
+        ) {
+            return;
+        }
+        self.workbench.settings.feedback_test = Some(FeedbackTest::Running);
+        self.bus.send_to(HostRef::Local, Message::TestFeedback);
+        cx.notify();
+    }
+
+    /// The destination's settings and the test's answer. `FeedbackOffered` is not here: it stays
+    /// with the modal's own `receive_feedback`, which is how a change reaches the send button.
+    ///
+    /// Answers with the message when it belongs to another family.
+    pub(super) fn receive_feedback_settings(
+        &mut self,
+        host: HostRef,
+        message: Message,
+        cx: &mut Context<Self>,
+    ) -> Option<Message> {
+        match message {
+            Message::FeedbackSettingsChanged { settings } => {
+                if host == HostRef::Local {
+                    let state = &mut self.workbench.settings;
+                    let saved = std::mem::take(&mut state.feedback_save_pending)
+                        && settings.error.is_none();
+                    state.feedback = Some(settings);
+                    // A result for the destination as it was is not one for the destination now.
+                    state.feedback_test = None;
+                    if saved {
+                        // The key is not kept on this side once the host has it. Emptied after
+                        // this update, when a window can be borrowed.
+                        let inputs = [
+                            self.feedback_url_input.clone(),
+                            self.feedback_key_input.clone(),
+                        ];
+                        cx.defer(move |cx| {
+                            let Some(window) = cx.active_window() else {
+                                return;
+                            };
+                            let _ = window.update(cx, |_, window, cx| {
+                                for input in &inputs {
+                                    input.update(cx, |state, cx| state.set_value("", window, cx));
+                                }
+                            });
+                        });
+                    }
+                    cx.notify();
+                }
+            }
+            Message::FeedbackTested { result } => {
+                let state = &mut self.workbench.settings;
+                if host == HostRef::Local
+                    && matches!(state.feedback_test, Some(FeedbackTest::Running))
+                {
+                    state.feedback_test = Some(FeedbackTest::Done(result));
+                    cx.notify();
+                }
+            }
+            other => return Some(other),
+        }
+        None
+    }
 }

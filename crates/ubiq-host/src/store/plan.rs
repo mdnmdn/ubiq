@@ -114,6 +114,19 @@ impl PlanSidecar {
         }
     }
 
+    /// Whether this sidecar carries anything a person made or a save stamped: a thread (open or
+    /// resolved — a resolved thread is still a record), a block colour, a recorded revision (the
+    /// tracked changes), or an agent binding. The block index alone is derived from the body and
+    /// is not content; a sidecar without any is never written (see `Plans::write_sidecar`).
+    pub fn has_content(&self) -> bool {
+        !self.annotations.is_empty()
+            || !self.highlights.is_empty()
+            || self.revision != PlanRevision::default()
+            || !self.history.is_empty()
+            || self.agent.is_some()
+            || self.auto_send
+    }
+
     /// The binding as the wire carries it.
     pub fn binding(&self) -> DocBinding {
         DocBinding {
@@ -241,6 +254,11 @@ pub fn save_sidecar(
         message: error.to_string(),
     })?;
     write_placed(path, body.as_bytes(), placement)
+}
+
+/// Delete a document's sidecar; not an error when there is none.
+pub fn remove_sidecar(path: &Path) -> Result<(), StoreError> {
+    remove(path.to_path_buf())
 }
 
 fn write_placed(path: &Path, bytes: &[u8], placement: Placement) -> Result<(), StoreError> {

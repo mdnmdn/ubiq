@@ -30,8 +30,13 @@ jobs:
       - uses: extractions/setup-just@v2
       - uses: astral-sh/setup-uv@v5
 
+      # The feedback destination is compiled in as the default (`option_env!`); a user may override
+      # either half at run time in Settings → Feedback. Unset → an empty value, read as no default.
       - shell: bash
         run: just bundle-win
+        env:
+          UBIQ_FEEDBACK_URL: ${{ vars.UBIQ_FEEDBACK_URL }}
+          UBIQ_FEEDBACK_API_KEY: ${{ secrets.UBIQ_FEEDBACK_API_KEY }}
 
       - run: Compress-Archive -Path target/ubiq-windows-x86_64 -DestinationPath Ubiq-windows-x86_64.zip -Force
 

@@ -3,15 +3,20 @@
 //! One struct, on [`crate::state::clone::CloneState`]'s shape and for its reason: every field is
 //! answerable at any time and none of them is a step.
 //!
-//! **The screenshot is taken before the modal opens, never after.** A window photographed with the
-//! modal on it is a picture of the modal, so the control captures first and raises this second —
-//! which is why `shot` is a field here rather than something the modal asks for.
+//! **The screenshot is optional and on request.** The modal opens with none; the user can take one
+//! (the modal hides itself for the shot — `capturing`) or paste an image from the clipboard.
 //!
 //! **An answer naming a report this state no longer holds is discarded**, the discipline every
 //! id-carrying family in the window follows.
 
 use ubiq_proto::feedback::{FeedbackKind, FeedbackOffer};
 use ubiq_proto::ids::FeedbackId;
+
+use super::editor::{OpenFile, ViewLayout};
+
+/// The name the dialog's in-memory tab carries. Never a path on disk: it only keys the editor's
+/// viewport and handlers.
+const EDIT_NAME: &str = "~feedback-picture.png";
 
 /// The feedback modal, while it is up.
 #[derive(Default)]
@@ -21,10 +26,18 @@ pub struct FeedbackForm {
     pub kind: FeedbackKind,
     /// The body, mirrored from the textarea.
     pub description: String,
-    /// The window as it was when the control was pressed, PNG encoded. `None` where the platform
-    /// offers no capture, where the user has it turned off, or where the capture failed — all
-    /// three are the same thing to the modal: there is no picture to show or to send.
+    /// The attached picture, PNG encoded: a window shot taken on request, or a pasted image.
+    /// `None` is a valid report.
     pub shot: Option<Vec<u8>>,
+    /// The picture open in the editing dialog, while that is up: an in-memory capture tab over a
+    /// copy of [`Self::shot`] — the image editor's own buffer, never put in a project's editor.
+    /// Apply flattens it back into `shot`; Cancel drops it.
+    pub shot_edit: Option<OpenFile>,
+    /// The modal is out of the picture while the window is photographed. The form (and so the
+    /// fields) stays; only the drawing is skipped.
+    pub capturing: bool,
+    /// A short inline sentence about the picture: why a capture or a paste attached nothing.
+    pub note: Option<String>,
     /// The report in flight, if one is. Set when Send is pressed and cleared by the answer;
     /// the modal is read-only while it is set, so one press is one report.
     pub sending: Option<FeedbackId>,
@@ -52,6 +65,39 @@ impl FeedbackForm {
             && self.sending.is_none()
             && self.sent.is_none()
             && !self.title.trim().is_empty()
+    }
+
+    /// Open the attached picture in the editor. `false` is no picture, or bytes that do not decode.
+    pub fn begin_edit(&mut self) -> bool {
+        let Some(png) = self.shot.as_ref() else {
+            return false;
+        };
+        let mut file = OpenFile::untitled(EDIT_NAME, ViewLayout::default());
+        file.set_image_untitled(png.clone());
+        if file.image_edit().is_none() {
+            return false;
+        }
+        self.shot_edit = Some(file);
+        true
+    }
+
+    /// The editor's tab key, while the dialog is up.
+    pub fn edit_key(&self) -> Option<String> {
+        self.shot_edit.as_ref().map(OpenFile::key)
+    }
+
+    /// Apply: the flattened edit replaces the picture (PNG). An untouched scene keeps the original
+    /// bytes rather than a re-encode.
+    pub fn apply_edit(&mut self) {
+        let Some(file) = self.shot_edit.take() else {
+            return;
+        };
+        if let Some(edit) = file.image_edit()
+            && !edit.undo.is_empty()
+            && let Some(png) = edit.flatten()
+        {
+            self.shot = Some(png);
+        }
     }
 
     /// Whether an answer naming this report is still wanted.

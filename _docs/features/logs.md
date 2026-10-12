@@ -80,6 +80,15 @@ ring does not — see below. A path that cannot be opened is not a reason to fai
 file layer is simply not added, and the ring and standard error report exactly as they would
 without it.
 
+**A panic always leaves a trace, with or without `UBIQ_LOG_FILE`.** `install()` chains a panic hook
+in front of the existing one: on any thread it appends a timestamp, the thread name, the message,
+the location and a forced backtrace to `crash.log` (`log::crash_log_path()` — `~/Library/Logs/Ubiq`
+on macOS, `%LOCALAPPDATA%\Ubiq\Logs` on Windows, `$XDG_STATE_HOME/ubiq` or `~/.local/state/ubiq`
+elsewhere), emits the same text as an `error` record (so the ring and `UBIQ_LOG_FILE` get it), then
+runs the previous hook so standard error still reports. Both binaries and the drone mode reach it
+through `install()`. The file is append-only and unrotated; a directory that cannot be created is
+skipped silently.
+
 **The Harness subsystem is the structured bridges reporting.** A harness driven as a conversation
 speaks JSON on a pipe, and `crates/agent-manager/src/io/` is where that is read: every frame it
 decodes into an event is a `debug` record naming the event, and every raw frame, in both

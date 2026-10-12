@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-10-09
+updated: 2026-10-11
 verified: 2026-10-09
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -2398,24 +2398,42 @@ listens to this bus.
 
 The nineteenth family, and the only one whose destination is outside the user's own world — not
 their harness, not their repository host, not a service they authorised. **Which service a build
-reports to is compiled in, never a setting**: `option_env!`, on the connector family's
-`ProviderId` discipline (`D71`), selects the destination when Ubiq is built, and the interface
-asks once, because the answer cannot change while the process runs.
+reports to is compiled in as a default, and the user may override it** (`D212`): `option_env!`, on
+the connector family's `ProviderId` discipline (`D71`), supplies the default URL and key when Ubiq
+is built; Settings → Feedback overrides either field, the URL in `host-settings.toml`
+(`HostSettings::feedback_url`, host-mutated) and the key in the OS keychain (service
+`dev.ubiq.feedback`, account `intake-key`). An override wins per field, and clearing one returns
+that field to the compiled default. Every message here is a command to the host's one feedback
+worker thread, so an answer never overtakes a change queued before it.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `QueryFeedback` | UI → host | — | `FeedbackOffered` |
 | `SendFeedback` | UI → host | `report` (boxed `FeedbackReport`) | `FeedbackSent` or `FeedbackFailed`, to the sending client alone |
-| `FeedbackOffered` | host → UI, asking client only | `offer` (`FeedbackOffer`) | — |
+| `FeedbackOffered` | host → UI, asking client only; also broadcast to every client after `SetFeedbackSettings` | `offer` (`FeedbackOffer`) | — |
 | `FeedbackSent` | host → UI | `receipt` (`FeedbackReceipt`) | — |
 | `FeedbackFailed` | host → UI | `failure` (`FeedbackError`) | — |
+| `QueryFeedbackSettings` | UI → host | — | `FeedbackSettingsChanged`, to the asking client alone |
+| `SetFeedbackSettings` | UI → host | `change` (`FeedbackSettingsChange`: `url`, `key` as a `Secret`, `clear_url`, `clear_key`) | `FeedbackSettingsChanged` then `FeedbackOffered`, both to every client |
+| `FeedbackSettingsChanged` | host → UI | `settings` (`FeedbackSettings`: effective `url` and its `FeedbackSource`, `key_set`, `key_source`, `key_prefix`, `error`) | — |
+| `TestFeedback` | UI → host | — | `FeedbackTested`, to the asking client alone |
+| `FeedbackTested` | host → UI | `result` (`FeedbackTestResult`: `ok`, `key_name`, `error`) | — |
 
 **`FeedbackOffer.enabled` is what disables the send button**, not a capability the interface
-infers. A build compiled with neither `UBIQ_FEEDBACK_URL`/`UBIQ_FEEDBACK_API_KEY` nor
-`UBIQ_FEEDBACK_GITHUB_REPO`/`UBIQ_FEEDBACK_GITHUB_TOKEN` set answers `enabled: false` and names
-`FeedbackChannel::None`, which is the honest state for a build from source rather than a failure.
-Where both pairs are compiled in, the API destination wins, because it is the one that can carry
-the screenshot.
+infers. With no URL and key resolving — neither compiled in (`UBIQ_FEEDBACK_URL`/
+`UBIQ_FEEDBACK_API_KEY`, an empty value read as unset) nor overridden — and no
+`UBIQ_FEEDBACK_GITHUB_REPO`/`UBIQ_FEEDBACK_GITHUB_TOKEN` pair compiled in, the host answers
+`enabled: false` and names `FeedbackChannel::None`, which is the honest state for a build from
+source rather than a failure. Where both resolve, the API destination wins, because it is the one
+that can carry the screenshot. **After every `SetFeedbackSettings` the host broadcasts a fresh
+`FeedbackOffered`**, so the modal's send button follows an override without a restart; the GitHub
+pair has no override.
+
+**The key never crosses to the interface.** It goes in once, as a `Secret`, and what comes back is
+`key_set`, its `FeedbackSource` and `key_prefix` — the first twelve characters. `TestFeedback`
+posts an empty object to the intake URL with `/test` appended (`…/api/feedback/test`; a bare origin
+gets the whole path) with the effective key in `X-Api-Key`; it passes only on a 2xx whose body says
+`ok: true`, and names the key the service has it under.
 
 **The screenshot rides the report as PNG bytes, `#[serde(with = "serde_bytes")]`, never a path.**
 The interface photographs its own window before it ever crosses the bus — the host has no reason
@@ -2428,10 +2446,11 @@ sending without one.
 the window is no longer holding — the modal was closed, or a second one opened since — is
 discarded by id rather than drawn over whatever is on screen now.
 
-**`SendFeedback` always goes to the local host, whichever host the window is looking at.** The
-destination is compiled into the binary the interface itself booted with, and the same host is
-who answered `FeedbackOffered` — a remote host attached later would report its own build's
-destination, which is not the one the send button offered.
+**`SendFeedback` always goes to the local host, whichever host the window is looking at**, and so
+do the three settings messages. The destination is the local host's — compiled into the binary the
+interface itself booted with, overridden in the local keychain — and the same host is who answered
+`FeedbackOffered`; a remote host attached later would report its own build's destination, which
+is not the one the send button offered.
 
 ## The update family
 

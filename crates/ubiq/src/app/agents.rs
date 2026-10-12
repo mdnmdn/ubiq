@@ -1173,6 +1173,42 @@ impl AppState {
         }
     }
 
+    /// Open the full-request dialog for one pending permission request.
+    pub fn open_permission_dialog(
+        &mut self,
+        agent_id: AgentId,
+        request_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.permission_dialog = Some((agent_id, request_id));
+        cx.notify();
+    }
+
+    /// Close the dialog without answering.
+    pub fn close_permission_dialog(&mut self, cx: &mut Context<Self>) {
+        self.workbench.permission_dialog = None;
+        cx.notify();
+    }
+
+    /// The request the dialog is showing — only while it is still pending. A request answered
+    /// inline, or dropped because the agent moved on, makes this `None`, which is what closes the
+    /// dialog: nothing is stored here that could outlive the question.
+    pub fn permission_dialog_target(
+        &self,
+    ) -> Option<(AgentId, &crate::state::conversation::Pending)> {
+        let (agent, request_id) = self.workbench.permission_dialog.as_ref()?;
+        self.projects
+            .values()
+            .filter_map(|open| open.conversations.get(agent))
+            .find_map(|conversation| {
+                conversation
+                    .pending
+                    .iter()
+                    .find(|held| &held.request_id == request_id)
+            })
+            .map(|pending| (*agent, pending))
+    }
+
     /// Answer a permission the agent is waiting on, naming one of the options it offered.
     pub fn answer_permission(
         &mut self,
@@ -1181,6 +1217,14 @@ impl AppState {
         option_id: String,
         cx: &mut Context<Self>,
     ) {
+        if self
+            .workbench
+            .permission_dialog
+            .as_ref()
+            .is_some_and(|(_, open)| *open == request_id)
+        {
+            self.workbench.permission_dialog = None;
+        }
         // This prompt goes as its answer does — and only this one: a second request outstanding
         // under another id is still waiting, and clearing it here would strand the turn on a
         // question nobody can answer any more.

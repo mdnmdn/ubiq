@@ -35,11 +35,14 @@ fn the_overlay_draws_the_same_rows_in_the_same_order() {
         "Drones",
         "Tools",
         "Command line",
+        "Feedback",
+        "Updates",
     ];
     if cfg!(windows) {
         expected.push("Shell integration");
     }
     expected.push("Extensions demo");
+    expected.push("Diagrams");
     assert_eq!(rows, expected);
 }
 
@@ -149,11 +152,11 @@ fn the_live_dialog_offers_general_always_and_the_record_backed_only_with_a_recor
     }
 }
 
-/// The sections that ask the host something on arrival, and only those — seven, and eight on
+/// The sections that ask the host something on arrival, and only those — eight, and nine on
 /// Windows, where Shell integration asks the same way Command line does. The chain of
 /// `if nav == …` this replaced is what a contributed section could not have joined.
 #[test]
-fn seven_overlay_sections_ask_something_on_arrival() {
+fn eight_overlay_sections_ask_something_on_arrival() {
     let asking: Vec<&str> = app_sections()
         .iter()
         .filter(|spec| spec.on_show.is_some())
@@ -167,6 +170,7 @@ fn seven_overlay_sections_ask_something_on_arrival() {
         ids::CONNECTORS.0,
         ids::TOOLS.0,
         ids::COMMAND_LINE.0,
+        ids::FEEDBACK.0,
     ];
     if cfg!(windows) {
         expected.push(ids::SHELL_INTEGRATION.0);

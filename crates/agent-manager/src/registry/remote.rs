@@ -332,15 +332,17 @@ pub fn parse_index(source: &str, json: &str) -> Result<Vec<RemoteSkill>> {
 
 #[cfg(feature = "remote")]
 fn fetch_index(source: &str, url: &str) -> Result<Vec<RemoteSkill>> {
-    let agent = ureq::AgentBuilder::new()
-        .try_proxy_from_env(true)
-        .timeout(Duration::from_secs(20))
-        .build();
+    // Proxies come from the environment by default in ureq 3.
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(20)))
+        .build()
+        .into();
     let body = agent
         .get(url)
         .call()
         .map_err(|e| anyhow!("fetching {url}: {e}"))?
-        .into_string()?;
+        .body_mut()
+        .read_to_string()?;
     parse_index(source, &body)
 }
 

@@ -23,8 +23,8 @@ review_cycle: monthly
 | [`uv`](https://docs.astral.sh/uv/) | The `_tools/` scripts | Each script declares its own dependencies inline; no environment to create |
 | A C toolchain and system graphics libraries | GPUI | Xcode command line tools on macOS; on Linux, the X11 and Wayland development packages |
 
-GPUI is pulled from git rather than a published crate, so the first build compiles Zed's rendering
-stack from source. Expect it to take a long time and a lot of disk. Later builds are incremental.
+GPUI is the `gpui-pre` snapshot of Zed's crates, built from source like any crate, so the first
+build compiles Zed's rendering stack. Expect it to take a long time and a lot of disk. Later builds are incremental.
 
 ## The command surface
 

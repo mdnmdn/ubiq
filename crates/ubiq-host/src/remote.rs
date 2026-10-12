@@ -27,7 +27,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use rand::RngCore;
 
 use ubiq_proto::bus::Hub;
 
@@ -144,7 +143,7 @@ fn tls_provider() -> Arc<rustls::crypto::CryptoProvider> {
 /// short enough to actually paste.
 fn generate_token() -> String {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::fill(&mut bytes[..]);
     base64_url_no_pad(&bytes)
 }
 

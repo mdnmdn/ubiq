@@ -8,7 +8,19 @@ use crate::state::image_edit::{ImageTool, Pending, ShapeKind};
 
 impl AppState {
     /// The open tab `key` names in the project on screen, when there is one.
+    ///
+    /// The feedback modal's picture dialog is the one tab outside a project's editor: its key
+    /// answers with the form's own in-memory buffer, so every handler below works on it unchanged.
     fn image_file_mut(&mut self, key: &str, cx: &mut Context<Self>) -> Option<&mut OpenFile> {
+        let in_dialog = self
+            .workbench
+            .feedback
+            .as_ref()
+            .and_then(|feedback| feedback.shot_edit.as_ref())
+            .is_some_and(|file| file.key() == key);
+        if in_dialog {
+            return self.workbench.feedback.as_mut()?.shot_edit.as_mut();
+        }
         let project = self.project(cx)?;
         self.projects.get_mut(&project)?.editor.find_key_mut(key)
     }
@@ -132,6 +144,16 @@ impl AppState {
     }
 
     fn active_file_key(&self, cx: &App) -> Option<String> {
+        // The picture dialog is on top of whatever tab is active, so it is the one undo, redo and
+        // the stroke picker mean.
+        if let Some(key) = self
+            .workbench
+            .feedback
+            .as_ref()
+            .and_then(|feedback| feedback.edit_key())
+        {
+            return Some(key);
+        }
         self.editor(cx)?.active_file().map(|file| file.key())
     }
 

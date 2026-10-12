@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window.
 read_when: you are changing the tasks board — its columns, its cards, what a drag means, the task panel, a task's attachments or labels, a mission, or the plan surface and its annotations
-updated: 2026-10-09
-verified: 2026-10-09
+updated: 2026-10-12
+verified: 2026-10-12
 code_anchors: [crates/ubiq/src/state/board.rs, crates/ubiq/src/app/board.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/tasksrc.rs, crates/ubiq/src/app/tasksrc.rs, crates/ubiq/src/ui/tasksrc.rs, crates/ubiq/tests/tasksrc.rs, crates/ubiq/src/ui/board/detail.rs, crates/ubiq/src/ui/board/form.rs, crates/ubiq/tests/board.rs, crates/ubiq/src/state/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/plan/service.rs, crates/ubiq-host/src/plan/queue.rs, crates/ubiq-host/src/plan/blocks.rs, crates/ubiq-proto/src/blocks.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq/src/app/plan.rs, crates/ubiq/src/app/editor.rs, crates/ubiq/src/state/plan.rs, crates/ubiq/src/state/document.rs, crates/ubiq/src/ui/plan.rs, crates/ubiq/src/ui/document.rs, crates/ubiq/src/ui/mdview/annotation.rs, crates/ubiq/tests/plan.rs, crates/ubiq/src/state/new_mission.rs, crates/ubiq/src/app/new_mission.rs, crates/ubiq/src/ui/new_mission.rs, crates/ubiq/tests/new_mission.rs, crates/ubiq/src/state/mission.rs, crates/ubiq/src/app/mission.rs, crates/ubiq/src/ui/mission/mod.rs, crates/ubiq/src/ui/mission/panel.rs, crates/ubiq/src/ui/mission/full.rs, crates/ubiq/src/ui/mission/wbs.rs, crates/ubiq/src/ui/mission/settings.rs, crates/ubiq/src/ui/mission/menu.rs, crates/ubiq/src/state/wbs.rs, crates/ubiq/tests/mission.rs, crates/ubiq/src/app/wire.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/scheduler.rs, crates/ubiq-host/src/store/mission.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/src/coordinator.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -412,7 +412,10 @@ independent of any thread** and shows as a dot in the left margin in every layou
 view. The view decides nothing: each control is an intent the window acts on, and the margin
 redraws from what the host answers. The chrome above the page carries the heading navigator (the
 view's own jump popover), the Edit chip and the minimap toggle — `UiSettings::md_minimap`, shared
-with every markdown view and docked by `UiSettings::md_minimap_side`.
+with every markdown view and docked by `UiSettings::md_minimap_side`. The page's text selects one
+block at a time and copies with Cmd+C, and its code fences and tables expand to a full-window dialog,
+as in every markdown view (`_docs/features/workbench-ide.md`); a selection quotes into no new thread
+(`G406`).
 
 **Two block models meet in the margin.** The host indexes the document into `PlanBlock`s and owns
 their ids; the view lays out `ubiq_md` rows. A host block belongs to the row holding the start of
@@ -428,17 +431,16 @@ like on any other block.
 **A source edit no longer warns about annotations that do not exist** (T-183). Two independent
 changes. First, `AppState::has_annotations()` — what the header's annotation dot and the
 source-mode warning both read — no longer answers from the sidecar's mere presence in the
-project's tree. **The sidecar has to be written whether or not anything is annotated, and stays
-that way**: `Plans::write_sidecar` is unconditional, because the block index it carries is what
-keeps a `BlockId` stable across two separate calls — `annotation_list()` mints one from the body
-when nothing is on disk yet, and the `AnnotatePlan` that follows re-reads the sidecar to check the
-id it was given still names a block; skip that write and the second read re-mints every id from
-scratch, refusing the very first annotation ever made on a document. A save's revision watermark
-and its provenance layer are the same story: `Plans::save()`'s conflict arbitration is only real
-because a second call reads back what the first one wrote. None of that is about whether the
-document carries a thread, so presence was never an honest signal for it — a document merely
-opened in the annotation surface, or block-edited once, already earns a sidecar with nothing
-annotated in it. The fix is on the read side instead: a document actually open in the annotation
+project's tree. **The sidecar is written only while it carries content, and is removed once it
+stops** (`Plans::write_sidecar`, `PlanSidecar::has_content()`): a thread, open or resolved, a block
+colour, a recorded revision or history entry, an agent binding or auto-send. The block index alone
+never creates the file. It is still kept in memory (`Plans::minted`, keyed by the body it was minted
+from), because `BlockId`s have to hold between separate calls: `annotation_list()` mints one from the
+body when nothing is on disk yet, and the `AnnotatePlan` that follows must find the same ids; a
+document merely opened in the annotation surface, or block-edited once, leaves nothing on disk. A
+save's revision watermark and its provenance layer are content, so `Plans::save()`'s conflict
+arbitration is still only real because a second call reads back what the first one wrote. Presence
+was never an honest signal of a thread, so the fix is on the read side: a document actually open in the annotation
 surface still answers from its own loaded threads, exactly as before; one that is not — which a
 tab showing raw source always is, since that is exactly what closes it
 (`AppState::close_file_document`, T-124) — now answers from `AppState::annotation_hints`, a
@@ -1107,11 +1109,12 @@ file for a project document (`crates/ubiq-host/src/store/plan.rs`'s `PlanSidecar
 and `sidecar_beside()`), so the markdown itself stays untouched by anything of Ubiq's, on a stable
 block id rather than a quoted-context match or a per-run id (`D159`). The two spellings differ —
 singular for the file, plural for the plan — and that is kept rather than migrated (`D161`).
-**A file document's sidecar is written regardless of whether anything is annotated** — its block
-index has to survive between one call and the next for a `BlockId` to mean anything, and a save's
-revision watermark is only real once a second read finds it (T-183, `Plans::write_sidecar`). Its
-mere presence beside a project file is therefore not "carries a thread" and `AppState` reads that
-fact a different way; see the annotation surface's own section, above.
+**A file document's sidecar exists only while it carries content** (T-183, `Plans::write_sidecar`):
+a thread, a block colour, a recorded revision or a binding. Its block index is held in memory between
+calls, so a `BlockId` means the same thing across them, and a save's revision watermark is written
+as content for the next call to read back. Its presence beside a project file is therefore still not
+"carries a thread", and `AppState` reads that fact a different way; see the annotation surface's own
+section, above.
 
 The sidecar also holds `highlights` (a colour per block, dropped when the block vanishes) and each
 annotation carries `marks` (`Agent`, `Todo`, `Question`) and each comment an optional `to`

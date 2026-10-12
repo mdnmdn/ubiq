@@ -100,14 +100,15 @@ impl McpRegistryClient {
         limit: usize,
         cursor: Option<&str>,
     ) -> Result<(Vec<RegistryServer>, Option<String>)> {
-        let agent = ureq::AgentBuilder::new()
-            .try_proxy_from_env(true)
-            .timeout(Duration::from_secs(20))
-            .build();
+        // Proxies come from the environment by default in ureq 3.
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(20)))
+            .build()
+            .into();
         let mut req = agent
             .get(&format!("{}/v0.1/servers", self.base))
             .query("search", query)
-            .query("limit", &limit.to_string())
+            .query("limit", limit.to_string())
             .query("version", "latest");
         if let Some(cursor) = cursor {
             req = req.query("cursor", cursor);
@@ -115,7 +116,8 @@ impl McpRegistryClient {
         let body = req
             .call()
             .map_err(|e| anyhow!("MCP registry: {e}"))?
-            .into_string()?;
+            .body_mut()
+            .read_to_string()?;
         parse_registry_page(&body)
     }
 }

@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-09
-verified: 2026-10-09
+updated: 2026-10-11
+verified: 2026-10-11
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -146,12 +146,17 @@ is in the viewport.
 every row below it) against the content, the width and the conversation family's body size. Unchanged is its
 measurement; changed is its *last*; never drawn is an estimate (a line per eighty characters). The last two
 are re-measured by the frame that draws them. The plan also records which block each row stands for, so the
-strip above can resolve a block to a row.
+strip above can resolve a block to a row. **Every row is `w_full`** (`build_row`): the list lays a row out as a
+root of its own, and a root with no width is as wide as its content's min-content — for markdown, the longest
+line unwrapped — so a message ran past the panel's edge and left a blank band where its box and its wrapping
+disagreed.
 
 **A forced re-measure runs on a timer** underneath `needs_measure`'s signature check, because a long busy
 conversation's rows drift in a way no signature explains (a resize always fixes it).
 `TranscriptScroll::force_relayout` asks the next frame to re-measure unconditionally; `AppState::new`
-(`app/boot.rs`) runs one per composer slot every four seconds for the window's life. A row found at a
+(`app/boot.rs`) ticks one per composer slot every four seconds for the window's life, but asks only when the transcript's
+rows (identity and signature, noted per frame by `note_rows`) changed since the last forced pass — a quiet
+chat gets one pass after its last change, then none. A row found at a
 different height under an unchanged signature is logged as a warning on `ubiq::ui::conversation` (kind,
 length, cached height, measured height). A mitigation, not a fix: `backlog.md`'s `G372`.
 
@@ -203,10 +208,22 @@ tool call id, the block reads as awaiting approval, and the buttons sit under it
 variant marked as lasting). `kind` decides only how a button reads; the `option_id` is opaque and echoed
 back, and nothing here remembers a choice.
 
-**The request's detail scrolls in its own capped region** (T-175): a `switch_mode` plan or a pre-approval
-diff is unbounded, so `permission()`'s `detail` (drawn from the request's own `content`) is
-`max_h(theme::permission_detail_max_h())` (base `PERMISSION_DETAIL_MAX_H`) plus `overflow_y_scroll()` on an
-`id` keyed by the request id. Title and buttons stay put.
+**The prompt's text is clamped to four lines inline** so the buttons always stay under it. The clamp is
+decided by arithmetic, not measurement (`prompt_lines`: lines split on newlines, wrapped at an assumed 70
+columns): the title gets `line_clamp(4)` with an ellipsis, the request's `content` region gets
+`max_h` of four label lines with `overflow_hidden` (whole elements cut, never a raw string cut
+mid-syntax). Text at or under four lines draws as before; the safety net there is the old T-175 cap
+(`theme::permission_detail_max_h()`, `overflow_y_scroll()`) for a few very long wrapped lines. The row
+signature folds in `prompt_shape` for every prompt drawn in it (and the adrift row's), so a prompt arriving,
+changing or being answered re-measures the row, and past the clamp more text does not.
+
+**A clamped prompt shows an expand button** (`Maximize`, tooltip *Show full request*) that opens a dialog
+(`WorkbenchState::permission_dialog`, `Layer::PermissionDialog`, drawn at the window root by
+`ui::conversation::permission_dialog`): the title, the full text in the modal's own scrolling body, and the
+same answer buttons (one builder, `permission_buttons`) plus Cancel. An answer goes through
+`answer_permission` as inline and closes the dialog; Escape and Cancel close it without answering. The
+dialog stores only the request id and is drawn only while `AppState::permission_dialog_target` still finds
+that request pending, so it closes by itself when the prompt is resolved elsewhere.
 
 **A conversation set to accept everything is shown no ask.** The three-dots menu's *Accept all*
 (`SetConversationAcceptAll`, on the agents screen's menu) is answered in the host with the plain allow, so
@@ -543,7 +560,7 @@ to the shared renderer (`header: false`) or draws the empty play button; `sideba
 **Permission state and drawing.** `state/conversation.rs` holds `Pending` in `Conversation::pending`
 (`oldest_pending()`, `answered()`, `Pending::option_for`, `Pending::always_option`, `tool_block_index()`,
 `pending_subagent()`, `pending_route()`, `pending_count()`). `ui/conversation/mod.rs` draws `permission()`
-and `needs_you_strip()` (badge from `waiting_count()`). `AppState::reveal_permission` (`app/agents.rs`)
+and `needs_you_strip()` (badge from `waiting_count()`), and `permission_dialog()` for the full-request dialog. `AppState::reveal_permission` (`app/agents.rs`)
 takes the surface's own slot, so only the clicked surface scrolls. `answer_permission` forgets one request;
 `answer_oldest_permission` is the keyboard path via `read_conversation`; `cancel_turn` clears the set.
 `AllowPermission`/`RejectPermission` (`app/mod.rs`) are bound by `install_key_bindings` in both contexts.

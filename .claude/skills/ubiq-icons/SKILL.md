@@ -146,7 +146,7 @@ because a live animation keeps the whole window repainting, and nothing for redu
 `IconName` comes from `gpui-component` and is what the kit takes. A custom icon reaches an `Icon`
 through `IconNamed` (`fn path(self) -> SharedString`, with a blanket `From<T> for Icon`), so a
 Ubiq-side enum slots into every existing call site with no fork. `crates/ubiq-app/src/lib.rs`
-registers only `gpui_component_assets::Assets`, so a custom path needs either Ubiq's own
+registers only `gpui_kit_assets::Assets`, so a custom path needs either Ubiq's own
 `AssetSource` or `Svg::data(&[u8])`, which hashes the bytes into the cache key and needs no asset
 source at all.
 

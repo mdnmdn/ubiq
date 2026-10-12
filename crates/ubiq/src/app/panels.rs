@@ -956,7 +956,12 @@ impl AppState {
             let layout = key
                 .and_then(|key| files.get(key).copied())
                 .unwrap_or_default();
+            let terminal_focus = kind
+                .pane()
+                .and_then(|pane_id| self.terminals.get(&pane_id))
+                .map(|terminal| terminal.view.read(cx).focus_handle().clone());
             changed |= panel.update(cx, |panel, _| {
+                panel.set_terminal_focus(terminal_focus);
                 let visible = panel.set_visible(drawn);
                 panel.set_layout(layout) || visible
             });

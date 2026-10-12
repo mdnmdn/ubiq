@@ -67,7 +67,7 @@ pub use menu::{
     ContextItem, MultiPicker, Picker, PickerStyle, context_menu, context_panel, multi_label,
     multi_order,
 };
-pub use overlay::{confirm_modal, modal, modal_note, modal_sized, prompt_modal};
+pub use overlay::{confirm_modal, modal, modal_note, modal_sized, modal_sized_pinned, prompt_modal};
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;
 pub use ribbon::{RIBBON_SIZE, Ribbon, RibbonCorner, ribbon};

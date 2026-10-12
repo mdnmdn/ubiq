@@ -31,9 +31,11 @@ pub mod minimap;
 pub mod outline;
 pub mod prose;
 pub mod search;
+pub mod selection;
 pub mod structure;
 pub mod sync;
 pub mod view;
+pub mod zoom;
 
 use crate::state::editor::MdReading;
 use crate::theme::{MdDensity, MdMinimapSide, MdWidth};

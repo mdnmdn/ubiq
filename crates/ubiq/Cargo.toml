@@ -36,7 +36,7 @@ ubiq-archify = { path = "../ubiq-archify", features = ["png"] }
 # and the page says so, which is a complete Ubiq minus one page's contents. Default features only
 # (`std`): the plain `Runtime`/`Context`/`Function`/`Value` surface, with no module loader and no
 # `bindgen` — the page evaluates one string and imports nothing.
-rquickjs = { version = "0.13", optional = true }
+rquickjs = { version = "0.14", optional = true }
 
 # The front end in front of that interpreter (`state/script.rs`): oxc parses both dialects and
 # transpiles TypeScript to the JavaScript QuickJS actually runs. A real parser, not a grammar —
@@ -45,22 +45,24 @@ rquickjs = { version = "0.13", optional = true }
 # behind the `quickjs` feature: validation is a parse, and the page syntax-checks in a build with
 # no interpreter in it. `default-features = false` drops the regular-expression parser, which only
 # matters to a linter walking the inside of a literal.
-oxc = { version = "0.150", default-features = false, features = [
+oxc = { version = "0.153", default-features = false, features = [
     "codegen",
     "semantic",
     "transformer",
 ] }
 
-# GPUI core
-gpui = { git = "https://github.com/zed-industries/zed", features = ["screen-capture"] }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
+# GPUI core. The `gpui-pre` snapshot of Zed's crates that gpui-component builds against, pinned
+# with `=` exactly as gpui-component pins it: a second GPUI in the graph is a second `App` type.
+# Every crate naming `gpui` in this workspace names this same requirement.
+gpui = { package = "gpui-pre", version = "=0.3.8", features = ["screen-capture"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = [
     "font-kit",
     "wayland",
     "x11",
     "runtime_shaders",
     "screen-capture",
 ] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3", features = [
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "0bbd9870ce420af9feacbf948b21d3824d82dc0b", features = [
     "tree-sitter-markdown",
     "tree-sitter-rust",
     "tree-sitter-python",
@@ -81,7 +83,7 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
     "tree-sitter-kotlin",
     "tree-sitter-diff",
 ] }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
+gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "0bbd9870ce420af9feacbf948b21d3824d82dc0b" }
 
 # The LSP vocabulary gpui-component's provider traits are written in — a `CompletionProvider`
 # answers with `lsp_types::CompletionResponse`, so the `/` menu in `ui/editor.rs` has to name the
@@ -118,18 +120,21 @@ chrono = "0.4"
 
 # Mermaid, drawn here. A pure-Rust renderer with no browser and no system library behind it, which
 # is what lets a diagram be drawn on a background thread of the interface's own. **Pinned with `=`**:
-# it is an alpha, its API moved between 0.7 and 0.8, and the pin is half of the diagram cache's
-# version marker — the two move together or the cache serves yesterday's picture forever.
-merman = { version = "=0.8.0-alpha.5", default-features = false, features = [
+# its API moved across the 0.8 pre-releases, and the pin is half of the diagram cache's version
+# marker — the two move together or the cache serves yesterday's picture forever. `all-diagrams`
+# because since 0.8.0 the output features select no diagram family of their own.
+merman = { version = "=0.8.0", default-features = false, features = [
+    "all-diagrams",
     "layout-cytoscape",
     "svg",
 ] }
 # The content address a cached diagram is filed under. A stable hash, because the name has to mean
 # the same thing after a restart and after a toolchain upgrade.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Swift and C# ship a grammar in gpui-component but no highlight query — these three build the two
 # `LanguageConfig`s that fill that gap, from the grammar crates' own bundled `highlights.scm`.
+# The core is gpui-component's own (`0.26.13`): a `LanguageConfig` takes its `Language` type.
 tree-sitter = "0.26"
 tree-sitter-swift = "0.7"
 tree-sitter-c-sharp = "0.23"
@@ -159,11 +164,12 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # Trust roots for https dials: the platform's store first, the bundled Mozilla set
 # when it cannot be read. Neither draws.
 rustls-native-certs = "0.8"
-webpki-roots = "0.26"
+webpki-roots = "1"
 # Remote-host bearer tokens, one entry per saved host. The settings file carries the
-# address and never the secret; this is where the secret lives. keyring 3 with no platform
-# feature is an in-memory mock, so each store is named: nothing would survive a restart otherwise.
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# address and never the secret; this is where the secret lives. keyring 4's default `v1` feature
+# is the platform-native store on each OS (Keychain, Credential Manager, Secret Service) — the
+# same requirement and features agent-manager names, so the workspace links one keyring.
+keyring = "4"
 
 # Local read-only doc/source viewer server (web_export module)
 tiny_http = "0.12"
@@ -183,13 +189,16 @@ image = { version = "0.25", default-features = false, features = [
     "bmp",
 ] }
 
-# The embedded browser a web panel draws in. `gpui-wry` is gpui-component's own wry binding —
-# same repository, so it resolves to the revision the component crates already pin, and a child
-# webview is laid out by a GPUI element rather than by a second window. macOS and Windows only:
-# the crate's Unix path is unfinished upstream, so every other platform keeps the external
-# browser that phase 5 shipped.
+# The embedded browser a web panel draws in. `gpui-wry` is gpui-component's own wry binding, and
+# a child webview is laid out by a GPUI element rather than by a second window. macOS and Windows
+# only: every other platform keeps the external browser that phase 5 shipped.
+# **Held at `dc00da18`**, the last revision before upstream renamed it `gpui-webview` and made it
+# require GPUI Fast (#3389, #3398) — a longbridge fork of GPUI that, through feature unification,
+# would switch gpui-component itself onto a GPUI other than the one this crate names. At this
+# revision it depends on `gpui-pre =0.3.8` and nothing else of the repository, so it shares the
+# one GPUI above; its API is the one this crate was written against.
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-gpui-wry = { git = "https://github.com/longbridge/gpui-component", rev = "df1d07b212e21217b1168e1728293b3e0c48e5a3" }
+gpui-wry = { git = "https://github.com/longbridge/gpui-component", rev = "dc00da1837f16a6da42280535d76a2d7acc4a40e" }
 wry = { version = "0.53.3", package = "lb-wry" }
 raw-window-handle = { version = "0.6", features = ["std"] }
 
@@ -202,21 +211,29 @@ objc2-app-kit = { version = "0.3", features = [
     "NSResponder",
 ] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
-# The frame type behind gpui's `ScreenCaptureFrame` on macOS is a `CVImageBuffer`, and this
-# is what reads its pixels. Already in the graph behind gpui — named here because
-# `app/capture.rs` decodes a frame itself.
-core-video = "0.5"
+# The frame type behind gpui's `ScreenCaptureFrame` on macOS is an
+# `objc2_core_foundation::CFRetained<objc2_core_video::CVImageBuffer>`, and this is what reads
+# its pixels. Already in the graph behind gpui — named here because `app/capture.rs` decodes a
+# frame itself. Held at gpui-pre's own 0.3: a different major would be a second `CVImageBuffer`
+# type the frame never matches.
+objc2-core-video = { version = "0.3.2", default-features = false, features = [
+    "CVBase",
+    "CVBuffer",
+    "CVImageBuffer",
+    "CVPixelBuffer",
+    "CVReturn",
+] }
 
 # The frame type behind gpui's `ScreenCaptureFrame` on Windows and Linux, so a captured
-# frame can be decoded. Same revision gpui resolves to — a skew would be two `scap` crates
-# and a match that never fires. macOS decodes `CVImageBuffer` through `core-video` above.
+# frame can be decoded. The same crates.io release `gpui-pre` resolves to — a skew would be two
+# `scap` crates and a match that never fires. macOS decodes `CVImageBuffer` through `objc2-core-video`.
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
-zed-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", package = "zed-scap", version = "0.0.8-zed", default-features = false }
+zed-scap = { version = "0.0.8-zed", default-features = false }
 
-# Pin windows-capture to the 1.4 line on Windows: zed-scap@4afea48 needs the 1.4 API
-# (`Context`, `as_nopadding_buffer`) but predates the 1.5 `Settings::new` breakage
-# (new SecondaryWindow, MinimumUpdateInterval, DirtyRegion args). Upstream reverted the
-# 1.5 bump and stayed on the 1.3/1.4 line, so stay there too.
+# Pin windows-capture to the 1.4 line on Windows: zed-scap 0.0.8-zed asks for `^1.3.6` and needs
+# the 1.4 API (`Context`, `as_nopadding_buffer`) but predates the 1.5 `Settings::new` breakage
+# (new SecondaryWindow, MinimumUpdateInterval, DirtyRegion args); 2.x is outside its range
+# altogether. Upstream stayed on the 1.3/1.4 line, so stay there too.
 # Named here only to constrain the resolver — no code uses it directly.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-capture = "=1.4.4"
@@ -240,11 +257,11 @@ flate2 = "1"
 
 [dev-dependencies]
 # A blocking HTTP client, to exercise the web-export server's routing and path safety end to end.
-ureq = "2"
+ureq = "3"
 # The console's state is asserted against the sink's own types
 ubiq-proto = { path = "../ubiq-proto" }
 # A window with no graphics device behind it. Same revision as the dependency above — this only
 # turns on the test platform, and never becomes a dependency of the binary.
-gpui = { git = "https://github.com/zed-industries/zed", features = ["test-support"] }
+gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }
 # A throwaway workarea for the diagram cache's disk tier
 tempfile = "3"

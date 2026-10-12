@@ -1139,6 +1139,8 @@ impl Coordinator {
             })
             .collect();
         let updates = crate::updates::Updater::start(root.path.clone(), host.mailbox(To::Everyone));
+        let feedback =
+            crate::feedback::Feedback::start(Arc::clone(&settings), host.mailbox(To::Everyone));
 
         Self {
             host,
@@ -1163,7 +1165,7 @@ impl Coordinator {
             git: Git::start(),
             quota: crate::quota::Quota::start(quota_root),
             quotas: crate::quota::Quotas::new(),
-            feedback: crate::feedback::Feedback::start(),
+            feedback,
             updates,
             search: Search::start(),
             index: crate::index::Index::start(),
@@ -2053,16 +2055,17 @@ impl Coordinator {
             }
 
             // ── the feedback family ─────────────────────────────────
-            // Where a build reports to is compiled in, so the offer is read rather than asked;
-            // the report itself is a blocking POST and goes to the worker, which answers the
-            // window that sent it.
+            // Every one of these is a command to the feedback worker: the keychain, the POST and
+            // the test all block, and one queue keeps an offer from overtaking a change.
             Message::QueryFeedback => {
-                self.host.send(
-                    To::Client(client),
-                    Message::FeedbackOffered {
-                        offer: self.feedback.offer(),
-                    },
-                );
+                self.feedback.offer(self.host.mailbox(To::Client(client)));
+            }
+            Message::QueryFeedbackSettings => {
+                self.feedback.query(self.host.mailbox(To::Client(client)));
+            }
+            Message::SetFeedbackSettings { change } => self.feedback.set(change),
+            Message::TestFeedback => {
+                self.feedback.test(self.host.mailbox(To::Client(client)));
             }
             Message::SendFeedback { report } => {
                 self.feedback.submit(crate::feedback::Job {

@@ -352,6 +352,10 @@ pub struct Plans {
     /// `DocumentHandle::key`. In memory only — minted flat when absent, carried across every save,
     /// and dropped by [`Self::reopen_lineage`] so the next answer mints them flat again.
     lineage: HashMap<String, HashMap<BlockId, String>>,
+    /// The block index minted for a document that has no sidecar on disk, with the body it was
+    /// minted from, keyed by `DocumentHandle::key`. Keeps a `BlockId` stable between a read and
+    /// the annotation that follows without writing an empty sidecar. In memory only.
+    minted: HashMap<String, (String, Vec<PlanBlock>)>,
 }
 
 /// A cloneable handle to [`Plans`], on [`crate::work::Handle`]'s own footing: the coordinator
@@ -411,6 +415,7 @@ impl Plans {
             work,
             agent_bases: HashMap::new(),
             lineage: HashMap::new(),
+            minted: HashMap::new(),
         }
     }
 
@@ -485,20 +490,28 @@ impl Plans {
 
     /// Replace a document's sidecar, whole and atomically.
     ///
-    /// **Unconditional, on purpose.** The block index this carries is what keeps a `BlockId`
-    /// stable across two separate calls — `annotation_list()` computes it fresh from the body
-    /// when none is on disk yet, and an `AnnotatePlan` that follows re-reads the sidecar to check
-    /// the id it was given still names a block; skipping this write between the two would re-mint
-    /// every id on the second read and refuse the very first annotation ever made on a document,
-    /// every time. A save's revision and provenance are the same story: `Plans::save()`'s
-    /// watermark and conflict arbitration are only as real as what a *second* call reads back, so
-    /// they are only real if this wrote them. T-183's fix — no stale-source warning for a document
-    /// with nothing annotated — reads real annotation content instead of this file's mere
-    /// presence (`AppState::has_annotations`); it does not, and cannot without breaking the above,
-    /// live in whether this write happens.
-    fn write_sidecar(&self, target: &Target, sidecar: &PlanSidecar) -> Result<(), String> {
-        crate::store::plan::save_sidecar(&self.sidecar_path(target), sidecar, target.placement())
-            .map_err(|error| error.to_string())
+    /// **Only a sidecar with content is written** ([`PlanSidecar::has_content`]): a thread, a
+    /// block colour, a recorded revision or a binding. The block index alone never creates the
+    /// file — `Plans::sidecar` keeps it in memory so a `BlockId` stays stable between a read and
+    /// the annotation that follows — and a sidecar that has lost its last content (a colour
+    /// cleared, an agent unbound) is deleted rather than left empty. A resolved thread still
+    /// counts: it is a kept record. A save's revision is content, so `Plans::save()`'s watermark
+    /// and conflict arbitration still read back what this wrote.
+    fn write_sidecar(&mut self, target: &Target, sidecar: &PlanSidecar) -> Result<(), String> {
+        let path = self.sidecar_path(target);
+        let key = target.handle().key();
+        if !sidecar.has_content() {
+            crate::store::plan::remove_sidecar(&path).map_err(|error| error.to_string())?;
+            // The index goes back in memory so the ids a window holds still name their blocks.
+            if let Ok(body) = self.read_body(target) {
+                self.minted.insert(key, (body, sidecar.blocks.clone()));
+            }
+            return Ok(());
+        }
+        crate::store::plan::save_sidecar(&path, sidecar, target.placement())
+            .map_err(|error| error.to_string())?;
+        self.minted.remove(&key);
+        Ok(())
     }
 
     /// A task's plan, whole. Answered with [`Message::Plan`], carrying an empty body for a task
@@ -1064,6 +1077,7 @@ impl Plans {
             ))];
         };
         let (project, task) = (*project, *task);
+        self.minted.remove(&target.handle().key());
         let existed = self.store.path(project, task).exists();
         match self.store.delete(project, task) {
             Ok(()) if existed => vec![Reply::Everyone(Message::PlanDeleted {
@@ -1092,9 +1106,22 @@ impl Plans {
             return Ok(sidecar.unwrap_or_default());
         }
         let mut sidecar = sidecar.unwrap_or_default();
-        sidecar.blocks = super::blocks::match_blocks(&[], &super::blocks::blocks(&body)).blocks;
+        let key = target.handle().key();
+        sidecar.blocks = match self.minted.get(&key) {
+            Some((minted_from, blocks)) if *minted_from == body => blocks.clone(),
+            cached => {
+                // Match against what was handed out, so an unchanged block keeps its id across
+                // an edit made between a read and the annotation that follows.
+                let previous = cached.map(|(_, blocks)| blocks.as_slice()).unwrap_or(&[]);
+                let blocks =
+                    super::blocks::match_blocks(previous, &super::blocks::blocks(&body)).blocks;
+                self.minted.insert(key, (body, blocks.clone()));
+                blocks
+            }
+        };
         sidecar.version = crate::store::plan::ANNOTATIONS_VERSION;
-        self.write_sidecar(target, &sidecar)?;
+        // Not written: the index alone is not content. The first mutation that gives the
+        // sidecar some writes it, blocks included (`write_sidecar`).
         Ok(sidecar)
     }
 
@@ -2601,9 +2628,8 @@ mod tests {
             "# Notes\n\nFirst thought."
         );
         // And the sidecar is beside it, named by appending rather than replacing the extension —
-        // written regardless of whether anything has been annotated, because the save it just
-        // took a revision for is the same read a second call has to find again (T-183's note on
-        // `Plans::write_sidecar`).
+        // written by a save even when nothing has been annotated, because the revision it just
+        // took is content — the same read a second call has to find again.
         let sidecar = repo.path().join("notes.md.annotation.json");
         assert!(sidecar.exists(), "the sidecar sits beside the file");
         assert!(
@@ -2640,6 +2666,85 @@ mod tests {
             !sidecar.exists(),
             "reading an empty, never-saved file writes nothing beside it"
         );
+    }
+
+    /// Opening a document with a body reads its block index but writes nothing: the index alone
+    /// is not content, and the id it hands out still holds for the annotation that follows.
+    #[test]
+    fn opening_a_file_document_without_annotations_writes_no_sidecar() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "# Notes\n\nFirst thought.").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+        let sidecar = repo.path().join("notes.md.annotation.json");
+
+        let (blocks, annotations, _) = plans.annotation_list(&target).unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert!(annotations.is_empty());
+        plans.annotations(&target);
+        assert!(!sidecar.exists(), "a block index alone is not written");
+
+        // The id read above is the one the first annotation can name.
+        let replies = plans.annotate(
+            &target,
+            blocks[1].id,
+            None,
+            CommentAuthor::User,
+            "really?".to_string(),
+            Vec::new(),
+            None,
+        );
+        assert!(
+            !replies
+                .iter()
+                .any(|reply| matches!(reply.message(), Message::PlanError { .. })),
+            "the first annotation was accepted",
+        );
+        assert!(sidecar.exists(), "a thread is content");
+    }
+
+    /// A sidecar that loses its last content is deleted, not rewritten empty.
+    #[test]
+    fn a_sidecar_emptied_of_content_is_deleted() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::write(repo.path().join("notes.md"), "# Notes\n\nFirst thought.").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+        let sidecar = repo.path().join("notes.md.annotation.json");
+
+        let (blocks, _, _) = plans.annotation_list(&target).unwrap();
+        plans.set_highlights(&target, &[blocks[1].id], Some(HighlightColour::Green));
+        assert!(sidecar.exists(), "a block colour is content");
+        plans.set_highlights(&target, &[blocks[1].id], None);
+        assert!(!sidecar.exists(), "nothing left, so no file");
+    }
+
+    /// The ids a window holds survive the sidecar being deleted, and an unrelated edit made
+    /// before the annotation lands.
+    #[test]
+    fn block_ids_survive_deletion_and_an_unrelated_edit() {
+        let (mut plans, _work, project, _dir) = plans_with_work();
+        let repo = tempfile::tempdir().unwrap();
+        let notes = repo.path().join("notes.md");
+        std::fs::write(&notes, "# Notes\n\nFirst thought.").unwrap();
+        let target = file_target(&repo, project, "notes.md");
+
+        let (blocks, _, _) = plans.annotation_list(&target).unwrap();
+        plans.set_highlights(&target, &[blocks[1].id], Some(HighlightColour::Green));
+        plans.set_highlights(&target, &[blocks[1].id], None);
+        let (again, _, _) = plans.annotation_list(&target).unwrap();
+        assert_eq!(
+            again.iter().map(|b| b.id).collect::<Vec<_>>(),
+            blocks.iter().map(|b| b.id).collect::<Vec<_>>(),
+            "ids are stable after the sidecar was deleted",
+        );
+
+        std::fs::write(&notes, "# Notes\n\nFirst thought.\n\nA new paragraph.").unwrap();
+        let (edited, _, _) = plans.annotation_list(&target).unwrap();
+        assert_eq!(edited.len(), 3);
+        assert_eq!(edited[0].id, blocks[0].id);
+        assert_eq!(edited[1].id, blocks[1].id, "an unchanged block keeps its id");
+        assert!(!repo.path().join("notes.md.annotation.json").exists());
     }
 
     #[test]

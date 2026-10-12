@@ -59,6 +59,8 @@ pub const HOSTS: SlotId = SlotId::new("ubiq.settings.hosts");
 pub const SSH: SlotId = SlotId::new("ubiq.settings.ssh");
 pub const DRONES: SlotId = SlotId::new("ubiq.settings.drones");
 pub const TOOLS: SlotId = SlotId::new("ubiq.settings.tools");
+/// Where a feedback report goes: the compiled default and the user's override of it.
+pub const FEEDBACK: SlotId = SlotId::new("ubiq.settings.feedback");
 /// Ubiq updating itself: version, channel, check and install.
 pub const UPDATES: SlotId = SlotId::new("ubiq.settings.updates");
 pub const COMMAND_LINE: SlotId = SlotId::new("ubiq.settings.command-line");

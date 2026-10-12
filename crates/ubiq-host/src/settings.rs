@@ -77,7 +77,7 @@ impl Settings {
                 match parse_host(&value) {
                     Err(error) => vec![Reply::Asker(Message::SettingsError { layer, error })],
                     Ok(mut settings) => {
-                        // The four fields the host owns. The interface's copy of them is as old as
+                        // The fields the host owns. The interface's copy of them is as old as
                         // the dialog it was opened with, and a flow that completed in between wrote
                         // the real one — so what came over the bus for these is discarded and what
                         // is on disk is kept. For `ai_providers` there is one more reason: a
@@ -96,6 +96,9 @@ impl Settings {
                         settings.oauth_apps = held.oauth_apps;
                         settings.trusted_certs = held.trusted_certs;
                         settings.ai_providers = held.ai_providers;
+                        // The feedback URL override changes only through `SetFeedbackSettings`,
+                        // beside its key in the keychain; a blob never moves it.
+                        settings.feedback_url = held.feedback_url;
                         match self.write(&settings) {
                             Ok(()) => Vec::new(),
                             Err(error) => {

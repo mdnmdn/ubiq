@@ -118,7 +118,7 @@ impl gpui::AssetSource for Assets {
         if let Some(bytes) = ubiq::ui::kit::icons::bytes(path) {
             return Ok(Some(std::borrow::Cow::Borrowed(bytes)));
         }
-        gpui::AssetSource::load(&gpui_component_assets::Assets, path)
+        gpui::AssetSource::load(&gpui_kit_assets::Assets, path)
     }
 
     fn list(&self, path: &str) -> gpui::Result<Vec<gpui::SharedString>> {
@@ -128,7 +128,7 @@ impl gpui::AssetSource for Assets {
             .filter(|p| p.starts_with(path))
             .collect();
         paths.extend(gpui::AssetSource::list(
-            &gpui_component_assets::Assets,
+            &gpui_kit_assets::Assets,
             path,
         )?);
         Ok(paths)
