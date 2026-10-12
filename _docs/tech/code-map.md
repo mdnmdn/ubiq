@@ -230,10 +230,11 @@ crates/ubiq-host/src/
 │   ├── agent.rs
 │   └── editors.rs
 ├── archify.rs
-└── updates/
-    ├── apply.rs
-    ├── feed.rs
-    └── mod.rs
+├── updates/
+│   ├── apply.rs
+│   ├── feed.rs
+│   └── mod.rs
+└── .DS_Store
 
 crates/ubiq/src/
 ├── state/
@@ -506,7 +507,9 @@ crates/ubiq/src/
 │   │   ├── sync.rs
 │   │   ├── view.rs
 │   │   ├── annotation.rs
-│   │   └── highlight.rs
+│   │   ├── highlight.rs
+│   │   ├── selection.rs
+│   │   └── zoom.rs
 │   └── archify/
 │       ├── agent.rs
 │       ├── finder.rs
@@ -581,16 +584,17 @@ crates/ubiq/src/
 │   ├── unix_connect.rs
 │   └── updates.rs
 ├── version.rs
-└── ext/
-    ├── id.rs
-    ├── ids.rs
-    ├── mod.rs
-    ├── registry.rs
-    ├── settings.rs
-    ├── rail.rs
-    ├── menu.rs
-    ├── runner.rs
-    └── viewer.rs
+├── ext/
+│   ├── id.rs
+│   ├── ids.rs
+│   ├── mod.rs
+│   ├── registry.rs
+│   ├── settings.rs
+│   ├── rail.rs
+│   ├── menu.rs
+│   ├── runner.rs
+│   └── viewer.rs
+└── .DS_Store
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -1221,8 +1225,10 @@ No document's `code_anchors` names these. Restricted to Ubiq's own crates.
 | `crates/ubiq/src/ui/mdview/mod.rs` |
 | `crates/ubiq/src/ui/mdview/prose.rs` |
 | `crates/ubiq/src/ui/mdview/search.rs` |
+| `crates/ubiq/src/ui/mdview/selection.rs` |
 | `crates/ubiq/src/ui/mdview/structure.rs` |
 | `crates/ubiq/src/ui/mdview/sync.rs` |
+| `crates/ubiq/src/ui/mdview/zoom.rs` |
 | `crates/ubiq/src/ui/search.rs` |
 | `crates/ubiq/src/ui/sink/messages.rs` |
 | `crates/ubiq/src/ui/themes.rs` |

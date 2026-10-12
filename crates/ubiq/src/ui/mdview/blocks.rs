@@ -26,7 +26,7 @@ use gpui::{
     IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
     TextRun, Window, WindowTextSystem, div, px, relative,
 };
-use gpui_component::{Icon, IconName, Size, Sizable as _};
+use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_md::{
     Admonition, Block, BlockKind, Cell, ColumnAlign, Document, FrontMatterStyle, ListItem,
 };
@@ -36,6 +36,8 @@ use super::fences;
 use super::inline::{self, Base};
 use super::prose::{LinkHandler, Prose};
 use super::search::{self, Find};
+use super::selection::Selection;
+use super::zoom::{self, Zoom, ZoomHandler};
 use crate::theme::{self, Family, MdDensity, Role};
 
 /// The page's side margin, in em (§14.1's "min margin", 2–3em) — the same 2.5 the TextView
@@ -93,6 +95,10 @@ pub struct Metrics {
     pub line_spacing: f32,
     /// What a click on a link in the prose does. `None` draws links without click targets.
     pub on_link: Option<LinkHandler>,
+    /// The view's text selection, shared by every row (`selection.rs`).
+    pub selection: Selection,
+    /// What a click on a code fence's or table's expand button does. `None` draws no button.
+    pub on_zoom: Option<ZoomHandler>,
     /// The window's text system, carried so a row can shape text while it renders.
     ///
     /// A table's column widths are measured from the glyphs the cells actually draw, and [`row`]
@@ -229,8 +235,22 @@ impl Metrics {
             heading: config.reading.text_shade.heading_colour(),
             line_spacing: config.reading.line_spacing,
             on_link: None,
+            selection: Selection::default(),
+            on_zoom: None,
             text,
         }
+    }
+
+    /// The same metrics, drawing `selection` and starting it on a press.
+    pub fn with_selection(mut self, selection: Selection) -> Metrics {
+        self.selection = selection;
+        self
+    }
+
+    /// The same metrics, with expand buttons that answer a click.
+    pub fn with_zoom_handler(mut self, on_zoom: ZoomHandler) -> Metrics {
+        self.on_zoom = Some(on_zoom);
+        self
     }
 
     /// The same metrics, with links that answer a click.
@@ -246,11 +266,6 @@ impl Metrics {
     /// A rhythm gap — space before or after a block — in pixels, density applied.
     fn gap(&self, n: f32) -> gpui::Pixels {
         px(self.body * n * self.rhythm)
-    }
-
-    /// The width one line of body text is drawn at, shaped.
-    fn shaped_width(&self, line: &str, size: f32, weight: FontWeight) -> f32 {
-        shaped_width(&self.text, line, size, weight)
     }
 }
 
@@ -503,6 +518,7 @@ fn heading(block: &Block, level: u8, m: &Metrics, capped: bool) -> AnyElement {
             size,
             size * lead * m.line_spacing,
             m,
+            block.range.start,
         ))
         .into_any_element()
 }
@@ -517,6 +533,7 @@ fn paragraph(block: &Block, m: &Metrics, capped: bool) -> AnyElement {
             m.body,
             m.body * m.leading,
             m,
+            block.range.start,
         ))
         .into_any_element()
 }
@@ -537,6 +554,7 @@ fn text(
     size: f32,
     line_height: f32,
     m: &Metrics,
+    at: usize,
 ) -> AnyElement {
     let out = inline::prose_runs(spans, base);
     Prose::new(
@@ -547,6 +565,7 @@ fn text(
         px(line_height),
     )
     .links(out.links, m.on_link.clone())
+    .selectable(m.selection.clone(), (at, 0))
     .into_any_element()
 }
 
@@ -569,43 +588,47 @@ fn text(
 ///   sideways instead of moving the document: vertical stays the list's job.
 fn code(language: Option<&str>, body: &str, m: &Metrics, capped: bool, at: usize) -> AnyElement {
     let size = m.body * 0.9;
+    let text = SharedString::from(body.trim_end_matches('\n').to_string());
+    let styled = inline::literal(text.clone(), &Base::mono(theme::text()));
+    let key = (at, 0);
+    let scroll = div()
+        .id(("mdview-code-scroll", at))
+        .w_full()
+        .overflow_x_scroll()
+        .restrict_scroll_to_axis()
+        .whitespace_nowrap()
+        .px_3()
+        .py_2()
+        .text_size(px(size))
+        .line_height(px(size * theme::MD_CODE_LINE_HEIGHT));
+    let scroll = m.selection.bind(scroll, &styled, key, text.clone());
+    let styled = m.selection.paint(styled, key, &text);
 
-    wide(m, capped)
-        .flex()
-        .flex_col()
-        .bg(theme::markdown().code_bg)
-        .border_1()
-        .border_color(theme::border())
-        .when_some(language, |this, language| {
-            this.child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .px_3()
-                    .pt_1()
-                    .font_family(theme::MONO_FONT)
-                    .text_size(theme::font(Family::Chrome, Role::Label))
-                    .text_color(theme::text_faint())
-                    .child(SharedString::from(language.to_string())),
-            )
-        })
-        .child(
+    zoom::expandable(
+        wide(m, capped)
+            .flex()
+            .flex_col()
+            .bg(theme::markdown().code_bg)
+            .border_1()
+            .border_color(theme::border()),
+        at,
+        m.on_zoom.as_ref(),
+    )
+    .when_some(language, |this, language| {
+        this.child(
             div()
-                .id(("mdview-code-scroll", at))
-                .w_full()
-                .overflow_x_scroll()
-                .restrict_scroll_to_axis()
-                .whitespace_nowrap()
+                .flex()
+                .flex_none()
                 .px_3()
-                .py_2()
-                .text_size(px(size))
-                .line_height(px(size * theme::MD_CODE_LINE_HEIGHT))
-                .child(inline::literal(
-                    body.trim_end_matches('\n').to_string(),
-                    &Base::mono(theme::text()),
-                )),
+                .pt_1()
+                .font_family(theme::MONO_FONT)
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::text_faint())
+                .child(SharedString::from(language.to_string())),
         )
-        .into_any_element()
+    })
+    .child(scroll.child(styled))
+    .into_any_element()
 }
 
 /// A list. Nesting needs no special case: a nested list is a `List` block inside an item's
@@ -745,36 +768,41 @@ fn table(
     }
     let grid = Grid::measure(m, head, rows, columns);
 
-    wide(m, capped)
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .border_1()
-        .border_color(theme::border())
-        .child(
-            // The scroll container sits inside the border, so the frame stays put and the grid
-            // slides within it. Horizontal only, and axis-restricted, for the reasons [`code`]
-            // spells out: a wheel tick over a table still scrolls the document.
-            div()
-                .id(("mdview-table-scroll", at))
-                .w_full()
-                .flex()
-                .flex_col()
-                .overflow_x_scroll()
-                .restrict_scroll_to_axis()
-                .child(
-                    table_row(head, alignments, &grid, m, true)
-                        .bg(theme::markdown().table_head)
-                        .border_b_1()
-                        .border_color(theme::border()),
-                )
-                .children(rows.iter().enumerate().map(|(n, cells)| {
-                    table_row(cells, alignments, &grid, m, false).when(n + 1 < rows.len(), |this| {
+    zoom::expandable(
+        wide(m, capped)
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .border_1()
+            .border_color(theme::border()),
+        at,
+        m.on_zoom.as_ref(),
+    )
+    .child(
+        // The scroll container sits inside the border, so the frame stays put and the grid
+        // slides within it. Horizontal only, and axis-restricted, for the reasons [`code`]
+        // spells out: a wheel tick over a table still scrolls the document.
+        div()
+            .id(("mdview-table-scroll", at))
+            .w_full()
+            .flex()
+            .flex_col()
+            .overflow_x_scroll()
+            .restrict_scroll_to_axis()
+            .child(
+                table_row(head, alignments, &grid, m, (at, 0))
+                    .bg(theme::markdown().table_head)
+                    .border_b_1()
+                    .border_color(theme::border()),
+            )
+            .children(rows.iter().enumerate().map(|(n, cells)| {
+                table_row(cells, alignments, &grid, m, (at, n + 1))
+                    .when(n + 1 < rows.len(), |this| {
                         this.border_b_1().border_color(theme::border())
                     })
-                })),
-        )
-        .into_any_element()
+            })),
+    )
+    .into_any_element()
 }
 
 fn table_row(
@@ -782,9 +810,10 @@ fn table_row(
     alignments: &[ColumnAlign],
     grid: &Grid,
     m: &Metrics,
-    header: bool,
+    (at, row): (usize, usize),
 ) -> Div {
     let size = m.body * 0.95;
+    let header = row == 0;
 
     div()
         .flex()
@@ -799,11 +828,7 @@ fn table_row(
                 .get(column)
                 .copied()
                 .unwrap_or(ColumnAlign::Default);
-            let base = if header {
-                Base::heading(FontWeight::SEMIBOLD, m.heading)
-            } else {
-                Base::coloured(m.prose)
-            };
+            let base = cell_base(m, header);
 
             div()
                 .map(|this| match grid.fixed {
@@ -828,11 +853,57 @@ fn table_row(
                 .when(column + 1 < grid.columns.len(), |this| {
                     this.border_r_1().border_color(theme::border())
                 })
-                .child(match cells.get(column) {
-                    Some(cell) => inline::styled(&cell.spans, &base).into_any_element(),
-                    None => div().into_any_element(),
+                .map(|this| match cells.get(column) {
+                    Some(cell) => {
+                        // One selectable element per cell: the key is the table's offset and the
+                        // cell's place in the grid, the header being row 0.
+                        let key = (at, row * grid.columns.len() + column);
+                        let text = inline::runs(&cell.spans, &base).0;
+                        let styled = inline::styled(&cell.spans, &base);
+                        let this = m.selection.bind(this, &styled, key, text.clone());
+                        this.child(m.selection.paint(styled, key, &text))
+                    }
+                    None => this,
                 })
         }))
+}
+
+/// The source offset the dialog's elements take their ids and selection keys from — one no block of
+/// a document can have, so the dialog's selection never lands on the page's copy of the same text.
+const ZOOM_AT: usize = usize::MAX / 2;
+
+/// What the expand dialog draws for `zoom`: the block again, un-capped, in a body the dialog
+/// scrolls. `width` is the room a table's columns may share before they scroll.
+pub fn zoom_body(zoom: &Zoom, m: &Metrics, width: f32) -> AnyElement {
+    match zoom {
+        Zoom::Code { body, .. } => {
+            let size = m.body * 0.9;
+            let text = SharedString::from(body.trim_end_matches('\n').to_string());
+            let styled = inline::literal(text.clone(), &Base::mono(theme::text()));
+            let key = (ZOOM_AT, 0);
+            let holder = div()
+                .id("md-zoom-code")
+                .whitespace_nowrap()
+                .px_3()
+                .py_2()
+                .text_size(px(size))
+                .line_height(px(size * theme::MD_CODE_LINE_HEIGHT));
+            let holder = m.selection.bind(holder, &styled, key, text.clone());
+            holder
+                .child(m.selection.paint(styled, key, &text))
+                .into_any_element()
+        }
+        Zoom::Table {
+            alignments,
+            head,
+            rows,
+        } => {
+            let mut inner = m.clone();
+            inner.breakout = width;
+            inner.on_zoom = None;
+            table(alignments, head, rows, &inner, false, ZOOM_AT)
+        }
+    }
 }
 
 /// One column, as the row will draw it.
@@ -869,12 +940,21 @@ impl Grid {
         let wanted = wanted_widths(m, head, rows, columns);
         // A column never grows past the row: past that its text would have nowhere to go but over
         // its neighbour, so the column takes the row's width and wraps.
-        let available = m.breakout;
+        // Less the frame's own border, which the scroll container sits inside.
+        let available = (m.breakout - 2.0).max(1.0);
         let capped: Vec<f32> = wanted.iter().map(|w| w.min(available)).collect();
         let total: f32 = capped.iter().sum();
 
         if total <= available {
-            let fractions = column_weights(&capped);
+            // Every column gets at least what it wants, and the slack is shared by weight: a
+            // weighting alone could hand a column less than its longest unbreakable word needs.
+            let min: Vec<f32> = capped.iter().map(|w| w / available).collect();
+            let slack = (1.0 - min.iter().sum::<f32>()).max(0.0);
+            let fractions: Vec<f32> = column_weights(&capped)
+                .into_iter()
+                .zip(min)
+                .map(|(weight, min)| min + slack * weight)
+                .collect();
             Grid {
                 columns: fractions
                     .into_iter()
@@ -914,25 +994,66 @@ fn wanted_widths(m: &Metrics, head: &[Cell], rows: &[Vec<Cell>], columns: usize)
 
     let size = m.body * 0.95;
     let mut wanted = vec![0.0_f32; columns];
-    let mut note = |cells: &[Cell], weight: FontWeight| {
+    let mut note = |cells: &[Cell], header: bool| {
         for (column, cell) in cells.iter().enumerate().take(columns) {
-            // The text the cell actually draws, from the same walk that draws it — a cell's source
-            // range is no guide (the plan's gap 5: it includes the spaces around the cell).
-            let text = inline::runs(&cell.spans, &Base::body()).0;
-            let width = text
-                // A hard break makes a cell two lines; `shape_line` takes one at a time and the
-                // column needs the widest of them.
-                .split('\n')
-                .map(|line| m.shaped_width(line, size, weight))
-                .fold(0.0_f32, f32::max);
+            // The cell's own runs, from the same walk that draws it: a code span is monospace and
+            // a bold one is heavier, and measuring the plain text in the body face is what let a
+            // backticked path overdraw its neighbour. The plan's gap 5 still holds: a cell's source
+            // range is no guide.
+            let base = cell_base(m, header);
+            let (text, runs) = inline::runs(&cell.spans, &base);
+            let width = shaped_runs_width(&m.text, &text, &runs, size);
             wanted[column] = wanted[column].max(width + CHROME);
         }
     };
-    note(head, FontWeight::SEMIBOLD);
+    note(head, true);
     for row in rows.iter().take(SAMPLED_ROWS) {
-        note(row, FontWeight::NORMAL);
+        note(row, false);
     }
     wanted
+}
+
+/// The base style a cell is drawn from.
+fn cell_base(m: &Metrics, header: bool) -> Base {
+    if header {
+        Base::heading(FontWeight::SEMIBOLD, m.heading)
+    } else {
+        Base::coloured(m.prose)
+    }
+}
+
+/// The widest line of `text`, shaped with its own `runs` at `size`.
+///
+/// `shape_line` takes one line at a time, so a hard break splits the text and the runs are clipped
+/// to each line.
+fn shaped_runs_width(system: &WindowTextSystem, text: &str, runs: &[TextRun], size: f32) -> f32 {
+    let mut widest = 0.0_f32;
+    let mut start = 0usize;
+    for line in text.split('\n') {
+        let end = start + line.len();
+        if !line.is_empty() {
+            let mut at = 0usize;
+            let mut clipped = Vec::new();
+            for run in runs {
+                let (from, to) = (at.max(start), (at + run.len).min(end));
+                if from < to {
+                    let mut piece = run.clone();
+                    piece.len = to - from;
+                    clipped.push(piece);
+                }
+                at += run.len;
+            }
+            let shaped = system.shape_line(
+                SharedString::from(line.to_string()),
+                px(size),
+                &clipped,
+                None,
+            );
+            widest = widest.max(f32::from(shaped.width));
+        }
+        start = end + 1;
+    }
+    widest
 }
 
 /// Column widths as fractions of the row, from the width each column wants — so a five-column
@@ -977,7 +1098,9 @@ fn front_matter(
     let fields = body
         .lines()
         .filter(|l| {
-            l.chars().next().is_some_and(|c| !c.is_whitespace() && !"#-]}".contains(c))
+            l.chars()
+                .next()
+                .is_some_and(|c| !c.is_whitespace() && !"#-]}".contains(c))
                 && l.contains(match style {
                     FrontMatterStyle::Yaml => ':',
                     FrontMatterStyle::Pluses => '=',

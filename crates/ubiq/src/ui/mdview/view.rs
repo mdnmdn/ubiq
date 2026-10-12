@@ -23,10 +23,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, ListAlignment, ListOffset, ListState, MouseButton, MouseMoveEvent, MouseUpEvent,
-    ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, canvas, div, list,
-    point, px,
+    App, Context, DispatchPhase, Entity, EventEmitter, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ListAlignment, ListOffset, ListState,
+    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, SharedString,
+    Styled as _, Subscription, Window, canvas, div, list, point, px,
 };
 use gpui_component::input::{EditorState, InputEvent};
 use ubiq_md::{BlockKind, Document};
@@ -35,15 +35,17 @@ use ubiq_proto::plan::{AnnotationMark, HighlightColour};
 use super::MdViewConfig;
 use super::annotation::{RowActions, RowMenu};
 use super::blockedit::{self, BlockEdit};
-use super::blocks::Metrics;
+use super::blocks::{self, Metrics};
 use super::events::MdViewEvent;
 use super::fences::{self, Format};
 use super::minimap::{self, Minimap};
 use super::outline::{Jump, JumpHooks};
 use super::prose::LinkHandler;
 use super::search::Find;
+use super::selection::Selection;
 use super::structure::{Outline, Target};
 use super::sync::{self, BlockPoint, Half, ScrollLink};
+use super::zoom::{self, Zoom, ZoomHandler};
 use crate::app::AppState;
 use crate::state::document::RowDecor;
 use crate::theme;
@@ -107,6 +109,10 @@ pub struct MdView {
     /// The heading navigator's popover, drawn over this view and opened by the host's header.
     jump: Jump,
     pub(super) focus: FocusHandle,
+    /// The reader's text selection, one block deep (`selection.rs`).
+    selection: Selection,
+    /// The code fence or table open in the full-window dialog (`zoom.rs`).
+    zoom: Option<Zoom>,
     /// The debounce's generation: a timer whose value is no longer current was overtaken by a
     /// later keystroke and parses nothing. No timer to cancel, so none can outlive the view.
     reparse_at: Cell<u64>,
@@ -152,6 +158,12 @@ impl MdView {
             }
         });
 
+        let selection = Selection::default();
+        let weak = cx.entity().downgrade();
+        selection.set_notify(Rc::new(move |cx| {
+            weak.update(cx, |_, cx| cx.notify()).ok();
+        }));
+
         MdView {
             buffer,
             doc,
@@ -175,6 +187,8 @@ impl MdView {
             minimap: Minimap::default(),
             jump: Jump::default(),
             focus: cx.focus_handle(),
+            selection,
+            zoom: None,
             reparse_at: Cell::new(0),
             flashes: Vec::new(),
             _watch_source: watch_source,
@@ -674,6 +688,11 @@ impl MdView {
         self.selected_block = self.selected_block.filter(|ix| *ix < self.doc.blocks.len());
         // A row menu names a row of the old table; the decor waits for the host's next push.
         self.menu = None;
+        // The ranges shifted: a selection over the old text would copy the wrong words. The
+        // dialog's own selection is over its own copy, which an edit does not touch.
+        if self.zoom.is_none() {
+            self.selection.clear();
+        }
         if !self.find.open {
             self.find.forget();
         }
@@ -698,6 +717,56 @@ impl MdView {
             0.0
         };
         Metrics::measure(window, &self.config, width, viewport_height, min_margin)
+    }
+
+    /// What a block's expand button does: open the dialog over this view.
+    fn zoom_handler(cx: &mut Context<Self>) -> ZoomHandler {
+        let view = cx.entity().downgrade();
+        Rc::new(move |at, window, cx| {
+            view.update(cx, |this, cx| {
+                if let Some(zoom) = Zoom::find(&this.doc.blocks, at) {
+                    this.open_zoom(zoom, window, cx);
+                }
+            })
+            .ok();
+        })
+    }
+
+    /// Open the dialog on `zoom`. The view takes the keyboard focus, so Esc and Cmd+C reach it.
+    fn open_zoom(&mut self, zoom: Zoom, window: &mut Window, cx: &mut Context<Self>) {
+        self.selection.clear();
+        self.zoom = Some(zoom);
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn close_zoom(&mut self, cx: &mut Context<Self>) {
+        self.selection.clear();
+        self.zoom = None;
+        cx.notify();
+    }
+
+    /// The dialog, when one is open.
+    fn zoom_overlay(
+        &self,
+        metrics: &Metrics,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let open = self.zoom.as_ref()?;
+        let width = f32::from(window.viewport_size().width) * 0.94 - 40.0;
+        let body = blocks::zoom_body(open, metrics, width);
+        let all = open.plain();
+        let view = cx.entity().downgrade();
+        Some(zoom::overlay(
+            open,
+            body,
+            move |_, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(all.clone())),
+            move |_, cx| {
+                view.update(cx, |this, cx| this.close_zoom(cx)).ok();
+            },
+            window,
+        ))
     }
 
     /// What a link click in the prose does: tell the host.
@@ -737,7 +806,9 @@ impl Render for MdView {
         let width = pane - reserved.unwrap_or(0.0);
         let metrics = self
             .metrics(window, width)
-            .with_link_handler(Self::link_handler(cx));
+            .with_link_handler(Self::link_handler(cx))
+            .with_selection(self.selection.clone())
+            .with_zoom_handler(Self::zoom_handler(cx));
         self.column.set(metrics.column);
 
         // Reflow: a resize invalidates every cached row height, and only this comparison knows.
@@ -767,6 +838,7 @@ impl Render for MdView {
             )
         });
 
+        let zoom = self.zoom_overlay(&metrics, window, cx);
         let rows = list(self.list.clone(), {
             let view = view.clone();
             move |ix, _window, cx: &mut App| {
@@ -782,6 +854,7 @@ impl Render for MdView {
 
         // Records the pane's width once it has bounds, and re-renders when it moved.
         let seen = self.width.clone();
+        let drag = self.selection.clone();
         let measure = canvas(
             move |bounds, _window, cx| {
                 let w = f32::from(bounds.size.width);
@@ -790,7 +863,25 @@ impl Render for MdView {
                     view.update(cx, |_, cx| cx.notify()).ok();
                 }
             },
-            |_, _, _, _| {},
+            // The selection drag is tracked on the window, not the view: the view's own mouse
+            // handlers only hear a pointer over it, and the dialog's backdrop occludes the view.
+            move |_, _, window, _| {
+                let moving = drag.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        if event.pressed_button == Some(MouseButton::Left) {
+                            moving.drag(event.position, cx);
+                        } else {
+                            moving.release();
+                        }
+                    }
+                });
+                window.on_mouse_event(move |_: &MouseUpEvent, phase, _, _| {
+                    if phase == DispatchPhase::Capture {
+                        drag.release();
+                    }
+                });
+            },
         )
         .absolute()
         .size_full();
@@ -815,6 +906,28 @@ impl Render for MdView {
             .min_w(px(0.))
             .min_h(px(0.))
             .bg(theme::pane_bg())
+            // Capture, so it runs before the block under the pointer starts its own selection: a
+            // press anywhere drops the old one, and the view takes the keyboard for Cmd+C.
+            .capture_any_mouse_down(cx.listener(|this, _, window, cx| {
+                if this.selection.clear() {
+                    cx.notify();
+                }
+                if this.edit.is_none() && !this.focus.contains_focused(window, cx) {
+                    window.focus(&this.focus, cx);
+                }
+            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                let key = event.keystroke.key.as_str();
+                if key == "escape" && this.zoom.is_some() {
+                    this.close_zoom(cx);
+                    cx.stop_propagation();
+                } else if key == "c"
+                    && event.keystroke.modifiers.secondary()
+                    && this.selection.copy(cx)
+                {
+                    cx.stop_propagation();
+                }
+            }))
             // The strip's drag, tracked on the whole view: its first pixel is usually off the strip.
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if !this.minimap.dragging {
@@ -828,16 +941,23 @@ impl Render for MdView {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, _| this.minimap.dragging = false),
+                cx.listener(|this, _: &MouseUpEvent, _, _| {
+                    this.minimap.dragging = false;
+                    this.selection.release();
+                }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, _| this.minimap.dragging = false),
+                cx.listener(|this, _: &MouseUpEvent, _, _| {
+                    this.minimap.dragging = false;
+                    this.selection.release();
+                }),
             )
             .child(measure)
             .children(before)
             .child(rows)
             .children(after)
             .children(navigator)
+            .children(zoom)
     }
 }

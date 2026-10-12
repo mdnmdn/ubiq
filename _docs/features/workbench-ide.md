@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-10-07
-verified: 2026-10-09
+updated: 2026-10-12
+verified: 2026-10-12
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -445,7 +445,9 @@ padding when there is not, so a resize never leaves a thin, uneven strip on one 
 one body line of top padding, and below it enough bottom padding that the last line scrolls clear
 of the frame rather than sitting flush against it. A table or a fenced code block keeps the
 paragraph's own left edge and may grow toward the far margin (the column's breakout) rather than
-spilling past the pane when it is wider than the measure. Inline code draws in
+spilling past the pane when it is wider than the measure. A table's columns are measured from the
+runs each cell draws, code spans in their monospace face, and no column is narrower than its
+content; a table wider than its frame scrolls sideways inside it (`ui/mdview/blocks.rs`). Inline code draws in
 a more contrasted chip-like background. Line height
 follows the width
 preset (tighter at Readable, looser at Full) and a separate density toggle — Comfortable, the
@@ -564,6 +566,21 @@ size in hand at parse time to seed the modal's camera with, unlike a diagram's o
 **An Excalidraw fence resizes but carries no zoom button either** — it is vector shapes painted
 straight into the panel, not one picture a modal or a clipboard button could hand off whole; only a
 Mermaid fence's `Arc<Image>` and a standalone image's `img(url)` are reachable today.
+
+**A code fence and a table in a Markdown view expand to a full-window dialog** (`ui/mdview/zoom.rs`).
+A button in the block's top-right corner shows on hover, and a click raises the block again, un-capped
+by the reading measure, in a body that scrolls both ways over the view. Esc, the × and a press on the
+scrim close it, and the dialog holds the keyboard while it is up, so the view handles its Esc itself.
+Copy all puts the whole content on the clipboard; a table copies as tab- and newline-separated text,
+which a spreadsheet pastes as a grid. The dialog draws no scrollbars, and its text selects like the
+page's.
+
+**Text in a Markdown view selects one block at a time** (`ui/mdview/selection.rs`). A drag that starts
+in a paragraph, a heading, a list, a quote, a footnote, a code fence or a table cell selects inside
+that one text element and stops at its edges; a table cell is an element of its own. Cmd+C copies the
+selection. Front matter and raw HTML do not select. A selection never spans two blocks, does not scroll
+the view while it is dragged past the viewport, and does not quote into a new annotation thread
+(`G420`, `G421`, `G406`).
 
 **An Excalidraw scene sits on Excalidraw's own white canvas.** A file that names a canvas colour
 keeps it; a file that names none — `transparent`, an absent key — gets the format's default white

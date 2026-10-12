@@ -50,10 +50,11 @@ use std::rc::Rc;
 use gpui::{
     App, AvailableSpace, BorderStyle, Bounds, CursorStyle, DispatchPhase, Element, ElementId,
     GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
-    MouseButton, MouseUpEvent, Pixels, ShapedLine, SharedString, Size, Style, TextAlign, TextRun,
-    Window, WindowTextSystem, fill, point, px, quad, size,
+    MouseButton, MouseDownEvent, MouseUpEvent, Pixels, ShapedLine, SharedString, Size, Style,
+    TextAlign, TextRun, Window, WindowTextSystem, fill, point, px, quad, size,
 };
 
+use super::selection::{Key, Locate, Selection};
 use crate::theme;
 
 // ── The numbers ─────────────────────────────────────────────────────
@@ -532,7 +533,50 @@ pub struct Prose {
     links: Rc<Vec<Link>>,
     /// What a click on one of [`Self::links`] does. `None` draws the links without click targets.
     on_link: Option<LinkHandler>,
+    /// The view's selection and this block's key in it. `None` draws no selection and starts none.
+    selection: Option<(Selection, Key)>,
     state: Rc<RefCell<Option<Laid>>>,
+}
+
+/// What [`Prose::prepaint`] hands to [`Prose::paint`].
+pub struct Targets {
+    links: Vec<(Hitbox, SharedString)>,
+    /// The block's own box, for the press that starts a selection.
+    block: Option<Hitbox>,
+}
+
+/// The byte offset of `position` in a laid-out block: the line by height, the piece by pen
+/// position, the glyph by the piece's own advances. Clamped to the block, so a pointer above, below
+/// or beside it answers its nearest edge.
+fn index_at(laid: &Laid, position: gpui::Point<Pixels>) -> usize {
+    let Some(bounds) = laid.bounds else { return 0 };
+    let x = f32::from(position.x - bounds.origin.x);
+    let mut y = f32::from(position.y - bounds.origin.y);
+    let mut found = None;
+    for line in &laid.lines {
+        found = Some(line);
+        if y < line.height {
+            break;
+        }
+        y -= line.height;
+    }
+    let Some(line) = found else { return 0 };
+    let mut at = 0;
+    for piece in &line.pieces {
+        let width = f32::from(piece.line.width());
+        if x < piece.x {
+            return piece.start;
+        }
+        at = piece.start + piece.line.len();
+        if x < piece.x + width {
+            return piece.start
+                + piece
+                    .line
+                    .index_for_x(px(x - piece.x))
+                    .unwrap_or(piece.line.len());
+        }
+    }
+    at
 }
 
 impl Prose {
@@ -551,6 +595,7 @@ impl Prose {
             line_height,
             links: Rc::new(Vec::new()),
             on_link: None,
+            selection: None,
             state: Rc::new(RefCell::new(None)),
         }
     }
@@ -562,12 +607,17 @@ impl Prose {
         self.on_link = on_link;
         self
     }
+
+    /// Let the reader select this block's text, as `key` in `selection`.
+    pub fn selectable(mut self, selection: Selection, key: Key) -> Self {
+        self.selection = Some((selection, key));
+        self
+    }
 }
 
 impl Element for Prose {
     type RequestLayoutState = ();
-    /// One hitbox per laid-out fragment of a link, with the destination it opens.
-    type PrepaintState = Vec<(Hitbox, SharedString)>;
+    type PrepaintState = Targets;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -640,11 +690,21 @@ impl Element for Prose {
     ) -> Self::PrepaintState {
         let mut state = self.state.borrow_mut();
         let Some(laid) = state.as_mut() else {
-            return Vec::new();
+            return Targets {
+                links: Vec::new(),
+                block: None,
+            };
         };
         laid.bounds = Some(bounds);
+        let block = self
+            .selection
+            .is_some()
+            .then(|| window.insert_hitbox(bounds, HitboxBehavior::Normal));
         if self.on_link.is_none() || self.links.is_empty() {
-            return Vec::new();
+            return Targets {
+                links: Vec::new(),
+                block,
+            };
         }
 
         let left = f32::from(bounds.origin.x);
@@ -670,7 +730,10 @@ impl Element for Prose {
             }
             top += line.height;
         }
-        targets
+        Targets {
+            links: targets,
+            block,
+        }
     }
 
     fn paint(
@@ -683,8 +746,34 @@ impl Element for Prose {
         window: &mut Window,
         cx: &mut App,
     ) {
+        if let (Some((selection, key)), Some(hitbox)) = (&self.selection, targets.block.take()) {
+            window.set_cursor_style(CursorStyle::IBeam, &hitbox);
+            let selection = selection.clone();
+            let key = *key;
+            let text = self.text.clone();
+            let state = self.state.clone();
+            window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble
+                    && event.button == MouseButton::Left
+                    && hitbox.is_hovered(window)
+                {
+                    let locate: Locate = {
+                        let state = state.clone();
+                        Rc::new(move |position| {
+                            state
+                                .borrow()
+                                .as_ref()
+                                .map_or(0, |laid| index_at(laid, position))
+                        })
+                    };
+                    let at = locate(event.position);
+                    selection.press(key, text.clone(), at, locate, cx);
+                }
+            });
+        }
+
         if let Some(on_link) = &self.on_link {
-            for (hitbox, dest) in targets.drain(..) {
+            for (hitbox, dest) in targets.links.drain(..) {
                 window.set_cursor_style(CursorStyle::PointingHand, &hitbox);
                 let on_link = on_link.clone();
                 window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
@@ -705,11 +794,28 @@ impl Element for Prose {
 
         let left = f32::from(bounds.origin.x);
         let mut top = f32::from(bounds.origin.y);
+        let selected = self
+            .selection
+            .as_ref()
+            .and_then(|(selection, key)| selection.range(*key, &self.text));
+        if let Some((selection, key)) = &self.selection {
+            let state = self.state.clone();
+            selection.refresh(
+                *key,
+                Rc::new(move |position| {
+                    state
+                        .borrow()
+                        .as_ref()
+                        .map_or(0, |laid| index_at(laid, position))
+                }),
+            );
+        }
 
         for line in &laid.lines {
             let baseline = top + line.baseline;
 
-            // Every quad first, so the glyphs land on top of both the chip and the highlight.
+            // Every quad first, so the glyphs land on top of the chip, the selection and the
+            // highlight.
             for piece in &line.pieces {
                 let x = left + piece.x;
                 let ascent = f32::from(piece.line.ascent);
@@ -735,6 +841,20 @@ impl Element for Prose {
                         theme::markdown().code_chip_border,
                         BorderStyle::Solid,
                     ));
+                }
+
+                if let Some(range) = selected
+                    .as_ref()
+                    .and_then(|range| clip(piece.start, piece.line.len(), range))
+                {
+                    let x0 = x + f32::from(piece.line.x_for_index(range.start));
+                    let x1 = if range.end >= piece.line.len() {
+                        x + width
+                    } else {
+                        x + f32::from(piece.line.x_for_index(range.end))
+                    };
+                    let rect = mark_box(x0, x1, baseline, ascent, descent, piece.shift);
+                    window.paint_quad(fill(rect.bounds(), theme::accent_selection()));
                 }
 
                 for (range, current) in local_marks(piece.start, piece.line.len(), &self.highlights)
