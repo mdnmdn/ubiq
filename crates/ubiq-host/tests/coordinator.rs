@@ -1782,9 +1782,8 @@ fn a_conversation_is_registered_and_its_models_discovered_before_any_harness_lau
     );
 }
 
-/// `spawned_by` is the **only** thing that ever sets `WorkAgent::parent` in a real run: a window
-/// launching an agent to answer a `MissionSpawnRequest` names the agent that asked for it (M13).
-/// Without it the Teams spawn connector draws off nothing but the mock fixture.
+/// `spawned_by` is the only thing that sets `WorkAgent::parent`. Mission launches always send
+/// `None` now; the Teams spawn connector draws off this.
 #[test]
 fn spawned_by_sets_the_new_agents_parent() {
     let (_hub, ui) = coordinator();

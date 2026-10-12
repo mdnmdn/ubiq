@@ -1,19 +1,16 @@
-//! The mission full view — §6.2's *every detail*, in two shapes.
+//! The mission full view — every detail, in two shapes.
 //!
 //! **One view, two frames.** [`modal`] is the overlay raised by the side panel's `⤢` outside IDE
 //! mode (`Layer::Mission`), [`tab`] is the same thing as a document in the centre region
 //! (`PanelKind::MissionView`). Neither knows which one it is: both call [`body`], and what they
 //! add is the frame — a title bar and *Open as tab* for the modal, a header row for the document.
-//! That is the plan surface's own split between its dialog and a markdown tab's annotation
-//! layout, and it is why moving between them loses nothing: the tab, the filter and the selection
-//! live on the project's `state::mission::MissionView`, which both read.
+//! Moving between them loses nothing: the tab, the filter and the selection live on the project's
+//! `state::mission::MissionView`, which both read.
 //!
-//! **Seven tabs.** The strip is built from [`TABS`], and what each draws is what is true today —
-//! the phase history, the anchor task's own brief (M7), the work-state counts (M26), the
-//! prerequisite graph laid out by dependency level ([`super::wbs`], M20), the roster with its four
-//! live actions and the agent-kinds table beneath it (M13), the plan on the existing surface (M9),
-//! the journal (M12), and every scheduler setting on the record ([`super::settings`], M22, M23).
-//! Spend per mission is not measured anywhere, so it is absent rather than zero.
+//! **Five tabs** ([`MissionTab`]): *Overview* (brief, phase history, counts, the full Needs you
+//! list), *Tasks* (the WBS with its Graph/Table toggle, and in Breakdown the draft's editing),
+//! *Plan & docs*, *History* (computed by the host, filtered here) and *Settings* (the five
+//! fields).
 
 use chrono::Utc;
 use gpui::{
@@ -23,27 +20,30 @@ use gpui::{
 use gpui_component::IconName;
 
 use ubiq_proto::ids::TaskId;
-use ubiq_proto::mission::{Actor, ExecutionMode, MissionRecord};
-use ubiq_proto::work::{TaskRecord, WorkAgent};
+use ubiq_proto::mission::{
+    Driver, HistoryEntry, HistoryKind, MissionAction, MissionSnapshot, Phase,
+};
+use ubiq_proto::work::TaskRecord;
 
 use crate::app::AppState;
 use crate::state::Layer;
-use crate::state::mission::{MissionTab, MissionView};
-use crate::state::work::{WorkProjection, WorkState};
+use crate::state::mission::{HISTORY_KINDS, MissionTab, MissionView, NoteKind, history_kind_label};
+use crate::state::work::WorkProjection;
 use crate::theme::{self, Family, Role};
 use crate::ui::kit::{
-    Tab, UbiqIcon, card, elided, ghost_button, hex_mark, mono, panel, section_label, state_chip,
-    tab_strip,
+    Tab, UbiqIcon, choice_pill, elided, ghost_button, mono, panel, primary_button, section_label,
+    state_chip, tab_strip,
 };
-use crate::ui::mission::panel::{feedback, nothing, phase_colour, section_bar};
-use crate::ui::work::{activity_colour, work_state_colour};
+use crate::ui::mission::panel::{
+    needs_you, nothing, phase_colour, plan_label, section_bar, task_label,
+};
+use crate::ui::work::work_state_colour;
 use crate::ui::{eid, eid2, empty, indexed};
 
-/// The tabs this build draws, in the strip's order — all seven of them, which is
-/// [`MissionTab::all`]'s own order.
-pub const TABS: [MissionTab; 7] = MissionTab::all();
+/// The tabs, in the strip's order — [`MissionTab::all`]'s own.
+pub const TABS: [MissionTab; 5] = MissionTab::all();
 
-/// Wide enough for the tasks list and the agents table without either wrapping.
+/// Wide enough for the WBS table without it wrapping.
 const MODAL_WIDTH: f32 = 880.0;
 /// The tab strip and the body need a real height to scroll inside — `modal_sized`'s `fill_height`.
 const MODAL_HEIGHT: f32 = 640.0;
@@ -126,7 +126,7 @@ fn header(
     task_id: TaskId,
     term: &str,
     task: &TaskRecord,
-    mission: &MissionRecord,
+    mission: &MissionSnapshot,
 ) -> impl IntoElement {
     let colour = phase_colour(mission.phase);
 
@@ -142,7 +142,6 @@ fn header(
         .border_color(theme::border())
         .child(crate::ui::mission::panel::mission_hex(
             work,
-            task_id,
             mission,
             eid("mission-full-hex", task_id),
             14.,
@@ -162,10 +161,7 @@ fn header(
 
 /// The modal's foot: how the mission is run, and the one control that changes its shape.
 fn footer(app: &AppState, task_id: TaskId, cx: &mut Context<AppState>) -> AnyElement {
-    let run = app
-        .mission(task_id, cx)
-        .map(execution_label)
-        .unwrap_or_default();
+    let run = app.mission(task_id, cx).map(run_label).unwrap_or_default();
 
     div()
         .flex()
@@ -183,12 +179,12 @@ fn footer(app: &AppState, task_id: TaskId, cx: &mut Context<AppState>) -> AnyEle
         .into_any_element()
 }
 
-fn execution_label(mission: &MissionRecord) -> String {
-    let execution = match mission.execution {
-        ExecutionMode::Auto => format!("auto \u{00d7}{}", mission.parallelism),
-        ExecutionMode::Manual => "manual".to_string(),
+fn run_label(mission: &MissionSnapshot) -> String {
+    let driver = match mission.settings.driver {
+        Driver::Auto => format!("auto \u{00d7}{}", mission.settings.parallelism()),
+        Driver::Manual => "manual".to_string(),
     };
-    format!("{} \u{00b7} {execution}", mission.phase.label())
+    format!("{} \u{00b7} {driver}", mission.phase.label())
 }
 
 // ── the strip and what is under it ──────────────────────────────────
@@ -210,15 +206,12 @@ fn body(
     let active = TABS.iter().position(|tab| *tab == view.tab).unwrap_or(0);
     let tabs: Vec<Tab> = TABS.iter().map(|tab| Tab::new(tab.label())).collect();
 
-    let term = app.mission_term(cx);
     let content = match TABS[active] {
-        MissionTab::Wbs => super::wbs::render(app, work, task_id, &view, window, cx),
-        MissionTab::Settings => super::settings::render(task_id, mission, cx),
-        MissionTab::Tasks => tasks(work, task_id, &view, cx),
-        MissionTab::Agents => agents(app, work, task_id, mission, cx),
-        MissionTab::Docs => docs(task_id, mission, cx),
-        MissionTab::Activity => activity(app, task_id, &term, window, cx),
-        _ => overview(app, work, task_id, mission, cx),
+        MissionTab::Tasks => super::wbs::render(app, work, task_id, mission, &view, window, cx),
+        MissionTab::Settings => super::settings::render(app, task_id, &mission.settings, cx),
+        MissionTab::PlanDocs => plan_docs(task_id, mission, cx),
+        MissionTab::History => history(app, work, task_id, &view, cx),
+        MissionTab::Overview => overview(app, work, task_id, mission, &view, cx),
     };
 
     div()
@@ -248,70 +241,68 @@ fn body(
                 .overflow_y_scroll()
                 .child(content),
         )
-        // The same two menus the side panel raises — *Spawn ▾* and the kind picker are one
-        // control each, drawn wherever the surface that opened them is.
-        .children(super::menu::spawn_overlay(app, task_id, cx))
-        .children(super::menu::kind_overlay(app, task_id, cx))
         .into_any_element()
 }
 
 // ── Overview ────────────────────────────────────────────────────────
 
-/// The phase history, the brief, the counts, the agents and elapsed time, and *Needs you*.
-///
-/// **Spend is not here.** Nothing measures a mission's, and a zero would read as a fact.
+/// The phase stepper and its history, the brief, the counts, and the full *Needs you* list.
 fn overview(
     app: &AppState,
     work: &WorkProjection,
     task_id: TaskId,
-    mission: &MissionRecord,
+    mission: &MissionSnapshot,
+    view: &MissionView,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    let _ = view;
     let task = work.task(task_id);
-    let members = on_mission(work, task_id, mission).len();
+    let history = app.mission_history(task_id);
 
     div()
         .flex()
         .flex_col()
-        .child(section_bar("Phase", Some(execution_label(mission))))
-        // The live stepper over the history that explains it: the dots move the mission (M5), the
-        // rows under them say when each phase was entered and who moved it. Drawn in every phase,
-        // `Abandoned` included — a mission the user wants back is moved from here.
+        .child(section_bar("Phase", Some(run_label(mission))))
         .child(
             div()
                 .px_3()
                 .pt_2()
                 .flex()
                 .flex_none()
-                .child(crate::ui::mission::panel::phase_steps(task_id, mission, cx)),
+                .child(crate::ui::mission::panel::phase_steps(mission.phase)),
         )
-        .child(phase_history(mission))
+        .child(phase_history(history))
         .child(section_bar("Brief", None))
         .children(task.map(|task| brief(work, task)))
-        .child(section_bar("Progress", None))
-        .child(counts(work, task_id, cx))
         .child(section_bar(
-            "Agents",
-            Some(format!("{members} \u{00b7} running {}", elapsed(mission))),
+            "Progress",
+            task.map(|task| format!("running {}", elapsed(task))),
         ))
-        .child(agent_lines(app, work, task_id, mission))
-        // The whole list, with its actions — the side panel shows the first of these and a count.
-        .child(crate::ui::mission::panel::needs_you(
-            app, task_id, mission, false, cx,
-        ))
+        .child(counts(work, task_id, cx))
+        .child(needs_you(app, work, task_id, mission, cx))
         .into_any_element()
 }
 
-/// Every phase this mission has been in, with when it moved and who moved it — `phase_history`
-/// carries both, which is why this is a list rather than the panel's four dots.
-fn phase_history(mission: &MissionRecord) -> impl IntoElement {
-    let rows: Vec<AnyElement> = mission
-        .phase_history
+/// Every phase the mission has been in, when it moved — read off the computed history's `Phase`
+/// entries, oldest first. Empty until the History has been asked for (opening the History tab
+/// asks), and says so rather than drawing a guess.
+fn phase_history(history: Option<&Vec<HistoryEntry>>) -> AnyElement {
+    let Some(entries) = history else {
+        return nothing("Open the History tab to load the phase history.").into_any_element();
+    };
+    let phases: Vec<&HistoryEntry> = entries
+        .iter()
+        .filter(|entry| entry.kind == HistoryKind::Phase)
+        .rev()
+        .collect();
+    if phases.is_empty() {
+        return nothing("No phase changes yet.").into_any_element();
+    }
+    let last = phases.len() - 1;
+    let rows: Vec<AnyElement> = phases
         .iter()
         .enumerate()
         .map(|(index, entry)| {
-            let colour = phase_colour(entry.phase);
-            let current = entry.phase == mission.phase && index + 1 == mission.phase_history.len();
             div()
                 .h(px(26.))
                 .px_3()
@@ -321,47 +312,35 @@ fn phase_history(mission: &MissionRecord) -> impl IntoElement {
                 .gap_2()
                 .child(
                     div()
-                        .size(px(if current { 9. } else { 7. }))
+                        .size(px(if index == last { 9. } else { 7. }))
                         .flex_none()
                         .rounded_full()
-                        .bg(colour),
-                )
-                .child(
-                    div()
-                        .w(px(96.))
-                        .flex_none()
-                        .text_size(theme::font(Family::Chrome, Role::Label))
-                        .text_color(if current {
-                            theme::text()
-                        } else {
-                            theme::text_muted()
-                        })
-                        .child(entry.phase.label()),
+                        .bg(theme::info()),
                 )
                 .child(mono(
                     entry.at.format("%Y-%m-%d %H:%M").to_string(),
                     theme::text_faint(),
                 ))
-                .child(mono(actor(entry.by), theme::text_faint()))
+                .child(elided(
+                    eid2("mission-phase-row", index, entry.at.timestamp()),
+                    entry.text.clone(),
+                    theme::text_muted(),
+                    theme::font(Family::Chrome, Role::Meta),
+                ))
                 .into_any_element()
         })
         .collect();
-
-    div().flex().flex_col().flex_none().py_1().children(rows)
+    div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .py_1()
+        .children(rows)
+        .into_any_element()
 }
 
-/// Who moved something. Three answers, never two: "the host did it on its own" and "the person at
-/// the keyboard did it" are different facts (`ubiq_proto::mission::Actor`).
-pub(super) fn actor(by: Actor) -> String {
-    match by {
-        Actor::User => "you".to_string(),
-        Actor::Host => "the host".to_string(),
-        Actor::Agent(id) => format!("agent {id}"),
-    }
-}
-
-/// **The brief IS the anchor task's fields** (M7): its description, its attachments and the tasks
-/// it references. Nothing new is stored and nothing here is editable — the task panel and the
+/// **The brief IS the parent task's fields**: its description, its attachments and the tasks it
+/// references. Nothing new is stored and nothing here is editable — the task panel and the
 /// board's form are where a task is written.
 fn brief(work: &WorkProjection, task: &TaskRecord) -> AnyElement {
     let references: Vec<AnyElement> = task
@@ -432,8 +411,8 @@ fn brief(work: &WorkProjection, task: &TaskRecord) -> AnyElement {
         .into_any_element()
 }
 
-/// One chip per work state with a count (M26). Each is a way into the Tasks tab, filtered — the
-/// same gesture the side panel's progress segments are.
+/// One chip per work state with a count. Each is a way into the Tasks tab, filtered — the same
+/// gesture the side panel's progress segments are.
 fn counts(work: &WorkProjection, task_id: TaskId, cx: &mut Context<AppState>) -> AnyElement {
     let counts = work.work_state_counts(task_id);
     let total: usize = counts.iter().map(|(_, n)| n).sum();
@@ -472,9 +451,9 @@ fn counts(work: &WorkProjection, task_id: TaskId, cx: &mut Context<AppState>) ->
         .into_any_element()
 }
 
-/// How long the mission has been going, from the record's own stamp.
-fn elapsed(mission: &MissionRecord) -> String {
-    let span = Utc::now() - mission.created_at;
+/// How long the mission has been going, from its parent task's own stamp.
+fn elapsed(task: &TaskRecord) -> String {
+    let span = Utc::now() - task.created_at;
     let hours = span.num_hours();
     match hours {
         h if h < 1 => format!("{}m", span.num_minutes().max(0)),
@@ -483,43 +462,17 @@ fn elapsed(mission: &MissionRecord) -> String {
     }
 }
 
-// ── Tasks ───────────────────────────────────────────────────────────
+// ── Plan & docs ─────────────────────────────────────────────────────
 
-/// The mission's own tasks, filtered to one work state when the view says so.
-///
-/// The filter is `MissionView::state_filter`, which the counts above and the side panel's
-/// progress segments set — this tab is the surface those clicks land on.
-fn tasks(
-    work: &WorkProjection,
-    task_id: TaskId,
-    view: &MissionView,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let counts = work.work_state_counts(task_id);
-    let filters: Vec<AnyElement> = counts
-        .iter()
-        .filter(|(_, n)| *n > 0)
-        .map(|(state, n)| {
-            let state = *state;
-            let on = view.state_filter == Some(state);
-            crate::ui::kit::choice_pill(
-                eid2("mission-filter", task_id, state.label()),
-                format!("{n} {}", state.label()),
-                on,
-                cx.listener(move |this, _, _, cx| this.toggle_mission_state_filter(state, cx)),
-            )
-            .into_any_element()
-        })
-        .collect();
+/// The plan and the mission's documents, on the surface they already have — `ui::document`'s
+/// columns, minimap, gutter and thread rail, raised as the plan dialog the way the task panel
+/// raises it. **Approve plan** and **Replan…** are the two gates that act on it: approval is open
+/// while the mission is planning, a replan once it is running or in review.
+fn plan_docs(task_id: TaskId, mission: &MissionSnapshot, cx: &mut Context<AppState>) -> AnyElement {
+    let planning = mission.phase == Phase::Planning;
+    let can_replan = matches!(mission.phase, Phase::Running | Phase::Paused | Phase::Review);
 
-    let rows: Vec<AnyElement> = work
-        .children_of(task_id)
-        .map(|task| (task, work.work_state(task)))
-        .filter(|(_, state)| view.state_filter.is_none_or(|want| want == *state))
-        .map(|(task, state)| task_row(work, task, state, cx))
-        .collect();
-
-    div()
+    let mut body = div()
         .flex()
         .flex_col()
         .child(
@@ -528,465 +481,36 @@ fn tasks(
                 .py_2()
                 .flex()
                 .flex_none()
-                .flex_wrap()
-                .gap_1p5()
-                .children(filters),
-        )
-        .when(rows.is_empty(), |body| {
-            body.child(nothing("No tasks in this state."))
-        })
-        .children(rows)
-        .into_any_element()
-}
-
-/// One task, as the board reads one: the state's colour on the left edge, the key, the title, and
-/// what it is still waiting on (M20's derived readiness, `TaskRecord::waiting_on`).
-fn task_row(
-    work: &WorkProjection,
-    task: &TaskRecord,
-    state: WorkState,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let id = task.id;
-    let waiting = task.waiting_on(&work.tasks).len();
-
-    card(eid("mission-task", id), work_state_colour(state), false)
-        .h(px(30.))
-        .pr_3()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .on_click(cx.listener(move |this, _, _, cx| this.select_task(id, cx)))
-        .when_some(task.key.clone(), |row, key| {
-            row.child(mono(key, theme::text_muted()))
-        })
-        .child(elided(
-            eid("mission-task-title", id),
-            task.title.clone(),
-            theme::text(),
-            theme::font(Family::Chrome, Role::Body),
-        ))
-        .when(waiting > 0, |row| {
-            row.child(mono(
-                format!("waits on {waiting}"),
-                work_state_colour(WorkState::Waiting),
-            ))
-        })
-        .child(state_chip(state.label(), work_state_colour(state), 1.0))
-        .into_any_element()
-}
-
-// ── Agents ──────────────────────────────────────────────────────────
-
-/// Which agents are on this mission.
-///
-/// **The record's roster is the membership** (M11): assigned to the mission's task or one of its
-/// children, *or* spawned by a member — and the second half cannot be recomputed, which is why the
-/// host writes it down as it happens.
-///
-/// The derived half is kept beside it rather than dropped: an assignment is what the roster is
-/// settled *from*, so an agent just pointed at one of the mission's tasks is on the mission a
-/// frame before the record says so, and a list that waited would flicker.
-pub(super) fn on_mission<'a>(
-    work: &'a WorkProjection,
-    task_id: TaskId,
-    mission: &MissionRecord,
-) -> Vec<&'a WorkAgent> {
-    let children: Vec<TaskId> = work.children_of(task_id).map(|task| task.id).collect();
-    work.agents
-        .iter()
-        .filter(|agent| {
-            mission.member(agent.id).is_some()
-                || agent
-                    .task
-                    .is_some_and(|held| held == task_id || children.contains(&held))
-        })
-        .collect()
-}
-
-/// The roster as a table: role, kind, model, current task, affinity labels, tasks held,
-/// lifecycle.
-///
-/// Affinity labels are the labels of the tasks an agent holds here — the accumulated set on
-/// `RosterEntry::labels` is S3's, so what is drawn is what the current task says.
-fn agents(
-    app: &AppState,
-    work: &WorkProjection,
-    task_id: TaskId,
-    mission: &MissionRecord,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let rows: Vec<AnyElement> = on_mission(work, task_id, mission)
-        .into_iter()
-        .map(|agent| agent_row(app, work, task_id, mission, agent, Some(cx)))
-        .collect();
-
-    div()
-        .flex()
-        .flex_col()
-        .child(crate::ui::mission::panel::section_bar_with(
-            "Roster",
-            Some(format!("{}", rows.len())),
-            Some(crate::ui::mission::panel::spawn_button(
-                app,
-                task_id,
-                "mission-full-spawn",
-                cx,
-            )),
-        ))
-        .when(rows.is_empty(), |body| {
-            body.child(nothing("No agents on this mission."))
-        })
-        .when(!rows.is_empty(), |body| body.child(agents_head()))
-        .children(rows)
-        .child(agent_kinds(task_id, mission, cx))
-        .into_any_element()
-}
-
-/// The agent-kinds table (M13): what a mission may spawn, what each resolves to, and what each is
-/// good at.
-///
-/// **A short list edited as a set** — `MissionField::AgentKinds` replaces the whole table, which is
-/// `TaskField::Labels`' own posture, so every control here sends one message carrying the list as
-/// it now is. Seeded from the project's definitions by the new-mission dialog; a row's definition is
-/// re-pointed from the same picker a pending spawn's kind is changed with.
-pub(super) fn agent_kinds(
-    task_id: TaskId,
-    mission: &MissionRecord,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let rows: Vec<AnyElement> = mission
-        .agent_kinds
-        .iter()
-        .enumerate()
-        .map(|(index, kind)| {
-            let labels = match kind.labels.is_empty() {
-                true => String::new(),
-                false => kind.labels.join(", "),
-            };
-            div()
-                .h(px(28.))
-                .px_3()
-                .flex()
-                .flex_none()
                 .items_center()
-                .gap_2()
+                .justify_end()
+                .gap_1p5()
                 .child(
-                    elided(
-                        eid2("mission-kind-name", task_id, index),
-                        kind.name.clone(),
-                        theme::text(),
-                        theme::font(Family::Chrome, Role::Meta),
+                    ghost_button(
+                        eid("mission-docs-replan", task_id),
+                        None,
+                        "Replan\u{2026}",
+                        cx.listener(move |this, _, _, cx| {
+                            this.open_mission_note(NoteKind::Replan(task_id), cx)
+                        }),
                     )
-                    .w(px(120.))
-                    .flex_none(),
+                    .opacity(if can_replan { 1.0 } else { 0.5 }),
                 )
                 .child(
-                    elided(
-                        eid2("mission-kind-desc", task_id, index),
-                        kind.description.clone(),
-                        theme::text_muted(),
-                        theme::font(Family::Chrome, Role::Meta),
+                    primary_button(
+                        eid("mission-docs-approve", task_id),
+                        None,
+                        "Approve plan",
+                        cx.listener(move |this, _, _, cx| {
+                            this.mission_control(task_id, MissionAction::ApprovePlan, cx)
+                        }),
                     )
-                    .flex_1()
-                    .min_w(px(0.)),
-                )
-                .child(
-                    elided(
-                        eid2("mission-kind-labels", task_id, index),
-                        labels,
-                        theme::text_faint(),
-                        theme::font(Family::Chrome, Role::Meta),
-                    )
-                    .w(px(120.))
-                    .flex_none(),
-                )
-                // The definition it resolves to — a control, because that is the one field of a kind
-                // the interface can answer from what the host already lists.
-                .child(
-                    div()
-                        .id(eid2("mission-kind-definition", task_id, index))
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-                            let at = event.position();
-                            this.open_mission_kind_menu(
-                                task_id,
-                                crate::state::mission::KindTarget::Row(index),
-                                (at.x.into(), at.y.into()),
-                                cx,
-                            );
-                        }))
-                        .tooltip(|window, cx| {
-                            gpui_component::tooltip::Tooltip::new("Which agent this resolves to")
-                                .build(window, cx)
-                        })
-                        .child(state_chip(
-                            kind.definition.clone().unwrap_or_else(|| "no agent".into()),
-                            match kind.definition.is_some() {
-                                true => theme::accent(),
-                                false => theme::warning(),
-                            },
-                            1.0,
-                        )),
-                )
-                .child(ghost_button(
-                    eid2("mission-kind-remove", task_id, index),
-                    None,
-                    "Remove",
-                    cx.listener(move |this, _, _, cx| {
-                        this.remove_mission_agent_kind(task_id, index, cx)
-                    }),
-                ))
-                .into_any_element()
-        })
-        .collect();
-
-    div()
-        .flex()
-        .flex_col()
-        .child(crate::ui::mission::panel::section_bar_with(
-            "Agent kinds",
-            (!rows.is_empty()).then(|| rows.len().to_string()),
-            Some(
-                div()
-                    .id(eid("mission-kind-add", task_id))
-                    .h(px(20.))
-                    .px_2()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .cursor_pointer()
-                    .border_1()
-                    .border_color(theme::border())
-                    .text_size(theme::font(Family::Chrome, Role::Meta))
-                    .text_color(theme::text())
-                    .child("Add from agent \u{25be}")
-                    .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-                        let at = event.position();
-                        this.open_mission_kind_menu(
-                            task_id,
-                            crate::state::mission::KindTarget::Add,
-                            (at.x.into(), at.y.into()),
-                            cx,
-                        );
-                    }))
-                    .into_any_element(),
-            ),
-        ))
-        .when(rows.is_empty(), |body| {
-            body.child(nothing(
-                "No kinds yet \u{2014} an agent asking for one gets whatever agent definition it names.",
-            ))
-        })
-        .children(rows)
-        .into_any_element()
-}
-
-fn agents_head() -> impl IntoElement {
-    let cell = |label: &'static str, width: f32| {
-        div()
-            .w(px(width))
-            .flex_none()
-            .text_size(theme::font(Family::Chrome, Role::Micro))
-            .text_color(theme::text_faint())
-            .child(label)
-    };
-
-    div()
-        .h(px(22.))
-        .px_3()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .child(cell("ROLE", 110.))
-        .child(cell("KIND", 90.))
-        .child(cell("MODEL", 110.))
-        .child(div().flex_1().min_w(px(0.)).child(cell("ON", 40.)))
-        .child(cell("LABELS", 140.))
-        .child(cell("HELD", 40.))
-        .child(cell("LIFECYCLE", 80.))
-}
-
-/// One roster row. `cx` present is the Agents tab, which draws the four live actions; the
-/// Overview passes `None` and gets the same row without them — the short list there is a reading,
-/// and the place a member is acted on is the tab that is about them.
-fn agent_row(
-    app: &AppState,
-    work: &WorkProjection,
-    task_id: TaskId,
-    mission: &MissionRecord,
-    agent: &WorkAgent,
-    cx: Option<&mut Context<AppState>>,
-) -> AnyElement {
-    let colour = activity_colour(agent.activity);
-    let id = agent.id;
-    let is_coordinator = mission.coordinator == Some(id);
-    let live = app.conversation_live(id);
-    // How many of *this mission's* tasks the agent is on. A `WorkAgent` points at one task, so
-    // this is 0 or 1 today; the accumulated count over a mission's life is the stored roster's,
-    // which is S3's to write.
-    let held = work
-        .children_of(task_id)
-        .filter(|task| agent.task == Some(task.id))
-        .count();
-    let on = agent.task.and_then(|id| work.task(id));
-    let labels: String = on
-        .map(|task| {
-            task.labels
-                .iter()
-                .map(|label| label.name.clone())
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
-        .unwrap_or_default();
-
-    let cell = |id: gpui::ElementId, text: String, width: f32| {
-        elided(
-            id,
-            text,
-            theme::text_muted(),
-            theme::font(Family::Chrome, Role::Meta),
+                    .opacity(if planning { 1.0 } else { 0.5 }),
+                ),
         )
-        .w(px(width))
-        .flex_none()
-    };
-
-    div()
-        .h(px(28.))
-        .px_3()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .child(hex_mark(
-            eid("mission-roster-hex", agent.id),
-            colour,
-            Some(theme::fade(colour, 0.25)),
-            11.,
-            false,
-        ))
-        .child(cell(
-            eid("mission-roster-role", agent.id),
-            // The mission's own role leads where it has one: which agent plans and asks is the
-            // one fact this table exists to say.
-            if is_coordinator {
-                format!("coordinator \u{00b7} {}", app.agent_label(agent).title)
-            } else {
-                app.agent_label(agent).title.to_string()
-            },
-            96.,
-        ))
-        .child(cell(
-            eid("mission-roster-kind", agent.id),
-            agent.harness.clone(),
-            90.,
-        ))
-        .child(cell(
-            eid("mission-roster-model", agent.id),
-            agent.model.clone(),
-            110.,
-        ))
-        .child(elided(
-            eid("mission-roster-on", agent.id),
-            match on {
-                Some(task) => task.key.clone().unwrap_or_else(|| task.title.clone()),
-                None => agent.summary.clone().unwrap_or_default(),
-            },
-            theme::text(),
-            theme::font(Family::Chrome, Role::Meta),
-        ))
-        .child(cell(eid("mission-roster-labels", agent.id), labels, 140.))
-        .child(cell(
-            eid("mission-roster-held", agent.id),
-            held.to_string(),
-            40.,
-        ))
-        .child(state_chip(agent.activity.label(), colour, 1.0))
-        // The four actions, live (§6.2). `Chat` becomes `Resume` for an agent whose harness has
-        // been unloaded — the conversation is still there, so the honest offer is to start it
-        // again rather than to open a panel onto nothing.
-        .when_some(cx, |row, cx| {
-            row.child(match live {
-                true => ghost_button(
-                    eid("mission-roster-chat", id),
-                    None,
-                    "Chat",
-                    cx.listener(move |this, _, _, cx| this.chat_with_mission_agent(id, cx)),
-                ),
-                false => ghost_button(
-                    eid("mission-roster-resume", id),
-                    None,
-                    "Resume",
-                    cx.listener(move |this, _, _, cx| this.resume_mission_agent(id, cx)),
-                ),
-            })
-            .child(ghost_button(
-                eid("mission-roster-stop", id),
-                None,
-                "Stop",
-                cx.listener(move |this, _, _, cx| this.stop_mission_agent(id, cx)),
-            ))
-            .child(ghost_button(
-                eid("mission-roster-detach", id),
-                None,
-                "Detach",
-                cx.listener(move |this, _, _, cx| this.detach_mission_agent(id, cx)),
-            ))
-            // M10's handoff: the previous coordinator is put back to worker and *told*, never
-            // killed — which is the host's to do, in one `SetMissionField`.
-            .when(!is_coordinator, |row| {
-                row.child(ghost_button(
-                    eid("mission-roster-crown", id),
-                    None,
-                    "Make coordinator",
-                    cx.listener(move |this, _, _, cx| {
-                        this.make_mission_coordinator(task_id, id, cx)
-                    }),
-                ))
-            })
-        })
-        .into_any_element()
-}
-
-/// The Overview's short version of the same list — who is on it, and what each is doing.
-fn agent_lines(
-    app: &AppState,
-    work: &WorkProjection,
-    task_id: TaskId,
-    mission: &MissionRecord,
-) -> AnyElement {
-    let rows: Vec<AnyElement> = on_mission(work, task_id, mission)
-        .into_iter()
-        .map(|agent| agent_row(app, work, task_id, mission, agent, None))
-        .collect();
-
-    match rows.is_empty() {
-        true => nothing("No agents on this mission.").into_any_element(),
-        false => div().flex().flex_col().children(rows).into_any_element(),
-    }
-}
-
-// ── Plan & docs ─────────────────────────────────────────────────────
-
-/// The plan, on the surface it already has (M9) — `ui::document`'s columns, minimap, gutter and
-/// thread rail, raised as the plan dialog the way the task panel raises it. **Unchanged by this
-/// proposal**: nothing here is a second plan editor.
-///
-/// Mission documents (`DocumentHandle::MissionDoc`, M8) share exactly that surface — one row per
-/// document, opened the way the plan's own row is. `MissionRecord::documents` is derived from
-/// `missions/<TaskId>/docs/` on every read, so a row here is a directory listing, never a second
-/// store; the side panel's own *Documents* section (T-184) draws the same names through
-/// [`doc_row`].
-fn docs(task_id: TaskId, mission: &MissionRecord, cx: &mut Context<AppState>) -> AnyElement {
-    let mut body = div()
-        .flex()
-        .flex_col()
         .child(section_bar("Documents", None))
         .child(doc_row(
             eid("mission-open-plan", task_id),
-            "Plan",
+            plan_label(mission.open_threads),
             cx.listener(move |this, _, _, cx| this.open_plan(task_id, cx)),
         ));
     if mission.documents.is_empty() {
@@ -996,7 +520,7 @@ fn docs(task_id: TaskId, mission: &MissionRecord, cx: &mut Context<AppState>) ->
             let doc_name = name.clone();
             body = body.child(doc_row(
                 eid2("mission-open-doc", task_id, name),
-                name.clone(),
+                format!("{name}.md"),
                 cx.listener(move |this, _, _, cx| this.open_mission_doc(task_id, &doc_name, cx)),
             ));
         }
@@ -1032,51 +556,189 @@ pub(super) fn doc_row(
         .into_any_element()
 }
 
-// ── Activity ────────────────────────────────────────────────────────
+// ── History ─────────────────────────────────────────────────────────
 
-/// The mission's journal, page after page (M12), and the live feedback composer under it.
-///
-/// **The two kinds M13 adds are drawn like every other one** — `spawn_requested` and
-/// `spawn_answered` are rows here because `JournalEvent::kind` is a closed set and this reads it,
-/// so a kind added later needs a colour and nothing else.
-fn activity(
+/// The mission's one timeline, newest first, as the host computed it. Filters by kind, task and
+/// agent; a row opens its task, its plan revision or its chat.
+fn history(
     app: &AppState,
+    work: &WorkProjection,
     task_id: TaskId,
-    term: &str,
-    window: &Window,
+    view: &MissionView,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let journal = app.mission_journal(task_id);
-    let rows: Vec<AnyElement> = journal
-        .map(|held| {
-            held.entries
-                .iter()
-                .map(crate::ui::mission::panel::journal_row)
-                .collect()
+    let Some(entries) = app.mission_history(task_id) else {
+        return nothing("Loading the history\u{2026}").into_any_element();
+    };
+    let filter = view.history;
+
+    let kinds: Vec<AnyElement> = std::iter::once(None)
+        .chain(HISTORY_KINDS.into_iter().map(Some))
+        .map(|kind| {
+            choice_pill(
+                eid2(
+                    "mission-hist-kind",
+                    task_id,
+                    kind.map(history_kind_label).unwrap_or("all"),
+                ),
+                kind.map(history_kind_label).unwrap_or("all"),
+                filter.kind == kind,
+                cx.listener(move |this, _, _, cx| this.set_history_kind(kind, cx)),
+            )
+            .into_any_element()
         })
-        .unwrap_or_default();
-    let more = journal.is_some_and(|held| held.more);
+        .collect();
+
+    // The tasks and agents that actually appear, so every pill filters to something.
+    let mut tasks: Vec<TaskId> = Vec::new();
+    let mut agents: Vec<ubiq_proto::work::AgentId> = Vec::new();
+    for entry in entries {
+        if let Some(task) = entry.task
+            && !tasks.contains(&task)
+        {
+            tasks.push(task);
+        }
+        if let Some(agent) = entry.agent
+            && !agents.contains(&agent)
+        {
+            agents.push(agent);
+        }
+    }
+    let task_pills: Vec<AnyElement> = tasks
+        .into_iter()
+        .take(8)
+        .map(|task| {
+            let on = filter.task == Some(task);
+            choice_pill(
+                eid2("mission-hist-task", task_id, task),
+                task_label(work, task),
+                on,
+                cx.listener(move |this, _, _, cx| {
+                    this.set_history_task((!on).then_some(task), cx)
+                }),
+            )
+            .into_any_element()
+        })
+        .collect();
+    let agent_pills: Vec<AnyElement> = agents
+        .into_iter()
+        .take(6)
+        .map(|agent| {
+            let on = filter.agent == Some(agent);
+            let label = work
+                .agent(agent)
+                .map(|record| app.agent_label(record).title.to_string())
+                .unwrap_or_else(|| "agent".to_string());
+            choice_pill(
+                eid2("mission-hist-agent", task_id, agent),
+                label,
+                on,
+                cx.listener(move |this, _, _, cx| {
+                    this.set_history_agent((!on).then_some(agent), cx)
+                }),
+            )
+            .into_any_element()
+        })
+        .collect();
+
+    let rows: Vec<AnyElement> = entries
+        .iter()
+        .filter(|entry| filter.admits(entry))
+        .enumerate()
+        .map(|(index, entry)| history_row(app, work, task_id, index, entry, cx))
+        .collect();
 
     div()
         .flex()
         .flex_col()
-        .child(section_bar(
-            "Journal",
-            (!rows.is_empty()).then(|| rows.len().to_string()),
-        ))
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .flex()
+                .flex_none()
+                .flex_col()
+                .gap_1p5()
+                .child(div().flex().flex_wrap().gap_1p5().children(kinds))
+                .when(!task_pills.is_empty(), |col| {
+                    col.child(div().flex().flex_wrap().gap_1p5().children(task_pills))
+                })
+                .when(!agent_pills.is_empty(), |col| {
+                    col.child(div().flex().flex_wrap().gap_1p5().children(agent_pills))
+                }),
+        )
         .when(rows.is_empty(), |body| {
-            body.child(nothing("No activity yet."))
+            body.child(nothing("Nothing here yet."))
         })
         .children(rows)
-        // The cursor is the oldest sequence held, so a step back never skips or repeats a line.
-        .when(more, |body| {
-            body.child(div().px_3().py_2().flex().flex_none().child(ghost_button(
-                eid("mission-journal-more", task_id),
-                None,
-                "Older",
-                cx.listener(move |this, _, _, cx| this.load_more_mission_journal(task_id, cx)),
-            )))
-        })
-        .child(feedback(app, task_id, term, false, window, cx))
+        .into_any_element()
+}
+
+/// One timeline row: when, what kind, the sentence, and the thing it opens.
+fn history_row(
+    app: &AppState,
+    work: &WorkProjection,
+    task_id: TaskId,
+    index: usize,
+    entry: &HistoryEntry,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let _ = app;
+    let task = entry.task;
+    let agent = entry.agent;
+    let revision = entry.plan_revision.is_some();
+    let colour = match entry.kind {
+        HistoryKind::Phase => theme::info(),
+        HistoryKind::Plan => theme::accent(),
+        HistoryKind::Agent => theme::accent(),
+        HistoryKind::Review => theme::success(),
+        HistoryKind::Feedback => theme::warning(),
+        HistoryKind::Guidance => theme::warning(),
+        HistoryKind::Status => theme::text_muted(),
+        HistoryKind::Comment => theme::text_muted(),
+    };
+    let text: SharedString = match task {
+        Some(task) => format!("{} \u{2014} {}", task_label(work, task), entry.text).into(),
+        None => entry.text.clone().into(),
+    };
+
+    div()
+        .id(eid2("mission-hist-row", task_id, index))
+        .h(px(26.))
+        .px_3()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .cursor_pointer()
+        .hover(|row| row.bg(theme::hover()))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            // The plan revision, then the task, then the agent's chat — the most specific thing
+            // the row names.
+            if revision {
+                this.open_plan(task_id, cx);
+            } else if let Some(task) = task {
+                this.select_task(task, cx);
+            } else if let Some(agent) = agent {
+                this.chat_with_mission_agent(agent, cx);
+            }
+        }))
+        .child(div().size(px(6.)).flex_none().rounded_full().bg(colour))
+        .child(mono(
+            entry.at.format("%m-%d %H:%M").to_string(),
+            theme::text_faint(),
+        ))
+        .child(
+            div()
+                .w(px(64.))
+                .flex_none()
+                .child(mono(history_kind_label(entry.kind), colour)),
+        )
+        .child(elided(
+            eid2("mission-hist-text", task_id, index),
+            text,
+            theme::text(),
+            theme::font(Family::Chrome, Role::Meta),
+        ))
         .into_any_element()
 }

@@ -477,6 +477,12 @@ impl AppState {
     /// Give the open task a parent, or take it back. The picker offers only eligible choices, so
     /// this exists to send the pick; the host answers with [`Message::WorkError`] if a race made
     /// the choice stale between the draw and the click.
+    /// The open task's `approve` flag: a finished task waits for Confirm before its dependents
+    /// start.
+    pub fn set_task_approve(&mut self, approve: bool, cx: &mut Context<Self>) {
+        self.set_task_field(TaskField::Approve(approve), cx);
+    }
+
     pub fn set_task_parent(&mut self, parent: Option<TaskId>, cx: &mut Context<Self>) {
         self.close_menu(cx);
         self.set_task_field(TaskField::Parent(parent), cx);

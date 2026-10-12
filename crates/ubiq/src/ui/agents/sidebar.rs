@@ -7,7 +7,7 @@
 //! marked, rather than gone. What it does not list is an agent this window cannot talk to, which
 //! is what `AgentsView::live_agents` answers for every reader on this screen.
 //!
-//! **The Missions section sits above the sessions (M14)**, one row per mission not `Completed` or
+//! **The Missions section sits above the sessions (M14)**, one row per mission not `Done` or
 //! `Abandoned`, and folds to a roster rather than to nothing — a mission is what the user came for,
 //! a session is what carries it. **The session groups below stay exactly as they are.** An agent
 //! inside a mission carries a small chip there rather than being lifted out: one conversation is
@@ -26,7 +26,7 @@ use gpui::{
 use gpui_component::scroll::Scrollbar;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
-use ubiq_proto::mission::{MissionRecord, Phase};
+use ubiq_proto::mission::{MissionSnapshot, Phase};
 use ubiq_proto::work::{AgentId, WorkAgent, WorkSession};
 
 use crate::app::AppState;
@@ -172,7 +172,7 @@ fn collapse_all(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 
 // ── the Missions section (M14) ────────────────────────────────────────
 
-/// Every mission not `Completed` or `Abandoned`, most recently active first — closed ones sorted
+/// Every mission not `Done` or `Abandoned`, most recently active first — closed ones sorted
 /// last and drawn only once [`AgentsView::show_closed_missions`] is on, the same "most recently
 /// active work" judgement [`AppState::open_missions`] and the board's own mission filter already
 /// make.
@@ -188,20 +188,20 @@ fn missions_section(
     let has_closed = open
         .missions
         .values()
-        .any(|record| matches!(record.phase, Phase::Completed | Phase::Abandoned));
+        .any(|record| matches!(record.phase, Phase::Done | Phase::Abandoned));
     let show_closed = agents.show_closed_missions;
-    let mut missions: Vec<(&ubiq_proto::work::TaskRecord, &MissionRecord)> = open
+    let mut missions: Vec<(&ubiq_proto::work::TaskRecord, &MissionSnapshot)> = open
         .missions
         .values()
         .filter(|record| {
-            show_closed || !matches!(record.phase, Phase::Completed | Phase::Abandoned)
+            show_closed || !matches!(record.phase, Phase::Done | Phase::Abandoned)
         })
         .filter_map(|record| work.task(record.task_id).map(|task| (task, record)))
         .collect();
     // The header — and `New mission` on it — is drawn whenever a project is open, whether or not
     // it has a mission yet: that button is how the first one gets made.
     missions.sort_by(|(a_task, a_rec), (b_task, b_rec)| {
-        let rank = |phase: Phase| matches!(phase, Phase::Completed | Phase::Abandoned) as u8;
+        let rank = |phase: Phase| matches!(phase, Phase::Done | Phase::Abandoned) as u8;
         rank(a_rec.phase)
             .cmp(&rank(b_rec.phase))
             .then_with(|| b_task.updated_at.cmp(&a_task.updated_at))
@@ -282,7 +282,7 @@ fn missions_header(has_closed: bool, show_closed: bool, cx: &mut Context<AppStat
 }
 
 /// One mission's row: the hexagon [`mission_hex`] draws everywhere else, a phase chip, the key and
-/// title, the roster's size and a *needs you* dot from `pending_phase`. The chevron alone expands
+/// title, the roster's size and a *needs you* dot from the snapshot's `needs_you`. The chevron alone expands
 /// to the roster; the rest of the row opens the mission panel, exactly as a session's members open
 /// a column.
 fn mission_row(
@@ -290,13 +290,13 @@ fn mission_row(
     work: &WorkProjection,
     agents: &AgentsView,
     task: &ubiq_proto::work::TaskRecord,
-    mission: &MissionRecord,
+    mission: &MissionSnapshot,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let task_id = task.id;
     let expanded = agents.is_mission_expanded(task_id);
     let roster_size = roster_of(work, agents, mission).len();
-    let needs_you = mission.pending_phase.is_some();
+    let needs_you = !mission.needs_you.is_empty();
     let term = app.mission_term(cx);
 
     div()
@@ -331,7 +331,6 @@ fn mission_row(
         )
         .child(mission_hex(
             work,
-            task_id,
             mission,
             eid("agents-mission-hex", task_id),
             13.,
@@ -381,7 +380,7 @@ fn mission_roster(
     app: &AppState,
     work: &WorkProjection,
     agents: &AgentsView,
-    mission: &MissionRecord,
+    mission: &MissionSnapshot,
     cx: &mut Context<AppState>,
 ) -> Vec<AnyElement> {
     let roster = roster_of(work, agents, mission);
@@ -412,18 +411,18 @@ fn mission_roster(
         .collect()
 }
 
-/// A mission's active roster, resolved to the agents this window can actually talk to — the same
-/// narrowing every reader on this screen goes through, `AgentsView::live_agents`.
+/// A mission's agents — the snapshot's live planner and workers — resolved to the agents this
+/// window can actually talk to, the same narrowing every reader on this screen goes through,
+/// `AgentsView::live_agents`. A stopped worker leaves its mission group.
 fn roster_of<'a>(
     work: &'a WorkProjection,
     agents: &AgentsView,
-    mission: &MissionRecord,
+    mission: &MissionSnapshot,
 ) -> Vec<&'a WorkAgent> {
     mission
-        .roster
+        .agents
         .iter()
-        .filter(|entry| entry.left_at.is_none())
-        .filter_map(|entry| work.agent(entry.agent))
+        .filter_map(|agent| work.agent(*agent))
         .filter(|agent| agents.is_live(agent.id))
         .collect()
 }
@@ -448,10 +447,9 @@ fn mission_chips(
                 .map(|task| task.key.clone().unwrap_or_else(|| task.title.clone()))
                 .unwrap_or_default();
             record
-                .roster
+                .agents
                 .iter()
-                .filter(|entry| entry.left_at.is_none())
-                .map(move |entry| (entry.agent, (label.clone(), colour)))
+                .map(move |agent| (*agent, (label.clone(), colour)))
                 .collect::<Vec<_>>()
         })
         .collect()

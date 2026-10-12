@@ -420,6 +420,12 @@ impl ProjectData {
         self.dir.join("missions")
     }
 
+    /// One mission's documents beyond the plan — `missions/<TaskId>/docs/`, `guidance.md`
+    /// included. Nothing creates it until the first document is written.
+    pub fn mission_docs(&self, task: ubiq_proto::ids::TaskId) -> PathBuf {
+        self.missions().join(task.to_string()).join("docs")
+    }
+
     /// The internal wiki — pages the user wrote, which nothing can derive again.
     pub fn wiki(&self) -> PathBuf {
         self.dir.join("wiki")

@@ -458,6 +458,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .mission
                 .map(|task_id| crate::ui::mission::full::modal(app, task_id, window, cx)),
         )
+        // The mission note dialog: reject, fail, replan, redo.
+        .children(
+            app.workbench
+                .mission_note
+                .map(|note| crate::ui::mission::note::render(app, note, window, cx)),
+        )
         // A task's plan, read as rendered markdown — raised from the task panel, over whatever
         // else is up, on the same terms the modals above it are.
         .children(

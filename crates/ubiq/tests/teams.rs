@@ -920,68 +920,6 @@ fn cancelling_the_form_forgets_the_project_it_was_aimed_at(cx: &mut TestAppConte
     );
 }
 
-/// **The chevron's *New mission* row asks the same project question the `+` itself does, when the
-/// canvas spans more than one project.** Picking `Kind::1` moves the split button's menu to its
-/// `MissionProject` stage rather than opening the dialog outright, and picking a project out of
-/// that second stage points the window at it before raising the form — the same project-naming
-/// this menu gives *New agent* (`add_agent_starts_the_conversation_in_the_project_the_menu_named`),
-/// carried over to the split button's other row.
-#[gpui::test]
-fn new_mission_from_the_chevron_opens_on_the_project_the_menu_named(cx: &mut TestAppContext) {
-    use ubiq::state::MenuId;
-
-    let fixture = Fixture::open(cx);
-    let second = fixture.hold_a_second(cx);
-    fixture.state.update(cx, |state, _| {
-        state.workbench.rail_mode = RailMode::TEAMS_ALL
-    });
-
-    let index = fixture
-        .state
-        .read_with(cx, |state, cx| state.window_projects(cx))
-        .iter()
-        .position(|id| *id == second)
-        .expect("the window holds the second project");
-
-    fixture
-        ._window
-        .update(cx, |_, window, cx| {
-            fixture.state.update(cx, |state, cx| {
-                state.open_teams_create_menu((0.0, 0.0), cx);
-                // Row 1 is "New mission" (row 0 is "New agent").
-                state.pick_teams_create_menu(1, window, cx);
-                assert_eq!(
-                    state.workbench.open_menu,
-                    Some(MenuId::TeamsCreate),
-                    "the project question is the same menu moved to its next stage, not a new one"
-                );
-                assert!(
-                    state.workbench.new_mission.is_none(),
-                    "the dialog does not open until the project is picked"
-                );
-                state.pick_teams_create_menu(index, window, cx);
-            });
-        })
-        .expect("the window is open");
-    cx.run_until_parked();
-
-    fixture.state.read_with(cx, |state, cx| {
-        assert!(
-            state.workbench.new_mission.is_some(),
-            "picking the project raised the new-mission dialog"
-        );
-        assert_eq!(
-            state.project(cx),
-            Some(second),
-            "the window followed the menu's project before opening the form"
-        );
-        assert_eq!(
-            state.workbench.open_menu, None,
-            "the menu closed once the project was picked"
-        );
-    });
-}
-
 /// **The window span's view has to be laid out, or it is not a canvas.** Every wire arm that
 /// learns of an arrival lays the arriving project's own `TeamsView` out; the window span's view is
 /// a second arrangement over a second set of cards, and nothing in those arms reaches it. Left

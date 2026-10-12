@@ -104,6 +104,11 @@ fn task(
             })
             .collect(),
         comments: Vec::new(),
+        approve: false,
+        review_of: None,
+        worker: None,
+        auto_fails: 0,
+        mission: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     }

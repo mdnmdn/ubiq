@@ -676,6 +676,18 @@ impl Work {
                     record.colour = colour;
                     changed
                 }
+                TaskField::Approve(approve) => {
+                    let changed = record.approve != approve;
+                    record.approve = approve;
+                    changed
+                }
+                // A task cannot review itself; anything else is stored as named.
+                TaskField::ReviewOf(review_of) => {
+                    let review_of = review_of.filter(|id| *id != record.id);
+                    let changed = record.review_of != review_of;
+                    record.review_of = review_of;
+                    changed
+                }
             };
             Ok(changed)
         })
@@ -755,8 +767,30 @@ impl Work {
             return replies;
         }
 
+        // **The mission log's status line** (contract §2): a child of a mission writes a `Moved`
+        // event whenever its column changes, whoever moved it — a window, a tool, the runner.
+        let in_mission = list[insert_at].parent.is_some_and(|parent| {
+            list.iter()
+                .any(|t| t.id == parent && t.level == Some(ubiq_proto::work::Level::Mission))
+        });
+        let now = Utc::now();
         let record = &mut list[insert_at];
-        record.updated_at = Utc::now();
+        record.updated_at = now;
+        // A task sent back to be started again has no agent on it: the mission runner reads
+        // `worker` as "already launched", so a stale one would leave it ready and never run.
+        if old_status != status && matches!(status, Status::Ready | Status::Backlog) {
+            record.worker = None;
+        }
+        if in_mission && old_status != status {
+            record.comments.push(Comment::event(
+                format!("{} → {}", old_status.label(), status.label()),
+                ubiq_proto::mission::RunEvent::Moved {
+                    from: old_status,
+                    to: status,
+                },
+                now,
+            ));
+        }
         let record = record.clone();
         replies.push(Reply::Asker(Message::TaskChanged {
             project_id: project,
@@ -957,6 +991,35 @@ impl Work {
         })
     }
 
+    /// Append the mission runner's log line: a [`Comment::event`], authored
+    /// [`CommentAuthor::Ubiq`]. Unlike [`Self::add_comment`] an empty text is allowed — the event
+    /// says what happened.
+    pub fn add_event(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        text: String,
+        event: ubiq_proto::mission::RunEvent,
+    ) -> Vec<Reply> {
+        self.with_task(project, task, |record| {
+            record
+                .comments
+                .push(Comment::event(text.trim().to_string(), event, Utc::now()));
+            Ok(true)
+        })
+    }
+
+    /// Change the fields only the host writes — `worker`, `auto_fails`, `mission` — or anything
+    /// else the mission runner sets directly. `change` answers whether anything changed.
+    pub fn edit(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        change: impl FnOnce(&mut TaskRecord) -> bool,
+    ) -> Vec<Reply> {
+        self.with_task(project, task, |record| Ok(change(record)))
+    }
+
     pub fn rename_step(
         &mut self,
         project: ProjectId,
@@ -1065,8 +1128,7 @@ impl Work {
     }
 
     /// Every agent this project shows — the live ones, [`Self::work_list`]'s own list, read
-    /// without building the message around it. What a mission's `list_agents` resolves its roster
-    /// against.
+    /// without building the message around it.
     pub fn agents(&mut self, project: ProjectId) -> (Vec<Reply>, Vec<WorkAgent>) {
         let replies = self.prepare(project);
         let agents = self.live.get(&project).cloned().unwrap_or_default();
@@ -1520,6 +1582,9 @@ fn sanitize_relations(list: &mut [TaskRecord]) {
     for task in list.iter_mut() {
         if task.parent.is_some_and(|parent| !ids.contains(&parent)) {
             task.parent = None;
+        }
+        if task.review_of.is_some_and(|of| !ids.contains(&of)) {
+            task.review_of = None;
         }
         task.references.retain(|id| ids.contains(id));
         task.prerequisites.retain(|id| ids.contains(id));

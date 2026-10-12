@@ -39,8 +39,8 @@
 //! - `notifications`: what a subsystem raises for the bell, and how it is silenced
 //! - `work`: a task as it is written down, and the sessions and agents doing it
 //! - `plan`: a plan's annotations — the block one anchors to, its thread, and its state
-//! - `mission`: a mission's own record — its phase, its roster and how it is run, keyed by the
-//!   anchor task's id
+//! - `mission`: a mission's phase, settings and derived snapshot, and the pure rules both
+//!   halves share — the mission is its parent task, there is no record of its own
 //! - `conversation`: what a live agent says, in the Agent Client Protocol's vocabulary
 //! - `bus`: the switchboard between the one host and the windows attached to it
 //! - `log`: the process-wide sink every subsystem writes its diagnostics to

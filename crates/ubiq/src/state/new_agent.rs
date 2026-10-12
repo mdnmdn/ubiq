@@ -245,8 +245,8 @@ pub fn is_grant_path(path: &str) -> bool {
 /// ([`ubiq_proto::mcp::McpInfo::name`]).
 pub const TASK_ASSIGN_MCPS: [&str; 2] = ["manage-ubiq-tasks", "ubiq-ask"];
 
-/// What the **mission/task coordinator** flag implies — mirrors
-/// `crates/ubiq-host/src/mcp/catalogue::COORDINATOR_MCPS` by slug, duplicated for
+/// What the **coordinator** (planner) flag implies — mirrors
+/// `crates/ubiq-host/src/mcp/catalogue::PLANNER_MCPS` by slug, duplicated for
 /// `TASK_ASSIGN_MCPS`'s reason: the interface names no host type, and the slug is the contract.
 ///
 /// The host re-adds this set on every save of a definition carrying the flag, so the interface
@@ -255,9 +255,10 @@ pub const TASK_ASSIGN_MCPS: [&str; 2] = ["manage-ubiq-tasks", "ubiq-ask"];
 pub const COORDINATOR_MCPS: [&str; 4] =
     ["ubiq-mission", "ubiq-plan", "manage-ubiq-tasks", "ubiq-kb"];
 
-/// What the **mission/task worker** flag implies — mirrors `catalogue::WORKER_MCPS`, on the same
-/// terms as [`COORDINATOR_MCPS`].
-pub const WORKER_MCPS: [&str; 4] = ["use-mission", "use-task", "project-info", "ubiq-kb"];
+/// What the **worker** flag implies — mirrors `catalogue::WORKER_MCPS`, on the same terms as
+/// [`COORDINATOR_MCPS`]. Workers have no mission server: the runner puts the task, the plan and
+/// the guidance in their prompt.
+pub const WORKER_MCPS: [&str; 3] = ["use-task", "project-info", "ubiq-kb"];
 
 /// What the **`doc`** tag implies — the collaboration tools over a markdown file and the
 /// architecture-diagram server, on the same terms as [`COORDINATOR_MCPS`].

@@ -18,7 +18,7 @@ use crate::state::TeamsSelection;
 use crate::state::work::WorkProjection;
 use crate::theme;
 use crate::theme::{Family, Role};
-use crate::ui::kit::{disclosure, elided, mono, slab, state_chip, tag};
+use crate::ui::kit::{disclosure, mono, slab, tag};
 use crate::ui::work::activity_colour;
 use crate::ui::{eid, eid2};
 
@@ -105,57 +105,10 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .into_any_element();
     }
 
-    // Grouped by mission (§C), leaving a task in no mission exactly where it always drew: the
-    // list is otherwise unchanged, and only a mission's own members are lifted into its cluster.
-    // A task's `parent` may only ever name a mission — a task that has one "may not itself be a
-    // parent" (`ubiq_proto::work::TaskRecord::parent`), so one hop up is the whole climb.
-    let missions = app
-        .open_project(cx)
-        .map(|open| &open.missions)
-        .cloned()
-        .unwrap_or_default();
-    let mut order: Vec<ubiq_proto::ids::TaskId> = Vec::new();
-    let mut grouped: std::collections::HashMap<ubiq_proto::ids::TaskId, Vec<&TaskRecord>> =
-        std::collections::HashMap::new();
-    let mut ungrouped: Vec<&TaskRecord> = Vec::new();
-    for task in &tasks {
-        match mission_of(&missions, task) {
-            Some(mission_id) => {
-                grouped
-                    .entry(mission_id)
-                    .or_insert_with(|| {
-                        order.push(mission_id);
-                        Vec::new()
-                    })
-                    .push(task);
-            }
-            None => ungrouped.push(task),
-        }
-    }
-
-    let term = app.mission_term(cx);
-    let mut rows: Vec<AnyElement> = Vec::new();
-    for mission_id in order {
-        let Some(record) = missions.get(&mission_id) else {
-            continue;
-        };
-        let Some(mission_task) = work.task(mission_id) else {
-            continue;
-        };
-        rows.push(mission_header(&term, mission_task, record, cx));
-        if let Some(members) = grouped.remove(&mission_id) {
-            rows.extend(
-                members
-                    .into_iter()
-                    .map(|task| task_card(&work, &all_tasks, task, cx)),
-            );
-        }
-    }
-    rows.extend(
-        ungrouped
-            .into_iter()
-            .map(|task| task_card(&work, &all_tasks, task, cx)),
-    );
+    let rows: Vec<AnyElement> = tasks
+        .iter()
+        .map(|task| task_card(&work, &all_tasks, task, cx))
+        .collect();
 
     div()
         .id("teams-task-list")
@@ -170,61 +123,8 @@ pub fn list(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
 }
 
-/// Which mission a task belongs to, if any — the anchor itself, or its parent when that names one.
-/// A task's own [`TaskRecord::parent`] may only ever be a mission's anchor (the depth-one rule at
-/// its own doc comment), so this never has to climb more than the one hop.
-fn mission_of(
-    missions: &std::collections::HashMap<
-        ubiq_proto::ids::TaskId,
-        ubiq_proto::mission::MissionRecord,
-    >,
-    task: &TaskRecord,
-) -> Option<ubiq_proto::ids::TaskId> {
-    if missions.contains_key(&task.id) {
-        return Some(task.id);
-    }
-    task.parent.filter(|parent| missions.contains_key(parent))
-}
-
-/// One mission's own small header over its cluster: its key and title, and a phase chip — the
-/// same [`crate::ui::mission::panel::phase_colour`] every other mission surface wears. Clicking it
-/// opens the mission panel, exactly as the sidebar's own mission row does.
-fn mission_header(
-    term: &str,
-    task: &TaskRecord,
-    mission: &ubiq_proto::mission::MissionRecord,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
-    let task_id = task.id;
-    div()
-        .id(eid("teams-task-mission", task_id))
-        .flex()
-        .items_center()
-        .gap_1p5()
-        .cursor_pointer()
-        .child(
-            mono(term.to_string(), theme::text_faint())
-                .text_size(theme::font(Family::Chrome, Role::Micro)),
-        )
-        .children(task.key.clone().map(|key| mono(key, theme::text_muted())))
-        .child(elided(
-            eid("teams-task-mission-title", task_id),
-            task.title.clone(),
-            theme::text_muted(),
-            theme::font(Family::Chrome, Role::Label),
-        ))
-        .child(state_chip(
-            mission.phase.label(),
-            crate::ui::mission::panel::phase_colour(mission.phase),
-            0.8,
-        ))
-        .on_click(cx.listener(move |this, _, _, cx| this.open_mission_panel(task_id, cx)))
-        .into_any_element()
-}
-
 /// One task's card: its shape, whether it waits on something, its title, its steps and their
-/// owners. Used for every task drawn, grouped or not — the group above it is the only thing that
-/// changes.
+/// owners.
 fn task_card(
     work: &WorkProjection,
     all_tasks: &[TaskRecord],

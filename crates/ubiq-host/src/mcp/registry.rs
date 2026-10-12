@@ -45,19 +45,13 @@ pub struct AgentFacts {
     pub session: Option<String>,
     /// The project the agent was started in.
     pub project: ProjectFacts,
-    /// The mission this agent is in, by its anchor task (M11) — what `ubiq-mission` and
-    /// `use-mission` resolve "which mission am I in" from, with no argument, out of the URL
-    /// identity alone (`D102`).
+    /// The mission this agent is in, by its parent task — what `ubiq-mission` resolves "which
+    /// mission am I in" from, with no argument, out of the URL identity alone (`D102`).
     ///
     /// **Not a snapshot like the rest of this record.** Everything else here is fixed for the life
-    /// of the run; this one moves, because `AssignAgent` moves it — an agent handed a mission's
-    /// child task joins that mission mid-run. [`Registry::set_mission`] is the one writer.
-    ///
-    /// An agent is in at most one mission. Membership is: assigned to the mission's anchor task or
-    /// one of its children, **or** spawned by an agent that was in the mission — the second fixed
-    /// at the spawn and written into the roster, because `Work::assign_agent` clears
-    /// `WorkAgent::parent` on every reassignment and the link cannot be re-derived afterwards. An
-    /// explicit assignment wins over an inherited one.
+    /// of the run; this one moves, because `AssignAgent` moves it. [`Registry::set_mission`] is the
+    /// one writer. An agent is in the mission of the task it is assigned to: the parent itself or
+    /// one of its children.
     pub mission: Option<TaskId>,
 }
 

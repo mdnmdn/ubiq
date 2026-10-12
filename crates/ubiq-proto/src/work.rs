@@ -23,6 +23,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{CommentId, SessionId, StepId, TaskId, WorkspaceId};
+use crate::mission::{MissionSettings, RunEvent, satisfies};
 
 /// One agent, which is one workspace: a single running harness with one terminal.
 ///
@@ -366,6 +367,8 @@ pub enum CommentAuthor {
     User,
     /// Posted by a hosted agent through an MCP tool.
     Agent,
+    /// Written by the mission runner itself — see [`Comment::event`].
+    Ubiq,
 }
 
 impl CommentAuthor {
@@ -373,6 +376,7 @@ impl CommentAuthor {
         match self {
             CommentAuthor::User => "user",
             CommentAuthor::Agent => "agent",
+            CommentAuthor::Ubiq => "ubiq",
         }
     }
 }
@@ -393,6 +397,10 @@ pub struct Comment {
     /// user-authored comments can be edited (`Message::EditAnnotationComment`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<DateTime<Utc>>,
+    /// What the mission runner recorded, when this comment is its log line rather than somebody's
+    /// words. The text is the prose that goes with it (feedback, findings, a reason).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<RunEvent>,
 }
 
 /// Who a comment is addressed to. The comment is still on the thread for everyone; this is what
@@ -422,7 +430,15 @@ impl Comment {
             created_at: now,
             to,
             edited_at: None,
+            event: None,
         }
+    }
+
+    /// The runner's log line: authored [`CommentAuthor::Ubiq`], carrying a [`RunEvent`].
+    pub fn event(text: String, event: RunEvent, now: DateTime<Utc>) -> Self {
+        let mut comment = Self::new(CommentAuthor::Ubiq, text, now);
+        comment.event = Some(event);
+        comment
     }
 }
 
@@ -585,8 +601,29 @@ pub struct TaskRecord {
     pub steps: Vec<Step>,
     #[serde(default, rename = "comment", skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<Comment>,
+    /// Whether this task waits for the user's confirmation in review before it counts as finished.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub approve: bool,
+    /// The task this one reviews. A dangling id is dropped on read, like [`Self::parent`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_of: Option<TaskId>,
+    /// **The liveness marker**: the agent the mission runner last launched on this task.
+    /// Host-written only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker: Option<AgentId>,
+    /// Consecutive agent-review failures against this (reviewed) task. Host-written only.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub auto_fails: u8,
+    /// The mission's settings. Only on a [`Level::Mission`] parent; `None` there reads as
+    /// [`MissionSettings::legacy`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission: Option<MissionSettings>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 impl TaskRecord {
@@ -617,6 +654,11 @@ impl TaskRecord {
             description: String::new(),
             steps: Vec::new(),
             comments: Vec::new(),
+            approve: false,
+            review_of: None,
+            worker: None,
+            auto_fails: 0,
+            mission: None,
             created_at: now,
             updated_at: now,
         }
@@ -639,10 +681,11 @@ impl TaskRecord {
         self.steps.iter_mut().find(|s| s.id == id)
     }
 
-    /// This task's prerequisites that are not yet `InReview` or `Done` — M20's derived readiness.
-    /// Empty means the task is **ready**; [`Self::ready`] is that check spelled out. Nothing here
-    /// is stored and nothing crosses the bus: both `crates/ubiq-host` (the scheduler, MCP) and
-    /// `crates/ubiq` (the board, the task panel) call this one implementation rather than each
+    /// This task's prerequisites that do not [`satisfies`] it — `Done`, `Abandoned`, or `InReview`
+    /// without a pending approval (or the very task this one reviews). Empty means the task is
+    /// **ready**; [`Self::ready`] is that check spelled out. Nothing here is stored and nothing
+    /// crosses the bus: both `crates/ubiq-host` (the mission runner, MCP) and `crates/ubiq` (the
+    /// board's *waits on N* chip, the task panel) call this one implementation rather than each
     /// computing their own.
     ///
     /// This is **not** [`Status::Blocked`] — that stays what a person or an agent says; a card can
@@ -653,9 +696,7 @@ impl TaskRecord {
         self.prerequisites
             .iter()
             .filter(|id| {
-                !tasks
-                    .iter()
-                    .any(|t| t.id == **id && matches!(t.status, Status::InReview | Status::Done))
+                !tasks.iter().any(|t| t.id == **id && satisfies(t, self))
             })
             .copied()
             .collect()
@@ -884,4 +925,49 @@ pub struct BoardInfo {
     pub enabled: bool,
     /// Live tasks on the board — the archive is not counted.
     pub task_count: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_task_written_before_the_mission_fields_reads_with_them_empty() {
+        let now = Utc::now();
+        let mut written = TaskRecord::new("old".into(), None, now);
+        written.description = "kept".into();
+        let text = toml::to_string(&written).unwrap();
+        for field in ["approve", "review_of", "worker", "auto_fails", "mission"] {
+            assert!(!text.contains(field), "{field} must be skipped when empty");
+        }
+        let read: TaskRecord = toml::from_str(&text).unwrap();
+        assert_eq!(read, written);
+        assert!(!read.approve);
+        assert_eq!(read.review_of, None);
+        assert_eq!(read.worker, None);
+        assert_eq!(read.auto_fails, 0);
+        assert_eq!(read.mission, None);
+    }
+
+    #[test]
+    fn readiness_uses_the_shared_rule() {
+        let now = Utc::now();
+        let mut prereq = TaskRecord::new("p".into(), None, now);
+        prereq.status = Status::InReview;
+        prereq.approve = true;
+        let mut dependent = TaskRecord::new("d".into(), None, now);
+        dependent.prerequisites = vec![prereq.id];
+        let all = vec![prereq.clone(), dependent.clone()];
+        assert_eq!(dependent.waiting_on(&all), vec![prereq.id]);
+        dependent.review_of = Some(prereq.id);
+        assert!(dependent.ready(&all));
+    }
+
+    #[test]
+    fn the_runner_comment_carries_its_event() {
+        let c = Comment::event("why".into(), RunEvent::Confirmed, Utc::now());
+        assert_eq!(c.author, CommentAuthor::Ubiq);
+        assert_eq!(CommentAuthor::Ubiq.label(), "ubiq");
+        assert_eq!(c.event, Some(RunEvent::Confirmed));
+    }
 }

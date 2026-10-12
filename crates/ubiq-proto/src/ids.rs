@@ -338,14 +338,14 @@ ulid_id! {
 }
 
 ulid_id! {
-    /// One agent an agent asked the mission for, from the `spawn_agent` call that raised it to the
-    /// [`crate::messages::Message::AnswerSpawn`] that answers it (M13).
+    /// One launch the mission runner asked a window for, from the
+    /// [`crate::messages::Message::MissionLaunch`] that carries it to the
+    /// [`crate::messages::Message::MissionLaunched`] that answers it.
     ///
-    /// Minted **host-side**, by the MCP listener that took the call, on [`AskId`]'s discipline and
-    /// for its reason: the half holding the request is the half that names it, and the requesting
-    /// agent is handed the id before any window has seen the request. It is what the pending row
-    /// on the record, the relay message and the answer coming back all reference; an answer naming
-    /// a request the record no longer holds is discarded.
+    /// Minted **host-side**, on [`AskId`]'s discipline and
+    /// for its reason: the half holding the request is the half that names it. The request, the
+    /// relay message and the answer coming back all reference it; an answer naming a launch the
+    /// host no longer holds is discarded.
     SpawnId
 }
 

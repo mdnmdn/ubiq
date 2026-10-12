@@ -964,7 +964,9 @@ impl AppState {
             || self
                 .new_agent_form()
                 .is_some_and(|form| form.open.is_some())
-            || w.new_mission.as_ref().is_some_and(|form| form.open)
+            || w.new_mission.as_ref().is_some_and(|form| {
+                form.planner_open || form.worker_open || form.tasks_open
+            })
             || s.ai_form.as_ref().is_some_and(|form| form.open.is_some())
             || s.app_form.as_ref().is_some_and(|form| form.open)
             || self.notifications.muting.is_some();
@@ -1077,6 +1079,7 @@ impl AppState {
             // Only the modal shape takes a rung, for the plan's reason one line down: a mission
             // full view open as a document tab is not an overlay.
             (Layer::Mission, w.mission.is_some()),
+            (Layer::MissionNote, w.mission_note.is_some()),
             // Only the dialog takes a rung: a document open inside a markdown tab's annotation
             // layout is not an overlay, and Escape over it belongs to whatever is.
             (
@@ -1173,13 +1176,7 @@ impl AppState {
             return;
         }
         // The new-mission dialog's own assistant picker, on the same terms.
-        if self
-            .workbench
-            .new_mission
-            .as_ref()
-            .is_some_and(|form| form.open)
-        {
-            self.toggle_new_mission_assistant_list(cx);
+        if self.close_new_mission_pickers(cx) {
             return;
         }
         // And again for the "Add source" form, whose pickers keep their open state on the form for
@@ -1257,6 +1254,8 @@ impl AppState {
             // dialog: a document open inside a markdown tab is not an overlay and Escape there
             // belongs to whatever is.
             self.close_plan(cx);
+        } else if self.workbench.mission_note.is_some() {
+            self.close_mission_note(cx);
         } else if self.workbench.mission.is_some() {
             // Below the plan in paint order: the full view's *Plan & docs* tab raises the plan
             // surface over it, so Escape takes the plan first and leaves the mission open.
@@ -1386,8 +1385,6 @@ impl AppState {
         self.workbench.new_project_menu = None;
         self.workbench.mission_menu = None;
         self.workbench.viewer_menu = None;
-        self.workbench.mission_spawn_menu = None;
-        self.workbench.mission_kind_menu = None;
         self.workbench.run_tool_menu = None;
         self.workbench.conversation_menu = None;
         self.workbench.attachment_preview = None;

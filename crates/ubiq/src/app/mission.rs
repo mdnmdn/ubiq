@@ -1,37 +1,36 @@
-//! What the window does with a mission: read one, and put its side panel in front of the reader.
+//! What the window does with a mission: read one, put its surfaces in front of the reader, and
+//! turn every gesture into a message.
 //!
-//! Every write is a [`ubiq_proto::messages::Message`] — the mission family's `SetMissionField`,
-//! the phase moves that are a request rather than a field write, and the conversation family's
-//! own `StartConversation` / `AssignAgent` / `UnloadConversation`.
+//! A mission is its parent task plus the host's derived
+//! [`ubiq_proto::mission::MissionSnapshot`]. Every write here is a
+//! [`ubiq_proto::messages::Message`] of the mission family — `MissionControl` for the mission,
+//! `MissionTask` for one subtask, `AddGuidance`, `SetMissionField` — and nothing is decided on this
+//! side: the window asks, the host acts and `MissionChanged` comes back.
 //!
-//! **The spawn policy lives here, and nowhere else** (M13, settled). The host relays a request and
-//! records the answer; the *window* resolves the kind, mints the [`AgentId`], composes the launch
-//! and decides — because the launch is the window's, and `MissionRecord::spawn_policy` is read on
-//! this side of the bus only. [`AppState::mission_spawn_requested`] is the whole of the decision
-//! and [`AppState::compose_mission_launch`] is the one composition every mission launch goes
-//! through.
+//! **The one thing only a window can do is start a conversation**, so the host asks for it
+//! (`MissionLaunch`, addressed to one client) and [`AppState::launch_for_mission`] answers with
+//! `MissionLaunched`.
 
 use gpui::{Context, Window};
-use ubiq_proto::ids::{ProjectId, SpawnId, TaskId};
+use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::mission::{
-    Actor, AgentKind, MissionField, MissionRecord, PendingSpawn, Phase, SpawnOutcome, SpawnPolicy,
+    Driver, LaunchOutcome, LaunchRequest, LaunchRole, MissionAction, MissionField,
+    MissionSnapshot, MissionTaskAction, Phase,
 };
 use ubiq_proto::work::AgentId;
 
 use crate::state::PanelKind;
 use crate::state::mission::{
-    COORDINATOR_MCPS, KindTarget, MissionJournal, MissionLaunch, MissionMenuRow, MissionSection,
-    MissionSpawnMenu, MissionSpawnRow, MissionTab, MissionView, SpawnPick, SpawnStage, WORKER_MCPS,
-    worker_briefing,
+    MissionMenuRow, MissionNote, MissionSection, MissionTab, MissionView, NoteKind,
 };
 use crate::state::work::WorkState;
 use crate::state::workbench::MenuId;
 
 use super::{AppState, PanelEdit};
 
-/// One row of the `+` menu's *Missions* stage (§6.3): enough to draw the row without the caller
-/// reaching back into `WorkProjection` and `OpenProject::missions` itself.
+/// One row of the `+` menu's *Missions* stage: enough to draw the row without the caller reaching
+/// back into `WorkProjection` and `OpenProject::missions` itself.
 pub struct OpenMissionRow {
     pub id: TaskId,
     pub key: Option<String>,
@@ -40,32 +39,24 @@ pub struct OpenMissionRow {
 }
 
 impl AppState {
-    /// One mission of the project on screen, by the anchor task it is.
-    pub fn mission(&self, task_id: TaskId, cx: &gpui::App) -> Option<&MissionRecord> {
+    /// One mission of the project on screen, by the parent task it is.
+    pub fn mission(&self, task_id: TaskId, cx: &gpui::App) -> Option<&MissionSnapshot> {
         self.open_project(cx)
             .and_then(|open| open.missions.get(&task_id))
     }
 
-    /// One mission held by **any** project this window has open, and whose it is.
-    ///
-    /// [`Self::mission`]'s answer is the project on screen's, which is the right one everywhere a
-    /// mission surface is opened from that project. The Teams canvas under
-    /// [`crate::state::TeamsSpan::Window`] draws every held project's work at once, so a fence on
-    /// it may be a mission the active project has never heard of — and a lookup that asked only
-    /// the active one would draw the fence with no phase, no coordinator and no hexagon.
-    pub fn mission_anywhere(&self, task_id: TaskId) -> Option<&MissionRecord> {
+    /// One mission held by **any** project this window has open. The Teams canvas under the window
+    /// span draws every held project's work at once, so a lookup that asked only the active one
+    /// would miss a mission of another.
+    pub fn mission_anywhere(&self, task_id: TaskId) -> Option<&MissionSnapshot> {
         self.projects
             .values()
             .find_map(|open| open.missions.get(&task_id))
     }
 
-    /// The project's missions eligible for the `+` menu's *Missions* stage (§6.3): every mission
-    /// not `Completed` or `Abandoned`, most recently active first, narrowed by `query` (already
-    /// trimmed and lowercased) against key and title.
-    ///
-    /// Excludes rather than dims: unlike the board toolbar's mission filter, there is no reason to
-    /// offer opening a closed mission's panel from here — its side panel is still one click away
-    /// through the board or the task it anchors.
+    /// The project's missions eligible for the `+` menu's *Missions* stage: every mission not
+    /// `Done` or `Abandoned`, most recently touched first, narrowed by `query` (already trimmed and
+    /// lowercased) against key and title.
     pub fn open_missions(&self, query: &str, cx: &gpui::App) -> Vec<OpenMissionRow> {
         let Some(work) = self.work(cx) else {
             return Vec::new();
@@ -76,8 +67,8 @@ impl AppState {
         let mut rows: Vec<_> = open
             .missions
             .values()
-            .filter(|record| !matches!(record.phase, Phase::Completed | Phase::Abandoned))
-            .filter_map(|record| work.task(record.task_id).map(|task| (task, record)))
+            .filter(|snapshot| !matches!(snapshot.phase, Phase::Done | Phase::Abandoned))
+            .filter_map(|snapshot| work.task(snapshot.task_id).map(|task| (task, snapshot)))
             .filter(|(task, _)| {
                 query.is_empty()
                     || task.title.to_lowercase().contains(query)
@@ -87,18 +78,23 @@ impl AppState {
                         .is_some_and(|key| key.to_lowercase().contains(query))
             })
             .collect();
-        // "Most recently active" reads off `updated_at` — the one activity signal a mission
-        // record carries today. Nothing populates the *needs you* dot until S2/S3 (§6.3), so this
-        // menu draws none rather than inventing one.
-        rows.sort_by_key(|(_, record)| std::cmp::Reverse(record.updated_at));
+        rows.sort_by_key(|(task, _)| std::cmp::Reverse(task.updated_at));
         rows.into_iter()
-            .map(|(task, record)| OpenMissionRow {
+            .map(|(task, snapshot)| OpenMissionRow {
                 id: task.id,
                 key: task.key.clone(),
                 title: task.title.clone(),
-                phase: record.phase,
+                phase: snapshot.phase,
             })
             .collect()
+    }
+
+    /// One mission's computed history as this window last asked for it, newest first. `None` until
+    /// the first `MissionHistory` lands.
+    pub fn mission_history(&self, task_id: TaskId) -> Option<&Vec<ubiq_proto::mission::HistoryEntry>> {
+        self.projects
+            .values()
+            .find_map(|open| open.mission_history.get(&task_id))
     }
 
     /// How the project on screen's missions are being looked at.
@@ -115,15 +111,14 @@ impl AppState {
     pub fn open_mission_panel(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
         self.pending_panels
             .push(PanelEdit::Reveal(PanelKind::Mission(task_id)));
-        self.aim_mission_feedback(task_id, cx);
+        self.aim_mission(task_id, cx);
         cx.notify();
     }
 
-    /// The full view, in whichever shape this screen calls for (§6.2).
+    /// The full view, in whichever shape this screen calls for.
     ///
     /// **In IDE mode `⤢` opens the document tab directly**, because that is the mode whose centre
     /// is a strip of documents and a modal there would cover the thing it belongs beside.
-    /// Everywhere else it is the modal, which never disturbs the arrangement under it.
     pub fn open_mission_full(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
         match self.workbench.is_ide() {
             true => self.open_mission_tab(task_id, cx),
@@ -134,7 +129,7 @@ impl AppState {
     /// Raise the full view as a modal. One at a time, like the plan dialog.
     pub fn open_mission_modal(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
         self.workbench.mission = Some(task_id);
-        self.aim_mission_feedback(task_id, cx);
+        self.aim_mission(task_id, cx);
         cx.notify();
     }
 
@@ -144,24 +139,31 @@ impl AppState {
     }
 
     /// The modal's *Open as tab*: the same view, moved into the centre region as a document.
-    ///
-    /// The modal closes, because the two shapes are one view and leaving both up would be the
-    /// same mission twice. A `Reveal` rather than an `Open` for `open_mission_panel`'s reason.
     pub fn open_mission_tab(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
         self.workbench.mission = None;
         self.pending_panels
             .push(PanelEdit::Reveal(PanelKind::MissionView(task_id)));
-        self.aim_mission_feedback(task_id, cx);
+        self.aim_mission(task_id, cx);
         cx.notify();
     }
 
     /// Which tab the full view is on — the project's own `MissionView`, so the modal and the
-    /// document tab move together.
+    /// document tab move together. The History tab asks for its list as it is put in front.
     pub fn set_mission_tab(&mut self, tab: MissionTab, cx: &mut Context<Self>) {
         if let Some(open) = self.open_project_mut(cx) {
             open.mission_view.tab = tab;
         }
+        if tab == MissionTab::History
+            && let Some(task_id) = self.shown_mission()
+        {
+            self.load_history(task_id, cx);
+        }
         cx.notify();
+    }
+
+    /// The mission whose full view is up: the modal's, or the guidance composer's last aim.
+    fn shown_mission(&self) -> Option<TaskId> {
+        self.workbench.mission.or(self.workbench.guidance_mission)
     }
 
     /// Which shape the WBS is in — the graph, or the table of the same data.
@@ -191,12 +193,7 @@ impl AppState {
     }
 
     /// Pick a node on the WBS: the task detail beside the graph is the board's own, so the board's
-    /// selection is what moves — a task is edited here exactly as it is there, and the field being
-    /// edited is the one state both surfaces read.
-    ///
-    /// Unlike [`AppState::select_task`] this reveals no panel: the detail is already on screen
-    /// beside the graph, and raising the dock's Task panel over the full view would answer a click
-    /// with a second copy of the same thing.
+    /// selection is what moves.
     pub fn select_wbs_task(&mut self, task: TaskId, cx: &mut Context<Self>) {
         if let Some(open) = self.open_project_mut(cx) {
             open.mission_view.selected = Some(task);
@@ -208,7 +205,7 @@ impl AppState {
     }
 
     /// Show one work state in the Tasks tab and nothing else, or clear the filter when it is
-    /// already the one on (M26).
+    /// already the one on.
     pub fn toggle_mission_state_filter(&mut self, state: WorkState, cx: &mut Context<Self>) {
         if let Some(open) = self.open_project_mut(cx) {
             open.mission_view.toggle_state_filter(state);
@@ -217,8 +214,7 @@ impl AppState {
     }
 
     /// What clicking a segment of the side panel's progress bar does: the full view, on its Tasks
-    /// tab, filtered to that state — one gesture, and the filter is why both surfaces share a
-    /// view state at all.
+    /// tab, filtered to that state.
     pub fn open_mission_tasks(
         &mut self,
         task_id: TaskId,
@@ -232,9 +228,17 @@ impl AppState {
         self.open_mission_full(task_id, cx);
     }
 
+    /// The Tasks tab with no state filter — *Open tasks* on a Needs-you row.
+    pub fn open_mission_tasks_tab(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.mission_view.tab = MissionTab::Tasks;
+            open.mission_view.state_filter = None;
+        }
+        self.open_mission_full(task_id, cx);
+    }
+
     /// Open a shut side-panel section or shut an open one, remembered against this mission's own
-    /// anchor task (T-184) — so two panels open on different missions never step on each other's
-    /// shape.
+    /// parent task.
     pub fn toggle_mission_section(
         &mut self,
         task_id: TaskId,
@@ -247,47 +251,31 @@ impl AppState {
         cx.notify();
     }
 
-    // ── moving the phase ────────────────────────────────────────────
+    // ── the History tab's filters ───────────────────────────────────
 
-    /// Move a mission's phase — **the user's own act, and so always a [`Message::SetPhase`]**.
-    ///
-    /// [`Message::RequestPhase`] is the *coordinator's* message: it carries no requester, and the
-    /// host reads who asked off `MissionRecord::coordinator`, so a window sending one would put
-    /// words in an agent's mouth. Every gesture on this side — a step on the stepper, Complete,
-    /// Abandon, Confirm, Decline — is this one message, and the host tells the three acts apart by
-    /// the phase named: the pending request's phase **confirms** it, the phase the mission is
-    /// already in **declines** it, anything else is a free move. The plan gate is the only refusal,
-    /// and it comes back as a `MissionError` rather than being second-guessed here.
-    pub fn set_mission_phase(&mut self, task_id: TaskId, phase: Phase, cx: &mut Context<Self>) {
-        let Some(project_id) = self.mission(task_id, cx).map(|record| record.project_id) else {
-            return;
-        };
-        self.bus.send(Message::SetPhase {
-            project_id,
-            task_id,
-            phase,
-        });
+    pub fn set_history_kind(
+        &mut self,
+        kind: Option<ubiq_proto::mission::HistoryKind>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.mission_view.history.kind = kind;
+        }
         cx.notify();
     }
 
-    /// Answer the pending request with a yes — which is naming the phase it asked for.
-    pub fn confirm_mission_phase(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
-        let Some(phase) = self
-            .mission(task_id, cx)
-            .and_then(|record| record.pending_phase.as_ref())
-            .map(|pending| pending.phase)
-        else {
-            return;
-        };
-        self.set_mission_phase(task_id, phase, cx);
+    pub fn set_history_task(&mut self, task: Option<TaskId>, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.mission_view.history.task = task;
+        }
+        cx.notify();
     }
 
-    /// Answer it with a no — which is naming the phase the mission is already in.
-    pub fn decline_mission_phase(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
-        let Some(phase) = self.mission(task_id, cx).map(|record| record.phase) else {
-            return;
-        };
-        self.set_mission_phase(task_id, phase, cx);
+    pub fn set_history_agent(&mut self, agent: Option<AgentId>, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.mission_view.history.agent = agent;
+        }
+        cx.notify();
     }
 
     // ── the side panel's `⋯` ────────────────────────────────────────
@@ -307,7 +295,7 @@ impl AppState {
     }
 
     /// One row of that menu, by position — the rule every position-matched menu in this window
-    /// follows. A row this build has nothing behind is drawn disabled and never reaches here.
+    /// follows. A row that means nothing in this phase is drawn disabled and never reaches here.
     pub fn pick_mission_menu(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some((task_id, _)) = self.workbench.mission_menu else {
             return;
@@ -315,30 +303,27 @@ impl AppState {
         let Some(row) = MissionMenuRow::all().get(index).copied() else {
             return;
         };
+        let phase = self.mission_anywhere(task_id).map(|m| m.phase);
         self.dismiss_mission_menu(cx);
         match row {
-            // The board, with the anchor selected. **Not M27's mission filter** — that is the
-            // board's own, and it is built beside this wave rather than in it.
             MissionMenuRow::OpenOnBoard => {
                 self.set_rail_mode(crate::state::RailMode::TASKS, cx);
                 self.select_task(task_id, cx);
             }
-            // Both are phase moves, and a phase move by the user is a `SetPhase` — see
-            // [`Self::set_mission_phase`].
-            MissionMenuRow::Complete => self.set_mission_phase(task_id, Phase::Completed, cx),
-            MissionMenuRow::Abandon => self.set_mission_phase(task_id, Phase::Abandoned, cx),
-            // Every member's harness, unloaded. Not ended: `UnloadConversation` keeps the
-            // transcript and the run directory, so each one resumes (M10's "detached, never
-            // killed" applied to the whole roster at once).
-            MissionMenuRow::PauseAll => self.pause_mission_agents(task_id, cx),
-            MissionMenuRow::OpenOnTeams | MissionMenuRow::ExecutionMode => {}
+            MissionMenuRow::PauseResume => match phase {
+                Some(Phase::Paused) => self.mission_control(task_id, MissionAction::Resume, cx),
+                _ => self.mission_control(task_id, MissionAction::Pause, cx),
+            },
+            MissionMenuRow::Replan => self.open_mission_note(NoteKind::Replan(task_id), cx),
+            MissionMenuRow::Complete => self.mission_control(task_id, MissionAction::Complete, cx),
+            MissionMenuRow::Abandon => self.mission_control(task_id, MissionAction::Abandon, cx),
         }
     }
 
     // ── who is on a mission ─────────────────────────────────────────
 
-    /// Which project holds this mission's record. The panel is opened from surfaces that know the
-    /// task and not the project, and a window may hold several.
+    /// Which project holds this mission's snapshot. The panel is opened from surfaces that know
+    /// the task and not the project, and a window may hold several.
     pub(super) fn project_of_mission(&self, task_id: TaskId) -> Option<ProjectId> {
         self.projects
             .iter()
@@ -346,28 +331,15 @@ impl AppState {
             .map(|(id, _)| *id)
     }
 
-    /// The mission's live roster, in the order it was written.
-    ///
-    /// **The record, not the derivation.** `MissionRecord::roster` is the membership rule's own
-    /// answer (M11) — assigned to the mission or a child, *or* spawned by a member — and the
-    /// second half cannot be recomputed. A member that has left is history, not membership.
+    /// The mission's live agents — the planner and every live worker or reviewer, as the host's
+    /// snapshot lists them.
     pub fn mission_members(&self, task_id: TaskId) -> Vec<AgentId> {
-        self.project_of_mission(task_id)
-            .and_then(|id| self.projects.get(&id))
-            .and_then(|open| open.missions.get(&task_id))
-            .map(|record| {
-                record
-                    .roster
-                    .iter()
-                    .filter(|entry| entry.left_at.is_none())
-                    .map(|entry| entry.agent)
-                    .collect()
-            })
+        self.mission_anywhere(task_id)
+            .map(|snapshot| snapshot.agents.clone())
             .unwrap_or_default()
     }
 
-    /// Whether this window has a live conversation for the agent — what tells a roster row's
-    /// `Chat` from its `Resume`.
+    /// Whether this window has a live conversation for the agent.
     pub fn conversation_live(&self, agent: AgentId) -> bool {
         self.projects.values().any(|open| {
             open.conversations
@@ -376,8 +348,6 @@ impl AppState {
         })
     }
 
-    // ── the roster's lifecycle actions (§6.2) ───────────────────────
-
     /// Put this agent's conversation in front of the reader — **Teams' own path**, reused rather
     /// than rewritten: a chat tab the project already holds is re-aimed rather than a second one
     /// grown.
@@ -385,828 +355,9 @@ impl AppState {
         self.open_teams_agent_panel(agent, cx);
     }
 
-    /// Stop one member: its harness goes, its conversation stays. Never `EndConversation` — a
-    /// mission surface does not delete anybody's transcript.
-    pub fn stop_mission_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        self.unload_agent(agent, cx);
-    }
+    // ── writes ──────────────────────────────────────────────────────
 
-    /// Take an agent off the mission: it stops pointing at any of the mission's tasks, which is
-    /// what membership is read from. Its harness keeps running and nothing it has said is lost.
-    pub fn detach_mission_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_of_agent(agent, cx) else {
-            return;
-        };
-        self.bus.send(Message::AssignAgent {
-            project_id,
-            agent_id: agent,
-            task_id: None,
-        });
-        cx.notify();
-    }
-
-    /// Adopt an agent already running here onto the mission, by pointing it at the anchor task.
-    pub fn attach_mission_agent(
-        &mut self,
-        task_id: TaskId,
-        agent: AgentId,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
-        self.bus.send(Message::AssignAgent {
-            project_id,
-            agent_id: agent,
-            task_id: Some(task_id),
-        });
-        cx.notify();
-    }
-
-    /// Crown a member (M10's handoff).
-    ///
-    /// **One message.** The host owns the whole of the handoff — the outgoing coordinator is put
-    /// back to worker, told in as many words that it no longer coordinates, and left running; the
-    /// incoming one joins the roster if it was not already on it. A window that detached the old
-    /// one itself would be killing something M10 says to leave alone.
-    pub fn make_mission_coordinator(
-        &mut self,
-        task_id: TaskId,
-        agent: AgentId,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
-        self.bus.send(Message::SetMissionField {
-            project_id,
-            task_id,
-            field: MissionField::Coordinator(Some(agent)),
-        });
-        cx.notify();
-    }
-
-    /// Unload every member's harness — the `⋯`'s *Pause all agents*.
-    pub fn pause_mission_agents(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
-        for agent in self.mission_members(task_id) {
-            self.bus
-                .send(Message::UnloadConversation { agent_id: agent });
-        }
-        cx.notify();
-    }
-
-    /// Start the coordinator's harness again, under the same id — what a roster row offers in
-    /// place of `Chat` when nothing is loaded behind it.
-    pub fn resume_mission_agent(&mut self, agent: AgentId, cx: &mut Context<Self>) {
-        self.resume_agent(agent, cx);
-    }
-
-    // ── the journal (M12) ───────────────────────────────────────────
-
-    /// One mission's journal as this window has read it back.
-    pub fn mission_journal(&self, task_id: TaskId) -> Option<&MissionJournal> {
-        self.project_of_mission(task_id)
-            .and_then(|id| self.projects.get(&id))
-            .and_then(|open| open.mission_journals.get(&task_id))
-    }
-
-    /// Ask for the newest page, once. A surface cannot ask — it may not write state mid-render —
-    /// so this is called where a mission is *put in front of the reader*, which is an event.
-    pub fn load_mission_journal(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
-        let Some(open) = self.projects.get_mut(&project_id) else {
-            return;
-        };
-        let held = open.mission_journals.entry(task_id).or_default();
-        if held.asked {
-            return;
-        }
-        held.asked = true;
-        self.bus.send(Message::LoadJournal {
-            project_id,
-            task_id,
-            before: None,
-            limit: None,
-        });
-        cx.notify();
-    }
-
-    /// Another page back — the *Activity* tab's own step. The cursor is the oldest sequence held,
-    /// which is why a page never skips or repeats a line.
-    pub fn load_more_mission_journal(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
-        let before = self.mission_journal(task_id).and_then(|held| held.oldest());
-        self.bus.send(Message::LoadJournal {
-            project_id,
-            task_id,
-            before,
-            limit: None,
-        });
-        cx.notify();
-    }
-
-    // ── feedback (M12) ──────────────────────────────────────────────
-
-    /// Which mission a feedback composer's Enter is addressed at, and its journal asked for.
-    fn aim_mission_feedback(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
-        self.workbench.feedback_mission = Some(task_id);
-        self.load_mission_journal(task_id, cx);
-    }
-
-    /// Say something to the mission — the panel's *Feedback* line, live (M12).
-    ///
-    /// **Two halves, both of them delivery, and neither is invented here.**
-    /// [`Message::SendToAgent`] is the durable one: the host journals it as the mission's feedback
-    /// (that is what `read_feedback` reads) and puts it in the coordinator's row. The prompt is
-    /// what reaches a model, and it goes out on the window's own path — so a turn already running
-    /// puts it on `Conversation::queued`, the queue `wire`'s `ConversationUpdate` arm drains on
-    /// `Run::Idle`, rather than on a second queue of this surface's own.
-    ///
-    /// **A coordinator that will not take it is said so, not pretended at.** The ACP bridge
-    /// refuses a prompt mid-turn and a harness that has answered `accepts_input == false` takes no
-    /// second turn at all; in both cases the line is still journaled, and the coordinator reads it
-    /// with `read_feedback` when it next asks. The sentence says that rather than nothing.
-    ///
-    /// **Nothing running is not nobody to tell (T-212).** A mission with no coordinator gets one:
-    /// the same launch *Spawn ▾ → Coordinator* composes, with the line folded into its briefing.
-    /// A coordinator that is recorded but has no live harness is prompted anyway — the host's
-    /// `PromptAgent` arm relaunches an unloaded conversation and forwards the turn, which is the
-    /// same relaunch *Resume* asks for. Either way the journal still gets the line first, so
-    /// `read_feedback` reads it back whatever the harness does with the turn.
-    pub fn send_mission_feedback(
-        &mut self,
-        task_id: TaskId,
-        text: String,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let text = text.trim().to_string();
-        if text.is_empty() {
-            return false;
-        }
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return false;
-        };
-        let held_coordinator = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| open.missions.get(&task_id))
-            .and_then(|record| record.coordinator);
-        let coordinator = match held_coordinator {
-            Some(coordinator) => coordinator,
-            // No coordinator: spawn one, crowned, with the line in its briefing. The journal
-            // entry below still goes out — `SendToAgent` is what the host reads as feedback, and
-            // it is addressed at the agent the `SetMissionField` just ahead of it crowns.
-            None => match self.spawn_mission_coordinator_with(task_id, Some(&text), cx) {
-                Some(coordinator) => {
-                    self.bus.send(Message::SendToAgent {
-                        project_id,
-                        agent_id: coordinator,
-                        text,
-                    });
-                    cx.notify();
-                    return true;
-                }
-                // `spawn_mission_coordinator_with` has already said why.
-                None => return false,
-            },
-        };
-
-        self.bus.send(Message::SendToAgent {
-            project_id,
-            agent_id: coordinator,
-            text: text.clone(),
-        });
-
-        let held = self
-            .projects
-            .values()
-            .find_map(|open| open.conversations.get(&coordinator))
-            .map(|conversation| (conversation.run, conversation.accepts_input));
-        match held {
-            // Working: the interface's own queue, drained when the turn ends.
-            Some((crate::state::conversation::Run::Working, _)) => {
-                if let Some(open) = self
-                    .projects
-                    .values_mut()
-                    .find(|open| open.conversations.contains_key(&coordinator))
-                    && let Some(conversation) = open.conversations.get_mut(&coordinator)
-                {
-                    conversation.enqueue(text);
-                }
-            }
-            Some((_, true)) => self.send_prompt(coordinator, text),
-            // A harness that takes no further input. Journaled, and said so.
-            Some((_, false)) => {
-                self.workbench.work_error = Some(
-                    "the coordinator is taking no more turns \u{2014} this is in the journal, and \
-                     it reads feedback from there"
-                        .to_string(),
-                );
-            }
-            // Nothing loaded in this window: prompt it anyway. The host drives a conversation it
-            // holds live for another window, and relaunches an unloaded one through
-            // `launch_pending` — the same relaunch a roster row's *Resume* asks for.
-            None => self.send_prompt(coordinator, text),
-        }
-        cx.notify();
-        true
-    }
-
-    /// Send what is in one of the two feedback composers, and clear it if it went.
-    ///
-    /// `panel` picks which field — the side panel's or the *Activity* tab's. Which mission it is
-    /// addressed at is `WorkbenchState::feedback_mission`, written when a mission surface was put
-    /// in front of the reader, because a field's own Enter handler has nothing else to ask.
-    pub fn submit_mission_feedback(
-        &mut self,
-        panel: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(task_id) = self.workbench.feedback_mission else {
-            return;
-        };
-        let input = match panel {
-            true => self.mission_feedback_input.clone(),
-            false => self.mission_feedback_tab_input.clone(),
-        };
-        let text = input.read(cx).value().to_string();
-        if self.send_mission_feedback(task_id, text, cx) {
-            input.update(cx, |state, cx| state.set_value("", window, cx));
-        }
-    }
-
-    // ── the spawn policy (M13) ──────────────────────────────────────
-
-    /// A member has asked the mission for another agent. **The window decides** — the host relays
-    /// and records, and the policy lives here because the launch does (M13, settled).
-    ///
-    /// - `never` refuses with a sentence.
-    /// - `auto` launches while the mission is under `spawn_limit` workers, and otherwise leaves
-    ///   the row in *Needs you*: over the cap is a reason to ask, not a reason to refuse.
-    /// - `ask` leaves the row — except for the scheduler's own request, which `PendingSpawn::auto`
-    ///   marks: choosing auto execution *was* the consent (M23), so only `never` refuses it.
-    pub(super) fn mission_spawn_requested(
-        &mut self,
-        project_id: ProjectId,
-        task_id: TaskId,
-        request: PendingSpawn,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(record) = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| open.missions.get(&task_id))
-        else {
-            return;
-        };
-        let policy = record.spawn_policy;
-        let limit = record.spawn_limit;
-        // The workers on it — the coordinator is not what a spawn cap is about.
-        let workers = record
-            .roster
-            .iter()
-            .filter(|entry| entry.left_at.is_none() && Some(entry.agent) != record.coordinator)
-            .count();
-
-        match policy {
-            SpawnPolicy::Never => self.decline_spawn(
-                project_id,
-                task_id,
-                request.id,
-                request.kind.clone(),
-                "this mission does not allow its agents to spawn other agents".to_string(),
-                cx,
-            ),
-            SpawnPolicy::Auto if workers < limit => {
-                self.launch_spawn(project_id, task_id, &request, cx);
-            }
-            SpawnPolicy::Ask if request.auto => {
-                self.launch_spawn(project_id, task_id, &request, cx);
-            }
-            // The row stays on the record and is drawn in *Needs you* — see `ui::mission::panel`.
-            SpawnPolicy::Auto | SpawnPolicy::Ask => cx.notify(),
-        }
-    }
-
-    /// Allow one pending request — the *Needs you* row's own button, with whatever kind the user
-    /// changed it to.
-    pub fn allow_mission_spawn(&mut self, task_id: TaskId, id: SpawnId, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
-        let Some(request) = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| open.missions.get(&task_id))
-            .and_then(|record| record.pending_spawn(id))
-            .cloned()
-        else {
-            return;
-        };
-        self.launch_spawn(project_id, task_id, &request, cx);
-    }
-
-    /// Refuse one — the user's own no. A decline is a real answer, which is why the requester is
-    /// told a sentence rather than left waiting.
-    pub fn refuse_mission_spawn(&mut self, task_id: TaskId, id: SpawnId, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
-        let kind = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| open.missions.get(&task_id))
-            .and_then(|record| record.pending_spawn(id))
-            .map(|request| request.kind.clone())
-            .unwrap_or_default();
-        self.decline_spawn(
-            project_id,
-            task_id,
-            id,
-            kind,
-            "the user declined this request".to_string(),
-            cx,
-        );
-    }
-
-    fn decline_spawn(
-        &mut self,
-        project_id: ProjectId,
-        task_id: TaskId,
-        id: SpawnId,
-        _kind: String,
-        reason: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.bus.send(Message::AnswerSpawn {
-            project_id,
-            task_id,
-            request_id: id,
-            outcome: SpawnOutcome::Declined { reason },
-        });
-        self.forget_spawn_pick(project_id, id);
-        cx.notify();
-    }
-
-    /// Compose the launch one pending request asks for, send it, and answer the host.
-    ///
-    /// **Order is the contract's**: `StartConversation` first — the window mints the `AgentId`,
-    /// so there is a real agent to name — then the briefing, then `AnswerSpawn` carrying the kind
-    /// **actually used**, which is only knowable here because the user may have changed it.
-    fn launch_spawn(
-        &mut self,
-        project_id: ProjectId,
-        task_id: TaskId,
-        request: &PendingSpawn,
-        cx: &mut Context<Self>,
-    ) {
-        let pick = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| open.mission_view.spawn_picks.get(&request.id))
-            .cloned()
-            .unwrap_or(SpawnPick {
-                kind: request.kind.clone(),
-                definition: request.definition.clone(),
-            });
-        let spawned_by = match request.by {
-            Actor::Agent(agent) => Some(agent),
-            _ => None,
-        };
-        let briefing = worker_briefing(
-            task_id,
-            &pick.kind,
-            request.task,
-            &request.reason,
-            &request.prompt,
-        );
-
-        let launch = MissionLaunch {
-            kind: pick.kind.clone(),
-            definition: pick.definition.clone(),
-            coordinator: false,
-            spawned_by,
-            briefing,
-            // An assignment clears `WorkAgent::parent` (`Work::assign_agent`), which is the spawn
-            // link the Teams connector draws — so it is only sent where the requester actually
-            // named a task. Membership without one is the roster's, written by the host from the
-            // answer below (M11).
-            assign_to: request.task,
-        };
-        match self.compose_mission_launch(project_id, launch, cx) {
-            Ok(agent) => {
-                self.bus.send(Message::AnswerSpawn {
-                    project_id,
-                    task_id,
-                    request_id: request.id,
-                    outcome: SpawnOutcome::Launched {
-                        agent,
-                        kind: pick.kind.clone(),
-                    },
-                });
-                self.forget_spawn_pick(project_id, request.id);
-            }
-            Err(reason) => self.decline_spawn(
-                project_id,
-                task_id,
-                request.id,
-                pick.kind.clone(),
-                reason,
-                cx,
-            ),
-        }
-        cx.notify();
-    }
-
-    fn forget_spawn_pick(&mut self, project_id: ProjectId, id: SpawnId) {
-        if let Some(open) = self.projects.get_mut(&project_id) {
-            open.mission_view.spawn_picks.remove(&id);
-        }
-    }
-
-    /// Compose and send one mission launch — **the one composition**, shared by the spawn policy
-    /// and by the panel's *Spawn ▾*.
-    ///
-    /// A kind resolves to a definition, and the kind's own four overrides outrank it exactly as a
-    /// launch's picks already outrank a definition's. A kind that resolves to no harness at all is
-    /// the one refusal, and the sentence it answers with is what the requester reads.
-    fn compose_mission_launch(
-        &mut self,
-        project_id: ProjectId,
-        launch: MissionLaunch,
-        cx: &mut Context<Self>,
-    ) -> Result<AgentId, String> {
-        let kind_name = launch.kind.as_str();
-        let kind: Option<AgentKind> = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| {
-                open.missions
-                    .values()
-                    .find_map(|record| record.kind_named(kind_name))
-            })
-            .cloned();
-        let definition_id = kind
-            .as_ref()
-            .and_then(|kind| kind.definition.clone())
-            .or(launch.definition.clone());
-        let definition = definition_id.and_then(|id| {
-            self.workbench
-                .settings
-                .definitions_in(Some(project_id))
-                .into_iter()
-                .find(|definition| definition.id == id)
-        });
-        let agent_type = kind
-            .as_ref()
-            .and_then(|kind| kind.agent_type.clone())
-            .or_else(|| {
-                definition
-                    .as_ref()
-                    .map(|definition| definition.agent_type.clone())
-            })
-            .ok_or_else(|| {
-                format!("no agent or harness resolves the kind \u{201c}{kind_name}\u{201d}")
-            })?;
-
-        let agent_id = AgentId::generate();
-        self.bus.send(Message::StartConversation {
-            agent_id,
-            project_id,
-            session_id: self.session,
-            rel_path: None,
-            agent_type,
-            account: kind
-                .as_ref()
-                .and_then(|kind| kind.account.clone())
-                .or_else(|| {
-                    definition
-                        .as_ref()
-                        .and_then(|definition| definition.account.clone())
-                }),
-            definition: definition.as_ref().map(|definition| definition.id.clone()),
-            model: kind
-                .as_ref()
-                .and_then(|kind| kind.model.clone())
-                .or_else(|| {
-                    definition
-                        .as_ref()
-                        .and_then(|definition| definition.model.clone())
-                }),
-            thinking: None,
-            mode: kind
-                .as_ref()
-                .and_then(|kind| kind.permission_mode.clone())
-                .or_else(|| {
-                    definition
-                        .as_ref()
-                        .and_then(|definition| definition.mode.clone())
-                }),
-            mcps: match launch.coordinator {
-                true => COORDINATOR_MCPS.iter().map(|it| it.to_string()).collect(),
-                false => WORKER_MCPS.iter().map(|it| it.to_string()).collect(),
-            },
-            skills: Vec::new(),
-            grants: Vec::new(),
-            spawned_by: launch.spawned_by,
-        });
-        if let Some(task) = launch.assign_to {
-            self.workbench
-                .agent_assignments
-                .insert(agent_id, (project_id, task));
-        }
-        self.send_prompt(agent_id, launch.briefing);
-        cx.notify();
-        Ok(agent_id)
-    }
-
-    /// The pick the user made on a pending row, or the request's own answer where they made none.
-    pub fn mission_spawn_pick(&self, task_id: TaskId, request: &PendingSpawn) -> SpawnPick {
-        self.project_of_mission(task_id)
-            .and_then(|id| self.projects.get(&id))
-            .and_then(|open| open.mission_view.spawn_picks.get(&request.id))
-            .cloned()
-            .unwrap_or(SpawnPick {
-                kind: request.kind.clone(),
-                definition: request.definition.clone(),
-            })
-    }
-
-    // ── Spawn ▾ (§6.1) ──────────────────────────────────────────────
-
-    /// What *Spawn ▾* offers, in the order it draws them — built here so the rows the menu draws
-    /// and the row a click resolves against are the same list by construction.
-    pub fn mission_spawn_rows(&self, task_id: TaskId) -> Vec<MissionSpawnRow> {
-        let mut rows = vec![MissionSpawnRow::Coordinator];
-        if let Some(record) = self
-            .project_of_mission(task_id)
-            .and_then(|id| self.projects.get(&id))
-            .and_then(|open| open.missions.get(&task_id))
-        {
-            rows.extend(
-                record
-                    .agent_kinds
-                    .iter()
-                    .map(|kind| MissionSpawnRow::Kind(kind.name.clone())),
-            );
-        }
-        rows.push(MissionSpawnRow::Any);
-        rows.push(MissionSpawnRow::Attach);
-        rows
-    }
-
-    /// Every agent running in this window's project that the mission has not already got.
-    ///
-    /// **Running** is checked, not assumed: `work.agents` keeps a row for an agent whose harness
-    /// has been unloaded or stopped too (so its transcript stays reachable), and one of those is
-    /// not a candidate to attach — offering it here would be a placeholder nothing can resolve.
-    pub fn mission_attach_candidates(&self, task_id: TaskId, cx: &gpui::App) -> Vec<AgentId> {
-        let held = self.mission_members(task_id);
-        self.work(cx)
-            .map(|work| {
-                work.agents
-                    .iter()
-                    .map(|agent| agent.id)
-                    .filter(|id| !held.contains(id) && self.conversation_live(*id))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn open_mission_spawn_menu(
-        &mut self,
-        task_id: TaskId,
-        at: (f32, f32),
-        cx: &mut Context<Self>,
-    ) {
-        self.workbench.mission_spawn_menu = Some(MissionSpawnMenu {
-            task: task_id,
-            at,
-            stage: SpawnStage::Kinds,
-        });
-        self.open_menu(MenuId::MissionSpawn, cx);
-    }
-
-    pub fn dismiss_mission_spawn_menu(&mut self, cx: &mut Context<Self>) {
-        self.workbench.mission_spawn_menu = None;
-        if self.workbench.open_menu == Some(MenuId::MissionSpawn) {
-            self.workbench.open_menu = None;
-        }
-        cx.notify();
-    }
-
-    /// One row of *Spawn ▾*, by position and by stage.
-    pub fn pick_mission_spawn_menu(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(menu) = self.workbench.mission_spawn_menu else {
-            return;
-        };
-        let task_id = menu.task;
-        match menu.stage {
-            SpawnStage::Attach => {
-                let picked = self
-                    .mission_attach_candidates(task_id, cx)
-                    .get(index)
-                    .copied();
-                self.dismiss_mission_spawn_menu(cx);
-                if let Some(agent) = picked {
-                    self.attach_mission_agent(task_id, agent, cx);
-                }
-            }
-            SpawnStage::Kinds => {
-                let Some(row) = self.mission_spawn_rows(task_id).get(index).cloned() else {
-                    return;
-                };
-                match row {
-                    // The second stage, in place: which running agent to adopt.
-                    MissionSpawnRow::Attach => {
-                        self.workbench.mission_spawn_menu = Some(MissionSpawnMenu {
-                            stage: SpawnStage::Attach,
-                            ..menu
-                        });
-                        cx.notify();
-                    }
-                    MissionSpawnRow::Any => {
-                        self.dismiss_mission_spawn_menu(cx);
-                        self.spawn_any_mission_agent(task_id, window, cx);
-                    }
-                    MissionSpawnRow::Coordinator => {
-                        self.dismiss_mission_spawn_menu(cx);
-                        self.spawn_mission_coordinator(task_id, cx);
-                    }
-                    MissionSpawnRow::Kind(name) => {
-                        self.dismiss_mission_spawn_menu(cx);
-                        self.spawn_mission_kind(task_id, &name, cx);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Launch one of the mission's kinds, on the user's own say-so. No request, so no
-    /// `AnswerSpawn` and nobody to tell — and nothing to lose by assigning it to the mission,
-    /// since there is no spawn link to clear.
-    pub fn spawn_mission_kind(&mut self, task_id: TaskId, kind: &str, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_of_mission(task_id) else {
-            return;
-        };
-        let launch = MissionLaunch {
-            kind: kind.to_string(),
-            briefing: worker_briefing(task_id, kind, None, "", ""),
-            assign_to: Some(task_id),
-            ..MissionLaunch::default()
-        };
-        if let Err(reason) = self.compose_mission_launch(project_id, launch, cx) {
-            self.workbench.work_error = Some(reason);
-            cx.notify();
-        }
-    }
-
-    /// Launch a coordinator for a mission that has none, and crown it.
-    ///
-    /// The kind called `coordinator` where the table has one, and otherwise the first definition
-    /// ticked *mission assistant* — the same list the new-mission dialog offers, so the two ways
-    /// to put a coordinator on a mission resolve against one answer.
-    pub fn spawn_mission_coordinator(
-        &mut self,
-        task_id: TaskId,
-        cx: &mut Context<Self>,
-    ) -> Option<AgentId> {
-        self.spawn_mission_coordinator_with(task_id, None, cx)
-    }
-
-    /// The same launch, with a line of the user's own folded into the briefing — what the
-    /// feedback composer needs when the mission has no coordinator yet. The note goes in the
-    /// opening prompt rather than only in the journal because a coordinator that has just been
-    /// crowned has no reason to call `read_feedback` before it starts.
-    ///
-    /// Returns the agent it crowned, or `None` with [`WorkbenchState::work_error`] set.
-    pub(super) fn spawn_mission_coordinator_with(
-        &mut self,
-        task_id: TaskId,
-        note: Option<&str>,
-        cx: &mut Context<Self>,
-    ) -> Option<AgentId> {
-        let project_id = self.project_of_mission(task_id)?;
-        let named = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| open.missions.get(&task_id))
-            .and_then(|record| record.kind_named("coordinator"))
-            .map(|kind| kind.name.clone());
-        let definition = match &named {
-            Some(_) => None,
-            None => {
-                let definitions = self.workbench.settings.definitions_in(Some(project_id));
-                match crate::state::new_mission::assistants(&definitions).first() {
-                    Some(definition) => Some(definition.id.clone()),
-                    None => {
-                        self.workbench.work_error = Some(
-                            "no definition is ticked \u{201c}mission assistant\u{201d}, so there is \
-                             nothing to run a coordinator as"
-                                .to_string(),
-                        );
-                        cx.notify();
-                        return None;
-                    }
-                }
-            }
-        };
-
-        let (title, description) = self
-            .work(cx)
-            .and_then(|work| work.task(task_id))
-            .map(|task| (task.title.clone(), task.description.clone()))
-            .unwrap_or_default();
-        let require_plan = self
-            .projects
-            .get(&project_id)
-            .and_then(|open| open.missions.get(&task_id))
-            .is_some_and(|record| record.require_plan);
-        let mut briefing = crate::state::new_mission::mission_briefing(
-            &title,
-            &description,
-            task_id,
-            require_plan,
-            false,
-        );
-        if let Some(note) = note {
-            briefing.push_str("\n\nThe user has already said this about the mission:\n\n");
-            briefing.push_str(note);
-        }
-
-        let launch = MissionLaunch {
-            kind: named.unwrap_or_else(|| "coordinator".to_string()),
-            definition,
-            coordinator: true,
-            briefing,
-            assign_to: Some(task_id),
-            ..MissionLaunch::default()
-        };
-        match self.compose_mission_launch(project_id, launch, cx) {
-            Ok(agent) => {
-                self.make_mission_coordinator(task_id, agent, cx);
-                Some(agent)
-            }
-            Err(reason) => {
-                self.workbench.work_error = Some(reason);
-                cx.notify();
-                None
-            }
-        }
-    }
-
-    /// *Any agent* — the New agent form, every answer of it, pre-filled for this mission.
-    ///
-    /// **The form, not a second composition.** `assign_task_to_agent` is the board's own pre-fill
-    /// and this is the mission's: the same open, with the mission's MCP set ticked and the
-    /// briefing in the initial prompt.
-    pub fn spawn_any_mission_agent(
-        &mut self,
-        task_id: TaskId,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        // No tag filter: *Any agent* means any.
-        self.prefill_task_assignment(task_id, None, None, window, cx);
-        if let Some(form) = self.new_agent_form_mut() {
-            for mcp in WORKER_MCPS {
-                if !form.mcps.iter().any(|held| held == mcp) {
-                    form.mcps.push(mcp.to_string());
-                }
-            }
-        }
-        let briefing = worker_briefing(task_id, "worker", Some(task_id), "", "");
-        self.set_new_agent_initial_prompt(&briefing, window, cx);
-    }
-
-    // ── the agent-kinds table (M13) ─────────────────────────────────
-
-    /// Replace the whole table. `MissionField::AgentKinds` is a set write by design — a short list
-    /// edited as one, where a delta would cost a second message and an ordering rule.
-    pub fn set_mission_agent_kinds(
-        &mut self,
-        task_id: TaskId,
-        kinds: Vec<AgentKind>,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_mission_field(task_id, MissionField::AgentKinds(kinds), cx);
-    }
-
-    /// One field of the record, written the one way (§6.2's Settings tab).
-    ///
-    /// **The window never writes the record and never journals.** It asks, the host writes, and
-    /// `MissionChanged` comes back — which is also why switching execution mode is journaled by
-    /// the host (M22) and not from here.
+    /// One field of the mission's settings, written the one way.
     pub fn set_mission_field(
         &mut self,
         task_id: TaskId,
@@ -1224,156 +375,326 @@ impl AppState {
         cx.notify();
     }
 
-    fn mission_kinds(&self, task_id: TaskId) -> Vec<AgentKind> {
-        self.project_of_mission(task_id)
-            .and_then(|id| self.projects.get(&id))
-            .and_then(|open| open.missions.get(&task_id))
-            .map(|record| record.agent_kinds.clone())
-            .unwrap_or_default()
+    /// The driver switch, usable mid-run.
+    pub fn set_mission_driver(&mut self, task_id: TaskId, driver: Driver, cx: &mut Context<Self>) {
+        self.set_mission_field(task_id, MissionField::Driver(driver), cx);
     }
 
-    /// Add a kind from a definition: the definition's name is the kind's, and the definition is what it
-    /// resolves to. A name already in the table is not added twice.
-    pub fn add_mission_agent_kind(
+    /// One gesture on the mission itself: approve the plan, start it, pause it…
+    pub fn mission_control(
         &mut self,
         task_id: TaskId,
-        definition_id: String,
+        action: MissionAction,
         cx: &mut Context<Self>,
     ) {
-        let mut kinds = self.mission_kinds(task_id);
-        if kinds
-            .iter()
-            .any(|kind| kind.name.eq_ignore_ascii_case(&definition_id))
-        {
-            return;
-        }
-        kinds.push(AgentKind {
-            name: definition_id.clone(),
-            description: String::new(),
-            definition: Some(definition_id),
-            ..AgentKind::default()
-        });
-        self.set_mission_agent_kinds(task_id, kinds, cx);
-    }
-
-    pub fn remove_mission_agent_kind(
-        &mut self,
-        task_id: TaskId,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) {
-        let mut kinds = self.mission_kinds(task_id);
-        if index >= kinds.len() {
-            return;
-        }
-        kinds.remove(index);
-        self.set_mission_agent_kinds(task_id, kinds, cx);
-    }
-
-    /// Point one row at another definition.
-    pub fn set_mission_kind_definition(
-        &mut self,
-        task_id: TaskId,
-        index: usize,
-        definition_id: String,
-        cx: &mut Context<Self>,
-    ) {
-        let mut kinds = self.mission_kinds(task_id);
-        let Some(kind) = kinds.get_mut(index) else {
+        let Some(project_id) = self.project_of_mission(task_id) else {
             return;
         };
-        kind.definition = Some(definition_id);
-        self.set_mission_agent_kinds(task_id, kinds, cx);
+        self.bus.send(Message::MissionControl {
+            project_id,
+            task_id,
+            action,
+        });
+        cx.notify();
     }
 
-    // A kind's affinity labels (M24) and its free-text name and description are **read** on the
-    // table and not written: the scheduler that reads the labels is the wave beside this one, and
-    // a free-text edit wants a prompt of its own. `G347` is that gap, and there is deliberately no
-    // mutator for it here — a method nobody calls is a control the table does not have.
-
-    // ── the kind picker ─────────────────────────────────────────────
-
-    pub fn open_mission_kind_menu(
+    /// One gesture on a subtask: confirm, retry, ▶, a review to add. `task_id` is the subtask.
+    pub fn mission_task_action(
         &mut self,
+        project_id: ProjectId,
         task_id: TaskId,
-        target: KindTarget,
-        at: (f32, f32),
+        action: MissionTaskAction,
         cx: &mut Context<Self>,
     ) {
-        self.workbench.mission_kind_menu = Some((task_id, target, at));
-        self.open_menu(MenuId::MissionKind, cx);
+        self.bus.send(Message::MissionTask {
+            project_id,
+            task_id,
+            action,
+        });
+        cx.notify();
     }
 
-    pub fn dismiss_mission_kind_menu(&mut self, cx: &mut Context<Self>) {
-        self.workbench.mission_kind_menu = None;
-        if self.workbench.open_menu == Some(MenuId::MissionKind) {
-            self.workbench.open_menu = None;
+    /// The Tasks tab's *Add task* in Breakdown: a new subtask of this mission. The host mints the
+    /// id, so the parent link waits for `TaskCreated` (`BoardState::pending_parent`), and the new
+    /// card is the board's selection, which the tab's detail pane shows for editing.
+    pub fn add_mission_task(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project_of_mission(task_id) else {
+            return;
+        };
+        self.bus.send(Message::CreateTask {
+            project_id,
+            title: "New task".to_string(),
+            session: None,
+        });
+        if let Some(board) = self.board_mut(cx) {
+            board.awaiting_new = true;
+            board.pending_parent = Some(task_id);
         }
         cx.notify();
     }
 
-    /// What the kind picker offers, for the target it was opened on: a pending row may be changed
-    /// to any of the mission's kinds *or* to a definition outright (the `custom` case), while a
-    /// table row only ever resolves to a definition.
-    pub fn mission_kind_picks(
-        &self,
-        task_id: TaskId,
-        target: KindTarget,
-    ) -> Vec<crate::state::mission::KindPick> {
-        use crate::state::mission::KindPick;
-        let mut rows: Vec<KindPick> = Vec::new();
-        if matches!(target, KindTarget::Pending(_)) {
-            rows.extend(
-                self.mission_kinds(task_id)
-                    .into_iter()
-                    .map(|kind| KindPick::Kind(kind.name)),
-            );
-        }
-        if let Some(project_id) = self.project_of_mission(task_id) {
-            rows.extend(
-                self.workbench
-                    .settings
-                    .definitions_in(Some(project_id))
-                    .into_iter()
-                    .map(|definition| KindPick::AgentDefinition(definition.id)),
-            );
-        }
-        rows
+    /// Ask for the mission's computed history. Where a mission is *put in front of the reader*
+    /// rather than on every frame, because a surface may not write state mid-render.
+    pub fn load_history(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project_of_mission(task_id) else {
+            return;
+        };
+        self.bus.send(Message::LoadHistory {
+            project_id,
+            task_id,
+        });
+        cx.notify();
     }
 
-    pub fn pick_mission_kind_menu(&mut self, index: usize, cx: &mut Context<Self>) {
-        use crate::state::mission::KindPick;
-        let Some((task_id, target, _)) = self.workbench.mission_kind_menu else {
-            return;
-        };
-        let Some(pick) = self.mission_kind_picks(task_id, target).get(index).cloned() else {
-            return;
-        };
-        self.dismiss_mission_kind_menu(cx);
-        match (target, pick) {
-            (KindTarget::Pending(id), pick) => {
-                let (kind, definition) = match pick {
-                    KindPick::Kind(name) => (name, None),
-                    // A definition named outright is the `custom` kind — the one case the record's
-                    // own vocabulary has a word for.
-                    KindPick::AgentDefinition(id) => ("custom".to_string(), Some(id)),
-                };
-                if let Some(project_id) = self.project_of_mission(task_id)
-                    && let Some(open) = self.projects.get_mut(&project_id)
-                {
-                    open.mission_view
-                        .spawn_picks
-                        .insert(id, SpawnPick { kind, definition });
-                }
-                cx.notify();
-            }
-            (KindTarget::Row(row), KindPick::AgentDefinition(id)) => {
-                self.set_mission_kind_definition(task_id, row, id, cx)
-            }
-            (KindTarget::Add, KindPick::AgentDefinition(id)) => {
-                self.add_mission_agent_kind(task_id, id, cx)
-            }
-            (KindTarget::Row(_) | KindTarget::Add, KindPick::Kind(_)) => {}
+    /// Which mission the guidance composer's Enter is addressed at; the History tab's list is
+    /// asked for when it is the tab on screen.
+    fn aim_mission(&mut self, task_id: TaskId, cx: &mut Context<Self>) {
+        self.workbench.guidance_mission = Some(task_id);
+        let on_history = self
+            .mission_view(cx)
+            .is_some_and(|view| view.tab == MissionTab::History);
+        if on_history {
+            self.load_history(task_id, cx);
         }
+    }
+
+    /// The *also send to running workers* box.
+    pub fn toggle_guidance_to_running(&mut self, cx: &mut Context<Self>) {
+        if let Some(open) = self.open_project_mut(cx) {
+            open.mission_view.guidance_to_running = !open.mission_view.guidance_to_running;
+        }
+        cx.notify();
+    }
+
+    /// Send a note for the whole mission: appended to `guidance.md` by the host, and — with the
+    /// box ticked — delivered to every running worker as a message too.
+    pub fn add_guidance(&mut self, task_id: TaskId, text: String, cx: &mut Context<Self>) -> bool {
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return false;
+        }
+        let Some(project_id) = self.project_of_mission(task_id) else {
+            return false;
+        };
+        let send_to_running = self
+            .mission_view(cx)
+            .is_some_and(|view| view.guidance_to_running);
+        self.bus.send(Message::AddGuidance {
+            project_id,
+            task_id,
+            text,
+            send_to_running,
+        });
+        cx.notify();
+        true
+    }
+
+    /// Send what is in the guidance composer, and clear it if it went. Which mission it is
+    /// addressed at is `WorkbenchState::guidance_mission`.
+    pub fn submit_mission_guidance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(task_id) = self.workbench.guidance_mission else {
+            return;
+        };
+        let input = self.mission_guidance_input.clone();
+        let text = input.read(cx).value().to_string();
+        if self.add_guidance(task_id, text, cx) {
+            input.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+    }
+
+    // ── the note dialog ─────────────────────────────────────────────
+
+    /// Raise the note dialog for one of the five places a mission asks for words.
+    pub fn open_mission_note(&mut self, kind: NoteKind, cx: &mut Context<Self>) {
+        self.workbench.mission_note = Some(MissionNote { kind });
+        cx.notify();
+    }
+
+    pub fn close_mission_note(&mut self, cx: &mut Context<Self>) {
+        self.workbench.mission_note = None;
+        cx.notify();
+    }
+
+    /// Send the note: the textarea's text, to whichever of the five messages the dialog is for.
+    /// Reject, fail and mission-reject need feedback; a replan or a redo may go without a note.
+    pub fn send_mission_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(note) = self.workbench.mission_note else {
+            return;
+        };
+        let input = self.mission_note_input.clone();
+        let text = input.read(cx).value().trim().to_string();
+        let needs_text = matches!(
+            note.kind,
+            NoteKind::Reject(_) | NoteKind::Fail(_) | NoteKind::RejectMission(_)
+        );
+        if needs_text && text.is_empty() {
+            return;
+        }
+        match note.kind {
+            NoteKind::Reject(task) => {
+                if let Some(project_id) = self.project(cx) {
+                    self.mission_task_action(
+                        project_id,
+                        task,
+                        MissionTaskAction::Reject { feedback: text },
+                        cx,
+                    );
+                }
+            }
+            NoteKind::Fail(task) => {
+                if let Some(project_id) = self.project(cx) {
+                    self.mission_task_action(
+                        project_id,
+                        task,
+                        MissionTaskAction::Fail { feedback: text },
+                        cx,
+                    );
+                }
+            }
+            NoteKind::Replan(mission) => {
+                self.mission_control(mission, MissionAction::Replan { note: text }, cx)
+            }
+            NoteKind::Redo(mission) => {
+                self.mission_control(mission, MissionAction::RedoBreakdown { note: text }, cx)
+            }
+            NoteKind::RejectMission(mission) => self.mission_control(
+                mission,
+                MissionAction::RejectMission { feedback: text },
+                cx,
+            ),
+        }
+        input.update(cx, |state, cx| state.set_value("", window, cx));
+        self.workbench.mission_note = None;
+        cx.notify();
+    }
+
+    // ── answering the host's launch request ─────────────────────────
+
+    /// The host asks this window to start a conversation for a mission. Starts it through the
+    /// ordinary path and answers with `MissionLaunched` — the agent's id on success, the reason on
+    /// failure.
+    pub(super) fn launch_for_mission(
+        &mut self,
+        project_id: ProjectId,
+        task_id: TaskId,
+        request: LaunchRequest,
+        cx: &mut Context<Self>,
+    ) {
+        let outcome = match self.compose_mission_launch(project_id, &request) {
+            Ok(agent) => LaunchOutcome::Launched(agent),
+            Err(reason) => LaunchOutcome::Failed(reason),
+        };
+        self.bus.send(Message::MissionLaunched {
+            project_id,
+            task_id,
+            id: request.id,
+            outcome,
+        });
+        cx.notify();
+    }
+
+    /// Start (or revive) the conversation one request asks for, assign it to its task, mark it
+    /// persistent if asked and send the host-composed prompt as its first turn.
+    ///
+    /// **Order is the contract's**: `StartConversation` first — the window mints the `AgentId` — then
+    /// the assignment (parked until the `WorkAgent` exists), then `SetConversationPersistent`, then
+    /// the prompt.
+    fn compose_mission_launch(
+        &mut self,
+        project_id: ProjectId,
+        request: &LaunchRequest,
+    ) -> Result<AgentId, String> {
+        // A planner resumed after a restart: the same conversation, revived, if this window knows
+        // it. One it has never heard of falls through to a fresh start.
+        if let Some(agent) = request.resume {
+            let known = self
+                .projects
+                .get(&project_id)
+                .is_some_and(|open| open.work.agent(agent).is_some());
+            if known {
+                if !self.conversation_live(agent) {
+                    self.bus.send(Message::ReviveConversation {
+                        source: agent,
+                        agent_id: agent,
+                        project_id,
+                        session_id: self.session,
+                    });
+                }
+                self.bus.send(Message::AssignAgent {
+                    project_id,
+                    agent_id: agent,
+                    task_id: Some(request.task),
+                });
+                if request.persistent {
+                    self.bus.send(Message::SetConversationPersistent {
+                        agent_id: agent,
+                        persistent: true,
+                    });
+                }
+                self.send_prompt(agent, request.prompt.clone());
+                return Ok(agent);
+            }
+        }
+
+        let definitions = self.workbench.settings.definitions_in(Some(project_id));
+        let definition = match request.definition.as_deref() {
+            Some(id) => definitions.iter().find(|definition| definition.id == id),
+            None => default_definition(&definitions, request.role),
+        }
+        .cloned()
+        .ok_or_else(|| match request.definition.as_deref() {
+            Some(id) => format!("the agent definition \u{201c}{id}\u{201d} is gone"),
+            None => "no agent definition is tagged for this role — set one in settings".to_string(),
+        })?;
+
+        let agent_id = AgentId::generate();
+        self.bus.send(Message::StartConversation {
+            agent_id,
+            project_id,
+            session_id: self.session,
+            rel_path: None,
+            agent_type: definition.agent_type.clone(),
+            account: definition.account.clone(),
+            definition: Some(definition.id.clone()),
+            model: definition.model.clone(),
+            thinking: None,
+            mode: definition.mode.clone(),
+            mcps: request.mcps.clone(),
+            skills: Vec::new(),
+            grants: Vec::new(),
+            // The host's launch, not an agent's: nothing spawned this one.
+            spawned_by: None,
+        });
+        // An assignment needs a `WorkAgent`, which exists only once the host has handled the
+        // start — parked, and sent from the `ConversationStarted` arm.
+        self.workbench
+            .agent_assignments
+            .insert(agent_id, (project_id, request.task));
+        if request.persistent {
+            self.bus.send(Message::SetConversationPersistent {
+                agent_id,
+                persistent: true,
+            });
+        }
+        self.send_prompt(agent_id, request.prompt.clone());
+        Ok(agent_id)
+    }
+}
+
+/// The definition a role runs when the mission names none: the planner tag, then the old
+/// coordinator tag, then anything ticked as a mission assistant; workers and reviewers take the
+/// worker tag.
+fn default_definition(
+    definitions: &[ubiq_proto::messages::AgentDefinition],
+    role: LaunchRole,
+) -> Option<&ubiq_proto::messages::AgentDefinition> {
+    use ubiq_proto::messages::{TAG_COORDINATOR, TAG_PLANNER, TAG_WORKER};
+    let live = || definitions.iter().filter(|definition| !definition.disabled);
+    match role {
+        LaunchRole::Planner | LaunchRole::MissionReviewer => live()
+            .find(|d| d.has_tag(TAG_PLANNER))
+            .or_else(|| live().find(|d| d.has_tag(TAG_COORDINATOR)))
+            .or_else(|| live().find(|d| d.mission_assistant == Some(true))),
+        LaunchRole::Worker | LaunchRole::Reviewer => live().find(|d| d.has_tag(TAG_WORKER)),
     }
 }

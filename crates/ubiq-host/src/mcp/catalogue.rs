@@ -42,13 +42,10 @@ pub const UBIQ_PLAN: &str = "ubiq-plan";
 /// it.
 pub const UBIQ_DOC: &str = "ubiq-doc";
 
-/// The slug of the server a mission's **coordinator** runs the mission from (M16).
+/// The slug of the server a mission's **planner** (and its final reviewer) works the mission
+/// through. Workers have no mission server: their prompt carries the task, the plan and the
+/// guidance.
 pub const UBIQ_MISSION: &str = "ubiq-mission";
-
-/// The slug of the thinner server a mission's **workers** read it through — the same `manage` /
-/// `use` split [`MANAGE_UBIQ_TASKS`] and [`USE_TASK`] already have, and for its reason: a worker
-/// reads the mission and reports its own progress, it does not run it.
-pub const USE_MISSION: &str = "use-mission";
 
 /// The slug of the server that reads and writes this project's knowledge base.
 pub const UBIQ_KB: &str = "ubiq-kb";
@@ -73,16 +70,24 @@ pub const UBIQ_SQL_READ: &str = "ubiq-sql-read";
 /// user marked read-write only (`D202`). Not in a default set — a definition names it.
 pub const UBIQ_SQL_WRITE: &str = "ubiq-sql-write";
 
-/// What a **mission/task coordinator** agent definition runs with: it runs the mission, writes
-/// the plan, manages the tasks, and keeps the knowledge base. The `manage` side of every split
-/// pair, because running the work is what a coordinator does.
+/// What a definition tagged **coordinator** (a planner) runs with: the mission, the plan, the
+/// tasks, and the knowledge base. The `manage` side of every split pair.
 ///
 /// Held here rather than beside the definitions, so the set and the slugs it names cannot drift.
-pub const COORDINATOR_MCPS: &[&str] = &[UBIQ_MISSION, UBIQ_PLAN, MANAGE_UBIQ_TASKS, UBIQ_KB];
+pub const PLANNER_MCPS: &[&str] = &[UBIQ_MISSION, UBIQ_PLAN, MANAGE_UBIQ_TASKS, UBIQ_KB];
 
-/// What a **mission/task worker** agent definition runs with: the `use` side of the mission and
-/// task servers, what project it is working in, and the knowledge base.
-pub const WORKER_MCPS: &[&str] = &[USE_MISSION, USE_TASK, PROJECT_INFO, UBIQ_KB];
+/// What a **worker** agent definition runs with: the `use` side of the task servers, what project
+/// it is working in, and the knowledge base.
+pub const WORKER_MCPS: &[&str] = &[USE_TASK, PROJECT_INFO, UBIQ_KB];
+
+/// The servers the mission runner attaches to the planner it launches.
+pub const LAUNCH_PLANNER_MCPS: &[&str] = &[UBIQ_MISSION, UBIQ_PLAN, MANAGE_UBIQ_TASKS, UBIQ_ASK];
+
+/// The servers the mission runner attaches to a worker or a task reviewer it launches.
+pub const LAUNCH_WORKER_MCPS: &[&str] = &[USE_TASK, UBIQ_ASK, PROJECT_INFO];
+
+/// The servers the mission runner attaches to the mission's final reviewer.
+pub const LAUNCH_MISSION_REVIEWER_MCPS: &[&str] = &[UBIQ_MISSION, UBIQ_PLAN, USE_TASK, UBIQ_ASK];
 
 /// What a **document** agent definition runs with: the annotated-document server and the
 /// architecture-diagram one, for working on markdown together with the user.
@@ -94,7 +99,7 @@ pub const DOC_MCPS: &[&str] = &[UBIQ_DOC, UBIQ_ARCHIFY];
 pub fn role_mcps(coordinator: bool, worker: bool, doc: bool) -> Vec<String> {
     let mut named: Vec<String> = Vec::new();
     let sets = [
-        (coordinator, COORDINATOR_MCPS),
+        (coordinator, PLANNER_MCPS),
         (worker, WORKER_MCPS),
         (doc, DOC_MCPS),
     ];
@@ -226,16 +231,14 @@ const DELETE_TODO: ToolSpec = ToolSpec {
     }"#,
 };
 
-/// The mission tools both servers answer: everything an agent in a mission **reads**, plus the
-/// one line it writes about its own work. Shared for the todo tools' own reason — two tables
-/// describing one tool is two descriptions that drift.
+/// The mission's read tools.
 ///
 /// **None of them takes a mission argument.** Which mission the caller is in comes from its
-/// `AgentFacts::mission`, resolved from the URL identity (M11, `D102`); an agent in no mission is
+/// `AgentFacts::mission`, resolved from the URL identity (`D102`); an agent in no mission is
 /// answered with a sentence saying so, not an error.
 const MISSION_OVERVIEW: ToolSpec = ToolSpec {
     name: "mission_overview",
-    description: "Everything about the mission you are in, at a glance: its phase, the brief, who is on it, how its tasks stand, which documents exist, what is waiting on the user, and the last few journal lines. Call this first.",
+    description: "Everything about the mission you are in, at a glance: its phase, its settings, the brief, how its tasks stand, which documents exist, and what is waiting on the user. Call this first.",
     schema: r#"{"type": "object", "properties": {}}"#,
 };
 const READ_BRIEF: ToolSpec = ToolSpec {
@@ -285,18 +288,6 @@ const READ_DOCUMENT: ToolSpec = ToolSpec {
         "required": ["name"]
     }"#,
 };
-const REPORT_PROGRESS: ToolSpec = ToolSpec {
-    name: "report_progress",
-    description: "Write one line into the mission's journal saying what you have just done or found. The person watching reads these; write them as you go rather than in a batch at the end.",
-    schema: r#"{
-        "type": "object",
-        "properties": {
-            "text": {"type": "string", "description": "One sentence, in the past tense."},
-            "task_id": {"type": "string", "description": "The task it is about, if it is about one."}
-        },
-        "required": ["text"]
-    }"#,
-};
 /// What one task in a mission's breakdown says — shared by `create_mission_task` and each entry of
 /// `create_mission_tasks`, so the singular and the batch can never drift apart.
 const MISSION_TASK_SCHEMA: &str = r#"{
@@ -314,21 +305,17 @@ const MISSION_TASK_SCHEMA: &str = r#"{
             "items": {"type": "string"},
             "description": "What kind of work it is, in the board's own label vocabulary. In auto mode this is what decides which agent gets the task."
         },
-        "kind": {"type": "string", "description": "The agent kind this task suits, from list_agent_kinds. The scheduler spawns this kind for it."},
         "prerequisites": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "What this task waits on: a task id, or the key of a task that already exists. It is not ready until every one of them is in review or done."
-        }
+            "description": "What this task waits on: a task id, or the key of a task that already exists. It is not ready until every one of them is done, or in review without a pending approval."
+        },
+        "approve": {"type": "boolean", "description": "Whether the task waits for the user's confirmation in review. Omit for the mission's default."},
+        "assigned_to": {"type": "string", "description": "Who does it: an agent definition id, or a person (e.g. 'human') for a check the runner must wait on. Omit for the mission's worker."},
+        "review_of": {"type": "string", "description": "The task this one reviews, by id or key. A review task runs once that task is in review."}
     },
     "required": ["title"]
 }"#;
-const LIST_AGENTS: ToolSpec = ToolSpec {
-    name: "list_agents",
-    description: "Who is on the mission: each member's id, role, the task it is serving and what it is doing.",
-    schema: r#"{"type": "object", "properties": {}}"#,
-};
-
 // ── the SQL servers ───────────────────────────────────────────────────────────────────────────
 //
 // Both servers answer the same tools bar `execute`, which only the write server has. The
@@ -886,6 +873,19 @@ pub const SERVERS: &[ServerSpec] = &[
                         "text": {"type": "string"}
                     },
                     "required": ["task_id", "text"]
+                }"#,
+            },
+            ToolSpec {
+                name: "submit_review",
+                description: "Give your verdict on a review task you were launched for: 'pass' when the reviewed work is right, 'fail' with findings saying what to fix. The findings go back to the task under review. Call it once, when you are done reviewing, and stop.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string", "description": "The review task you were given (or the mission, for the final review)."},
+                        "verdict": {"type": "string", "enum": ["pass", "fail"]},
+                        "findings": {"type": "string", "description": "What you found. Required for a fail; what to fix, specifically."}
+                    },
+                    "required": ["task_id", "verdict"]
                 }"#,
             },
             ADD_TODO,
@@ -1548,18 +1548,16 @@ pub const SERVERS: &[ServerSpec] = &[
         name: UBIQ_ASK,
         title: "Ask the user",
         description: "Ask the person watching a structured question. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. The call returns instantly and cannot time out; the dialog is shown the moment your turn ends and their answer arrives as your next turn.",
-        tools: &[
-            ToolSpec {
-                name: "ask_user_question",
-                description: "Register one to four multiple-choice questions to put to the user, and return immediately. HARD REQUIREMENT: after this call you MUST end your turn at once. Do not call another tool, do not read another file, do not keep working. The dialog is only shown to the user when your turn ends, and their answer arrives as your next turn — so anything you do after registering delays the question and is thrown-away work. Register last, say in one short message what you are waiting on, and stop. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The registration is for this turn only: it is raised when the turn ends, and dropped if the turn fails. You are given the id it was filed under; you do not need to remember it.",
-                schema: ASK_QUESTIONS_SCHEMA,
-            },
-        ],
+        tools: &[ToolSpec {
+            name: "ask_user_question",
+            description: "Register one to four multiple-choice questions to put to the user, and return immediately. HARD REQUIREMENT: after this call you MUST end your turn at once. Do not call another tool, do not read another file, do not keep working. The dialog is only shown to the user when your turn ends, and their answer arrives as your next turn — so anything you do after registering delays the question and is thrown-away work. Register last, say in one short message what you are waiting on, and stop. Each question shows two to four options you wrote; 'Other' is always offered beside them and is never one of yours, so do not write it. The registration is for this turn only: it is raised when the turn ends, and dropped if the turn fails. You are given the id it was filed under; you do not need to remember it.",
+            schema: ASK_QUESTIONS_SCHEMA,
+        }],
     },
     ServerSpec {
         name: UBIQ_MISSION,
         title: "Run the mission",
-        description: "The mission you are coordinating: its phase, brief, roster, tasks, documents and journal. Use it to read where the mission stands, write its documents, create its tasks, keep the person watching informed, and ask for the phase to move when a stage is done. The mission is resolved from who you are — no call here takes a mission id.",
+        description: "The mission you are planning: its phase, brief, tasks and documents. Use it to read where the mission stands, write its documents, draft its tasks, and tell the user when a stage is ready for them. The mission is resolved from who you are — no call here takes a mission id.",
         tools: &[
             MISSION_OVERVIEW,
             READ_BRIEF,
@@ -1587,7 +1585,7 @@ pub const SERVERS: &[ServerSpec] = &[
             },
             ToolSpec {
                 name: "create_mission_tasks",
-                description: "Write the mission's whole work breakdown in one call. Each task may wait on tasks created earlier in the same call: give an entry a short 'ref' and name that ref in a later entry's 'prerequisites'. Label every task for affinity (area, component, skill) — in auto mode the scheduler hands a task to the agent whose past tasks share its labels, so the labels are what decides who works on what. Keep each task small enough for one agent. Tasks are created in the order given; the answer names what was created and anything that failed, so a second call can fill the gaps.",
+                description: "Write the mission's whole work breakdown in one call. Each task may wait on tasks created earlier in the same call: give an entry a short 'ref' and name that ref in a later entry's 'prerequisites' or 'review_of'. Keep each task small enough for one agent. Add a review task (review_of) where the plan calls for one, and a task assigned to a person for a check only a person can make. Tasks are created in the order given, in backlog while the mission is being planned; the answer names what was created and anything that failed, so a second call can fill the gaps.",
                 schema: r#"{
                     "type": "object",
                     "properties": {
@@ -1601,9 +1599,11 @@ pub const SERVERS: &[ServerSpec] = &[
                                     "description": {"type": "string", "description": "What doing it involves."},
                                     "ref": {"type": "string", "description": "A short name for this entry, used only inside this call so later entries can wait on it. It is not written down anywhere."},
                                     "todos": {"type": "array", "items": {"type": "string"}, "description": "The steps, in order. Each becomes a todo on the task."},
-                                    "labels": {"type": "array", "items": {"type": "string"}, "description": "What kind of work it is, in the board's own label vocabulary. This is what affinity is computed from."},
-                                    "kind": {"type": "string", "description": "The agent kind this task suits, from list_agent_kinds. The scheduler spawns this kind for it."},
-                                    "prerequisites": {"type": "array", "items": {"type": "string"}, "description": "What this task waits on: a task id, the key of a task that already exists, or the ref of an entry earlier in this same call. It is not ready until every one of them is in review or done."}
+                                    "labels": {"type": "array", "items": {"type": "string"}, "description": "What kind of work it is, in the board's own label vocabulary."},
+                                    "prerequisites": {"type": "array", "items": {"type": "string"}, "description": "What this task waits on: a task id, the key of a task that already exists, or the ref of an entry earlier in this same call."},
+                                    "approve": {"type": "boolean", "description": "Whether the task waits for the user's confirmation in review. Omit for the mission's default."},
+                                    "assigned_to": {"type": "string", "description": "An agent definition id, or a person (e.g. 'human'). Omit for the mission's worker."},
+                                    "review_of": {"type": "string", "description": "The task this one reviews: an id, a key, or the ref of an earlier entry."}
                                 },
                                 "required": ["title"]
                             }
@@ -1612,74 +1612,22 @@ pub const SERVERS: &[ServerSpec] = &[
                     "required": ["tasks"]
                 }"#,
             },
-            REPORT_PROGRESS,
             ToolSpec {
                 name: "request_phase",
-                description: "Ask for the mission to move to another phase, with a summary of why. Some moves happen at once and some wait for the user to confirm; the answer says which happened. Do not ask twice — a second request replaces the first.",
+                description: "Tell the user a stage is ready for them, with a summary. 'breakdown' (while planning) says the plan is ready to approve; 'running' (in breakdown) says the tasks are drafted and the mission can start. This never moves the phase — the user does.",
                 schema: r#"{
                     "type": "object",
                     "properties": {
                         "phase": {
                             "type": "string",
-                            "enum": ["requirements", "refining", "in progress", "completed", "abandoned"],
-                            "description": "The phase to move to."
+                            "enum": ["breakdown", "running"],
+                            "description": "The phase you are asking for."
                         },
-                        "summary": {"type": "string", "description": "Why, in a sentence or two. The user reads this before answering."}
+                        "summary": {"type": "string", "description": "What is ready, in a sentence or two. The user reads this before deciding."}
                     },
                     "required": ["phase"]
                 }"#,
             },
-            ToolSpec {
-                name: "list_agent_kinds",
-                description: "The kinds of agent this mission can spawn, each with a description of what it is for. Read this before spawn_agent and ask for one by name. An empty list means nobody has set the mission's agent kinds up yet — say what you need and why, and a person will.",
-                schema: r#"{"type": "object", "properties": {}}"#,
-            },
-            ToolSpec {
-                name: "spawn_agent",
-                description: "Ask the mission for another agent, of one of the kinds list_agent_kinds names. This returns a request id straight away and does NOT wait: the person watching decides whether it is launched, and may change the kind first. You will be told the outcome, including which kind was actually used, as a later message — carry on with something else until then. Do not ask twice for the same work.",
-                schema: r#"{
-                    "type": "object",
-                    "properties": {
-                        "kind": {"type": "string", "description": "A kind from list_agent_kinds, by name. Omit for the mission's default kind. Use 'custom' only with a definition."},
-                        "definition": {"type": "string", "description": "A saved definition, for kind 'custom' only. Never a harness, an account or anything secret."},
-                        "task_id": {"type": "string", "description": "The task this agent is for, if there is one."},
-                        "prompt": {"type": "string", "description": "What to tell it when it starts — the whole of what it needs to begin."},
-                        "reason": {"type": "string", "description": "Why you need it, in a sentence. The person reads this before answering."}
-                    },
-                    "required": ["prompt", "reason"]
-                }"#,
-            },
-            LIST_AGENTS,
-            ToolSpec {
-                name: "message_agent",
-                description: "Put a line in another mission member's thread. It reads it as its next prompt, or when it finishes what it is doing. Only agents on the mission's roster can be messaged.",
-                schema: r#"{
-                    "type": "object",
-                    "properties": {
-                        "agent_id": {"type": "string", "description": "An agent id from list_agents."},
-                        "text": {"type": "string", "description": "What to say to it."}
-                    },
-                    "required": ["agent_id", "text"]
-                }"#,
-            },
-            ToolSpec {
-                name: "read_feedback",
-                description: "What the user has said to the mission since you last asked. Empty when there is nothing new. Read it between pieces of work — it is how the person watching steers you.",
-                schema: r#"{"type": "object", "properties": {}}"#,
-            },
-        ],
-    },
-    ServerSpec {
-        name: USE_MISSION,
-        title: "Use the mission",
-        description: "The mission you are working in: what it is for, where it has got to, who else is on it, and what has been written down. Read it before you start, and report your progress as you go. You do not run the mission — its coordinator does.",
-        tools: &[
-            MISSION_OVERVIEW,
-            READ_BRIEF,
-            LIST_DOCUMENTS,
-            READ_DOCUMENT,
-            REPORT_PROGRESS,
-            LIST_AGENTS,
         ],
     },
     ServerSpec {
@@ -1811,14 +1759,14 @@ mod tests {
 
     #[test]
     fn the_sql_servers_are_in_no_default_set() {
-        for set in [COORDINATOR_MCPS, WORKER_MCPS] {
+        for set in [PLANNER_MCPS, WORKER_MCPS] {
             assert!(!set.contains(&UBIQ_SQL_READ) && !set.contains(&UBIQ_SQL_WRITE));
         }
     }
 
     #[test]
     fn the_archify_server_agrees_with_its_engine_and_is_in_no_default_set() {
-        for set in [COORDINATOR_MCPS, WORKER_MCPS] {
+        for set in [PLANNER_MCPS, WORKER_MCPS] {
             assert!(!set.contains(&UBIQ_ARCHIFY));
         }
         let spec = server(UBIQ_ARCHIFY).unwrap();
@@ -1832,10 +1780,16 @@ mod tests {
                 .map(|v| v.as_str().unwrap().to_string())
                 .collect()
         };
-        let types: Vec<String> = ubiq_archify::schema::DOC_TYPES.iter().map(|s| s.to_string()).collect();
+        let types: Vec<String> = ubiq_archify::schema::DOC_TYPES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(schema("archify_new", "type"), types);
         assert_eq!(schema("archify_validate", "type"), types);
-        let topics: Vec<String> = ubiq_archify::guide::topic_names().iter().map(|s| s.to_string()).collect();
+        let topics: Vec<String> = ubiq_archify::guide::topic_names()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(schema("archify_guide", "topic"), topics);
     }
 

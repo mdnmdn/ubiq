@@ -1,4 +1,4 @@
-//! The WBS tab: the mission's prerequisite graph, laid out by dependency level (§6.2, M20, M21).
+//! The Tasks tab: the mission's prerequisite graph, laid out by dependency level (§6.2, M20, M21).
 //!
 //! **The arrangement is [`crate::state::wbs`]'s and the drawing is the Teams canvas's.** Nothing
 //! here is a graph engine: the levels come from a topological layering that knows nothing about
@@ -27,7 +27,8 @@ use gpui::{
 };
 
 use ubiq_proto::ids::TaskId;
-use ubiq_proto::work::TaskRecord;
+use ubiq_proto::mission::{self, MissionAction, MissionSnapshot, Phase};
+use ubiq_proto::work::{Status, TaskRecord};
 
 use crate::app::AppState;
 use crate::state::mission::MissionView;
@@ -36,7 +37,9 @@ use crate::state::work::{WorkProjection, WorkState};
 use crate::theme::{self, Family, Role};
 use crate::ui::kit::blocks::{self, Board, Fence, Look, Word};
 use crate::ui::kit::canvas::Link;
-use crate::ui::kit::{choice_pill, elided, mono, state_chip, stepper, toggle_pill};
+use crate::ui::kit::{
+    choice_pill, elided, ghost_button, mono, primary_button, state_chip, stepper, toggle_pill,
+};
 use crate::ui::mission::panel::nothing;
 use crate::ui::work::work_state_colour;
 use crate::ui::{eid, eid2};
@@ -57,23 +60,26 @@ pub fn render(
     app: &AppState,
     work: &WorkProjection,
     task_id: TaskId,
+    mission: &MissionSnapshot,
     view: &MissionView,
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let tasks: Vec<&TaskRecord> = work.children_of(task_id).collect();
+    let marks = Marks::new(app, mission, cx);
     let arranged = wbs::layers(&tasks);
 
     let body = match tasks.is_empty() {
-        true => nothing("No tasks yet \u{2014} the breakdown is the planner's to write (M21).")
+        true => nothing("No tasks yet \u{2014} the breakdown is the planner's to write.")
             .into_any_element(),
         false => match view.wbs_table {
-            true => table(work, &tasks, &arranged, view, cx),
+            true => table(work, &tasks, &arranged, view, &marks, cx),
             false => graph(
                 work,
                 &tasks,
                 &arranged,
                 view,
+                &marks,
                 &app.mission_scroll,
                 window,
                 cx,
@@ -86,6 +92,7 @@ pub fn render(
         .flex_col()
         .flex_1()
         .min_h(px(0.))
+        .children(breakdown_bar(task_id, mission, cx))
         .child(toolbar(work, task_id, &arranged, view, cx))
         .child(
             div()
@@ -180,6 +187,7 @@ fn graph(
     tasks: &[&TaskRecord],
     arranged: &Wbs,
     view: &MissionView,
+    marks: &Marks,
     scroll: &gpui::ScrollHandle,
     window: &Window,
     cx: &mut Context<AppState>,
@@ -270,7 +278,7 @@ fn graph(
         };
         board.block(
             (spot.0, spot.1, NODE.0, NODE.1),
-            node(work, task, arranged, view, (spot.0, spot.1), zoom, cx),
+            node(work, task, arranged, view, marks, (spot.0, spot.1), zoom, cx),
         );
     }
 
@@ -285,6 +293,7 @@ fn node(
     task: &TaskRecord,
     arranged: &Wbs,
     view: &MissionView,
+    marks: &Marks,
     at: (f32, f32),
     zoom: f32,
     cx: &mut Context<AppState>,
@@ -351,6 +360,9 @@ fn node(
             .items_center()
             .gap(px(6.0 * zoom))
             .child(state_chip(state.label(), colour, zoom))
+            .children(marks.of(task).into_iter().map(|(label, mark)| {
+                mono(label, mark).text_size(theme::font(Family::Chrome, Role::Micro) * zoom)
+            }))
             .when(waiting > 0, |row| {
                 row.child(
                     mono(
@@ -372,6 +384,7 @@ fn table(
     tasks: &[&TaskRecord],
     arranged: &Wbs,
     view: &MissionView,
+    marks: &Marks,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let mut rows: Vec<&TaskRecord> = tasks
@@ -386,7 +399,7 @@ fn table(
 
     let body: Vec<AnyElement> = rows
         .iter()
-        .map(|task| row(work, tasks, task, arranged, view, cx))
+        .map(|task| row(work, tasks, task, arranged, view, marks, cx))
         .collect();
 
     div()
@@ -430,6 +443,7 @@ fn head() -> AnyElement {
         .child(cell("BLOCKS", 56.))
         .child(cell("LABELS", 130.))
         .child(cell("ASSIGNEE", 110.))
+        .child(cell("MARKS", 110.))
         .into_any_element()
 }
 
@@ -439,10 +453,17 @@ fn row(
     task: &TaskRecord,
     arranged: &Wbs,
     view: &MissionView,
+    marks: &Marks,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let id = task.id;
     let state = work.work_state(task);
+    let mark_text = marks
+        .of(task)
+        .into_iter()
+        .map(|(label, _)| label)
+        .collect::<Vec<_>>()
+        .join(" ");
     let waiting = task.waiting_on(&work.tasks).len();
     let blocks = tasks
         .iter()
@@ -520,6 +541,7 @@ fn row(
     .child(cell(eid("wbs-row-blocks", id), blocks.to_string(), 56.))
     .child(cell(eid("wbs-row-labels", id), labels, 130.))
     .child(cell(eid("wbs-row-assignee", id), assignee, 110.))
+    .child(cell(eid("wbs-row-marks", id), mark_text, 110.))
     .into_any_element()
 }
 
@@ -551,6 +573,121 @@ fn detail(
             .border_l_1()
             .border_color(theme::border())
             .child(crate::ui::board::detail::render(app, &task, window, cx))
+            .into_any_element(),
+    )
+}
+
+// ── marks ───────────────────────────────────────────────────────────
+
+/// What the Tasks tab marks on a task beyond its state: `approve` (waits for Confirm), `human`
+/// (the runner never starts it), `worker gone`, and — after a Replan — `added` or `abandoned`
+/// against the snapshot's `replan_at`.
+///
+/// **There is no "changed" mark.** A task's `updated_at` moves with runner bookkeeping as well as
+/// with an edit, so the timestamps cannot tell the two apart; only creation and abandonment are
+/// honest readings of them.
+pub(super) struct Marks {
+    definitions: Vec<String>,
+    live: Vec<ubiq_proto::work::AgentId>,
+    replan_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Marks {
+    fn new(app: &AppState, mission: &MissionSnapshot, cx: &gpui::App) -> Self {
+        let definitions = app
+            .workbench
+            .settings
+            .definitions_in(app.project(cx))
+            .into_iter()
+            .map(|definition| definition.id)
+            .collect();
+        let live = app
+            .open_project(cx)
+            .map(|open| {
+                open.conversations
+                    .iter()
+                    .filter(|(_, conversation)| conversation.running())
+                    .map(|(id, _)| *id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            definitions,
+            live,
+            replan_at: mission.replan_at,
+        }
+    }
+
+    pub(super) fn of(&self, task: &TaskRecord) -> Vec<(&'static str, gpui::Rgba)> {
+        let mut marks = Vec::new();
+        if task.approve {
+            marks.push(("approve", theme::warning()));
+        }
+        if mission::is_human(task, &self.definitions) {
+            marks.push(("human", theme::info()));
+        }
+        if mission::worker_gone(task, |agent| self.live.contains(&agent)) {
+            marks.push(("worker gone", theme::danger()));
+        }
+        if let Some(at) = self.replan_at {
+            if task.status == Status::Abandoned && task.updated_at > at {
+                marks.push(("abandoned", theme::text_muted()));
+            } else if task.created_at > at {
+                marks.push(("added", theme::success()));
+            }
+        }
+        marks
+    }
+}
+
+/// **In Breakdown this tab is where the draft is edited**: *Add task*, *Redo breakdown…* (a note to
+/// the planner) and *Start mission*. Removing, re-linking, `approve` and the review tasks are the
+/// selected task's own detail, beside the graph.
+fn breakdown_bar(
+    task_id: TaskId,
+    mission: &MissionSnapshot,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    if mission.phase != Phase::Breakdown {
+        return None;
+    }
+    Some(
+        div()
+            .h(px(34.))
+            .px_3()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1p5()
+            .border_b_1()
+            .border_color(theme::border())
+            .child(mono(
+                "Breakdown \u{2014} nothing runs until you start the mission",
+                theme::text_muted(),
+            ))
+            .child(div().flex_1().min_w(px(0.)))
+            .child(ghost_button(
+                eid("mission-add-task", task_id),
+                None,
+                "Add task",
+                cx.listener(move |this, _, _, cx| this.add_mission_task(task_id, cx)),
+            ))
+            .child(ghost_button(
+                eid("mission-redo", task_id),
+                None,
+                "Redo breakdown\u{2026}",
+                cx.listener(move |this, _, _, cx| {
+                    this.open_mission_note(crate::state::mission::NoteKind::Redo(task_id), cx)
+                }),
+            ))
+            .child(primary_button(
+                eid("mission-start", task_id),
+                None,
+                "Start mission",
+                cx.listener(move |this, _, _, cx| {
+                    this.mission_control(task_id, MissionAction::StartMission, cx)
+                }),
+            ))
             .into_any_element(),
     )
 }

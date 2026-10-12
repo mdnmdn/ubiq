@@ -1252,25 +1252,12 @@ impl AppState {
             return;
         };
         match menu.stage {
-            // *New agent* / *New mission* (§9's last bullet, M15). Each asks the same project
-            // question the other does, at the project stage below, when the canvas spans more
-            // than one.
+            // *New agent*, which asks the project question at the stage below when the canvas
+            // spans more than one.
             TeamsCreateStage::Kind => match index {
                 0 => {
                     self.close_menu(cx);
                     self.open_teams_add_agent(menu.at, window, cx);
-                }
-                1 => {
-                    if self.teams_project_choice(cx) {
-                        self.workbench.teams_create_menu = Some(TeamsCreateMenu {
-                            at: menu.at,
-                            stage: TeamsCreateStage::MissionProject,
-                        });
-                        cx.notify();
-                    } else {
-                        self.close_menu(cx);
-                        self.open_new_mission(window, cx);
-                    }
                 }
                 _ => {}
             },
@@ -1281,19 +1268,6 @@ impl AppState {
                     return;
                 };
                 self.start_teams_agent(Some(project), window, cx);
-            }
-            // *New mission* raises the dialog for the project picked — which means pointing the
-            // window at it first (`AppState::activate_project`): the dialog and the board flow
-            // behind it both read "the project on screen" rather than naming one of their own, the
-            // same way every other project-scoped dialog in this window does.
-            TeamsCreateStage::MissionProject => {
-                let picked = self.window_projects(cx).get(index).copied();
-                self.close_menu(cx);
-                let Some(project) = picked else {
-                    return;
-                };
-                self.activate_project(project, cx);
-                self.open_new_mission(window, cx);
             }
         }
     }

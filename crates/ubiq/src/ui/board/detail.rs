@@ -31,7 +31,8 @@ use crate::ui::board::{form, status_colour};
 use crate::ui::eid2;
 use crate::ui::handler;
 use crate::ui::kit::{
-    ghost_button, icon_button, meter, modal_sized, mono, panel, pill, section_label,
+    check_box, ghost_button, icon_button, meter, modal_sized, mono, panel, pill, primary_button,
+    section_label,
 };
 use crate::ui::work::{bucket_colour, lifecycle_colour};
 
@@ -325,6 +326,7 @@ fn body(
                 // row: the way into the mission's own surface (`mission-proposal.md` §6.1). Drawn
                 // only on a task that *is* a mission, because on any other it opens nothing.
                 .children(open_mission(app, task, cx))
+                .children(mission_block(app, task, cx))
                 .children(
                     drawn(task.parent.is_some())
                         .then(|| fact("Parent", form::parent(app, task, cx)).into_any_element()),
@@ -413,6 +415,7 @@ fn body(
             let author = match comment.author {
                 CommentAuthor::User => "user",
                 CommentAuthor::Agent => "agent",
+                CommentAuthor::Ubiq => "ubiq",
             };
             let when = comment.created_at.format("%Y-%m-%d %H:%M").to_string();
             div()
@@ -539,6 +542,126 @@ fn open_mission(
                     )
                     .into_any_element(),
                 )
+                .into_any_element(),
+        )
+        .into_any_element(),
+    )
+}
+
+/// The **Mission** block on a subtask of a mission: the approve toggle, *+ Agent review* and
+/// *+ Human review*, and whichever of *Confirm / Reject…*, *Retry* and *Done / Fail…* the task's
+/// state calls for. Every button is one `MissionTask` message — the runner decides what it means.
+fn mission_block(
+    app: &AppState,
+    task: &TaskRecord,
+    cx: &mut Context<AppState>,
+) -> Option<AnyElement> {
+    use crate::state::mission::NoteKind;
+    use ubiq_proto::mission::{self, MissionTaskAction};
+
+    let parent = task.parent?;
+    app.mission(parent, cx)?;
+    let project_id = app.project(cx)?;
+    let id = task.id;
+    let definitions: Vec<String> = app
+        .workbench
+        .settings
+        .definitions_in(Some(project_id))
+        .into_iter()
+        .map(|definition| definition.id)
+        .collect();
+    let human = mission::is_human(task, &definitions);
+    let gone = mission::worker_gone(task, |agent| app.conversation_live(agent));
+    let closed = matches!(task.status, Status::Done | Status::Abandoned);
+
+    let act = |key: &'static str, label: &'static str, action: MissionTaskAction, cx: &mut Context<AppState>| {
+        ghost_button(
+            eid2(key, "mission-block", id),
+            None,
+            label,
+            cx.listener(move |this, _, _, cx| {
+                this.mission_task_action(project_id, id, action.clone(), cx)
+            }),
+        )
+        .into_any_element()
+    };
+    let note = |key: &'static str, label: &'static str, kind: NoteKind, cx: &mut Context<AppState>| {
+        ghost_button(
+            eid2(key, "mission-block", id),
+            None,
+            label,
+            cx.listener(move |this, _, _, cx| this.open_mission_note(kind, cx)),
+        )
+        .into_any_element()
+    };
+
+    let mut buttons: Vec<AnyElement> = Vec::new();
+    if task.status == Status::InReview && task.approve {
+        buttons.push(
+            primary_button(
+                eid2("confirm", "mission-block", id),
+                None,
+                "Confirm",
+                cx.listener(move |this, _, _, cx| {
+                    this.mission_task_action(project_id, id, MissionTaskAction::Confirm, cx)
+                }),
+            )
+            .into_any_element(),
+        );
+        buttons.push(note("reject", "Reject\u{2026}", NoteKind::Reject(id), cx));
+    }
+    if gone {
+        buttons.push(act("retry", "Retry", MissionTaskAction::Retry, cx));
+    }
+    if human && !closed {
+        buttons.push(act("done", "Done", MissionTaskAction::Done, cx));
+        // Fail sends its feedback to the task this one reviews; a checkpoint has none.
+        if task.review_of.is_some() {
+            buttons.push(note("fail", "Fail\u{2026}", NoteKind::Fail(id), cx));
+        }
+    }
+
+    let approve = task.approve;
+    Some(
+        fact(
+            "Mission",
+            div()
+                .flex()
+                .flex_col()
+                .gap_1p5()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(check_box(
+                            eid2("approve", "mission-block", id),
+                            approve,
+                            cx.listener(move |this, _, _, cx| this.set_task_approve(!approve, cx)),
+                        ))
+                        .child(mono("approve \u{2014} wait for Confirm", theme::text_muted())),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_1p5()
+                        .child(act(
+                            "agent-review",
+                            "+ Agent review",
+                            MissionTaskAction::AddReview { human: false },
+                            cx,
+                        ))
+                        .child(act(
+                            "human-review",
+                            "+ Human review",
+                            MissionTaskAction::AddReview { human: true },
+                            cx,
+                        )),
+                )
+                .when(!buttons.is_empty(), |col| {
+                    col.child(div().flex().flex_wrap().gap_1p5().children(buttons))
+                })
                 .into_any_element(),
         )
         .into_any_element(),

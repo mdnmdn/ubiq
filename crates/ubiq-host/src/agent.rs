@@ -769,6 +769,27 @@ impl Agents {
             .and_then(|record| record.description)
     }
 
+    /// Every definition id a project can see — its own and the global ones — from the config root
+    /// alone, on [`Self::definition_description`]'s footing. What the mission runner tells an
+    /// agent definition from a person in `assigned_to` with (`ubiq_proto::mission::is_human`).
+    pub fn definition_ids(root: &Path, project: ProjectId) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        let stores = [
+            FsProfileStore::new(definitions_dir(root)),
+            FsProfileStore::new(
+                crate::store::project_dir::ProjectData::under_config(root, project).definitions(),
+            ),
+        ];
+        for store in &stores {
+            for record in store.profiles().unwrap_or_default() {
+                if !ids.contains(&record.id) {
+                    ids.push(record.id);
+                }
+            }
+        }
+        ids
+    }
+
     /// What a definition saved under `defaults.mcps`, or `None` when it mentioned none — the
     /// distinction the library's own merge turns on, kept rather than flattened to a list.
     ///
@@ -937,8 +958,8 @@ impl Agents {
     /// Write the three definitions a fresh install starts with, if and only if the global root
     /// holds none and there is a harness to pin them to.
     ///
-    /// The three are the roles Ubiq's own MCP servers are split along — a mission's coordinator,
-    /// a mission's worker, and a helper that reads Ubiq's documentation — so a new install has a
+    /// The three are the roles Ubiq's own MCP servers are split along — a mission's planner, a
+    /// task's worker, and a helper that reads Ubiq's documentation — so a new install has a
     /// working agent for each without anyone assembling a server list by hand. Only ever a
     /// seeding: once one definition exists, the user's list is theirs, and deleting all three
     /// back to nothing is not an invitation to write them again on the next start.
@@ -958,10 +979,10 @@ impl Agents {
         for (id, description, tags, mcps) in [
             (
                 "Coordinator",
-                "Runs a mission end to end: writes the plan, breaks it into tasks and hands \
-                 them to workers, then tracks progress to completion. Carries ubiq-mission \
-                 (mission lifecycle), ubiq-plan (the plan document), manage-ubiq-tasks (create, \
-                 assign and update tasks) and ubiq-kb (the shared knowledge base).",
+                "Plans a mission: writes the plan with the user, then drafts the mission's \
+                 tasks for the runner to work. Carries ubiq-mission (the mission's brief, \
+                 documents and tasks), ubiq-plan (the plan document), manage-ubiq-tasks (create \
+                 and update tasks) and ubiq-kb (the shared knowledge base).",
                 vec![TAG_COORDINATOR, TAG_PLANNER],
                 Vec::new(),
             ),
@@ -974,10 +995,10 @@ impl Agents {
             ),
             (
                 "Worker",
-                "Works one task at a time inside a mission: reads the mission and the task it \
-                 was assigned, reports progress, and looks up project facts as needed. Carries \
-                 use-mission (read the mission), use-task (read and update the assigned task), \
-                 project-info (facts about the project) and ubiq-kb (the shared knowledge base).",
+                "Works one task at a time: reads the task it was given, moves it along the \
+                 board and comments on it, and looks up project facts as needed. Carries \
+                 use-task (read and update the assigned task), project-info (facts about the \
+                 project) and ubiq-kb (the shared knowledge base).",
                 vec![TAG_WORKER],
                 Vec::new(),
             ),
@@ -1536,8 +1557,14 @@ impl Agents {
         // A registry agent is often a script whose interpreter (node, python) lives on the
         // user's real `PATH`, so it gets that `PATH` once a registry check has asked for it —
         // unless the machine's own variables already named one.
-        if harness::registry_harnesses().iter().any(|it| it.id == agent_type)
-            && !provisioned.launch.env.iter().any(|(name, _)| name == "PATH")
+        if harness::registry_harnesses()
+            .iter()
+            .any(|it| it.id == agent_type)
+            && !provisioned
+                .launch
+                .env
+                .iter()
+                .any(|(name, _)| name == "PATH")
             && let Some(path) = crate::shells::user_path_if_known()
         {
             provisioned
@@ -2387,7 +2414,10 @@ mod tests {
             .save_definition(info(&["~/b"], Some(project)))
             .unwrap();
 
-        assert_eq!(agents.definitions().unwrap()[0].grants, vec![grant("/data/a")]);
+        assert_eq!(
+            agents.definitions().unwrap()[0].grants,
+            vec![grant("/data/a")]
+        );
         assert_eq!(
             agents.definition_extra_rw("review", Some(project)),
             vec!["~/b".to_string()]
@@ -2398,7 +2428,10 @@ mod tests {
         );
 
         let mut options = IsolateOptions::new(root.path().join("isol8"));
-        add_rw(&mut options, &["~/b".into(), "/data/a".into(), "/data/a".into()]);
+        add_rw(
+            &mut options,
+            &["~/b".into(), "/data/a".into(), "/data/a".into()],
+        );
         assert_eq!(
             options.extra_rw,
             vec![isolate::real_home().join("b"), PathBuf::from("/data/a")]
@@ -2830,7 +2863,7 @@ mod tests {
         };
         assert_eq!(
             by_id("Coordinator").mcps,
-            crate::mcp::catalogue::COORDINATOR_MCPS
+            crate::mcp::catalogue::PLANNER_MCPS
                 .iter()
                 .map(|it| it.to_string())
                 .collect::<Vec<_>>()
@@ -2916,9 +2949,11 @@ mod tests {
         assert!(agents.project_definitions(project).unwrap()[0].disabled);
 
         assert!(agents.delete_definition("standard", Some(project)).is_err());
-        assert!(agents
-            .delete_definition("../standard", Some(project))
-            .is_err());
+        assert!(
+            agents
+                .delete_definition("../standard", Some(project))
+                .is_err()
+        );
         agents
             .delete_definition("standard copy", Some(project))
             .unwrap();

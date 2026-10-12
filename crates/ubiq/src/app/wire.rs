@@ -1750,23 +1750,24 @@ impl AppState {
                 // the id it was going to be given — the same mechanism `AppState::adding` uses to
                 // open the project an `AddProject` answers with.
                 let mut pending = None;
-                let mut pending_mission = None;
+                let mut pending_parent = None;
                 if open.board.awaiting_new {
                     open.board.awaiting_new = false;
                     open.board.select(id);
                     // The rest of the draft: a `CreateTask` carries a title and a session, so a
                     // description and a title that has to be written both wait for the id.
                     pending = open.board.pending.take();
-                    // The new-mission dialog's own rest of the draft — the promotion, the
-                    // description and the assistant launch. Never both `Some`: one `CreateTask`
-                    // answers one `New task` or one `New mission` click, never both at once.
-                    pending_mission = open.board.pending_mission.take();
+                    pending_parent = open.board.pending_parent.take();
                 }
                 if let Some(pending) = pending {
                     self.settle_new_task(project_id, id, pending);
                 }
-                if let Some(pending_mission) = pending_mission {
-                    self.settle_new_mission(project_id, id, pending_mission);
+                if let Some(parent) = pending_parent {
+                    self.bus.send(Message::SetTaskField {
+                        project_id,
+                        task_id: id,
+                        field: ubiq_proto::messages::TaskField::Parent(Some(parent)),
+                    });
                 }
                 self.settle_window_layout(false, cx);
                 cx.notify();
@@ -1863,57 +1864,58 @@ impl AppState {
 
             // A broadcast: every window gets it and filters by project itself, `To::Everyone`'s
             // existing cost (`D120`). A window not holding the project drops it here. Keyed on the
-            // anchor task, so the same record twice is the same map.
+            // parent task, so the same snapshot twice is the same map. History is computed, not
+            // pushed, so a window showing it asks again when the mission moves.
             Message::MissionChanged {
                 project_id,
                 mission,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
-                open.missions.insert(mission.task_id, *mission);
+                let task_id = mission.task_id;
+                open.missions.insert(task_id, *mission);
+                let showing = open.mission_view.tab == crate::state::mission::MissionTab::History
+                    && open.mission_history.contains_key(&task_id);
+                if showing {
+                    self.bus.send(Message::LoadHistory {
+                        project_id,
+                        task_id,
+                    });
+                }
                 cx.notify();
             }
 
-            // An agent in the mission has asked for another agent (M13). **The host relays; the
-            // window launches** — so this is where the mission's spawn policy is applied, and the
-            // whole of the decision is `AppState::mission_spawn_requested`. Broadcast, like
-            // `MissionChanged`, so a window not holding the project drops it here.
-            Message::MissionSpawnRequest {
+            // The host asks this window to start a conversation for a mission (addressed to one
+            // client, never broadcast). The window starts it through its ordinary path and answers
+            // with `MissionLaunched`.
+            Message::MissionLaunch {
                 project_id,
                 task_id,
                 request,
             } => {
+                // A window that no longer holds the project still answers, so the host's launch
+                // is not left in flight forever.
                 if !self.projects.contains_key(&project_id) {
+                    self.bus.send(Message::MissionLaunched {
+                        project_id,
+                        task_id,
+                        id: request.id,
+                        outcome: ubiq_proto::mission::LaunchOutcome::Failed(
+                            "this window no longer has the project open".to_string(),
+                        ),
+                    });
                     return None;
                 }
-                self.mission_spawn_requested(project_id, task_id, *request, cx);
+                self.launch_for_mission(project_id, task_id, *request, cx);
             }
 
-            // One page of a mission's journal, newest first, sent only to whoever asked.
-            Message::Journal {
+            // A mission's computed history, newest first, sent only to whoever asked.
+            Message::MissionHistory {
                 project_id,
                 task_id,
                 entries,
-                more,
             } => {
                 let open = self.projects.get_mut(&project_id)?;
-                open.mission_journals
-                    .entry(task_id)
-                    .or_default()
-                    .page(entries, more);
-                cx.notify();
-            }
-
-            // One line, just written. Broadcast: a window holding the newest page appends it, and
-            // one that has never asked for a page has no list to append to and ignores it.
-            Message::JournalAppended {
-                project_id,
-                task_id,
-                entry,
-            } => {
-                let open = self.projects.get_mut(&project_id)?;
-                if let Some(journal) = open.mission_journals.get_mut(&task_id) {
-                    journal.appended(entry);
-                }
+                open.mission_history.insert(task_id, entries);
                 cx.notify();
             }
 
@@ -1923,7 +1925,7 @@ impl AppState {
             } => {
                 let open = self.projects.get_mut(&project_id)?;
                 open.missions.remove(&task_id);
-                open.mission_journals.remove(&task_id);
+                open.mission_history.remove(&task_id);
                 // A view pointed at a task that is no longer a mission points at nothing.
                 if open.mission_view.selected == Some(task_id) {
                     open.mission_view.selected = None;

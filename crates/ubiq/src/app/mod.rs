@@ -110,7 +110,7 @@ use ubiq_proto::kb::{KbAccess, KbSource, KbStore};
 use ubiq_proto::messages::{
     AgentDefinition, AgentPicks, CliShortcutAction, Message, Secret, WorkspaceInfo,
 };
-use ubiq_proto::mission::MissionRecord;
+use ubiq_proto::mission::{HistoryEntry, MissionSnapshot};
 use ubiq_proto::notifications::{
     Family, HISTORY_CAP, Level, MuteFor, MuteScope, NotificationRequest, UbiqLink,
 };
@@ -371,7 +371,7 @@ pub struct OpenProject {
     /// (`ubiq_proto::mission`, M1). A projection like `work`: replaced wholesale by `MissionList`
     /// and one record at a time by `MissionChanged`, so a record arriving twice changes nothing.
     /// Empty rather than absent until the `ListMissions` is answered.
-    pub missions: HashMap<TaskId, MissionRecord>,
+    pub missions: HashMap<TaskId, MissionSnapshot>,
     /// The last real annotation count this window was told for a project file, by its
     /// project-relative path — `true` for at least one, `false` for none — kept after the
     /// annotation surface closes rather than only while `workbench.plan` names the document.
@@ -391,11 +391,9 @@ pub struct OpenProject {
     /// How those missions are being looked at — the tab, the WBS selection, the state filter.
     /// Per project, for the reason the board's and the graph's views are.
     pub mission_view: MissionView,
-    /// Each mission's journal as this window has read it back (M12), keyed by the anchor task.
-    ///
-    /// Beside `mission_view` rather than on it: the view is cloned every frame by the full view,
-    /// and a growing page of history is not something to copy to draw a tab strip.
-    pub mission_journals: HashMap<TaskId, crate::state::mission::MissionJournal>,
+    /// Each mission's computed history as this window last asked for it, newest first, keyed by
+    /// the parent task. Beside `mission_view` rather than on it: the view is cloned every frame.
+    pub mission_history: HashMap<TaskId, Vec<HistoryEntry>>,
     /// The furniture this project was last left in, kept current so a background project is never
     /// written down wearing the active one's.
     prefs: prefs::ViewPrefs,
@@ -530,7 +528,7 @@ impl OpenProject {
             missions: HashMap::new(),
             annotation_hints: HashMap::new(),
             mission_view: MissionView::default(),
-            mission_journals: HashMap::new(),
+            mission_history: HashMap::new(),
             prefs,
             restored: false,
             persistent_settled: false,
@@ -1005,16 +1003,12 @@ pub struct AppState {
     /// moment it is made, so there is nothing half-typed to hold. The one exception is the name of
     /// a label that does not exist yet, which is typed before it is given a colour.
     pub task_title_input: Entity<InputState>,
-    /// The mission *Feedback* composers — the side panel's and the full view's *Activity* tab's
-    /// (M12).
-    ///
-    /// **Two entities, because both surfaces can be on screen at once.** One state drawn in two
-    /// places is one caret in two places; they are otherwise identical and both send through
-    /// `AppState::send_mission_feedback`, at the mission `WorkbenchState::feedback_mission` names.
-    /// Nothing mirrors what is typed: the value is read off the field when it is sent, the way
-    /// the definition-naming prompt's is.
-    pub mission_feedback_input: Entity<InputState>,
-    pub mission_feedback_tab_input: Entity<InputState>,
+    /// The mission *Guidance* composer at the foot of the side panel. Nothing mirrors what is
+    /// typed: the value is read off the field when it is sent, at the mission
+    /// `WorkbenchState::guidance_mission` names.
+    pub mission_guidance_input: Entity<InputState>,
+    /// The note dialog's textarea (reject, fail, replan, redo).
+    pub mission_note_input: Entity<TextareaState>,
     pub task_description_input: Entity<TextareaState>,
     pub task_key_input: Entity<InputState>,
     pub task_link_input: Entity<InputState>,

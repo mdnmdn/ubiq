@@ -1,79 +1,71 @@
 //! The new-mission dialog's own state.
 //!
-//! §5's table, widened rather than replaced: title, the requirements editor, attachments, linked
-//! tasks, the plan gate, the coordinator, and an optional plan seed — and one composed action:
-//! create the task, write the brief onto it, promote it, bring its record into being and start the
-//! coordinator. Nothing here sends a message; that is `AppState::start_new_mission`'s job, in
-//! `app/new_mission.rs`. This module only holds what was typed and answers what the pickers offer.
+//! One draft, one composed action: `Message::CreateMission` carrying a
+//! [`ubiq_proto::mission::NewMission`]. Nothing here sends a message; that is
+//! `AppState::start_new_mission`'s job, in `app/new_mission.rs`. This module only holds what was
+//! typed and turns it into the message body.
 //!
-//! **The brief is the anchor task's own fields** (M7): the description, the attachments and the
-//! linked tasks below are written with `UpdateTask` and `SetTaskField`, the messages a task
-//! already has. Nothing new crosses the bus for them, and the full view's *Brief* reads them back
-//! off the task rather than off the mission.
+//! **The host does everything else** — creating the parent task, writing the brief onto it, saving
+//! the initial plan as revision one and launching the planner. The dialog collects.
 
 use ubiq_proto::ids::TaskId;
-use ubiq_proto::messages::AgentDefinition;
-use ubiq_proto::work::AgentId;
+use ubiq_proto::mission::{Driver, InitialPlan, MissionSettings, NewMission};
 
-/// Who is to run the mission (M10 — coordinator and assistant are one role).
-///
-/// Two ways to name one agent, not two roles: a saved setup to launch, or an agent already running
-/// in this window to adopt. They are exclusive by construction rather than by a rule written
-/// somewhere — a mission has at most one coordinator at a time.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Coordinator {
-    /// A definition to launch, by [`AgentDefinition::id`].
-    AgentDefinition(String),
-    /// A conversation already running here, adopted as it is. Nothing is launched for it.
-    Running(AgentId),
+/// Where the initial plan comes from: nothing, a file picked through the attachment picker, or
+/// text pasted straight in.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum PlanSource {
+    #[default]
+    None,
+    /// An attachment target: a project-relative path or `kb:{source}:{path}`.
+    File(String),
+    /// The text typed or pasted into the dialog's plan textarea.
+    Paste,
 }
 
 /// Every answer the dialog holds, while it is up.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct NewMissionForm {
     pub title: String,
-    /// The **requirements**, in markdown — the anchor task's `description` (M7).
+    /// The **requirements**, in markdown — the parent task's `description`.
     pub description: String,
-    /// What the mission is about that is not prose: project paths and `kb:` addresses, exactly as
-    /// a task's own attachment list holds them. Written as `TaskField::Attachments`.
+    /// Project paths and `kb:` addresses, exactly as a task's own attachment list holds them.
     pub attachments: Vec<String>,
-    /// The tasks this mission names — the anchor's `references` (M7).
-    pub references: Vec<TaskId>,
-    /// **The plan gate** (M5): with it on, Refining → In progress is the user's to pass and the
-    /// host refuses it while the plan is empty or has open threads. Stored on the record as
-    /// `MissionField::RequirePlan`, and said in the coordinator's briefing besides.
-    pub require_plan: bool,
-    /// The chosen coordinator. `None` until one is picked, and Start is refused until it is.
-    pub coordinator: Option<Coordinator>,
-    /// Markdown to seed the plan with. Empty is no plan; anything else is saved as the plan's
-    /// first revision and starts the mission in `Refining` (M9).
-    pub plan_seed: String,
-    /// What is typed into the linked-task picker's own filter field.
+    /// Existing tasks that become the mission's subtasks.
+    pub include: Vec<TaskId>,
+    pub plan_source: PlanSource,
+    /// The pasted plan text, mirrored from the dialog's textarea.
+    pub plan_text: String,
+    pub driver: Driver,
+    /// Planner and worker, by agent-definition id. `None` is the project's default.
+    pub planner: Option<String>,
+    pub worker: Option<String>,
+    pub parallel: usize,
+    pub approve: bool,
+    /// What is typed into the include-tasks picker's own filter field.
     pub task_query: String,
-    /// Whether the coordinator picker's list is down.
-    pub open: bool,
-    /// Whether the linked-task picker's list is down.
+    pub planner_open: bool,
+    pub worker_open: bool,
     pub tasks_open: bool,
-    /// Whether the plan seed's editor is showing. Folded away by default: most missions start
-    /// without one, and a second text area open on every mission is a dialog that reads as work.
-    pub plan_open: bool,
+    /// Whether the *More* group is unfolded.
+    pub more_open: bool,
 }
 
 impl NewMissionForm {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            parallel: 1,
+            ..Self::default()
+        }
     }
 
-    /// Whether Start may be pressed: something to call it by, and somebody to run it.
-    ///
-    /// A blank title is allowed as long as there are requirements to take one from —
-    /// [`Self::effective_title`] — exactly as a task drafted with only a description is.
+    /// Whether Start may be pressed: something to call the mission by.
     pub fn ready(&self) -> bool {
-        !self.effective_title().is_empty() && self.coordinator.is_some()
+        !self.effective_title().is_empty()
     }
 
     /// What the mission is called: what was typed, or the description's first line when nothing
-    /// was. The board's own draft rule, applied one level up — a card is never called nothing.
+    /// was — a card is never called nothing.
     pub fn effective_title(&self) -> String {
         let typed = self.title.trim();
         if !typed.is_empty() {
@@ -87,210 +79,73 @@ impl NewMissionForm {
             .unwrap_or_default()
     }
 
-    /// The definition to launch, where the coordinator is one.
-    pub fn definition(&self) -> Option<&str> {
-        match self.coordinator.as_ref() {
-            Some(Coordinator::AgentDefinition(id)) => Some(id),
-            _ => None,
+    /// The message body. A paste with nothing pasted is no plan.
+    pub fn to_new_mission(&self) -> NewMission {
+        let initial_plan = match &self.plan_source {
+            PlanSource::None => InitialPlan::None,
+            PlanSource::File(target) => InitialPlan::File {
+                target: target.clone(),
+            },
+            PlanSource::Paste if self.plan_text.trim().is_empty() => InitialPlan::None,
+            PlanSource::Paste => InitialPlan::Paste {
+                body: self.plan_text.clone(),
+            },
+        };
+        NewMission {
+            title: self.effective_title(),
+            description: self.description.clone(),
+            attachments: self.attachments.clone(),
+            include: self.include.clone(),
+            initial_plan,
+            settings: MissionSettings {
+                driver: self.driver,
+                planner: self.planner.clone(),
+                worker: self.worker.clone(),
+                parallel: self.parallel.max(1),
+                approve: self.approve,
+                planner_agent: None,
+            },
         }
     }
-
-    /// The running agent to adopt, where the coordinator is one.
-    pub fn running(&self) -> Option<AgentId> {
-        match self.coordinator.as_ref() {
-            Some(Coordinator::Running(id)) => Some(*id),
-            _ => None,
-        }
-    }
-}
-
-/// What the coordinator picker's trigger says: the chosen row's label once one is picked, the
-/// placeholder until then. Kept as one function so the trigger and the test agree by construction
-/// — the bug this once was is a trigger that drew the placeholder unconditionally, ignoring what
-/// the form held — the same idiom `kit::multi_label` follows for the multi-select picker.
-///
-/// `rows` is the picker's own list in its own order: the definitions fit to run one, then the agents
-/// already running here (M10's *attach a running agent*).
-pub fn coordinator_label(
-    form: &NewMissionForm,
-    rows: &[(String, Coordinator)],
-    placeholder: &str,
-) -> String {
-    form.coordinator
-        .as_ref()
-        .and_then(|held| rows.iter().find(|(_, row)| row == held))
-        .map(|(label, _)| label.clone())
-        .unwrap_or_else(|| placeholder.to_string())
-}
-
-/// The definitions fit to run as a planning assistant, in the order the host listed them —
-/// [`AgentDefinition::mission_assistant`] ticked. `None`/`Some(false)` are both "not an assistant",
-/// the same reading every other filter over this field gives.
-pub fn assistants(definitions: &[AgentDefinition]) -> Vec<&AgentDefinition> {
-    definitions
-        .iter()
-        .filter(|definition| definition.mission_assistant == Some(true))
-        .collect()
-}
-
-/// The coordinator's opening turn — the briefing `Message::PromptAgent` carries as the
-/// conversation's first turn.
-///
-/// Carries the mission's title, description and id, names `ubiq-mission` as what the phase is
-/// moved through (M16), and says what `require plan` now *is*: a gate the host enforces on
-/// Refining → In progress (M5), not the reminder it was before the phase landed.
-///
-/// **It does not repeat the brief's attachments or linked tasks.** They are on the anchor task
-/// (M7) and the coordinator reads them there; a briefing that copied them would be a second
-/// version of the brief going stale the moment either is edited.
-pub fn mission_briefing(
-    title: &str,
-    description: &str,
-    task_id: TaskId,
-    require_plan: bool,
-    has_plan: bool,
-) -> String {
-    let mut text = format!("New mission: {title}\n\nTask id: {task_id}");
-    let description = description.trim();
-    if !description.is_empty() {
-        text.push_str("\n\n");
-        text.push_str(description);
-    }
-    text.push_str(
-        "\n\nYou are this mission's coordinator. Its requirements, attachments and linked tasks \
-         are the fields of the task above. Run it through `ubiq-mission`: ask for a phase move \
-         with `request_phase`, and the user confirms or declines it.",
-    );
-    if has_plan {
-        text.push_str(
-            "\n\nA plan was supplied with the mission and it starts in refining \u{2014} read it \
-             and refine it rather than starting a new one.",
-        );
-    }
-    if require_plan {
-        text.push_str(
-            "\n\nA plan is required: moving to in progress is the user's own gate, and it is \
-             refused while the plan is empty or has open threads.",
-        );
-    }
-    text
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn definition(id: &str, mission_assistant: Option<bool>) -> AgentDefinition {
-        AgentDefinition {
-            id: id.to_string(),
-            description: None,
-            agent_type: "claude-code".to_string(),
-            account: None,
-            model: None,
-            mode: None,
-            thinking: None,
-            max_subagents: None,
-            prompt: None,
-            mcps: Vec::new(),
-            skills: Vec::new(),
-            mission_assistant,
-            tags: Vec::new(),
-            disabled: false,
-            project: None,
-            grants: Vec::new(),
-        }
-    }
-
     #[test]
-    fn only_a_definition_ticked_true_is_offered() {
-        let definitions = vec![
-            definition("reviewer", Some(true)),
-            definition("writer", None),
-            definition("planner", Some(false)),
-            definition("coach", Some(true)),
-        ];
-        let ids: Vec<&str> = assistants(&definitions)
-            .into_iter()
-            .map(|p| p.id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["reviewer", "coach"]);
-    }
-
-    #[test]
-    fn ready_needs_a_name_and_a_coordinator() {
+    fn ready_needs_a_name() {
         let mut form = NewMissionForm::new();
         assert!(!form.ready());
         form.title = "Ship v2".to_string();
-        assert!(!form.ready(), "no coordinator chosen yet");
-        form.coordinator = Some(Coordinator::AgentDefinition("reviewer".to_string()));
         assert!(form.ready());
         form.title = "   ".to_string();
-        assert!(
-            !form.ready(),
-            "whitespace is not a title and there is no description"
-        );
+        assert!(!form.ready());
     }
 
     #[test]
     fn a_blank_title_is_taken_from_the_requirements() {
         let mut form = NewMissionForm::new();
         form.description = "\n# Payment retries\n\nThey fail twice.".to_string();
-        form.coordinator = Some(Coordinator::Running(AgentId::generate()));
         assert_eq!(form.effective_title(), "Payment retries");
-        assert!(form.ready(), "a description is enough to name a mission by");
     }
 
     #[test]
-    fn the_briefing_carries_the_title_the_id_the_description_and_the_surface() {
-        let id = TaskId::generate();
-        let text = mission_briefing("Ship v2", "Get it out the door.", id, false, false);
-        assert!(text.contains("Ship v2"));
-        assert!(text.contains(&id.to_string()));
-        assert!(text.contains("Get it out the door."));
-        assert!(text.contains("ubiq-mission"));
-        assert!(!text.contains("required"));
-    }
-
-    #[test]
-    fn require_plan_is_said_as_the_gate_it_now_is() {
-        let id = TaskId::generate();
-        let text = mission_briefing("Ship v2", "", id, true, false);
-        assert!(text.contains("A plan is required"));
-        assert!(text.contains("gate"));
-    }
-
-    #[test]
-    fn a_seeded_plan_is_said_so_the_coordinator_refines_rather_than_restarts() {
-        let id = TaskId::generate();
-        let text = mission_briefing("Ship v2", "", id, false, true);
-        assert!(text.contains("refining"));
-    }
-
-    #[test]
-    fn the_coordinator_trigger_says_what_was_picked() {
-        let rows = vec![
-            (
-                "planner".to_string(),
-                Coordinator::AgentDefinition("planner".to_string()),
-            ),
-            (
-                "coach".to_string(),
-                Coordinator::AgentDefinition("coach".to_string()),
-            ),
-        ];
+    fn the_plan_source_picks_the_initial_plan() {
         let mut form = NewMissionForm::new();
-        assert_eq!(
-            coordinator_label(&form, &rows, "Choose\u{2026}"),
-            "Choose\u{2026}"
-        );
-        form.coordinator = Some(Coordinator::AgentDefinition("coach".to_string()));
-        assert_eq!(coordinator_label(&form, &rows, "Choose\u{2026}"), "coach");
-        // A pick whose row is gone — a definition deleted while the dialog is up — falls back rather
-        // than drawing a stale name.
-        form.coordinator = Some(Coordinator::AgentDefinition("ghost".to_string()));
-        assert_eq!(
-            coordinator_label(&form, &rows, "Choose\u{2026}"),
-            "Choose\u{2026}"
-        );
+        form.title = "x".into();
+        assert_eq!(form.to_new_mission().initial_plan, InitialPlan::None);
+        form.plan_source = PlanSource::Paste;
+        assert_eq!(form.to_new_mission().initial_plan, InitialPlan::None);
+        form.plan_text = "# Plan".into();
+        assert!(matches!(
+            form.to_new_mission().initial_plan,
+            InitialPlan::Paste { .. }
+        ));
+        form.plan_source = PlanSource::File("wip/a.md".into());
+        assert!(matches!(
+            form.to_new_mission().initial_plan,
+            InitialPlan::File { .. }
+        ));
     }
 }

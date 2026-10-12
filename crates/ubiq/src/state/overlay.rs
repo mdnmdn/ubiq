@@ -105,6 +105,8 @@ pub enum Layer {
     /// mode (§6.2). Below the plan, because the full view's *Plan & docs* tab is one of the
     /// places that raises the plan surface over it.
     Mission,
+    /// The note dialog a mission asks words of the user with: reject, fail, replan, redo.
+    MissionNote,
     /// A task's plan, read as rendered markdown — raised from the task panel.
     Plan,
     /// The image/diagram zoom modal (T-185) — raised from a corner button on a scaled-down

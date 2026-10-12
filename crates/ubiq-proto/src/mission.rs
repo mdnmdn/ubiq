@@ -1,909 +1,563 @@
-//! A mission: its phase, who is on it, and how it is run.
+//! A mission: the phase it is in, how it is run, and what the runner needs to say about it.
 //!
-//! **A mission *is* its anchor task.** There is no `MissionId` and there never will be: the record
-//! below is a sidecar keyed by the same [`TaskId`] as the task carrying
-//! [`crate::work::Level::Mission`], exactly as that task's plan already is (`inbox-mission`, M1).
-//! Every existing message, handle, MCP tool and board affordance keeps working, and a mission can
-//! never exist without a card on the board.
+//! **A mission *is* its parent task.** There is no `MissionId`, no sidecar record and no journal
+//! file: the task carrying [`crate::work::Level::Mission`] holds the phase (as its
+//! [`crate::work::Status`], through [`Phase::of`]) and the settings
+//! ([`crate::work::TaskRecord::mission`]), and every event the runner has to remember is a
+//! [`RunEvent`] comment on the task it concerns. What a window draws is a [`MissionSnapshot`],
+//! **derived on every pass and never stored**.
 //!
-//! **One on-disk format, declared once.** The record holds every field the mission design names
-//! across its stages, not only the ones a surface reads today, and every one of them carries a
-//! serde default — so a `mission.toml` written by any build reads in any other, and a field that
-//! arrives later is not a migration. The host writes it at
-//! `<config root>/projects/<ProjectId>/missions/<TaskId>/mission.toml`, with `docs/` and
-//! `journal.jsonl` beside it.
-//!
-//! **The roster is stored, not derived.** Membership is "assigned to the mission's task or one of
-//! its children, *or* spawned by an agent that is in the mission" (M11), and the second half cannot
-//! be recomputed after the fact: `Work::assign_agent` clears a `WorkAgent::parent` on every
-//! reassignment, so the spawn link is gone the next time anybody asks. It is written down when it
-//! happens instead, together with the labels each member has held — which is the affinity set the
-//! scheduler reads (M24).
+//! The pure functions at the bottom ([`is_human`], [`satisfies`], [`worker_gone`]) are here because
+//! both halves must agree on the answer — the host's runner and the window's board chips read the
+//! same rule — not because they cross the bus.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{ProjectId, SpawnId, TaskId};
-use crate::work::AgentId;
+use crate::plan::PlanRevision;
+use crate::work::{AgentId, Status, TaskRecord};
 
-/// Where a mission has got to.
+/// Where a mission has got to — the parent task's [`Status`], read as a lifecycle.
 ///
-/// Its own field rather than a reading of the anchor's [`crate::work::Status`]: a mission's
-/// lifecycle has a gate in it the seven generic statuses have nowhere to put. The anchor's status
-/// is written *from* this by the host, so every existing filter stays right (M4).
+/// Not stored: [`Phase::of`] reads it off the parent's status and [`Phase::status`] is the inverse,
+/// so every board filter stays right with nothing to keep in step.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Phase {
-    /// The coordinator and the user are settling what the mission is.
+    /// The planner and the user are settling what the mission is and writing the plan.
     #[default]
-    Requirements,
-    /// The plan is being refined, through annotation threads and further documents.
-    Refining,
-    /// Tasks are created and worked.
-    InProgress,
+    Planning,
+    /// The plan is approved and is being cut into tasks.
+    Breakdown,
+    /// Tasks are worked.
+    Running,
+    /// Running, held by the user.
+    Paused,
+    /// Every task is finished and the mission awaits its final review.
+    Review,
     /// Everything is done.
-    Completed,
+    Done,
     /// Terminal, from any phase.
     Abandoned,
 }
 
 impl Phase {
+    /// The phase a parent task's status reads as.
+    pub fn of(status: Status) -> Phase {
+        match status {
+            Status::Backlog => Phase::Planning,
+            Status::Ready => Phase::Breakdown,
+            Status::InProgress => Phase::Running,
+            Status::Blocked => Phase::Paused,
+            Status::InReview => Phase::Review,
+            Status::Done => Phase::Done,
+            Status::Abandoned => Phase::Abandoned,
+        }
+    }
+
+    /// The parent task's status for this phase — [`Phase::of`]'s inverse.
+    pub fn status(self) -> Status {
+        match self {
+            Phase::Planning => Status::Backlog,
+            Phase::Breakdown => Status::Ready,
+            Phase::Running => Status::InProgress,
+            Phase::Paused => Status::Blocked,
+            Phase::Review => Status::InReview,
+            Phase::Done => Status::Done,
+            Phase::Abandoned => Status::Abandoned,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
-            Phase::Requirements => "requirements",
-            Phase::Refining => "refining",
-            Phase::InProgress => "in progress",
-            Phase::Completed => "completed",
+            Phase::Planning => "planning",
+            Phase::Breakdown => "breakdown",
+            Phase::Running => "running",
+            Phase::Paused => "paused",
+            Phase::Review => "review",
+            Phase::Done => "done",
             Phase::Abandoned => "abandoned",
         }
     }
 
-    pub fn all() -> [Phase; 5] {
+    pub fn all() -> [Phase; 7] {
         [
-            Phase::Requirements,
-            Phase::Refining,
-            Phase::InProgress,
-            Phase::Completed,
+            Phase::Planning,
+            Phase::Breakdown,
+            Phase::Running,
+            Phase::Paused,
+            Phase::Review,
+            Phase::Done,
             Phase::Abandoned,
         ]
     }
 
-    /// Where this phase sits in the lifecycle, for the one question the rules ask of two phases:
-    /// is the move forward or back. [`Phase::Abandoned`] sits past the end, so every move out of
-    /// it is a step back — which is exactly what un-abandoning a mission is.
-    pub fn order(self) -> usize {
+    /// Where this phase sits on the five-step stepper (planning, breakdown, running, review,
+    /// done). Paused sits on the running step; Abandoned is off the stepper.
+    pub fn step(self) -> Option<usize> {
         match self {
-            Phase::Requirements => 0,
-            Phase::Refining => 1,
-            Phase::InProgress => 2,
-            Phase::Completed => 3,
-            Phase::Abandoned => 4,
-        }
-    }
-
-    /// The anchor task's [`crate::work::Status`] for this phase — §3's table, and the whole of M4.
-    ///
-    /// The phase is the truth and this is the derivation: the host writes it on every transition,
-    /// so the board, the Teams tasks drawer and every existing filter stay right with no change to
-    /// any of them. The one case not readable here is In progress *while it needs the user*, which
-    /// the table gives as `Blocked`; the host adds that, because only the host knows whether
-    /// anything is pending.
-    pub fn anchor_status(self) -> crate::work::Status {
-        match self {
-            Phase::Requirements => crate::work::Status::InProgress,
-            Phase::Refining => crate::work::Status::InReview,
-            Phase::InProgress => crate::work::Status::InProgress,
-            Phase::Completed => crate::work::Status::Done,
-            Phase::Abandoned => crate::work::Status::Abandoned,
-        }
-    }
-
-    /// What dropping a mission's card in a board column means (M4).
-    ///
-    /// [`Self::anchor_status`]'s inverse where it has one, and a reading where it does not: the
-    /// three columns no phase writes — `Backlog`, `Ready`, `Blocked` — are the nearest phase
-    /// either side of them. A mission card's drag is a phase move, never a raw status write, so
-    /// this is where a column becomes a phase for both halves of the app.
-    pub fn for_status(status: crate::work::Status) -> Phase {
-        match status {
-            crate::work::Status::Backlog | crate::work::Status::Ready => Phase::Requirements,
-            crate::work::Status::InReview => Phase::Refining,
-            crate::work::Status::InProgress | crate::work::Status::Blocked => Phase::InProgress,
-            crate::work::Status::Done => Phase::Completed,
-            crate::work::Status::Abandoned => Phase::Abandoned,
+            Phase::Planning => Some(0),
+            Phase::Breakdown => Some(1),
+            Phase::Running | Phase::Paused => Some(2),
+            Phase::Review => Some(3),
+            Phase::Done => Some(4),
+            Phase::Abandoned => None,
         }
     }
 }
 
-/// Who moved something — a phase, a coordinator, a roster entry.
-///
-/// Three cases rather than an `Option<AgentId>`, because "the host did it on its own" and "the
-/// person at the keyboard did it" are different answers and a history that cannot tell them apart
-/// cannot be read back.
+/// Who starts the work while a mission is Running.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Actor {
-    /// The person at the keyboard, through a window.
+pub enum Driver {
+    /// The runner launches ready tasks, up to [`MissionSettings::parallel`].
     #[default]
-    User,
-    /// An agent, through the mission's MCP surface.
-    Agent(AgentId),
-    /// The host itself — an inferred phase, a lazily created record.
-    Host,
+    Auto,
+    /// The runner launches nothing; the ready tasks are listed and the user starts them.
+    Manual,
 }
 
-/// One entry in a mission's phase history: what it moved to, when, and who moved it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PhaseEntry {
-    pub phase: Phase,
-    pub at: DateTime<Utc>,
-    #[serde(default)]
-    pub by: Actor,
+fn default_parallel() -> usize {
+    1
 }
 
-/// A phase move somebody has asked for and nobody has answered yet (M5, M6).
-///
-/// **It lives on the record**, not in a side table in the host: it is the thing the panel's *Needs
-/// you* section draws, so it has to cross the bus — and [`crate::messages::Message::MissionChanged`]
-/// already carries the whole record to every window, so storing it here costs no new message. It
-/// is on disk for the same reason a phase is: a request outstanding when the host stops is still
-/// outstanding when it starts again.
+/// A mission's settings, held on the parent task ([`crate::work::TaskRecord::mission`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PendingPhase {
-    /// The phase asked for.
-    pub phase: Phase,
-    /// Who asked. Never [`Actor::User`]: the user does not ask, the user moves.
+pub struct MissionSettings {
     #[serde(default)]
-    pub by: Actor,
-    /// Why, in the requester's words — the sentence the *Needs you* row shows. A completion
-    /// request carries the summary M5 asks it for; the other requests may leave it empty.
+    pub driver: Driver,
+    /// The agent definition (by id) that plans. `None` is the project's default planner.
     #[serde(default)]
-    pub summary: String,
-    pub at: DateTime<Utc>,
+    pub planner: Option<String>,
+    /// The agent definition (by id) that works tasks. `None` is the project's default worker.
+    #[serde(default)]
+    pub worker: Option<String>,
+    /// How many workers may run at once. Never below one.
+    #[serde(default = "default_parallel")]
+    pub parallel: usize,
+    /// Whether a task waits for the user's confirmation in review by default.
+    #[serde(default)]
+    pub approve: bool,
+    /// The planner's conversation — the handle a resume goes through.
+    #[serde(default)]
+    pub planner_agent: Option<AgentId>,
 }
 
-/// An agent a member of the mission has asked for and nobody has launched yet (M13).
-///
-/// **[`PendingPhase`]'s shape, and it lives on the record for [`PendingPhase`]'s reason**: it is
-/// what the panel's *Needs you* draws, [`crate::messages::Message::MissionChanged`] already carries
-/// the whole record to every window, and a request outstanding when the host stops is still
-/// outstanding when it starts again.
-///
-/// **Plural where the phase is singular.** At most one phase move can be pending because a
-/// coordinator that has changed its mind is not two questions; two members each waiting on a worker
-/// *are* two questions, and answering one must not throw the other away.
-///
-/// Nothing here is a launch. The host relays what was asked for; the window resolves the kind to a
-/// composition, applies the spawn policy and mints the [`AgentId`] — so this names a **kind**, and
-/// a definition only for the `custom` case where the requester named one outright.
+impl Default for MissionSettings {
+    fn default() -> Self {
+        Self {
+            driver: Driver::default(),
+            planner: None,
+            worker: None,
+            parallel: default_parallel(),
+            approve: false,
+            planner_agent: None,
+        }
+    }
+}
+
+impl MissionSettings {
+    /// What a mission parent with no settings reads as: [`Driver::Manual`], so a mission written
+    /// before the runner existed never launches anything on its own.
+    pub fn legacy() -> Self {
+        Self {
+            driver: Driver::Manual,
+            ..Self::default()
+        }
+    }
+
+    /// [`Self::parallel`], clamped to at least one.
+    pub fn parallelism(&self) -> usize {
+        self.parallel.max(1)
+    }
+}
+
+/// One of a mission's settings, with the value to set it to — [`crate::messages::TaskField`]'s
+/// shape: one variant on the wire rather than a message per setting, and `None` is the cleared
+/// state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PendingSpawn {
-    /// Minted host-side at the `spawn_agent` call and handed straight back to the requester, which
-    /// is why the tool can answer without waiting for anything.
+pub enum MissionField {
+    Driver(Driver),
+    Planner(Option<String>),
+    Worker(Option<String>),
+    Parallel(usize),
+    Approve(bool),
+}
+
+/// What the runner launches an agent as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LaunchRole {
+    /// The mission's planner, persistent, resumable.
+    Planner,
+    /// An agent working one task.
+    Worker,
+    /// An agent reviewing a task that has `review_of`.
+    Reviewer,
+    /// The final review, on the mission parent.
+    MissionReviewer,
+}
+
+/// One thing the runner recorded, as a comment on the task it concerns
+/// ([`crate::work::Comment::event`]). The comment's text carries the prose — feedback, findings or
+/// a reason — where the variant says so.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum RunEvent {
+    /// The mission moved to a phase.
+    Phase { to: Phase },
+    /// The planner asked for a phase move; the user decides. Never moves the phase.
+    PhaseRequested { to: Phase, summary: String },
+    /// An agent was launched on the task.
+    Spawned {
+        agent: AgentId,
+        role: LaunchRole,
+        retry: bool,
+    },
+    /// An agent finished its turn on the task.
+    Finished { agent: Option<AgentId> },
+    /// The agent working the task is no longer live.
+    Gone { agent: AgentId },
+    /// The user confirmed the task.
+    Confirmed,
+    /// The user rejected the task; the text is the feedback.
+    Rejected,
+    /// A person finished a task assigned to them.
+    HumanDone,
+    /// A person failed a task assigned to them; the text is the feedback.
+    HumanFailed,
+    /// A reviewer's verdict; the text is the findings.
+    ReviewVerdict { pass: bool },
+    /// The user added guidance to the mission.
+    Guidance { sent_to_running: bool },
+    /// A task changed column.
+    Moved { from: Status, to: Status },
+    /// An agent was stopped.
+    Stopped { agent: AgentId },
+    /// A launch failed; the text is the reason.
+    LaunchFailed,
+}
+
+/// A launch the host asks a window to perform, because only a window can start a conversation.
+///
+/// Everything in it is decided host-side except which definition runs when `definition` is `None`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchRequest {
+    /// Minted host-side; the window echoes it in [`crate::messages::Message::MissionLaunched`].
     pub id: SpawnId,
-    /// Who asked. Never [`Actor::User`]: the user does not ask for an agent, the user spawns one.
+    pub role: LaunchRole,
+    /// What to assign the new agent to — the mission parent for the planner and the mission
+    /// reviewer, the task itself otherwise.
+    pub task: TaskId,
+    /// The definition to start from. `None` leaves the window to pick the project's default for
+    /// the role.
     #[serde(default)]
-    pub by: Actor,
-    /// One of [`MissionRecord::agent_kinds`] by name, or `custom` beside a [`Self::definition`].
-    pub kind: String,
-    /// A definition named outright, for the `custom` kind. The window still resolves it — an agent
-    /// naming a definition is naming a saved setup, never a harness, an account or a credential.
-    ///
-    /// `alias` because this field was called `profile` before the rename (`D174`): a mission
-    /// record written by an older build still says so, and a spawn request that lost its
-    /// definition would silently launch the wrong thing.
-    #[serde(default, alias = "profile")]
     pub definition: Option<String>,
-    /// The task the new agent is for, when the requester had one in mind.
+    /// The MCP servers to attach, chosen by the host.
     #[serde(default)]
-    pub task: Option<TaskId>,
-    /// The opening prompt the new agent should be launched with.
+    pub mcps: Vec<String>,
+    /// The opening prompt, composed by the host.
     #[serde(default)]
     pub prompt: String,
-    /// Why, in the requester's words — the sentence the *Needs you* row shows.
+    /// The conversation to revive instead of starting a fresh one. Planner only.
     #[serde(default)]
-    pub reason: String,
-    /// Whether the mission's scheduler asked for this one rather than an agent (M23).
-    ///
-    /// **It bypasses [`SpawnPolicy::Ask`]** — choosing [`ExecutionMode::Auto`] *is* the consent,
-    /// and a scheduler that stopped at every launch to ask would not be a scheduler. It is capped
-    /// by [`MissionRecord::parallelism`] instead, which the host applies before the request is
-    /// ever made. The window still mints the [`AgentId`] and still refuses under
-    /// [`SpawnPolicy::Never`]; only the *asking* is skipped.
+    pub resume: Option<AgentId>,
+    /// Whether the conversation stays loaded between turns. True for the planner.
     #[serde(default)]
-    pub auto: bool,
-    pub at: DateTime<Utc>,
+    pub persistent: bool,
 }
 
-/// What became of a [`PendingSpawn`], as the window reports it back (M13).
+/// What became of a [`LaunchRequest`], as the window reports it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LaunchOutcome {
+    /// The window launched it. The id is the window's own mint, as every [`AgentId`] is.
+    Launched(AgentId),
+    /// It could not be launched; the sentence is the reason.
+    Failed(String),
+}
+
+/// Something that needs the user, derived from the tree on every pass.
 ///
-/// The kind is carried on both arms rather than read back off the request, because the user may
-/// **change** it in the *Needs you* row before allowing: what the requester is told is the kind
-/// actually used, which is only knowable here.
+/// *Planner is asking* and *worker permission request* are not here: the window reads them off the
+/// agent's own `Activity::NeedsYou` for the agents in [`MissionSnapshot::agents`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SpawnOutcome {
-    /// The window launched one. The id is the window's own mint, as every [`AgentId`] is.
-    Launched { agent: AgentId, kind: String },
-    /// The policy refused it, or the user did. `reason` is the sentence the requester reads.
-    Declined { reason: String },
+pub enum NeedsYou {
+    /// The planner asked for the breakdown; `open_threads` annotation threads are still open.
+    PlanReady { open_threads: usize },
+    /// The planner drafted the tasks and asked to run.
+    TasksDrafted,
+    /// The planner is not live while the mission is Planning or Breakdown.
+    PlannerStopped,
+    /// A task is in review and waits for the user's confirmation.
+    AwaitingApproval { task: TaskId },
+    /// A task is assigned to a person.
+    HumanTask { task: TaskId },
+    /// The agent working the task is gone.
+    WorkerGone { task: TaskId },
+    /// Two agent reviews in a row failed against the task.
+    ReviewFailedTwice { task: TaskId },
+    /// Every task is finished; these are still in review.
+    ReadyForReview { left_in_review: Vec<TaskId> },
 }
 
-/// One entry in a mission's coordinator history. `agent` absent is the coordinator being cleared.
+/// A live agent working a task.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CoordinatorEntry {
-    #[serde(default)]
-    pub agent: Option<AgentId>,
-    pub at: DateTime<Utc>,
-    #[serde(default)]
-    pub by: Actor,
-}
-
-/// What an agent is in a mission for.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MissionRole {
-    /// The one agent that plans, asks and requests the phase moves.
-    Coordinator,
-    /// Everybody else.
-    #[default]
-    Worker,
-}
-
-/// One agent's membership of a mission, as it was written down when it happened.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RosterEntry {
+pub struct RunningWorker {
+    pub task: TaskId,
     pub agent: AgentId,
-    #[serde(default)]
-    pub role: MissionRole,
-    /// The labels of every task this agent has held in this mission — its affinity set (M24).
-    /// Accumulated, never recomputed: the tasks it held may since have been relabelled or deleted.
-    #[serde(default)]
-    pub labels: Vec<String>,
-    pub joined_at: DateTime<Utc>,
-    /// When it left, absent while it is still in. A member is kept rather than removed so the
-    /// history can be read back.
-    #[serde(default)]
-    pub left_at: Option<DateTime<Utc>>,
-
-    // ── the scheduler's bookkeeping (M23, M24) ──────────────────────
-    /// Whether the mission's scheduler is the one that gave this agent work.
-    ///
-    /// The scheduler only counts, reuses and retires **its own** agents: a coordinator, an agent a
-    /// person attached by hand and an agent a member spawned for its own reasons are none of its
-    /// business, and an autonomous scheduler that stops an agent nobody gave it is the failure
-    /// this flag prevents.
-    #[serde(default)]
-    pub scheduled: bool,
-    /// The task this member is holding for the scheduler right now, if any — its slot.
-    #[serde(default)]
-    pub current_task: Option<TaskId>,
-    /// When [`Self::current_task`] was handed over, which is what the idle grace is measured from.
-    #[serde(default)]
-    pub held_since: Option<DateTime<Utc>>,
-    /// When this member was last handed anything — the tie-break when two agents have the same
-    /// affinity, "the most recent holder" (M24).
-    #[serde(default)]
-    pub last_held_at: Option<DateTime<Utc>>,
-    /// How many tasks this member has been handed in this mission, against
-    /// [`MissionRecord::max_tasks_per_agent`].
-    #[serde(default)]
-    pub tasks_held: usize,
+    pub role: LaunchRole,
+    /// When the `Spawned` comment was written.
+    pub since: DateTime<Utc>,
 }
 
-impl RosterEntry {
-    /// A fresh membership, holding nothing.
-    pub fn new(agent: AgentId, role: MissionRole, joined_at: DateTime<Utc>) -> Self {
-        Self {
-            agent,
-            role,
-            labels: Vec::new(),
-            joined_at,
-            left_at: None,
-            scheduled: false,
-            current_task: None,
-            held_since: None,
-            last_held_at: None,
-            tasks_held: 0,
-        }
-    }
-
-    /// How well this member fits a task: how many of the task's labels are in its affinity set
-    /// (M24). **Zero never reuses an agent** — that rule is the caller's, because zero is still a
-    /// meaningful answer to "how well".
-    pub fn affinity(&self, labels: &[String]) -> usize {
-        labels
-            .iter()
-            .filter(|label| {
-                self.labels
-                    .iter()
-                    .any(|held| held.eq_ignore_ascii_case(label))
-            })
-            .count()
-    }
-
-    /// Fold a task's labels into this member's affinity set, keeping it a set.
-    pub fn learn(&mut self, labels: &[String]) {
-        for label in labels {
-            if !self
-                .labels
-                .iter()
-                .any(|held| held.eq_ignore_ascii_case(label))
-            {
-                self.labels.push(label.clone());
-            }
-        }
-    }
-}
-
-/// How many times one task has been released back to `Ready` by a failed attempt (M23).
-///
-/// A list rather than a map because `mission.toml` is TOML: a table keyed by a raw id reads
-/// badly and a key that is not a bare word has to be quoted, and this is read far more often by a
-/// person debugging a mission than by anything else.
+/// A mission as a window draws it. **Derived on every runner pass and never stored.**
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TaskAttempts {
-    pub task: TaskId,
-    pub attempts: usize,
-}
-
-/// The agent kind the planner suggested for one task (M21).
-///
-/// **On the mission, not on the task.** A [`crate::work::TaskRecord`] is a board fact and a
-/// mission's agent kinds are the mission's own vocabulary — a task carrying the name of a kind
-/// that only one mission has ever heard of would be a board field nothing else can read. It is
-/// [`TaskAttempts`]' shape and lives beside it for the same reason.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TaskKind {
-    pub task: TaskId,
-    pub kind: String,
-}
-
-/// How the In-progress phase is run (M22).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ExecutionMode {
-    /// Tasks are completed by the user, or by agents the coordinator spawns and assigns.
-    /// Readiness is advisory: shown everywhere, enforced nowhere.
-    #[default]
-    Manual,
-    /// The mission scheduler hands ready tasks to agents, at [`MissionRecord::parallelism`].
-    Auto,
-}
-
-/// What becomes of a scheduler's agent when its task is finished (M23).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OnFinish {
-    /// Hand it another task with enough affinity, else stop it.
-    #[default]
-    ReuseOrStop,
-    /// Always stop it. Its conversation stays resumable either way.
-    Stop,
-}
-
-/// What happens when an agent in the mission asks for another agent (M13).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SpawnPolicy {
-    /// A row in the panel's *Needs you*, where the user may change the kind before allowing.
-    #[default]
-    Ask,
-    /// Launched without asking, up to [`MissionRecord::spawn_limit`] concurrent.
-    Auto,
-    /// Refused.
-    Never,
-}
-
-/// One of the kinds of agent a mission may spawn: what to call it, what it resolves to, and a
-/// line the requesting agent reads to choose between them (M13).
-///
-/// The launch itself is still the window's — an agent asks for a *kind*, never for a concrete
-/// composition, so the one-minter rule for an [`AgentId`] holds.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentKind {
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    /// The saved setup it resolves to. The four fields below override it, exactly as a launch's
-    /// picks already outrank a definition's. `alias` reads what older records call `profile`
-    /// (`D174`).
-    #[serde(default, alias = "profile")]
-    pub definition: Option<String>,
-    #[serde(default)]
-    pub agent_type: Option<String>,
-    #[serde(default)]
-    pub account: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub permission_mode: Option<String>,
-    /// What this kind is good at, in the task labels' own vocabulary (M24).
-    #[serde(default)]
-    pub labels: Vec<String>,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_parallelism() -> usize {
-    2
-}
-
-fn default_spawn_limit() -> usize {
-    2
-}
-
-fn default_max_tasks_per_agent() -> usize {
-    3
-}
-
-fn default_max_attempts() -> usize {
-    2
-}
-
-/// A mission, whole — everything about one that is not already on its anchor task.
-///
-/// The brief (description, attachments, references), the children and the plan are **not** here:
-/// they are the task's own fields and the plan store's, reused rather than copied (M7, M9).
-///
-/// Every field carries a serde default except the two ids, which have none by construction — an
-/// id that was not minted is a nil id that looks real — and which the store writes on every save.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MissionRecord {
-    /// The project the anchor task belongs to.
+pub struct MissionSnapshot {
     pub project_id: ProjectId,
-    /// The anchor task — the mission's identity (M1).
+    /// The parent task — the mission's identity. No default: an id that was not minted is a nil
+    /// id that looks real.
     pub task_id: TaskId,
-
-    // ── the lifecycle ───────────────────────────────────────────────
     #[serde(default)]
     pub phase: Phase,
-    /// Every phase this mission has been in, oldest first, including the one it is in now.
     #[serde(default)]
-    pub phase_history: Vec<PhaseEntry>,
-    /// The phase move waiting on the user, if one is. At most one at a time: a second request
-    /// replaces the first, because a coordinator that has changed its mind is not two questions.
-    #[serde(default)]
-    pub pending_phase: Option<PendingPhase>,
-
-    // ── who is on it ────────────────────────────────────────────────
-    /// The agent that plans, asks and requests the phase moves. Absent until one is attached.
-    #[serde(default)]
-    pub coordinator: Option<AgentId>,
-    /// Every agent that has been the coordinator, oldest first.
-    #[serde(default)]
-    pub coordinator_history: Vec<CoordinatorEntry>,
-    /// Who is in the mission, and who has been — stored rather than derived, for the reason this
-    /// module's doc comment gives.
-    #[serde(default)]
-    pub roster: Vec<RosterEntry>,
-
-    // ── the gates ───────────────────────────────────────────────────
-    /// Whether Refining → In progress is a human gate: plan approval, the moment the user commits
-    /// agents and spend (M5).
-    #[serde(default)]
-    pub require_plan: bool,
-    /// Whether Requirements → Refining moves without asking. Nothing is at stake there, so it is
-    /// on by default.
-    #[serde(default = "default_true")]
-    pub auto_refine: bool,
-
-    // ── how it is run ───────────────────────────────────────────────
-    #[serde(default)]
-    pub execution: ExecutionMode,
-    /// How many tasks the scheduler may have in flight at once, in [`ExecutionMode::Auto`].
-    #[serde(default = "default_parallelism")]
-    pub parallelism: usize,
-    #[serde(default)]
-    pub on_finish: OnFinish,
-    /// How many tasks one agent may be handed in this mission before a fresh one is spawned
-    /// instead — a fresh context beats a bloated one.
-    #[serde(default = "default_max_tasks_per_agent")]
-    pub max_tasks_per_agent: usize,
-    /// How many times a task may be released back to `Ready` by a failed attempt before it is
-    /// blocked and the user is told.
-    #[serde(default = "default_max_attempts")]
-    pub max_attempts: usize,
-    /// What each task has cost the scheduler in failed attempts so far, against
-    /// [`Self::max_attempts`]. Only tasks that have failed at least once appear.
-    #[serde(default, rename = "attempt")]
-    pub attempts: Vec<TaskAttempts>,
-    /// The agent kind the planner suggested for a task, where it suggested one (M21).
-    #[serde(default, rename = "task_kind")]
-    pub task_kinds: Vec<TaskKind>,
-    /// Whether the scheduler has already said the work is finished, so it says it once rather
-    /// than on every wake. Cleared the moment it hands anything out again.
-    #[serde(default)]
-    pub scheduler_done: bool,
-
-    // ── spawning ────────────────────────────────────────────────────
-    #[serde(default)]
-    pub spawn_policy: SpawnPolicy,
-    /// The concurrency cap for [`SpawnPolicy::Auto`], ignored by the other two.
-    #[serde(default = "default_spawn_limit")]
-    pub spawn_limit: usize,
-    /// The kinds of agent this mission may spawn, seeded from the project's definitions.
-    #[serde(default)]
-    pub agent_kinds: Vec<AgentKind>,
-    /// Which of [`Self::agent_kinds`] a request that names none resolves to, by name.
-    #[serde(default)]
-    pub default_kind: Option<String>,
-    /// The agents members have asked for and nobody has launched yet — [`Self::pending_phase`]'s
-    /// place in *Needs you*, and see [`PendingSpawn`] for why this one is a list.
-    #[serde(default)]
-    pub pending_spawns: Vec<PendingSpawn>,
-
-    // ── the documents ───────────────────────────────────────────────
-    /// The names of the documents in `missions/<TaskId>/docs/`, without the `.md`, sorted.
-    ///
-    /// **Derived, not authored** — the host refreshes it from the directory every time it reads
-    /// the record, so a file the user dropped in by hand is listed and a stale name never is. It
-    /// lives here rather than in a listing message of its own because
-    /// [`crate::messages::Message::MissionChanged`] already carries the whole record to every
-    /// window on every mutation: a window learns which documents exist for free, and the *Plan &
-    /// docs* tab needs no second round trip (M8, M16).
-    ///
-    /// It is serialised like every other field — the same derive carries the record over the bus
-    /// as well as into `mission.toml` — but the copy in the file is never read as truth: the host
-    /// overwrites it from the directory on every load.
+    pub settings: MissionSettings,
+    /// The names in the docs directory, without the `.md`, `guidance` included.
     #[serde(default)]
     pub documents: Vec<String>,
-
-    // ── stamps ──────────────────────────────────────────────────────
+    /// Open annotation threads on the plan.
     #[serde(default)]
-    pub created_at: DateTime<Utc>,
+    pub open_threads: usize,
     #[serde(default)]
-    pub updated_at: DateTime<Utc>,
+    pub needs_you: Vec<NeedsYou>,
+    #[serde(default)]
+    pub running: Vec<RunningWorker>,
+    /// Ready tasks, filled only for [`Driver::Manual`].
+    #[serde(default)]
+    pub next: Vec<TaskId>,
+    /// The live planner and the live workers and reviewers.
+    #[serde(default)]
+    pub agents: Vec<AgentId>,
+    /// When the latest breakdown that followed a Running phase began; the added, changed and
+    /// abandoned marks are read against it.
+    #[serde(default)]
+    pub replan_at: Option<DateTime<Utc>>,
 }
 
-impl MissionRecord {
-    /// A record for a task, in a phase somebody else inferred. The host stamps both times and
-    /// opens the phase history with the phase it starts in, so a record always says how it got
-    /// where it is.
-    pub fn new(project_id: ProjectId, task_id: TaskId, phase: Phase, at: DateTime<Utc>) -> Self {
-        Self {
-            project_id,
-            task_id,
-            phase,
-            phase_history: vec![PhaseEntry {
-                phase,
-                at,
-                by: Actor::Host,
-            }],
-            pending_phase: None,
-            coordinator: None,
-            coordinator_history: Vec::new(),
-            roster: Vec::new(),
-            require_plan: false,
-            auto_refine: true,
-            execution: ExecutionMode::default(),
-            parallelism: default_parallelism(),
-            on_finish: OnFinish::default(),
-            max_tasks_per_agent: default_max_tasks_per_agent(),
-            max_attempts: default_max_attempts(),
-            attempts: Vec::new(),
-            task_kinds: Vec::new(),
-            scheduler_done: false,
-            spawn_policy: SpawnPolicy::default(),
-            spawn_limit: default_spawn_limit(),
-            agent_kinds: Vec::new(),
-            default_kind: None,
-            pending_spawns: Vec::new(),
-            documents: Vec::new(),
-            created_at: at,
-            updated_at: at,
-        }
-    }
-
-    /// Whether anything has happened in this mission that a demotion would lose — the test M3
-    /// refuses a demotion on. The journal is a file rather than a field, so its half of the
-    /// question is the store's.
-    pub fn has_members(&self) -> bool {
-        !self.roster.is_empty()
-    }
-
-    /// This agent's roster entry while it is still in — a member that has left is history, not
-    /// membership, which is the whole reason `left_at` is kept rather than the row removed.
-    pub fn member(&self, agent: AgentId) -> Option<&RosterEntry> {
-        self.roster
-            .iter()
-            .find(|entry| entry.agent == agent && entry.left_at.is_none())
-    }
-
-    /// One of [`Self::agent_kinds`] by name, matched case-insensitively — an agent writing
-    /// `Reviewer` for a row called `reviewer` has named the row it meant.
-    pub fn kind_named(&self, name: &str) -> Option<&AgentKind> {
-        let name = name.trim();
-        self.agent_kinds
-            .iter()
-            .find(|kind| kind.name.eq_ignore_ascii_case(name))
-    }
-
-    /// The spawn request this id names, while it is still outstanding.
-    pub fn pending_spawn(&self, id: SpawnId) -> Option<&PendingSpawn> {
-        self.pending_spawns.iter().find(|spawn| spawn.id == id)
-    }
-
-    // ── the scheduler's state (M23) ─────────────────────────────────
-
-    /// Whether the scheduler is the one assigning this mission's work right now.
-    ///
-    /// **Auto only runs in the In-progress phase** (M22): leaving it pauses the scheduler rather
-    /// than switching the mode, so the setting is still what the user chose when they come back.
-    pub fn scheduling(&self) -> bool {
-        self.execution == ExecutionMode::Auto && self.phase == Phase::InProgress
-    }
-
-    /// The members the scheduler may reuse, retire and count against its slots — its own, still
-    /// in, and never the coordinator.
-    pub fn scheduler_members(&self) -> impl Iterator<Item = &RosterEntry> {
-        self.roster.iter().filter(|entry| {
-            entry.left_at.is_none() && entry.scheduled && entry.role != MissionRole::Coordinator
-        })
-    }
-
-    /// One member's row while it is still in, to write the scheduler's bookkeeping onto.
-    pub fn member_mut(&mut self, agent: AgentId) -> Option<&mut RosterEntry> {
-        self.roster
-            .iter_mut()
-            .find(|entry| entry.agent == agent && entry.left_at.is_none())
-    }
-
-    /// How many failed attempts this task has cost so far.
-    pub fn attempts_of(&self, task: TaskId) -> usize {
-        self.attempts
-            .iter()
-            .find(|row| row.task == task)
-            .map_or(0, |row| row.attempts)
-    }
-
-    /// Count one more failed attempt against a task, and answer the new total.
-    pub fn note_attempt(&mut self, task: TaskId) -> usize {
-        match self.attempts.iter_mut().find(|row| row.task == task) {
-            Some(row) => {
-                row.attempts += 1;
-                row.attempts
-            }
-            None => {
-                self.attempts.push(TaskAttempts { task, attempts: 1 });
-                1
-            }
-        }
-    }
-
-    /// The agent kind the planner asked for on this task, if it asked for one.
-    pub fn task_kind(&self, task: TaskId) -> Option<&str> {
-        self.task_kinds
-            .iter()
-            .find(|row| row.task == task)
-            .map(|row| row.kind.as_str())
-    }
-
-    /// Record the planner's suggested kind for a task, replacing any earlier one. An empty name
-    /// clears it.
-    pub fn set_task_kind(&mut self, task: TaskId, kind: Option<String>) {
-        self.task_kinds.retain(|row| row.task != task);
-        if let Some(kind) = kind
-            .map(|kind| kind.trim().to_string())
-            .filter(|k| !k.is_empty())
-        {
-            self.task_kinds.push(TaskKind { task, kind });
-        }
-    }
-
-    /// The agent kind that best fits a task's labels, for a fresh spawn (M24): the most overlap,
-    /// and the mission's default kind when nothing overlaps at all.
-    pub fn kind_for(&self, labels: &[String]) -> Option<String> {
-        let best = self
-            .agent_kinds
-            .iter()
-            .map(|kind| {
-                let score = labels
-                    .iter()
-                    .filter(|label| {
-                        kind.labels
-                            .iter()
-                            .any(|held| held.eq_ignore_ascii_case(label))
-                    })
-                    .count();
-                (score, kind)
-            })
-            .filter(|(score, _)| *score > 0)
-            .max_by_key(|(score, _)| *score)
-            .map(|(_, kind)| kind.name.clone());
-        best.or_else(|| self.default_kind.clone())
-            .or_else(|| (self.agent_kinds.len() == 1).then(|| self.agent_kinds[0].name.clone()))
-    }
+/// Where a new mission's first plan comes from.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InitialPlan {
+    /// The planner writes it from scratch.
+    #[default]
+    None,
+    /// A file: a project-relative path or `kb:{source}:{path}`.
+    File { target: String },
+    /// Pasted text, saved as revision 1.
+    Paste { body: String },
 }
 
-/// What happened in a mission, as one journal line names it (M12).
-///
-/// A closed set rather than free text, so the *Activity* tab can filter by kind and by agent
-/// without parsing sentences. The sentence a surface draws is [`JournalEntry::text`], written by
-/// the host beside the kind — one reading, so a window and an agent never disagree about what a
-/// line says.
+/// Everything the new-mission dialog decides, in one message: the host does the rest.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum JournalEvent {
-    /// Somebody asked for a phase move and it became the mission's pending request.
-    PhaseRequested {
-        phase: Phase,
-    },
-    /// The phase moved.
-    PhaseChanged {
-        phase: Phase,
-    },
-    AgentJoined {
-        agent: AgentId,
-        role: MissionRole,
-    },
-    AgentLeft {
-        agent: AgentId,
-    },
-    /// A member asked the mission for another agent (M13).
-    ///
-    /// `agent_kind` rather than `kind`: this enum is serialised with `tag = "kind"`, so a field
-    /// spelled that way would collide with the discriminant the *Activity* tab filters on.
-    SpawnRequested {
-        agent_kind: String,
-    },
-    /// The window answered a spawn request. `agent` absent is a decline — the kind is still named,
-    /// because the kind the user allowed may not be the kind that was asked for.
-    SpawnAnswered {
-        agent_kind: String,
-        #[serde(default)]
-        agent: Option<AgentId>,
-    },
-    AgentRoleChanged {
-        agent: AgentId,
-        role: MissionRole,
-    },
-    TaskCreated {
-        task: TaskId,
-    },
-    TaskFinished {
-        task: TaskId,
-    },
-    DocumentWritten {
-        name: String,
-    },
-    /// `report_progress`, and every other line an agent writes about its own work.
-    Progress {
-        #[serde(default)]
-        task: Option<TaskId>,
-    },
-    /// The user said something to the mission — the panel's *Feedback* line.
+pub struct NewMission {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    /// Attachment targets, as [`crate::work::Attachment::target`].
+    #[serde(default)]
+    pub attachments: Vec<String>,
+    /// Existing tasks to adopt as children, in Backlog.
+    #[serde(default)]
+    pub include: Vec<TaskId>,
+    #[serde(default)]
+    pub initial_plan: InitialPlan,
+    #[serde(default)]
+    pub settings: MissionSettings,
+}
+
+/// What the user does to the mission as a whole.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MissionAction {
+    ApprovePlan,
+    StartMission,
+    RedoBreakdown { note: String },
+    Pause,
+    Resume,
+    Replan { note: String },
+    RunAgentReview,
+    RejectMission { feedback: String },
+    Complete,
+    Abandon,
+    ResumePlanner,
+}
+
+/// What the user does to one task of a mission.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MissionTaskAction {
+    /// Launch now, whatever the driver.
+    Start,
+    Confirm,
+    Reject { feedback: String },
+    /// A person finished their task.
+    Done,
+    /// A person failed their review task; the feedback goes to the task under review.
+    Fail { feedback: String },
+    Retry,
+    /// Add a review task for this one; `human` assigns it to a person.
+    AddReview { human: bool },
+}
+
+/// The filter key of a [`HistoryEntry`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HistoryKind {
+    Phase,
+    Plan,
+    Agent,
+    Review,
     Feedback,
-    AskRaised,
-    AskAnswered,
-
-    // ── the scheduler (M22, M23) ────────────────────────────────────
-    /// The execution mode was switched. Journaled wherever it is switched from, because auto mode
-    /// starting is the single most consequential thing anybody does to a mission.
-    ExecutionChanged {
-        mode: ExecutionMode,
-    },
-    /// The scheduler handed a task to an agent — *scheduled T-45 → worker-2 (affinity ui, api)*.
-    /// `labels` is the overlap it chose on, not the task's whole label set: what is read back has
-    /// to say *why*, or auto mode cannot be audited.
-    TaskScheduled {
-        task: TaskId,
-        agent: AgentId,
-        #[serde(default)]
-        labels: Vec<String>,
-    },
-    /// A failed attempt put a task back in the pool — *released T-47, attempt 2*.
-    TaskReleased {
-        task: TaskId,
-        agent: Option<AgentId>,
-        attempt: usize,
-    },
-    /// A task ran out of attempts and is now `Blocked` for a person to look at.
-    TaskBlocked {
-        task: TaskId,
-        attempts: usize,
-    },
-    /// The scheduler stopped one of its own agents — *retired worker-3*. Unloaded, never deleted:
-    /// its conversation stays resumable.
-    AgentRetired {
-        agent: AgentId,
-    },
-    /// Every child is in review or done, so the scheduler has nothing left to hand out.
-    SchedulerFinished,
+    Guidance,
+    Status,
+    Comment,
 }
 
-impl JournalEvent {
-    /// The filter key the *Activity* tab groups by.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            JournalEvent::PhaseRequested { .. } => "phase_requested",
-            JournalEvent::PhaseChanged { .. } => "phase_changed",
-            JournalEvent::AgentJoined { .. } => "agent_joined",
-            JournalEvent::AgentLeft { .. } => "agent_left",
-            JournalEvent::SpawnRequested { .. } => "spawn_requested",
-            JournalEvent::SpawnAnswered { .. } => "spawn_answered",
-            JournalEvent::AgentRoleChanged { .. } => "agent_role_changed",
-            JournalEvent::TaskCreated { .. } => "task_created",
-            JournalEvent::TaskFinished { .. } => "task_finished",
-            JournalEvent::DocumentWritten { .. } => "document_written",
-            JournalEvent::Progress { .. } => "progress",
-            JournalEvent::Feedback => "feedback",
-            JournalEvent::AskRaised => "ask_raised",
-            JournalEvent::AskAnswered => "ask_answered",
-            JournalEvent::ExecutionChanged { .. } => "execution_changed",
-            JournalEvent::TaskScheduled { .. } => "task_scheduled",
-            JournalEvent::TaskReleased { .. } => "task_released",
-            JournalEvent::TaskBlocked { .. } => "task_blocked",
-            JournalEvent::AgentRetired { .. } => "agent_retired",
-            JournalEvent::SchedulerFinished => "scheduler_finished",
-        }
-    }
-}
-
-/// One line of `missions/<TaskId>/journal.jsonl`.
-///
-/// **`seq` is the line's own index in the file**, assigned by the store at the append and never
-/// rewritten — the journal is append-only, so a line's position is stable for the life of the
-/// mission. It is what [`crate::messages::Message::LoadJournal`] pages back through: a timestamp
-/// would collide within a millisecond and could not be used as a cursor at all.
+/// One line of a mission's history, assembled by the host from comments and the plan's revision
+/// log.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JournalEntry {
-    #[serde(default)]
-    pub seq: u64,
+pub struct HistoryEntry {
     pub at: DateTime<Utc>,
+    pub kind: HistoryKind,
     #[serde(default)]
-    pub by: Actor,
-    pub event: JournalEvent,
-    /// The one sentence a surface draws, written where the event was.
+    pub task: Option<TaskId>,
+    #[serde(default)]
+    pub agent: Option<AgentId>,
+    #[serde(default)]
+    pub plan_revision: Option<PlanRevision>,
+    /// The one sentence a surface draws.
     #[serde(default)]
     pub text: String,
 }
 
-impl JournalEntry {
-    /// A line with no sequence yet — the store assigns one as it appends.
-    pub fn new(at: DateTime<Utc>, by: Actor, event: JournalEvent, text: impl Into<String>) -> Self {
-        Self {
-            seq: 0,
-            at,
-            by,
-            event,
-            text: text.into(),
-        }
-    }
+/// Whether a task is assigned to a person: `assigned_to` is non-empty once trimmed, does not parse
+/// as an [`AgentId`] and is not one of the agent `definitions` (ids).
+pub fn is_human(task: &TaskRecord, definitions: &[String]) -> bool {
+    let Some(who) = task.assigned_to.as_deref().map(str::trim) else {
+        return false;
+    };
+    !who.is_empty() && who.parse::<AgentId>().is_err() && !definitions.iter().any(|d| d == who)
+}
 
-    /// The agent this line is about or from, where there is one — what the *Activity* tab's
-    /// per-agent filter reads.
-    pub fn agent(&self) -> Option<AgentId> {
-        match &self.event {
-            JournalEvent::AgentJoined { agent, .. }
-            | JournalEvent::AgentLeft { agent }
-            | JournalEvent::AgentRetired { agent }
-            | JournalEvent::TaskScheduled { agent, .. }
-            | JournalEvent::AgentRoleChanged { agent, .. } => Some(*agent),
-            JournalEvent::TaskReleased { agent, .. } => *agent,
-            _ => match self.by {
-                Actor::Agent(agent) => Some(agent),
-                _ => None,
-            },
-        }
+/// Whether `prereq` lets `dependent` start: it is `Done` or `Abandoned`, or `InReview` and either
+/// needs no approval or is the very task `dependent` reviews.
+pub fn satisfies(prereq: &TaskRecord, dependent: &TaskRecord) -> bool {
+    match prereq.status {
+        Status::Done | Status::Abandoned => true,
+        Status::InReview => !prereq.approve || dependent.review_of == Some(prereq.id),
+        _ => false,
     }
 }
 
-/// One of a mission's settings, with the value to set it to.
-///
-/// [`crate::messages::TaskField`]'s shape, for its reason: one variant on the wire rather than a
-/// message per setting, and an arm's `None` is the cleared state.
-///
-/// **The phase is not here.** Moving a mission is a request and a confirmation, not a field write.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MissionField {
-    Coordinator(Option<AgentId>),
-    RequirePlan(bool),
-    AutoRefine(bool),
-    Execution(ExecutionMode),
-    Parallelism(usize),
-    OnFinish(OnFinish),
-    MaxTasksPerAgent(usize),
-    MaxAttempts(usize),
-    SpawnPolicy(SpawnPolicy),
-    SpawnLimit(usize),
-    /// The whole table, replaced — [`crate::messages::TaskField::Labels`]'s posture: a short list
-    /// edited as a set, where a delta would cost a second message and an ordering rule.
-    AgentKinds(Vec<AgentKind>),
-    DefaultKind(Option<String>),
+/// Whether a task reads as having lost its agent: it is `InProgress`, has a `worker`, and that
+/// worker is not `live`.
+pub fn worker_gone(task: &TaskRecord, live: impl Fn(AgentId) -> bool) -> bool {
+    task.status == Status::InProgress && task.worker.is_some_and(|agent| !live(agent))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(status: Status) -> TaskRecord {
+        let mut t = TaskRecord::new("t".into(), None, Utc::now());
+        t.status = status;
+        t
+    }
+
+    #[test]
+    fn phase_and_status_are_inverse() {
+        for status in [
+            Status::Backlog,
+            Status::Ready,
+            Status::InProgress,
+            Status::Blocked,
+            Status::InReview,
+            Status::Done,
+            Status::Abandoned,
+        ] {
+            assert_eq!(Phase::of(status).status(), status);
+        }
+        for phase in Phase::all() {
+            assert_eq!(Phase::of(phase.status()), phase);
+        }
+        assert_eq!(Phase::of(Status::Backlog), Phase::Planning);
+        assert_eq!(Phase::of(Status::Blocked), Phase::Paused);
+        assert_eq!(Phase::Paused.step(), Some(2));
+        assert_eq!(Phase::Abandoned.step(), None);
+    }
+
+    #[test]
+    fn satisfies_follows_the_rule() {
+        let dependent = task(Status::Ready);
+        assert!(satisfies(&task(Status::Done), &dependent));
+        assert!(satisfies(&task(Status::Abandoned), &dependent));
+        assert!(!satisfies(&task(Status::InProgress), &dependent));
+        assert!(!satisfies(&task(Status::Ready), &dependent));
+
+        let mut approved = task(Status::InReview);
+        assert!(satisfies(&approved, &dependent));
+        approved.approve = true;
+        assert!(!satisfies(&approved, &dependent));
+        let mut review = task(Status::Ready);
+        review.review_of = Some(approved.id);
+        assert!(satisfies(&approved, &review));
+    }
+
+    #[test]
+    fn is_human_reads_assigned_to() {
+        let defs = vec!["worker".to_string()];
+        let mut t = task(Status::Ready);
+        assert!(!is_human(&t, &defs));
+        t.assigned_to = Some("  ".into());
+        assert!(!is_human(&t, &defs));
+        t.assigned_to = Some("worker".into());
+        assert!(!is_human(&t, &defs));
+        t.assigned_to = Some(AgentId::generate().to_string());
+        assert!(!is_human(&t, &defs));
+        t.assigned_to = Some("human".into());
+        assert!(is_human(&t, &defs));
+    }
+
+    #[test]
+    fn worker_gone_needs_a_dead_worker_in_progress() {
+        let agent = AgentId::generate();
+        let mut t = task(Status::InProgress);
+        assert!(!worker_gone(&t, |_| false));
+        t.worker = Some(agent);
+        assert!(worker_gone(&t, |_| false));
+        assert!(!worker_gone(&t, |a| a == agent));
+        t.status = Status::InReview;
+        assert!(!worker_gone(&t, |_| false));
+    }
+
+    #[test]
+    fn settings_defaults_and_legacy() {
+        let s: MissionSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s, MissionSettings::default());
+        assert_eq!(s.parallel, 1);
+        assert_eq!(s.driver, Driver::Auto);
+        assert_eq!(MissionSettings::legacy().driver, Driver::Manual);
+    }
+
+    #[test]
+    fn run_event_round_trips() {
+        let event = RunEvent::Spawned {
+            agent: AgentId::generate(),
+            role: LaunchRole::Worker,
+            retry: true,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"event\":\"spawned\""));
+        assert_eq!(serde_json::from_str::<RunEvent>(&json).unwrap(), event);
+        let unit = serde_json::to_string(&RunEvent::Confirmed).unwrap();
+        assert_eq!(
+            serde_json::from_str::<RunEvent>(&unit).unwrap(),
+            RunEvent::Confirmed
+        );
+    }
 }

@@ -136,6 +136,9 @@ pub enum PickerOwner {
     /// is no task to name yet, so the answer lands on the draft and is written onto the anchor
     /// with the rest of the brief once the host has minted its id.
     NewMissionAttachment,
+    /// The new-mission dialog's *Initial plan → File…*: the same picker, one answer — the first
+    /// pick becomes the plan's source.
+    NewMissionPlan,
 }
 
 /// Everything a caller says when it raises a picker.

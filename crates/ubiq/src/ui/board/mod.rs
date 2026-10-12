@@ -40,7 +40,7 @@ use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
 
 use ubiq_proto::ids::TaskId;
-use ubiq_proto::mission::{MissionRecord, Phase};
+use ubiq_proto::mission::{self, MissionSnapshot, Phase};
 use ubiq_proto::work::{Level, Status, TaskRecord};
 
 use crate::app::AppState;
@@ -186,12 +186,12 @@ struct MissionRow {
     /// The key and title alone, without the term or the phase — what the closed trigger names.
     name: SharedString,
     dot: Rgba,
-    /// Completed or abandoned: sorted last, drawn muted, still pickable.
+    /// Done or abandoned: sorted last, drawn muted, still pickable.
     dim: bool,
 }
 
 /// The board toolbar's mission filter rows: the project's missions, searched by key and title,
-/// completed and abandoned sorted last. Read again by the picker's own `on_pick`, exactly as it
+/// done and abandoned sorted last. Read again by the picker's own `on_pick`, exactly as it
 /// was drawn — the rule every position-matched menu in this window follows.
 fn board_mission_rows(
     app: &AppState,
@@ -201,11 +201,11 @@ fn board_mission_rows(
 ) -> Vec<MissionRow> {
     let term = app.mission_term(cx);
     let empty = std::collections::HashMap::new();
-    let missions: &std::collections::HashMap<TaskId, MissionRecord> = app
+    let missions: &std::collections::HashMap<TaskId, MissionSnapshot> = app
         .open_project(cx)
         .map(|open| &open.missions)
         .unwrap_or(&empty);
-    let mut rows: Vec<(&TaskRecord, &MissionRecord)> = missions
+    let mut rows: Vec<(&TaskRecord, &MissionSnapshot)> = missions
         .values()
         .filter_map(|record| work.task(record.task_id).map(|task| (task, record)))
         .filter(|(task, _)| {
@@ -218,7 +218,7 @@ fn board_mission_rows(
         })
         .collect();
     rows.sort_by(|(a_task, a_rec), (b_task, b_rec)| {
-        let rank = |phase: Phase| matches!(phase, Phase::Completed | Phase::Abandoned) as u8;
+        let rank = |phase: Phase| matches!(phase, Phase::Done | Phase::Abandoned) as u8;
         rank(a_rec.phase)
             .cmp(&rank(b_rec.phase))
             .then_with(|| a_task.title.cmp(&b_task.title))
@@ -232,24 +232,13 @@ fn board_mission_rows(
             let label = SharedString::from(format!("{term} {name} · {}", record.phase.label()));
             MissionRow {
                 id: task.id,
-                dim: matches!(record.phase, Phase::Completed | Phase::Abandoned),
-                dot: mission_phase_colour(record.phase),
+                dim: matches!(record.phase, Phase::Done | Phase::Abandoned),
+                dot: crate::ui::mission::panel::phase_colour(record.phase),
                 name,
                 label,
             }
         })
         .collect()
-}
-
-/// What a mission's phase reads as — the path colour while it is being walked, success once it
-/// is finished, and the muted token for one nobody is taking further.
-fn mission_phase_colour(phase: Phase) -> Rgba {
-    match phase {
-        Phase::Requirements | Phase::Refining => theme::info(),
-        Phase::InProgress => theme::accent(),
-        Phase::Completed => theme::success(),
-        Phase::Abandoned => theme::text_muted(),
-    }
 }
 
 /// The strip over the columns: what is being looked for, and the way to add one.
@@ -820,6 +809,71 @@ fn chip(label: impl Into<SharedString>, colour: Rgba) -> impl IntoElement {
         .child(mono(label, colour).text_size(theme::font(Family::Chrome, Role::Micro)))
 }
 
+/// A subtask's mission chip: the hexagon and the parent's key (or title), in the accent. A click
+/// opens that mission's panel.
+fn mission_chip(
+    app: &AppState,
+    work: &work::WorkProjection,
+    task: &TaskRecord,
+    cx: &App,
+) -> Option<AnyElement> {
+    let parent = task.parent?;
+    let snapshot = app.mission(parent, cx)?;
+    let record = work.task(parent)?;
+    let label = record.key.clone().unwrap_or_else(|| record.title.clone());
+    let colour = crate::ui::mission::panel::phase_colour(snapshot.phase);
+    Some(
+        pill(colour)
+            .h(px(18.))
+            .px_1p5()
+            .gap_1()
+            .child(crate::ui::kit::hex_mark(
+                eid("board-task-mission-hex", task.id),
+                colour,
+                None,
+                9.,
+                false,
+            ))
+            .child(mono(label, colour).text_size(theme::font(Family::Chrome, Role::Micro)))
+            .into_any_element(),
+    )
+}
+
+/// The mission marks on a card: *approve* (a finished task waits for Confirm), *human* (a
+/// person's task — the runner never starts it) and *worker gone* (the agent that held it is not
+/// running). Window-side readings; the host's `NeedsYou::WorkerGone` is authoritative.
+fn mission_marks(app: &AppState, task: &TaskRecord, cx: &App) -> Vec<AnyElement> {
+    let mark = |icon: IconName, label: &'static str, colour: Rgba| -> AnyElement {
+        pill(colour)
+            .h(px(18.))
+            .px_1p5()
+            .gap_1()
+            .child(Icon::new(icon).with_size(Size::XSmall).text_color(colour))
+            .child(mono(label, colour).text_size(theme::font(Family::Chrome, Role::Micro)))
+            .into_any_element()
+    };
+    let mut marks = Vec::new();
+    if task.approve {
+        marks.push(mark(IconName::CircleCheck, "approve", theme::warning()));
+    }
+    if task.assigned_to.is_some() {
+        let definitions: Vec<String> = app
+            .workbench
+            .settings
+            .definitions_in(app.project(cx))
+            .into_iter()
+            .map(|definition| definition.id)
+            .collect();
+        if mission::is_human(task, &definitions) {
+            marks.push(mark(IconName::User, "human", theme::info()));
+        }
+    }
+    if mission::worker_gone(task, |agent| app.conversation_live(agent)) {
+        marks.push(mark(IconName::TriangleAlert, "worker gone", theme::danger()));
+    }
+    marks
+}
+
 /// A not-ready card's mark — M20's derived readiness, `TaskRecord::waiting_on`, not
 /// `Status::Blocked`: a card can be both, and this carries no opinion about the other. Muted
 /// (`warning`/`warning_soft`) and gains no pulse of its own — the left edge still owns the
@@ -905,9 +959,14 @@ fn task_card(
                     let count = work.child_count(id);
                     (count > 0).then(|| chip(format!("{count}"), theme::text_muted()))
                 })
+                // A subtask carries the mission it belongs to, so a card read off the board says
+                // whose work it is.
+                .children(mission_chip(app, work, task, cx))
                 // Not ready, ahead of the labels: what a person reads first is what nobody can
                 // start on yet.
                 .children((!waiting.is_empty()).then(|| waits_on_chip(id, &waiting, &work)))
+                // The mission marks: waits for Confirm, a person's task, a worker that died.
+                .children(mission_marks(app, task, cx))
                 // What the task is called elsewhere, what kind of work it is and what it is
                 // labelled: three facts a card draws only where somebody has filled them in. A
                 // card with none of them is a title and its marks, which is what most of them are.

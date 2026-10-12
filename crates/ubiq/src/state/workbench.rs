@@ -356,17 +356,9 @@ pub enum MenuId {
     SinkTeamsimAlgo,
     /// A dropdown on the settings page. Which one is `SinkState::settings.menu`.
     SinkSettings,
-    /// A mission side panel's `⋯`: complete, abandon, pause all, open on board, open on Teams,
-    /// execution mode (§6.1). Which mission it was opened on is `WorkbenchState::mission_menu`.
+    /// A mission side panel's `⋯`: pause/resume, replan, open on board, complete, abandon.
+    /// Which mission it was opened on is `WorkbenchState::mission_menu`.
     Mission,
-    /// A mission side panel's *Spawn ▾* (§6.1): the coordinator, one row per agent kind, *any
-    /// agent*, and *Attach running agent…*. Which mission and which stage is
-    /// `WorkbenchState::mission_spawn_menu`.
-    MissionSpawn,
-    /// A kind picker: what a pending spawn will be launched as before it is allowed, or what one
-    /// row of the agent-kinds table resolves to. Its target is
-    /// `WorkbenchState::mission_kind_menu`.
-    MissionKind,
     /// The explorer's right-click menu. Which row (or the empty panel) is on `ExplorerState::menu`.
     Explorer,
     /// The KB explorer's right-click menu. Which row is on `KbState::menu`. Its own id rather than
@@ -934,17 +926,13 @@ pub struct WorkbenchState {
     /// The editor top row's `⋯`, while it is down (`D204`). `Some` exactly while `open_menu` is
     /// `MenuId::ViewerMore`.
     pub viewer_menu: Option<ViewerMenu>,
-    /// The mission *Spawn ▾*, while it is down (§6.1). `Some` exactly while `open_menu` is
-    /// `MenuId::MissionSpawn`; the stage is which question it is on — what to spawn, or which
-    /// running agent to adopt.
-    pub mission_spawn_menu: Option<crate::state::mission::MissionSpawnMenu>,
-    /// A kind-picking menu, while it is down: a pending spawn row's kind, an agent-kinds row's
-    /// definition, or the table's `+`. `Some` exactly while `open_menu` is `MenuId::MissionKind`.
-    pub mission_kind_menu: Option<(TaskId, crate::state::mission::KindTarget, (f32, f32))>,
-    /// Which mission the feedback composers are addressed at — set when a mission surface is put
-    /// in front of the reader, because a field's own Enter handler has no way to ask which mission
+    /// The mission note dialog (reject, fail, replan, redo), while it is up. The text is
+    /// `AppState::mission_note_input`.
+    pub mission_note: Option<crate::state::mission::MissionNote>,
+    /// Which mission the guidance composer is addressed at — set when a mission surface is put in
+    /// front of the reader, because a field's own Enter handler has no way to ask which mission
     /// the panel around it is drawing.
-    pub feedback_mission: Option<TaskId>,
+    pub guidance_mission: Option<TaskId>,
     /// Where the titlebar's run chevron was clicked, which is what anchors the menu over the
     /// window. `Some` exactly while `open_menu` is `MenuId::RunTool`.
     pub run_tool_menu: Option<(f32, f32)>,
@@ -1052,13 +1040,11 @@ pub struct NewAgentMenu {
 /// spans more than one project.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TeamsCreateStage {
-    /// The fixed rows: *New agent*, *New mission*.
+    /// The fixed row: *New agent*.
     #[default]
     Kind,
     /// *New agent*'s own project question — [`crate::app::AppState::window_projects`].
     AgentProject,
-    /// *New mission*'s own project question, the same list.
-    MissionProject,
 }
 
 /// The Teams toolbar's split button chevron menu, while it is down: where it opened, and which
@@ -1131,9 +1117,8 @@ impl Default for WorkbenchState {
             hidden_agents_menu: None,
             mission_menu: None,
             viewer_menu: None,
-            mission_spawn_menu: None,
-            mission_kind_menu: None,
-            feedback_mission: None,
+            mission_note: None,
+            guidance_mission: None,
             run_tool_menu: None,
             run_tool_filter: String::new(),
             run_tool_cursor: 0,

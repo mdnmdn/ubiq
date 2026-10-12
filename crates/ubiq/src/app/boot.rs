@@ -76,13 +76,16 @@ impl AppState {
 
         let task_title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Task title"));
 
-        // The two mission feedback composers. Their placeholder is generic: the project's own word
-        // for a mission is a per-project fact and the field belongs to the window.
-        let mission_feedback_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Feedback to the coordinator\u{2026}")
+        // The mission guidance composer and the note dialog's textarea. Their placeholders are
+        // generic: the project's own word for a mission is a per-project fact and the fields
+        // belong to the window.
+        let mission_guidance_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("A note for the whole mission\u{2026}")
         });
-        let mission_feedback_tab_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Feedback to the coordinator\u{2026}")
+        let mission_note_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Say what to change\u{2026}")
+                .auto_grow(3, 12)
         });
 
         // The one field in the window that must not submit on Enter: a newline is a paragraph
@@ -928,22 +931,17 @@ impl AppState {
             },
         ));
 
-        // Enter sends the mission's feedback, at whichever mission was last put in front of the
+        // Enter sends the mission's guidance, at whichever mission was last put in front of the
         // reader. Nothing mirrors what is typed — the field is read at the send.
-        for (input, panel) in [
-            (&mission_feedback_input, true),
-            (&mission_feedback_tab_input, false),
-        ] {
-            subscriptions.push(cx.subscribe_in(
-                input,
-                window,
-                move |this, _, event: &InputEvent, window, cx| {
-                    if let InputEvent::PressEnter { shift: false, .. } = event {
-                        this.submit_mission_feedback(panel, window, cx);
-                    }
-                },
-            ));
-        }
+        subscriptions.push(cx.subscribe_in(
+            &mission_guidance_input,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { shift: false, .. } = event {
+                    this.submit_mission_guidance(window, cx);
+                }
+            },
+        ));
 
         // The key and the link mirror and commit on the same contract as the title — Enter or the
         // ✓ beside them, never a blur.
@@ -1271,7 +1269,7 @@ impl AppState {
                 if matches!(event, InputEvent::Change) {
                     let text = input.read(cx).value().to_string();
                     if let Some(form) = this.workbench.new_mission.as_mut() {
-                        form.plan_seed = text;
+                        form.plan_text = text;
                     }
                     cx.notify();
                 }
@@ -1636,6 +1634,8 @@ impl AppState {
             new_mission_description_input.read(cx).focus_handle(cx),
             new_mission_plan_input.read(cx).focus_handle(cx),
             new_mission_task_query.read(cx).focus_handle(cx),
+            mission_guidance_input.read(cx).focus_handle(cx),
+            mission_note_input.read(cx).focus_handle(cx),
             account_rename_input.read(cx).focus_handle(cx),
             connect_instance_input.read(cx).focus_handle(cx),
             connect_client_id_input.read(cx).focus_handle(cx),
@@ -1900,8 +1900,8 @@ impl AppState {
             task_filter,
             board_name_input,
             task_title_input,
-            mission_feedback_input,
-            mission_feedback_tab_input,
+            mission_guidance_input,
+            mission_note_input,
             task_description_input,
             task_key_input,
             task_link_input,

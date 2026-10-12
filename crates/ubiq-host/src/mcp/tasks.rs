@@ -62,6 +62,7 @@ pub fn use_call(
         "get_task" => get_task(arguments, project, access),
         "change_state" => change_state(arguments, project, access),
         "add_comment" => add_comment(arguments, project, access),
+        "submit_review" => submit_review(arguments, project, access),
         "add_todo" => add_todo(arguments, project, access),
         "update_todo" => update_todo(arguments, project, access),
         "delete_todo" => delete_todo(arguments, project, access),
@@ -456,12 +457,10 @@ fn change_state(
     let id = parse_task_id(required_str(arguments, "task_id")?)?;
     let status = parse_status(required_str(arguments, "status")?)?;
     let messages = mutate(access, |work| work.move_task(project, id, status, None))?;
-    // **This is how a worker finishes**, so it is the event a mission's scheduler most needs: the
-    // task moving to `InReview` or `Done` frees a slot, and a task moving anywhere changes what
-    // the pool holds. Said into the host's own inbox rather than decided here, because the
-    // scheduler runs on the coordinator's thread and this is the listener's. Unconditional: a
-    // change that wrote nothing is still worth a pass, and a pass on a mission in manual mode is
-    // a record read.
+    // **This is how a worker finishes**, so it is the event a mission's runner most needs.
+    // Said into the host's own inbox rather than decided here, because the runner runs on the
+    // coordinator's thread and this is the listener's. Unconditional: a pass on a task in no
+    // mission is a lookup.
     access.wake.say(Message::MissionSchedule {
         project_id: project,
         task_id: id,
@@ -480,6 +479,61 @@ fn change_state(
         map.insert("changed".into(), json!(true));
     }
     Ok(result)
+}
+
+/// A reviewer's verdict (contract §3.6): a `ReviewVerdict` comment on the review task, and a wake
+/// for the runner, which acts on it on the coordinator's thread. Refused unless the task reviews
+/// another (`review_of`) or is a mission parent in review.
+fn submit_review(
+    arguments: &Value,
+    project: ProjectId,
+    access: &WorkAccess,
+) -> Result<Value, String> {
+    let tasks = load_tasks(access, project)?;
+    let task = find_task(&tasks, required_str(arguments, "task_id")?)?;
+    let id = task.id;
+    let reviewable = task.review_of.is_some()
+        || (task.level == Some(Level::Mission) && task.status == Status::InReview);
+    if !reviewable {
+        return Err(
+            "that task is not a review task — submit_review takes the review task you were launched for"
+                .to_string(),
+        );
+    }
+    let pass = match required_str(arguments, "verdict")?.trim() {
+        "pass" => true,
+        "fail" => false,
+        other => return Err(format!("verdict must be 'pass' or 'fail', not '{other}'")),
+    };
+    let findings = opt_str(arguments, "findings")?
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !pass && findings.is_empty() {
+        return Err("a fail needs findings — say what to fix".to_string());
+    }
+    let text = if findings.is_empty() {
+        "Review passed.".to_string()
+    } else {
+        findings
+    };
+    mutate(access, |work| {
+        work.add_event(
+            project,
+            id,
+            text,
+            ubiq_proto::mission::RunEvent::ReviewVerdict { pass },
+        )
+    })?;
+    access.wake.say(Message::MissionSchedule {
+        project_id: project,
+        task_id: id,
+    });
+    Ok(json!({
+        "task_id": id.to_string(),
+        "verdict": if pass { "pass" } else { "fail" },
+        "message": "Recorded. Your review is done — stop here.",
+    }))
 }
 
 fn add_todo(arguments: &Value, project: ProjectId, access: &WorkAccess) -> Result<Value, String> {

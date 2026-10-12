@@ -167,6 +167,11 @@ impl AppState {
             PickerOwner::NewMissionAttachment => {
                 self.add_new_mission_attachments(picked, cx);
             }
+            PickerOwner::NewMissionPlan => {
+                if let Some(target) = picked.into_iter().next() {
+                    self.set_new_mission_plan_file(target, cx);
+                }
+            }
             PickerOwner::KbFolder => {
                 if let Some(path) = picked.into_iter().next() {
                     self.accept_kb_source_folder(path, window, cx);
@@ -339,6 +344,28 @@ impl AppState {
     ///
     /// Pasted **text** never reaches here — it is typed into whichever field holds the keyboard by
     /// the component library's own paste, which is what the requirements editor wants.
+    /// *Initial plan → File…*: the attachment picker over the project and KB roots, answering
+    /// with one target that `CreateMission` carries as `InitialPlan::File`.
+    pub fn raise_new_mission_plan_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut forest = self
+            .explorer(cx)
+            .map(|explorer| crate::state::file_picker::forest_from_explorer(&explorer.root))
+            .unwrap_or_default();
+        forest.extend(
+            self.kb(cx)
+                .and_then(|kb| crate::state::file_picker::forest_from_kb(&kb.sources)),
+        );
+        if forest.is_empty() {
+            return;
+        }
+        let request = crate::state::file_picker::PickerRequest::new(
+            PickerOwner::NewMissionPlan,
+            "Pick a markdown file to start the plan from",
+        )
+        .kind(PickKind::Files);
+        self.open_file_picker(request, forest, PickerView::Tree, window, cx);
+    }
+
     pub fn paste_into_new_mission(&mut self, cx: &mut Context<Self>) {
         let Some(found) = clipboard::clipboard_attachment(cx) else {
             return;
@@ -870,7 +897,8 @@ impl AppState {
             | PickerOwner::ToolFolder
             | PickerOwner::SkillFolder { .. }
             | PickerOwner::TaskAttachment { .. }
-            | PickerOwner::NewMissionAttachment => {}
+            | PickerOwner::NewMissionAttachment
+            | PickerOwner::NewMissionPlan => {}
         }
         self.close_host_browse();
         cx.notify();

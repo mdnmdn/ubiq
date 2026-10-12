@@ -825,6 +825,7 @@ fn comment_row(
     let (author, ink) = match comment.author {
         CommentAuthor::User => ("you", theme::text_muted()),
         CommentAuthor::Agent => ("agent", theme::agent_controlled()),
+        CommentAuthor::Ubiq => ("ubiq", theme::text_muted()),
     };
     let when = comment.created_at.format("%Y-%m-%d %H:%M").to_string();
     let mut root = div().flex().flex_col().gap_0p5();

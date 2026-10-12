@@ -1,35 +1,32 @@
-//! The new-mission dialog — §5's table, widened rather than replaced.
-//!
-//! Seven rows over one draft: the title, the **requirements** editor, the attachments, the linked
-//! tasks, the plan gate, the coordinator, and an optional plan to start from. The first four are
-//! the brief, and the brief **is the anchor task's own fields** (M7) — so none of them invents a
-//! message: the dialog collects, and `AppState::settle_new_mission` writes them with `UpdateTask`
-//! and `SetTaskField` once the host has minted an id.
+//! The new-mission dialog (`Layer::NewMission`): title, requirements, attachments, the tasks to
+//! include, an optional initial plan, then the driver, planner, worker and — under *More* —
+//! parallel and approve.
 //!
 //! **No control here is new.** The attachments use the task attachment picker (project and KB
-//! roots) and the same clipboard paste the task panel has; the linked tasks use the multi-select
-//! picker with its own filter field; the coordinator uses the picker it always did, with the
-//! running agents appended to the list it offers (M10).
+//! roots) and the same clipboard paste the task panel has; *Initial plan → File…* is that same
+//! picker answering with one target; the included tasks use the multi-select picker with its own
+//! filter field. Start sends one `CreateMission`.
 //!
-//! Labelled with the project's own word for a mission ([`crate::app::AppState::mission_term`]), so
-//! a team that renamed it to "epic" sees "New epic" both on the board's button and here.
+//! Labelled with the project's own word for a mission ([`crate::app::AppState::mission_term`]).
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, ElementId, Focusable, IntoElement, ParentElement,
+    AnyElement, Context, ElementId, Focusable, InteractiveElement as _, IntoElement,
+    ParentElement,
     StatefulInteractiveElement as _, Styled, Window, div, px,
 };
-use gpui_component::IconName;
+use gpui_component::{IconName, Sizable as _};
 use gpui_component::input::{Input, Textarea};
 
 use crate::app::AppState;
 use crate::state::Layer;
-use crate::state::new_mission::coordinator_label;
+use crate::state::new_mission::PlanSource;
+use ubiq_proto::mission::Driver;
 use crate::theme;
 use crate::ui::kit::menu::{MultiPicker, Picker, PickerStyle};
 use crate::ui::kit::{
-    check_box, field, ghost_button, hint_row, icon_button, label_hint, modal, mono, primary_button,
-    removable_tag,
+    check_box, choice_pill, field, ghost_button, hint_row, icon_button, label_hint, modal, mono,
+    primary_button, removable_tag,
 };
 use crate::ui::{handler, indexed};
 
@@ -41,9 +38,6 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     };
     let view = cx.entity();
     let term = app.mission_term(cx);
-    // Definitions fit to run one, then the agents already running here — `definitions_in` rather than
-    // the global list alone, because a definition scoped to this project is on offer too (G331).
-    let candidates = app.new_mission_coordinators(cx);
 
     let mut body = div().flex().flex_col().gap_3().pt_1();
 
@@ -86,7 +80,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 "new-mission-description-hint",
                 "Requirements",
                 "Markdown. Written onto the mission as its description, and carried in the \
-                 coordinator's opening briefing.",
+                 planner's opening brief.",
             ))
             .child(
                 field(theme::border(), description_focused)
@@ -106,83 +100,61 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 
     body = body.child(attachments(app, &form, cx));
     body = body.child(linked_tasks(app, &form, window, cx));
+    body = body.child(initial_plan(app, &form, window, cx));
+
+    body = body.child(div().h(px(1.)).w_full().bg(theme::border()));
 
     body = body.child(hint_row(
-        "new-mission-require-plan-hint",
-        "Require plan",
-        "Makes moving to in progress the user's own gate: it is refused while the plan is empty \
-         or has open threads.",
+        "new-mission-driver-hint",
+        "Driver",
+        "Auto starts ready tasks by itself until the next human task or approval. Manual lists \
+         them and waits for you to press \u{25b6}. Changeable at any time.",
         div()
             .flex()
             .flex_none()
             .justify_end()
+            .items_center()
+            .gap_1p5()
             .w(px(CONTROL_WIDTH))
-            .child(check_box(
-                "new-mission-require-plan",
-                form.require_plan,
-                cx.listener(|this, _, _, cx| this.toggle_new_mission_require_plan(cx)),
+            .child(choice_pill(
+                "new-mission-driver-auto",
+                "Auto",
+                form.driver == Driver::Auto,
+                cx.listener(|this, _, _, cx| this.set_new_mission_driver(Driver::Auto, cx)),
+            ))
+            .child(choice_pill(
+                "new-mission-driver-manual",
+                "Manual",
+                form.driver == Driver::Manual,
+                cx.listener(|this, _, _, cx| this.set_new_mission_driver(Driver::Manual, cx)),
             ))
             .into_any_element(),
     ));
 
-    // The picker degrades to a sentence rather than an empty list when this build offers no
-    // assistant: an empty picker reads as a bug, and this says what to do about it instead.
-    if candidates.is_empty() {
-        body = body.child(
-            div()
-                .p_2()
-                .border_1()
-                .border_color(theme::border())
-                .text_color(theme::text_muted())
-                .text_size(theme::font(theme::Family::Chrome, theme::Role::Body))
-                .child(
-                    "No definition is marked as a mission assistant yet, and no agent is running. \
-                     Tick \u{201c}Mission assistant\u{201d} on a definition in the definition editor to \
-                     offer it here.",
-                ),
-        );
-    } else {
-        let labels: Vec<String> = candidates.iter().map(|(label, _)| label.clone()).collect();
-        let selected = form
-            .coordinator
-            .as_ref()
-            .and_then(|held| candidates.iter().position(|(_, row)| row == held));
-        let label = coordinator_label(&form, &candidates, "Choose a coordinator\u{2026}");
+    let definitions = app.new_mission_definitions(cx);
+    body = body.child(definition_row(
+        &view,
+        "new-mission-planner",
+        "Planner",
+        "The agent that writes the plan and drafts the tasks. Left on the project default, it \
+         is the definition tagged planner.",
+        &definitions,
+        form.planner.as_ref(),
+        form.planner_open,
+        true,
+    ));
+    body = body.child(definition_row(
+        &view,
+        "new-mission-worker",
+        "Worker",
+        "The agent started on each task, unless the task names one of its own.",
+        &definitions,
+        form.worker.as_ref(),
+        form.worker_open,
+        false,
+    ));
 
-        let mut picker = Picker::new(ElementId::Name("new-mission-assistant".into()), label)
-            .items(labels)
-            .style(PickerStyle::Field)
-            .above_modal()
-            .open(form.open);
-        if let Some(selected) = selected {
-            picker = picker.selected(selected);
-        }
-        picker = picker
-            .on_toggle(handler(&view, |this, _window, cx| {
-                this.toggle_new_mission_assistant_list(cx)
-            }))
-            // The list is read again here, exactly as it was drawn — the rule every
-            // position-matched menu in this window follows.
-            .on_pick(indexed(&view, move |this, index, _window, cx| {
-                if let Some((_, picked)) = this.new_mission_coordinators(cx).get(index).cloned() {
-                    this.pick_new_mission_coordinator(picked, cx);
-                }
-            }));
-
-        body = body.child(hint_row(
-            "new-mission-assistant-hint",
-            "Coordinator",
-            "One role (M10): a definition ticked as a mission assistant, or an agent already running \
-             here, adopted as it is.",
-            div()
-                .flex_none()
-                .w(px(CONTROL_WIDTH))
-                .child(picker)
-                .into_any_element(),
-        ));
-    }
-
-    body = body.child(plan_seed(app, &form, window, cx));
+    body = body.child(more(&form, cx));
 
     let ready = form.ready();
     let footer = div()
@@ -227,7 +199,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 /// **The same two ways in the task panel has** — `raise_new_mission_attachment_picker` opens the
 /// file picker over the project tree *and* the knowledge base, and the clipboard control takes
 /// what is on the pasteboard, which is a path for a copied file and a picture written into
-/// `.ubiq/pasted/` for a screenshot. What is collected here becomes the anchor task's own
+/// `.ubiq/pasted/` for a screenshot. What is collected here becomes the mission task's own
 /// `attachments` (M7), so the chips are the same thing the task panel will draw afterwards.
 fn attachments(
     app: &AppState,
@@ -322,7 +294,7 @@ fn attachments(
 /// **The picker's ticks are the chip row.** A second row of chips beside a control that already
 /// lists what is picked, and unpicks it on a click, would be the same set twice — so the trigger
 /// says what is linked and the list is where one is added or taken off. What is collected becomes
-/// the anchor's `references` (M7).
+/// the mission's subtasks.
 fn linked_tasks(
     app: &AppState,
     form: &crate::state::new_mission::NewMissionForm,
@@ -345,7 +317,7 @@ fn linked_tasks(
     let lit: Vec<usize> = candidates
         .iter()
         .enumerate()
-        .filter(|(_, id)| form.references.contains(id))
+        .filter(|(_, id)| form.include.contains(id))
         .map(|(ix, _)| ix)
         .collect();
     let focused = app
@@ -354,7 +326,7 @@ fn linked_tasks(
         .focus_handle(cx)
         .is_focused(window);
 
-    let picker = MultiPicker::new("new-mission-tasks", "no tasks linked")
+    let picker = MultiPicker::new("new-mission-tasks", "no tasks included")
         .items(labels)
         .selected(lit)
         .style(PickerStyle::Field)
@@ -370,14 +342,14 @@ fn linked_tasks(
         // Read back by index off the same list that drew it.
         .on_pick(indexed(&view, |this, index, _window, cx| {
             if let Some(id) = this.new_mission_task_candidates(cx).get(index).copied() {
-                this.toggle_new_mission_reference(id, cx);
+                this.toggle_new_mission_include(id, cx);
             }
         }));
 
     hint_row(
         "new-mission-tasks-hint",
-        "Linked tasks",
-        "The tasks this mission names. Written onto its own task as references.",
+        "Include tasks",
+        "Existing tasks that become this mission's subtasks.",
         div()
             .flex_none()
             .w(px(CONTROL_WIDTH))
@@ -386,16 +358,71 @@ fn linked_tasks(
     )
 }
 
-/// The optional plan a mission is started *from* (§5, M9).
+/// A planner or worker picker: *Project default*, then the project's agent definitions.
+#[allow(clippy::too_many_arguments)]
+fn definition_row(
+    view: &gpui::Entity<AppState>,
+    id: &'static str,
+    label: &str,
+    hint: &str,
+    definitions: &[Option<String>],
+    held: Option<&String>,
+    open: bool,
+    planner: bool,
+) -> AnyElement {
+    let labels: Vec<String> = definitions
+        .iter()
+        .map(|definition| match definition {
+            Some(id) => id.clone(),
+            None => "Project default".to_string(),
+        })
+        .collect();
+    let selected = definitions
+        .iter()
+        .position(|definition| definition.as_ref() == held)
+        .unwrap_or(0);
+    let trigger = labels
+        .get(selected)
+        .cloned()
+        .unwrap_or_else(|| "Project default".to_string());
+
+    let picker = Picker::new(ElementId::Name(id.into()), trigger)
+        .items(labels)
+        .selected(selected)
+        .style(PickerStyle::Field)
+        .above_modal()
+        .open(open)
+        .on_toggle(handler(view, move |this, _window, cx| match planner {
+            true => this.toggle_new_mission_planner_list(cx),
+            false => this.toggle_new_mission_worker_list(cx),
+        }))
+        // Read back by index off the same list that drew it.
+        .on_pick(indexed(view, move |this, index, _window, cx| {
+            if let Some(picked) = this.new_mission_definitions(cx).get(index).cloned() {
+                match planner {
+                    true => this.pick_new_mission_planner(picked, cx),
+                    false => this.pick_new_mission_worker(picked, cx),
+                }
+            }
+        }));
+
+    hint_row(
+        id,
+        label,
+        hint,
+        div()
+            .flex_none()
+            .w(px(CONTROL_WIDTH))
+            .child(picker)
+            .into_any_element(),
+    )
+}
+
+/// *Initial plan*: None, a file through the attachment picker, or pasted text.
 ///
-/// **Paste is the one source this build offers.** A project file and a KB document are the other
-/// two the design names, and both need the file's bytes read back before there is anything to
-/// save — a round trip this dialog has no state machine for. Pasting the markdown asks nothing of
-/// the host, so it is what is here; the other two are a card, not a hedge.
-///
-/// Folded away until asked for: most missions start without one, and a second text area open on
-/// every mission is a dialog that reads as work.
-fn plan_seed(
+/// The host copies the content in as `plan.md`'s first revision and the planner is told to refine
+/// it rather than write one from scratch.
+fn initial_plan(
     app: &AppState,
     form: &crate::state::new_mission::NewMissionForm,
     window: &Window,
@@ -406,6 +433,10 @@ fn plan_seed(
         .read(cx)
         .focus_handle(cx)
         .is_focused(window);
+    let file = match &form.plan_source {
+        PlanSource::File(target) => Some(target.clone()),
+        _ => None,
+    };
 
     div()
         .flex()
@@ -413,21 +444,46 @@ fn plan_seed(
         .gap_2()
         .child(hint_row(
             "new-mission-plan-hint",
-            "Plan",
-            "Optional. A mission started from a plan opens in refining rather than requirements.",
+            "Initial plan",
+            "Optional, a starting point for the planner to refine. A file is copied in as the \
+             plan's first revision and stays attached for reference.",
             div()
                 .flex()
                 .flex_none()
                 .justify_end()
+                .items_center()
+                .gap_1p5()
                 .w(px(CONTROL_WIDTH))
-                .child(check_box(
-                    "new-mission-plan-toggle",
-                    form.plan_open,
-                    cx.listener(|this, _, _, cx| this.toggle_new_mission_plan(cx)),
+                .child(choice_pill(
+                    "new-mission-plan-none",
+                    "None",
+                    form.plan_source == PlanSource::None,
+                    cx.listener(|this, _, _, cx| {
+                        this.set_new_mission_plan_source(PlanSource::None, cx)
+                    }),
+                ))
+                .child(choice_pill(
+                    "new-mission-plan-file",
+                    "File\u{2026}",
+                    file.is_some(),
+                    cx.listener(|this, _, window, cx| {
+                        this.raise_new_mission_plan_picker(window, cx)
+                    }),
+                ))
+                .child(choice_pill(
+                    "new-mission-plan-paste",
+                    "Paste",
+                    form.plan_source == PlanSource::Paste,
+                    cx.listener(|this, _, _, cx| {
+                        this.set_new_mission_plan_source(PlanSource::Paste, cx)
+                    }),
                 ))
                 .into_any_element(),
         ))
-        .when(form.plan_open, |row| {
+        .when_some(file, |row, target| {
+            row.child(mono(target, theme::text_muted()))
+        })
+        .when(form.plan_source == PlanSource::Paste, |row| {
             row.child(
                 field(theme::border(), focused)
                     .flex_col()
@@ -442,6 +498,81 @@ fn plan_seed(
                         ),
                     ),
             )
+        })
+        .into_any_element()
+}
+
+/// *More*: parallel and approve, folded away until asked for.
+fn more(
+    form: &crate::state::new_mission::NewMissionForm,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .id("new-mission-more")
+                .flex()
+                .items_center()
+                .gap_1()
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_new_mission_more(cx)))
+                .child(
+                    gpui_component::Icon::new(match form.more_open {
+                        true => IconName::ChevronDown,
+                        false => IconName::ChevronRight,
+                    })
+                    .with_size(gpui_component::Size::XSmall)
+                    .text_color(theme::text_muted()),
+                )
+                .child(mono("More", theme::text_muted())),
+        )
+        .when(form.more_open, |col| {
+            col.child(hint_row(
+                "new-mission-parallel-hint",
+                "Parallel",
+                "How many workers may run at once.",
+                div()
+                    .flex()
+                    .flex_none()
+                    .justify_end()
+                    .items_center()
+                    .gap_1p5()
+                    .w(px(CONTROL_WIDTH))
+                    .child(choice_pill(
+                        "new-mission-parallel-down",
+                        "\u{2212}",
+                        false,
+                        cx.listener(|this, _, _, cx| this.nudge_new_mission_parallel(false, cx)),
+                    ))
+                    .child(mono(form.parallel.to_string(), theme::text()))
+                    .child(choice_pill(
+                        "new-mission-parallel-up",
+                        "+",
+                        false,
+                        cx.listener(|this, _, _, cx| this.nudge_new_mission_parallel(true, cx)),
+                    ))
+                    .into_any_element(),
+            ))
+            .child(hint_row(
+                "new-mission-approve-hint",
+                "Approve each task",
+                "Default for new subtasks: a finished task waits for your Confirm before its \
+                 dependents start.",
+                div()
+                    .flex()
+                    .flex_none()
+                    .justify_end()
+                    .w(px(CONTROL_WIDTH))
+                    .child(check_box(
+                        "new-mission-approve",
+                        form.approve,
+                        cx.listener(|this, _, _, cx| this.toggle_new_mission_approve(cx)),
+                    ))
+                    .into_any_element(),
+            ))
         })
         .into_any_element()
 }

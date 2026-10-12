@@ -34,7 +34,7 @@ struct CatalogueFile {
 
 /// Every TOML key a `[[project]]` row can hold today — `ProjectRecord`'s own field names, after
 /// `#[serde(rename)]`. [`merge_unknown_fields`]'s `known_fields` for the catalogue: kept in step
-/// with `ProjectRecord` by hand, the same obligation `mission.rs`'s own probe carries.
+/// with `ProjectRecord` by hand.
 const PROJECT_RECORD_FIELDS: &[&str] = &[
     "id",
     "name",
@@ -86,15 +86,14 @@ fn schema_of(raw: &str) -> Option<u32> {
 }
 
 /// `D179`: a parsed store round-trips a field it does not itself know, rather than dropping it —
-/// the mechanism [`crate::store::mission`] already uses for one record per file, generalised here
-/// to a list of them, keyed by `id`.
+/// for a list of records, keyed by `id`.
 ///
 /// `known_fields` is every TOML key this build's record type can itself emit (its field names,
 /// after `#[serde(rename)]`). A key in the old row that is **not** one of them is somebody else's —
 /// a newer Ubiq's, or a Studio sidecar's — and is copied onto the matching fresh row untouched. A
 /// key that **is** one of ours is never copied forward even if the fresh row omits it, because an
 /// omitted `Option` field is a value this save cleared, not one it forgot; copying it forward would
-/// resurrect it (`mission.rs`'s own reasoning).
+/// resurrect it.
 fn merge_unknown_fields(
     mut fresh: Vec<toml::Value>,
     existing_raw: &str,

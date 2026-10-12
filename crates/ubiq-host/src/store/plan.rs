@@ -300,8 +300,7 @@ impl FilePlanStore {
     }
 
     /// The config root itself — what a mission document resolves its own path against (M8):
-    /// `crate::store::mission::MissionStore` computes the same root's `missions/<TaskId>/docs/`
-    /// subtree, and a mission document is neither a plan nor a file document, so it has no other
+    /// `ProjectData::mission_docs` computes the same root's `missions/<TaskId>/docs/` subtree, and a mission document is neither a plan nor a file document, so it has no other
     /// path of its own to read this from.
     pub fn root(&self) -> &Path {
         &self.root

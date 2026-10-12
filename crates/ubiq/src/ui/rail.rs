@@ -370,11 +370,6 @@ fn teams_destination(app: &AppState, project: &mut ProjectId, cx: &App) -> Optio
         TeamsSelection::Session(session) => app.project_of_session(*session, cx),
         TeamsSelection::Agent(agent) => app.project_of_agent(*agent, cx),
         TeamsSelection::Subagent { agent, .. } => app.project_of_agent(*agent, cx),
-        // A mission's record names the project it was minted in, which is the one answer a fence
-        // on a window-span canvas can be read back through.
-        TeamsSelection::Mission(task) => {
-            app.mission_anywhere(*task).map(|record| record.project_id)
-        }
     };
     if let Some(owner) = owner {
         *project = owner;

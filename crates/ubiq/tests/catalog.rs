@@ -1,7 +1,7 @@
 //! The skills and MCP servers catalog's app-level wiring: a `Catalog` replaces its layer whole,
 //! the forms that offer skills and servers ask for both layers as they open, and the MCP form
 //! writes its record, waits for the layer, and fills itself from what the host read of a paste.
-//! `tests/new_mission.rs`'s `Fixture` is the model this one follows.
+//! The window fixture the dialog tests share is the model this one follows.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

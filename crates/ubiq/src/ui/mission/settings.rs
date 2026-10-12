@@ -1,179 +1,105 @@
-//! The Settings tab: how much autonomy this mission has (§6.2, M13, M22, M23, M24).
+//! The Settings tab: the whole list — driver, planner, worker, parallel, approve.
 //!
 //! **Every control is one `SetMissionField`.** The window asks, the host writes, and
-//! `MissionChanged` comes back — nothing here edits the record it is drawing, and nothing here
-//! journals: a switch of execution mode is journaled by the host (M22), which is the only place
-//! that knows it actually happened.
+//! `MissionChanged` comes back — nothing here edits the settings it is drawing.
 //!
-//! **Each setting says what it does in a sentence the user can act on.** These are the knobs that
-//! decide how much a mission does without asking; a mislabelled one is expensive, so the note
-//! beside each says what changes about the mission's behaviour rather than restating the field
-//! name.
-//!
-//! The agent-kinds table is [`super::full::agent_kinds`] — the same table the Agents tab draws,
-//! drawn once and shown in both places, because a second copy is a second set of controls to keep
-//! in step.
+//! **Each setting says what it does in a sentence the user can act on.**
 
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, px};
 
 use ubiq_proto::ids::TaskId;
-use ubiq_proto::mission::{ExecutionMode, MissionField, MissionRecord, OnFinish, SpawnPolicy};
+use ubiq_proto::mission::{Driver, MissionField, MissionSettings};
 
 use crate::app::AppState;
 use crate::theme;
 use crate::ui::eid2;
 use crate::ui::kit::{check_box, choice_pill, setting_row};
-use crate::ui::mission::panel::section_bar;
 
-/// The whole form, in the order a mission is reasoned about: what it must clear before it runs,
-/// how it runs, and what it may spawn.
-pub fn render(task_id: TaskId, mission: &MissionRecord, cx: &mut Context<AppState>) -> AnyElement {
+/// The whole form.
+pub fn render(
+    app: &AppState,
+    task_id: TaskId,
+    settings: &MissionSettings,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let definitions: Vec<String> = app
+        .workbench
+        .settings
+        .definitions_in(app.project(cx))
+        .into_iter()
+        .filter(|definition| !definition.disabled)
+        .map(|definition| definition.id)
+        .collect();
+
     div()
         .flex()
         .flex_col()
-        .child(section_bar("Gates", None))
         .child(rows(vec![
             setting_row(
-                "Require plan approval",
-                "Refining \u{2192} In progress waits for you. The gate where you commit agents and \
-                 spend: with it off, the coordinator moves the mission on by itself.",
-                switch(
-                    task_id,
-                    eid2("mission-set", task_id, "require-plan"),
-                    mission.require_plan,
-                    MissionField::RequirePlan,
-                    cx,
-                ),
-            ),
-            setting_row(
-                "Refine automatically",
-                "Requirements \u{2192} Refining moves without asking. Nothing is committed there, \
-                 which is why it is on by default.",
-                switch(
-                    task_id,
-                    eid2("mission-set", task_id, "auto-refine"),
-                    mission.auto_refine,
-                    MissionField::AutoRefine,
-                    cx,
-                ),
-            ),
-        ]))
-        .child(section_bar("Execution", None))
-        .child(rows(vec![
-            setting_row(
-                "Execution mode",
-                "Manual: you and the coordinator hand tasks out, and readiness is advice. Auto: \
-                 the scheduler assigns the mission's ready tasks itself, while it is In progress.",
+                "Driver",
+                "Auto starts ready tasks by itself until the next human task or approval. Manual \
+                 lists them under Next and waits for you to press \u{25b6}. Changeable mid-run.",
                 pills(
-                    ("mission-execution", task_id),
-                    [ExecutionMode::Manual, ExecutionMode::Auto],
-                    mission.execution,
-                    |mode| match mode {
-                        ExecutionMode::Manual => "manual",
-                        ExecutionMode::Auto => "auto",
+                    ("mission-driver", task_id),
+                    [Driver::Auto, Driver::Manual],
+                    settings.driver,
+                    |driver| match driver {
+                        Driver::Auto => "auto",
+                        Driver::Manual => "manual",
                     },
-                    MissionField::Execution,
+                    MissionField::Driver,
                     cx,
                 ),
             ),
             setting_row(
-                "Parallelism",
-                "How many of this mission's tasks the scheduler may have in flight at once in auto \
-                 mode. Each one costs an agent.",
+                "Planner",
+                "The agent that writes the plan and drafts the tasks, and that a replan goes back \
+                 to. Default is the project's planner.",
+                definition_pills(
+                    ("mission-planner", task_id),
+                    &definitions,
+                    settings.planner.as_ref(),
+                    MissionField::Planner,
+                    cx,
+                ),
+            ),
+            setting_row(
+                "Worker",
+                "The agent started on each task, unless the task names one of its own. Default is \
+                 the project's worker.",
+                definition_pills(
+                    ("mission-worker", task_id),
+                    &definitions,
+                    settings.worker.as_ref(),
+                    MissionField::Worker,
+                    cx,
+                ),
+            ),
+            setting_row(
+                "Parallel",
+                "How many workers may run at once in auto mode. Each one costs an agent.",
                 count(
-                    ("mission-parallelism", task_id),
-                    mission.parallelism,
+                    ("mission-parallel", task_id),
+                    settings.parallelism(),
                     1,
                     12,
-                    MissionField::Parallelism,
+                    MissionField::Parallel,
                     cx,
                 ),
             ),
             setting_row(
-                "When an agent finishes",
-                "Reuse or stop: hand it another ready task with enough matching labels, else stop \
-                 it. Stop: always stop it. Either way its conversation stays resumable.",
-                pills(
-                    ("mission-on-finish", task_id),
-                    [OnFinish::ReuseOrStop, OnFinish::Stop],
-                    mission.on_finish,
-                    |on_finish| match on_finish {
-                        OnFinish::ReuseOrStop => "reuse or stop",
-                        OnFinish::Stop => "stop",
-                    },
-                    MissionField::OnFinish,
-                    cx,
-                ),
-            ),
-            setting_row(
-                "Tasks per agent",
-                "How many tasks one agent may be handed here before a fresh one is spawned \
-                 instead \u{2014} a fresh context beats a bloated one.",
-                count(
-                    ("mission-max-tasks", task_id),
-                    mission.max_tasks_per_agent,
-                    1,
-                    20,
-                    MissionField::MaxTasksPerAgent,
-                    cx,
-                ),
-            ),
-            setting_row(
-                "Attempts per task",
-                "How many times a failed attempt may release a task back to Ready before it is \
-                 blocked and you are told.",
-                count(
-                    ("mission-max-attempts", task_id),
-                    mission.max_attempts,
-                    1,
-                    10,
-                    MissionField::MaxAttempts,
+                "Approve each task",
+                "The default for new subtasks: a finished task waits for your Confirm before \
+                 anything that depends on it starts.",
+                switch(
+                    task_id,
+                    eid2("mission-set", task_id, "approve"),
+                    settings.approve,
+                    MissionField::Approve,
                     cx,
                 ),
             ),
         ]))
-        .child(section_bar("Spawning", None))
-        .child(rows(vec![
-            setting_row(
-                "When an agent asks for another agent",
-                "Ask: a row in Needs you, where you may change the kind first. Auto: launched \
-                 without asking, up to the limit below. Never: refused. The scheduler's own \
-                 launches are not asked about \u{2014} choosing auto mode is that consent.",
-                pills(
-                    ("mission-spawn-policy", task_id),
-                    [SpawnPolicy::Ask, SpawnPolicy::Auto, SpawnPolicy::Never],
-                    mission.spawn_policy,
-                    |policy| match policy {
-                        SpawnPolicy::Ask => "ask",
-                        SpawnPolicy::Auto => "auto",
-                        SpawnPolicy::Never => "never",
-                    },
-                    MissionField::SpawnPolicy,
-                    cx,
-                ),
-            ),
-            setting_row(
-                "Spawn limit",
-                "How many agents may be running from those automatic requests at once. Ignored \
-                 unless the policy above is auto.",
-                count(
-                    ("mission-spawn-limit", task_id),
-                    mission.spawn_limit,
-                    1,
-                    12,
-                    MissionField::SpawnLimit,
-                    cx,
-                ),
-            ),
-            setting_row(
-                "Default kind",
-                "Which kind a request that names none resolves to. With none set, a request \
-                 without a kind gets whatever definition it named.",
-                default_kind(task_id, mission, cx),
-            ),
-        ]))
-        // The table itself, with its own section bar — the Agents tab's, drawn here unchanged.
-        .child(super::full::agent_kinds(task_id, mission, cx))
         .into_any_element()
 }
 
@@ -281,39 +207,40 @@ fn count(
         .into_any_element()
 }
 
-/// The kinds the mission has, plus *none* — the one control whose values come off the record.
-fn default_kind(
-    task_id: TaskId,
-    mission: &MissionRecord,
+/// *Project default* plus one pill per agent definition; exactly one lit.
+fn definition_pills(
+    id: (&'static str, TaskId),
+    definitions: &[String],
+    held: Option<&String>,
+    field: impl Fn(Option<String>) -> MissionField + Copy + 'static,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let held = mission.default_kind.clone();
+    let task_id = id.1;
     let mut pills: Vec<AnyElement> = vec![
         choice_pill(
-            eid2("mission-default-kind", task_id, "none"),
-            "none",
+            eid2(id.0, id.1, "default"),
+            "default",
             held.is_none(),
-            cx.listener(move |this, _, _, cx| {
-                this.set_mission_field(task_id, MissionField::DefaultKind(None), cx)
-            }),
+            cx.listener(move |this, _, _, cx| this.set_mission_field(task_id, field(None), cx)),
         )
         .into_any_element(),
     ];
-    for kind in &mission.agent_kinds {
-        let name = kind.name.clone();
-        let lit = held.as_deref() == Some(name.as_str());
+    // A held value whose definition is gone still reads, rather than the row looking unset.
+    let mut names: Vec<&String> = definitions.iter().collect();
+    if let Some(held) = held
+        && !names.contains(&held)
+    {
+        names.push(held);
+    }
+    for name in names {
         let pick = name.clone();
         pills.push(
             choice_pill(
-                eid2("mission-default-kind", task_id, name.clone()),
-                name,
-                lit,
+                eid2(id.0, id.1, name.clone()),
+                name.clone(),
+                held == Some(name),
                 cx.listener(move |this, _, _, cx| {
-                    this.set_mission_field(
-                        task_id,
-                        MissionField::DefaultKind(Some(pick.clone())),
-                        cx,
-                    )
+                    this.set_mission_field(task_id, field(Some(pick.clone())), cx)
                 }),
             )
             .into_any_element(),

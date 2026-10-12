@@ -15,14 +15,13 @@ use chrono::Utc;
 use ubiq_proto::ids::{AnnotationId, BlockId, CommentId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
-    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocBinding, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion,
-    PlanRevision, SaveOrigin,
+    Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocBinding, DocumentHandle,
+    HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
 };
 use ubiq_proto::work::{Addressee, AgentId, CommentAuthor, Level};
 
 use super::queue::{QueuedRef, ThreadView};
 use crate::reply::Reply;
-use crate::store::mission::MissionStore;
 use crate::store::plan::{FilePlanStore, Placement, PlanSidecar, sidecar_beside};
 use crate::work;
 
@@ -280,13 +279,13 @@ fn follow_quotes(annotations: &mut [Annotation], blocks: &[PlanBlock]) -> bool {
     moved
 }
 
-/// Where a mission document's body sits, from the config root alone — the same `docs/` subtree
-/// [`crate::store::mission::MissionStore::docs_dir`] computes, reached without holding a full
-/// `MissionStore`: `Plans` already holds the config root through its own [`FilePlanStore`], and a
-/// mission document is not otherwise this module's to store.
-fn mission_doc_path(root: &Path, project: ProjectId, task: TaskId, name: &str) -> PathBuf {
-    MissionStore::new(root.to_path_buf())
-        .docs_dir(project, task)
+/// Where a mission document's body sits, from the config root alone —
+/// [`crate::store::project_dir::ProjectData::mission_docs`]: `Plans` already holds the config root
+/// through its own [`FilePlanStore`], and a mission document is not otherwise this module's to
+/// store.
+pub fn mission_doc_path(root: &Path, project: ProjectId, task: TaskId, name: &str) -> PathBuf {
+    crate::store::project_dir::ProjectData::under_config(root, project)
+        .mission_docs(task)
         .join(format!("{name}.md"))
 }
 
@@ -1022,11 +1021,21 @@ impl Plans {
         };
         let (prev, next) = (seen(&previous_blocks), seen(&matching.blocks));
         let carried = super::lineage::carry(
-            &prev.iter().map(|(id, t)| (*id, t.as_str())).collect::<Vec<_>>(),
-            &next.iter().map(|(id, t)| (*id, t.as_str())).collect::<Vec<_>>(),
+            &prev
+                .iter()
+                .map(|(id, t)| (*id, t.as_str()))
+                .collect::<Vec<_>>(),
+            &next
+                .iter()
+                .map(|(id, t)| (*id, t.as_str()))
+                .collect::<Vec<_>>(),
             &codes,
         );
-        changed |= follow_lineage(&mut sidecar.annotations, &carried.children, &matching.blocks);
+        changed |= follow_lineage(
+            &mut sidecar.annotations,
+            &carried.children,
+            &matching.blocks,
+        );
         self.lineage.insert(target.handle().key(), carried.codes);
         changed |= follow_quotes(&mut sidecar.annotations, &matching.blocks);
         let before = sidecar.highlights.len();
@@ -1309,9 +1318,11 @@ impl Plans {
                 .highlights
                 .retain(|highlight| !block_ids.contains(&highlight.block_id));
             if let Some(colour) = colour {
-                sidecar
-                    .highlights
-                    .extend(block_ids.iter().map(|&block_id| BlockHighlight { block_id, colour }));
+                sidecar.highlights.extend(
+                    block_ids
+                        .iter()
+                        .map(|&block_id| BlockHighlight { block_id, colour }),
+                );
             }
             Ok(())
         })
@@ -1357,7 +1368,9 @@ impl Plans {
                 .iter_mut()
                 .find(|existing| existing.id == annotation)
                 .ok_or_else(|| "no such annotation".to_string())?;
-            if let Some(note) = note.map(|note| note.trim().to_string()).filter(|n| !n.is_empty())
+            if let Some(note) = note
+                .map(|note| note.trim().to_string())
+                .filter(|n| !n.is_empty())
             {
                 found.thread.push(ubiq_proto::work::Comment::new(
                     CommentAuthor::Agent,
@@ -1542,13 +1555,13 @@ impl Plans {
     }
 }
 
-/// The agent a comment addressed to `Agent` goes to: the mission's coordinator, else the task's
+/// The agent a comment addressed to `Agent` goes to: the mission's planner, else the task's
 /// assignee when that names an agent id. `None` is nobody to tell, and nothing is delivered.
 pub fn choose_agent(
-    coordinator: Option<ubiq_proto::work::AgentId>,
+    planner_agent: Option<ubiq_proto::work::AgentId>,
     assigned_to: Option<&str>,
 ) -> Option<ubiq_proto::work::AgentId> {
-    coordinator.or_else(|| assigned_to.and_then(|who| who.trim().parse().ok()))
+    planner_agent.or_else(|| assigned_to.and_then(|who| who.trim().parse().ok()))
 }
 
 /// What a user comment just added hands the doc queue (`D207`), read off the mutation's own
@@ -1936,26 +1949,43 @@ mod tests {
         assert_eq!(a.thread[0].to, Some(Addressee::Agent));
         assert_eq!(a.marks, vec![AnnotationMark::Todo, AnnotationMark::Agent]);
 
-        plans.reply_to(&target, a.id, CommentAuthor::User, "again".to_string(), None);
+        plans.reply_to(
+            &target,
+            a.id,
+            CommentAuthor::User,
+            "again".to_string(),
+            None,
+        );
         plans.set_mark(&target, a.id, AnnotationMark::Todo, false);
         plans.set_mark(&target, a.id, AnnotationMark::Question, true);
         let a = annotations_of(&mut plans, project, task).remove(0);
         assert_eq!(a.thread[1].to, None);
-        assert_eq!(a.marks, vec![AnnotationMark::Agent, AnnotationMark::Question]);
+        assert_eq!(
+            a.marks,
+            vec![AnnotationMark::Agent, AnnotationMark::Question]
+        );
 
         // Highlights: set, recolour, clear; an unknown block is refused.
         plans.set_highlights(&target, &[ids[1], ids[2]], Some(HighlightColour::Green));
         plans.set_highlights(&target, &[ids[2]], Some(HighlightColour::Red));
         let h = highlights_of(&mut plans, project, task);
         assert_eq!(h.len(), 2);
-        assert!(h.contains(&BlockHighlight { block_id: ids[2], colour: HighlightColour::Red }));
+        assert!(h.contains(&BlockHighlight {
+            block_id: ids[2],
+            colour: HighlightColour::Red
+        }));
         let replies = plans.set_highlights(&target, &[BlockId::generate()], None);
         assert!(matches!(replies[0].message(), Message::PlanError { .. }));
         plans.set_highlights(&target, &[ids[1]], None);
         assert_eq!(highlights_of(&mut plans, project, task).len(), 1);
 
         // The highlighted block vanishes: its highlight goes with it, and the windows hear.
-        let replies = plans.save(&target, "# Plan\n\nStep one.".to_string(), &Saver::human(), None);
+        let replies = plans.save(
+            &target,
+            "# Plan\n\nStep one.".to_string(),
+            &Saver::human(),
+            None,
+        );
         assert!(highlights_of(&mut plans, project, task).is_empty());
         assert!(replies.iter().any(|reply| matches!(
             reply,
@@ -1968,7 +1998,12 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let target = Target::plan(project, task);
-        plans.save(&target, "# Plan\n\nStep one.".to_string(), &Saver::human(), None);
+        plans.save(
+            &target,
+            "# Plan\n\nStep one.".to_string(),
+            &Saver::human(),
+            None,
+        );
         let replies = plans.save(
             &target,
             "# Plan\n\nStep one.\n\nStep two.".to_string(),
@@ -2743,7 +2778,10 @@ mod tests {
         let (edited, _, _) = plans.annotation_list(&target).unwrap();
         assert_eq!(edited.len(), 3);
         assert_eq!(edited[0].id, blocks[0].id);
-        assert_eq!(edited[1].id, blocks[1].id, "an unchanged block keeps its id");
+        assert_eq!(
+            edited[1].id, blocks[1].id,
+            "an unchanged block keeps its id"
+        );
         assert!(!repo.path().join("notes.md.annotation.json").exists());
     }
 
@@ -3012,7 +3050,12 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let target = Target::plan(project, task);
-        plans.save(&target, "# Plan\n\nShip the thing.".to_string(), &Saver::human(), None);
+        plans.save(
+            &target,
+            "# Plan\n\nShip the thing.".to_string(),
+            &Saver::human(),
+            None,
+        );
         let (blocks, _, _) = plans.annotation_list(&target).unwrap();
         let block = blocks.iter().find(|b| b.text.contains("Ship")).unwrap().id;
         let replies = plans.annotate(
@@ -3036,7 +3079,12 @@ mod tests {
         assert_eq!(view.texts, vec!["why now?".to_string()]);
 
         // Edited since it was queued: delivered as it now reads. Resolved: not delivered.
-        plans.edit_comment(&target, id, queued.comment_ids[0], "why now, really?".to_string());
+        plans.edit_comment(
+            &target,
+            id,
+            queued.comment_ids[0],
+            "why now, really?".to_string(),
+        );
         assert_eq!(
             plans.thread_view(&target, &queued).unwrap().texts,
             vec!["why now, really?".to_string()]
@@ -3083,7 +3131,11 @@ mod tests {
         assert!(plans.thread_view(&target, &queued).is_some());
 
         let (_, waiting) = plans.awaiting_threads(&target, &[]).unwrap();
-        assert_eq!(waiting.len(), 1, "an open thread whose last word is the user's");
+        assert_eq!(
+            waiting.len(),
+            1,
+            "an open thread whose last word is the user's"
+        );
 
         plans.set_agent(&target, None);
         assert_eq!(plans.binding(&target).unwrap().agent, None);
@@ -3094,7 +3146,12 @@ mod tests {
         let (mut plans, work, project, _dir) = plans_with_work();
         let task = make_mission(&work, project);
         let target = Target::plan(project, task);
-        plans.save(&target, "# Plan\n\nShip it.".to_string(), &Saver::human(), None);
+        plans.save(
+            &target,
+            "# Plan\n\nShip it.".to_string(),
+            &Saver::human(),
+            None,
+        );
         let (blocks, _, _) = plans.annotation_list(&target).unwrap();
         plans.annotate(
             &target,
@@ -3107,7 +3164,13 @@ mod tests {
         );
         let (_, annotations, _) = plans.annotation_list(&target).unwrap();
         let annotation = annotations[0].id;
-        plans.reply_to(&target, annotation, CommentAuthor::Agent, "agent".to_string(), None);
+        plans.reply_to(
+            &target,
+            annotation,
+            CommentAuthor::Agent,
+            "agent".to_string(),
+            None,
+        );
         let (_, annotations, _) = plans.annotation_list(&target).unwrap();
         let (mine, theirs) = (annotations[0].thread[0].id, annotations[0].thread[1].id);
 
@@ -3127,11 +3190,11 @@ mod tests {
     }
 
     #[test]
-    fn the_coordinator_wins_over_the_assignee() {
-        let coordinator = ubiq_proto::work::AgentId::generate();
+    fn the_planner_wins_over_the_assignee() {
+        let planner = ubiq_proto::work::AgentId::generate();
         let assignee = ubiq_proto::work::AgentId::generate();
         let assigned = assignee.to_string();
-        assert_eq!(choose_agent(Some(coordinator), Some(&assigned)), Some(coordinator));
+        assert_eq!(choose_agent(Some(planner), Some(&assigned)), Some(planner));
         assert_eq!(choose_agent(None, Some(&assigned)), Some(assignee));
         assert_eq!(choose_agent(None, Some("a person")), None);
         assert_eq!(choose_agent(None, None), None);
@@ -3202,7 +3265,10 @@ mod tests {
         assert_eq!(thread.thread[0].author, CommentAuthor::Agent);
         assert!(thread.thread[0].text.contains("Alpha deux."));
         let block = blocks.iter().find(|b| b.id == thread.block_id).unwrap();
-        assert!(block.text.contains("zwei"), "anchored on the contested block");
+        assert!(
+            block.text.contains("zwei"),
+            "anchored on the contested block"
+        );
     }
 
     #[test]
@@ -3239,7 +3305,10 @@ mod tests {
         let (mut plans, target, _repo, _dir) = read_then_split("a1");
         let first = BASE.replace("Gamma old.", "Gamma new.");
         let saved = plans.agent_save(&target, first.clone(), "a1", None);
-        assert!(saved.merged, "the split is in what stands, not in what was sent");
+        assert!(
+            saved.merged,
+            "the split is in what stands, not in what was sent"
+        );
         // The agent ignores the note and writes again from its own text.
         let second = first.replace("Beta.", "Beta, expanded.");
         plans.agent_save(&target, second, "a1", None);
@@ -3259,10 +3328,17 @@ mod tests {
         let prepared = AgentWrite::prepare(base.as_deref(), current.as_deref(), &theirs);
         // The user's tab saves meanwhile, under the lock.
         let user = SPLIT.replace("Beta.", "Beta (user).");
-        let version = crate::files::save(repo.path(), "notes.md", SPLIT.as_bytes(), None, true)
-            .unwrap();
+        let version =
+            crate::files::save(repo.path(), "notes.md", SPLIT.as_bytes(), None, true).unwrap();
         plans
-            .file_save(&target, repo.path(), "notes.md", user.as_bytes(), Some(version), false)
+            .file_save(
+                &target,
+                repo.path(),
+                "notes.md",
+                user.as_bytes(),
+                Some(version),
+                false,
+            )
             .unwrap();
         assert!(
             plans
@@ -3336,13 +3412,21 @@ mod tests {
         plans.note_agent_read(&target, "a1", BASE);
         // The user's split lands while the agent works on the last block.
         plans.save(&target, SPLIT.to_string(), &Saver::human(), None);
-        plans.agent_save(&target, BASE.replace("Gamma old.", "Gamma new."), "a1", None);
+        plans.agent_save(
+            &target,
+            BASE.replace("Gamma old.", "Gamma new."),
+            "a1",
+            None,
+        );
 
         assert_eq!(code_of(&mut plans, "Alpha one."), "AAB.AA");
         assert_eq!(code_of(&mut plans, "Alpha two."), "AAB.AB");
         assert_eq!(code_of(&mut plans, "Gamma new."), "AAD");
         let (blocks, annotations, _) = plans.annotation_list(&target).unwrap();
-        let anchored = blocks.iter().find(|b| b.id == annotations[0].block_id).unwrap();
+        let anchored = blocks
+            .iter()
+            .find(|b| b.id == annotations[0].block_id)
+            .unwrap();
         assert_eq!(anchored.lineage, "AAB.AB");
         // Nothing of it is written down: the sidecar's blocks carry no code.
         let sidecar = plans.read_sidecar(&target).unwrap().unwrap();

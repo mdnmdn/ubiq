@@ -612,6 +612,11 @@ impl Sim {
                 description: String::new(),
                 steps: Vec::new(),
                 comments: Vec::new(),
+                approve: false,
+                review_of: None,
+                worker: None,
+                auto_fails: 0,
+                mission: None,
                 created_at: now,
                 updated_at: now,
             });

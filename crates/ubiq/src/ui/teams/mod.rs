@@ -323,10 +323,8 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
 ///
 /// **The `+` does what the toolbar's `+ Add agent` always did** — New agent, asking which project
 /// when the canvas spans more than one ([`AppState::open_teams_add_agent`]). **The chevron's menu
-/// offers New agent and New mission**, each asking the same project question in its own second
-/// stage ([`AppState::open_teams_create_menu`], [`AppState::pick_teams_create_menu`]) — *New
-/// mission* raises the same dialog the board and the side docks' `+` already do
-/// ([`AppState::open_new_mission`]).
+/// offers New agent**, which asks the project question in a second stage
+/// ([`AppState::open_teams_create_menu`], [`AppState::pick_teams_create_menu`]).
 fn create_split(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .flex()
@@ -377,11 +375,10 @@ fn teams_create_overlay(app: &AppState, cx: &mut Context<AppState>) -> Option<An
     let items = match menu.stage {
         TeamsCreateStage::Kind => vec![
             kit::ContextItem::new("New agent"),
-            kit::ContextItem::new("New mission"),
         ],
         // A row is the project's name in full, resolved through `project_face` so the rail's
         // badges, a card's chip and this list cannot disagree about which project is which.
-        TeamsCreateStage::AgentProject | TeamsCreateStage::MissionProject => app
+        TeamsCreateStage::AgentProject => app
             .window_projects(cx)
             .into_iter()
             .map(|id| {

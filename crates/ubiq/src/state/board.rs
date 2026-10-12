@@ -92,30 +92,6 @@ pub struct PendingTask {
     pub name_it: bool,
 }
 
-/// The rest of a new mission, waiting for the id `CreateTask` is about to mint — the promotion to
-/// [`crate::state::work::WorkProjection`]'s own [`Level::Mission`](ubiq_proto::work::Level::Mission),
-/// the description, and the assistant launch, none of which `CreateTask` can carry. The new-mission
-/// dialog's own counterpart to [`PendingTask`], kept apart from it because a mission always has a
-/// typed title — there is no stand-in to name and no suggestion to ask for.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PendingMission {
-    pub title: String,
-    /// The requirements. Sent as an `UpdateTask` the moment the task exists — empty means there
-    /// were none.
-    pub description: String,
-    /// The brief's other two halves (M7), both `SetTaskField`s on the anchor once it exists.
-    pub attachments: Vec<String>,
-    pub references: Vec<TaskId>,
-    /// The plan gate, written onto the record as `MissionField::RequirePlan` and said in the
-    /// coordinator's briefing — see `crate::state::new_mission::mission_briefing`.
-    pub require_plan: bool,
-    /// Markdown to save as the plan's first revision, which also starts the mission in `Refining`.
-    /// Empty is no plan.
-    pub plan_seed: String,
-    /// Who runs it (M10): a definition to launch, or an agent already running to adopt.
-    pub coordinator: crate::state::new_mission::Coordinator,
-}
-
 /// A task under the pointer, the column a drop would put it in, and where in it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Carry {
@@ -190,11 +166,9 @@ pub struct BoardState {
     /// What still has to reach the host once the task it belongs to has an id, which is the whole
     /// of a draft that a `CreateTask` could not carry.
     pub pending: Option<PendingTask>,
-    /// The same wait, for a mission the new-mission dialog just sent a `CreateTask` for. Read
-    /// alongside `pending` on the same `awaiting_new` flag in `TaskCreated`'s arm — the two are
-    /// never both `Some` at once, because one `New task`/`New mission` click sends one
-    /// `CreateTask`.
-    pub pending_mission: Option<PendingMission>,
+    /// The mission a task being created should become a child of: the Tasks tab's *Add task* in
+    /// Breakdown. Taken in `TaskCreated`'s arm once the host has minted the id.
+    pub pending_parent: Option<TaskId>,
     /// Which field of the open task is being edited, if any.
     pub editing: Option<Field>,
     /// Whether the description is showing as markdown while it is being written. Inside edit mode
@@ -324,7 +298,7 @@ impl Default for BoardState {
             awaiting_new: false,
             draft: false,
             pending: None,
-            pending_mission: None,
+            pending_parent: None,
             editing: None,
             preview: false,
             confirm_delete: false,

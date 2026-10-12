@@ -32,8 +32,9 @@
 //!   matcher and the provenance layer (`plan::blocks`, `plan::provenance`) read and write the
 //!   sidecar with no dependency on `work`; `Plans`/`Handle`/`Target`, which check a task's level
 //!   through it, are behind `harness`
-//! - `mission`: a mission's own record — its phase, its roster and how it is run, keyed by the
-//!   anchor task's id, made lazily and never migrated (behind `harness`)
+//! - `mission`: a mission's runner — the pure pass over its task tree, the actions, the launches
+//!   addressed to one window, and the derived snapshot; the mission is its parent task and keeps
+//!   no record of its own (behind `harness`)
 //! - `reply`: what a service wants said, before the coordinator addresses it
 //! - `coordinator`: the run loop that starts harnesses, supervises them, and answers the bus
 //!   (behind `full`)
