@@ -3,7 +3,7 @@ id: inbox-dynamic-workspace
 title: Proposal — dynamic workspaces, a scriptable workbench
 kind: proposal
 status: proposal
-summary: A new rail mode whose centre is a dockable workbench built and driven by a TypeScript program on a persistent, host-side QuickJS runtime — docks holding A2UI surfaces, web panels, terminals, chats, editors or database tabs; a capability-granted `ubiq.*` API over layout, menus, state, a local SQLite, files, processes, terminals, HTTP, a loopback server, database connections, secrets, connectors and agents; a two-way agent link through the host's MCP server; Run and Author modes on one live instance; a `space.toml` manifest with a settings and permissions panel; zip bundles, a manager, and a signed registry later.
+summary: A new rail mode whose centre is a dockable workbench built and driven by a TypeScript program on a persistent, host-side QuickJS runtime — docks holding A2UI surfaces, web panels, agent-written live documents (the magic whiteboard), a Playwright-style browser, terminals, chats, editors or database tabs; a capability-granted `ubiq.*` API over layout, menus, state, a local SQLite, files, processes, terminals, HTTP and WebSockets, a loopback server, schedules, model calls, database connections, secrets, connectors and agents; a two-way agent link through the host's MCP server; Run and Author modes on one live instance; a `space.toml` manifest with a settings and permissions panel; zip bundles, a manager, and a signed registry later; and two dozen example spaces graded against the model.
 read_when: you are deciding how a user- or agent-authored tool runs inside Ubiq, what a script may reach, how a scripted panel is drawn in the dock, or how such a tool is packaged and shared
 updated: 2026-10-13
 depends_on: [inbox-plugin-system, inbox-a2ui, inbox-web-panel, ref-a2ui-protocol, ref-a2ui-catalog, feat-workbench, feat-workbench-sink, feat-workbench-db, feat-connectors, tech-architecture, tech-transport, tech-decisions]
@@ -160,6 +160,8 @@ sent:
 |---|---|---|
 | `a2ui` | The existing A2UI renderer | Native, themed, no fetch (`D115`). Surfaces become keyed and incremental (§5) |
 | `web` | The embedded webview on the loopback origin | A generic `space` tenant serving the bundle's HTML (§6). On Linux the external-browser fallback applies |
+| `live` | The embedded webview, on a Ubiq-owned shell page | A page the runtime or an agent writes and patches in real time (§6.1) |
+| `browser` | The embedded webview, or a screencast image for a host-driven Chromium | Navigates the open web within granted hosts, driven by script or agent (§6.2) |
 | `terminal` | `terminal::pane` | A real `PaneId` spawned by the host. Resize, focus and `TabClose` behave as everywhere else |
 | `chat` | The chat panel | A view onto a host-owned conversation the space started or attached to |
 | `editor` / `markdown` / `viewer` | The IDE's editor and viewers | A project file, or a file in the instance's data folder |
@@ -252,6 +254,137 @@ connected to. The bridge then speaks MCP Apps' `ui/*` methods, proxying `tools/c
 server. Ubiq thereby becomes an MCP Apps host for no more than a second protocol on a bridge it
 already has (§14).
 
+### 6.1 Live documents — the magic whiteboard
+
+A **live document** is a `web` dock whose page the runtime writes, not the bundle. It is what an
+agent needs to show *anything* — a diagram, a slide, a table, a game board, a mock-up — while it is
+thinking, and to change it as the conversation moves:
+
+```ts
+const board = ui.live({ id: "board", trust: "generated" });   // a web dock with no bundle page
+layout.open({ id: "board", panel: board, region: "centre", title: "Whiteboard" });
+mcp.tool("board_write", { html: "string", target: "string?", mode: "replace|append|morph" },
+  ({ html, target, mode }) => board.patch({ target: target ?? "#root", html, mode }));
+board.on("action", (e) => agent.prompt(`The user clicked ${e.name}: ${JSON.stringify(e.data)}`));
+```
+
+The mechanics:
+
+- **The shell.** The dock loads a small Ubiq-owned page, `live.html`, on the `space` tenant. It has
+  an empty `#root`, the theme tokens as CSS variables, and a patch applier. Content arrives as
+  bridge frames — `Replace{html}`, `Patch{target, html, mode}`, `Style{css}`, `Script{js}`,
+  `Assets{map}` — and `morph` uses a DOM-morphing pass (idiomorph, vendored) so a re-render keeps
+  scroll, focus and form input instead of flashing.
+- **Round trip.** Any element carrying `data-action="name"` (and optional `data-*` payload) sends
+  an `action` event to the script when clicked or submitted, and a form's values come with it. The
+  whiteboard is therefore generative UI in both directions — the agent draws, the user answers by
+  touching what was drawn, and the script decides what reaches the agent.
+- **Real time, honestly.** Each `board_write` lands as soon as the tool call completes, so the
+  board moves at the speed of the agent's tool calls. Finer than that — the page filling in while
+  the model is still typing the HTML — needs the harness to stream a tool call's arguments. Ubiq
+  already sees `ToolCall`/`ToolCallUpdate` in the `ConvUpdate` stream, so where a harness emits
+  partial input, the host feeds the partial
+  `html` argument to the board as it grows — the same trick MCP Apps calls
+  `tool-input-partial`. Claude Code's native stream-json bridge (`D95`) can: with
+  `--include-partial-messages` it emits `input_json_delta` events while the model writes a tool
+  call's arguments, so the bridge needs to pass that flag and fold the deltas into a
+  `ToolCallUpdate`. On harnesses that only report a finished call, the board updates per call.
+- **History.** Every patch is appended to the instance's SQLite with a timestamp, so the board has
+  undo, a scrubber, named snapshots, and **Export** to a standalone HTML file or a PNG (the same
+  platform snapshot as §6.2, or `resvg` for an SVG-only board).
+- **Pages.** A whiteboard is many live documents, not one: `ui.live` takes an id, and a tab strip
+  surface lists them. An agent can open a new page for a new topic instead of overwriting.
+- **Generated script.** `trust: "generated"` marks the page as written by a model. Its CSP stays
+  default-deny for the network (`connect-src` is the bridge only, no remote images unless
+  declared), and its bridge RPC is limited to `action` events — `space.call` is unavailable, so
+  agent-written JavaScript can animate and compute inside the page but cannot reach a single
+  `ubiq.*` capability or exfiltrate anything. Whether `Script{js}` is allowed at all is a manifest
+  switch, `[web] generated_scripts = true`, off in the template.
+- **Linux.** The live document works in the external-browser fallback unchanged, because the
+  bridge's long-poll transport carries the same frames.
+
+The whiteboard is a template space, not a built-in: about 150 lines of TypeScript plus the shell.
+Its variants come cheap — a *slide deck* (one live page per slide, an agent narrating), a *design
+review board* (an agent pins mock-ups, the user annotates with `data-action` stickies), a *teaching
+canvas* (an agent explains a codebase with diagrams generated by `ubiq-archify`'s SVG export), a
+*report* that rebuilds itself whenever a query's result changes.
+
+### 6.2 The browser dock — automation, Playwright-style
+
+A web dock is "a document, never a browser" (`inbox-web-panel`). A **browser dock** is the opposite,
+deliberately: it navigates the open web, and the script or an agent drives it. It is a separate
+panel kind with a separate permission, so the risk is never inherited by accident.
+
+**The API** follows Playwright's shape so it reads familiar to authors and to agents:
+
+| Call | Does |
+|---|---|
+| `browser.open({ profile?, backend?, hosts? })` | A browser handle and a panel descriptor for a dock |
+| `page.goto(url)`, `back`, `forward`, `reload` | Navigate, resolving on load; refused outside the granted hosts |
+| `page.click(sel)`, `fill(sel, text)`, `press(key)`, `select(sel, v)`, `hover(sel)` | Act on an element by CSS selector, text selector or snapshot ref |
+| `page.waitFor(sel \| "load" \| "idle", { timeout })` | Wait on the page |
+| `page.evaluate(fn, arg)` | Run a function in the page; the result comes back as JSON only |
+| `page.snapshot()` | The accessibility tree with stable element refs — what an agent reads instead of pixels |
+| `page.screenshot({ fullPage? })` | A PNG into the instance's data folder, and a handle a dock or an agent can show |
+| `page.content()`, `url()`, `title()`, `cookies()` | Read state |
+| `page.on("console" \| "navigate" \| "download" \| "dialog")` | Events |
+| `page.route(pattern, handler)` | Intercept requests (CDP backend only) |
+
+**Two backends, one API:**
+
+- **`webview`** — the embedded `wry` view, visible and interactive in a dock, on macOS and Windows.
+  Driving it is script injection: `with_initialization_script` installs a small automation agent
+  in each page (query, scroll into view, synthesised events, the accessibility walk), and
+  `evaluate_script_with_callback` carries each command and its answer. `load_url`, `go_back`,
+  `with_navigation_handler`, `with_new_window_req_handler`, the download handlers, `cookies` and
+  `with_permission_handler` cover the rest. Synthesised events are untrusted (`isTrusted` is
+  false), which most sites accept and a few reject. `wry` has no screenshot call, so the screenshot
+  is platform code: WebView2's DevTools-protocol channel (`CallDevToolsProtocolMethod`) on Windows,
+  which also gives trusted input, and WKWebView's `takeSnapshot` on macOS. The webview runs in the
+  interface process, so its commands travel host → UI as `SpaceBrowserOp` messages and back. With
+  a remote UI the browsing happens on the UI's machine and its network, which the consent screen
+  says.
+- **`cdp`** — a Chromium the host launches (the user's installed Chrome or Chromium, never a
+  download Ubiq performs silently) and drives over the DevTools protocol. It is Playwright's actual
+  fidelity: trusted input, network interception, downloads, multiple tabs, headless by default. It
+  runs on the host, so it works on Linux, with a remote UI, and with no window at all. To be watched,
+  it streams `Page.startScreencast` frames into a dock that draws them as an image and forwards the
+  user's clicks back, so the user can take over a session the agent got stuck in. Two Rust crates
+  can carry it: `chromiumoxide` (async, tokio, pre-1.0) and `headless_chrome` (synchronous and
+  thread-based, which matches the host's worker threads). Choosing one is a spike, not a decision
+  this document makes.
+
+**For agents**, the `ubiq-space` MCP server gains `browser_*` tools when the space grants them —
+`browser_snapshot`, `browser_click`, `browser_type`, `browser_navigate`, `browser_screenshot`,
+`browser_evaluate` — modelled on Playwright MCP's ref-based tools, so an agent that already knows
+Playwright MCP needs no new vocabulary. The space's script can also wrap them in higher-level tools
+("log in to staging", "collect the invoice PDFs") so the agent calls one intention instead of forty
+clicks.
+
+**Boundaries:**
+
+- **Profile isolation.** Each instance gets its own browser profile under its data folder: a `wry`
+  `WebContext` with its own data directory (macOS keys the store by an identifier instead, which
+  the spike confirms), or a CDP `--user-data-dir`. It never sees the user's
+  real browser cookies. A profile can be named in the manifest and shared by instances of the same
+  space, so one login serves them all.
+- **Hosts.** `[permissions.browser] hosts = ["localhost:*", "*.example.com"]`. `"*"` is allowed and
+  flagged high risk. Navigation, redirects, frames and new windows outside the list are blocked and
+  reported as a `navigate` event.
+- **Page content is untrusted input.** Text an agent reads through `browser_snapshot` is marked as
+  page content in the tool result, so a page that says "ignore your instructions" is data the
+  privilege rule (§8.2) already contains: the agent can do nothing through the space that the grant
+  does not allow, and every `ask` action still prompts the human.
+- **Secrets.** `page.fill(sel, secrets.ref("password"))` attaches the value at the last hop — inside
+  the host for `cdp`, inside the interface for `webview` — so the script never holds it. This needs
+  `browser.fill_secrets`, high risk.
+- **Downloads** land in `$data/downloads`; `file://` and `ubiq://` navigation is refused.
+
+**The playground.** A *browser space* template opens a URL bar, the browser dock, a recorder (user
+actions turned into TypeScript `page.*` lines in an editor dock), a test runner whose results are an
+A2UI table, and an agent dock with the `browser_*` tools. That is a Playwright codegen and a test
+runner and an agent-driven browser in one space, and it is ordinary space code on top of §6.2.
+
 ## 7. The `ubiq` API
 
 A space imports `ubiq` (an ES module, typed by a generated `ubiq.d.ts`). Each namespace is a
@@ -262,15 +395,19 @@ asynchronous unless it is marked as synchronous below.
 |---|---|---|
 | `space` | Identity, instance id, mode (run/author), launch args, `onActivate`/`onDeactivate`/`onReload`, `close()` | New |
 | `layout` | `open`, `close`, `focus`, `move`, `update(title, icon, badge)`, `get()`, `reset()`, `on("change")` | New `Space*` messages |
-| `ui` | `surface` (A2UI), `web`, dialogs, `toast`, `notify`, status items | A2UI, web tenant, notification family |
+| `ui` | `surface` (A2UI), `web`, `live` (§6.1), dialogs, `toast`, `notify`, status items, `on("drop")` for files dragged onto a dock | A2UI, web tenant, notification family |
 | `commands` / `menu` / `keys` | Palette commands, titlebar menu, dock context items, scoped keybindings | New descriptors |
 | `state` | `get/set/delete/keys/clear`, synchronous over an in-memory copy, persisted as JSON. Scopes: `instance`, `space` (shared by instances) and `session` (memory only) | New, `<data>/state.json` |
 | `sqlite` | `open(name)` returning `query`, `exec`, `tx` over a private SQLite file in the instance's data folder | `rusqlite` |
 | `db` | List the project's saved connections, `query`, `page`, `cancel` | DB family, read-only guard kept |
 | `fs` | `read`, `write`, `list`, `stat`, `watch`, scoped to granted roots (`$project`, `$data`, `$bundle` read-only, explicit paths) | File family, watch worker |
-| `proc` | `exec(cmd, args)` with captured output, for allowlisted programs only | Host worker |
-| `term` | `spawn(cmd?, cwd, env)` returning a pane; `write`, `onData` (raw bytes), `onExit`, `kill` | Pane family |
+| `proc` | `exec(cmd, args)` with captured output, and `spawn` with streamed stdout/stderr lines, stdin and `kill`, for allowlisted programs only, with no pseudo-terminal | Host worker |
+| `term` | `spawn(cmd?, cwd, env)` returning a pane; `write`, `onData` (raw bytes), `onExit`, `kill`; `snapshot()` for the visible screen as text, answered by the interface's emulator when a window holds the pane | Pane family |
 | `http` | `fetch` with no CORS, to allowlisted hosts; `auth` takes a secret or connector reference | Host HTTP |
+| `net` | WebSocket and server-sent-event clients to allowlisted hosts, with the same `auth` references. No raw TCP or UDP | Host worker |
+| `browser` | A navigable, scriptable browser dock with a Playwright-shaped API (§6.2) | `wry` webview, or a host-driven Chromium |
+| `ai` | One-shot model calls — `complete`, `structured` (JSON-schema output), `embed` — through the user's configured providers, with no harness and no conversation | The assist family and `ai-provider` keys (`D86`) |
+| `schedule` | `every(cron, fn)` and `at(time, fn)`, persisted, firing while the host runs and catching up once at start | New, in-host |
 | `serve` | Register routes on the loopback origin (`/_space/<instance>/…`) or on a declared port, handled in JS | `tiny_http` |
 | `secrets` | `set(name)` (prompting the user), `has`, `ref(name)` to pass to `http`/`proc`; `reveal` only under its own permission | Keychain namespace `space/<id>` |
 | `connectors` | List the user's connections and `fetch` through one, with the token brokered | Connector family |
@@ -534,24 +671,119 @@ index.
 - **Remote A2UI agents:** an A2A or HTTP agent that speaks A2UI natively can stream envelopes into
   an `a2ui` dock through a small adapter space.
 
-## 15. Possibilities — a catalogue of first spaces
+## 15. Validation — two dozen spaces against the model
 
-These are illustrations, each buildable on §7 alone:
+The model is only as good as the spaces it can hold. Each row below was designed against §4–§11 as
+first written, and graded by what it needed:
 
-- **PR cockpit** (§1): connector, A2UI list, web diff, a reviewing agent and a terminal.
-- **Database dashboard:** saved connection, scheduled queries, chart web dock, alerts as
-  notifications.
-- **Incident runbook:** an A2UI checklist whose steps open terminals with prepared commands, an
-  agent that reads the output, and a timeline in SQLite.
-- **Agent pipeline:** planner, then N implementers, then a reviewer. Each is a chat dock, with a
-  board surface showing the stage of each agent, retry and stop buttons, and spend from `Usage`.
-- **Local dev cockpit:** `term` running the dev server, a `web` dock previewing it, a log tail
-  through `fs.watch`, and an agent with `space_inspect` for "why is this page blank".
-- **API playground:** requests in SQLite, secrets by reference, responses in a code view.
-- **Release manager:** git tags, changelog draft by an agent, CI status through a connector, and a
-  publish button behind `ask`.
-- **Personal kanban or notes:** SQLite and A2UI, with no permissions at all.
-- **MCP App viewer:** open any MCP server's UI resources side by side with the agent using them.
+- **Fits** — buildable on the model as it stood;
+- **Fits after amendment** — it exposed a gap, and the amendment is now part of this proposal
+  (the section that carries it is named);
+- **Fits under a high-risk grant** — buildable, but only with a permission the consent screen flags;
+- **Does not fit** — outside what a space should be, with the reason and the nearest workaround.
+
+The second half of the list is deliberately unexpected: goals nobody would build a rail mode for.
+
+| # | Space | Built from | Verdict | What it exposed |
+|---|---|---|---|---|
+| 1 | PR cockpit (§1) | `connectors`, A2UI list, web diff, `agents`, `term` | Fits | — |
+| 2 | Database dashboard | `db`, chart in a web dock, `notify` | Fits after amendment | Refreshing every five minutes had no home: **`schedule`** (§7) |
+| 3 | Incident runbook | A2UI checklist, `term`, `agents`, `sqlite` timeline | Fits after amendment | An agent cannot read a terminal's raw VT bytes: **`term.snapshot()`** returns screen text from the interface's emulator (§7) |
+| 4 | Agent pipeline | `agents`, chat docks, A2UI board, `Usage` spend | Fits | Parallel implementers want a worktree each; `agents.start({ worktree })` follows `inbox/worktree-proposal.md` |
+| 5 | Local dev cockpit | dev server, preview, log tail, `agents` | Fits after amendment | A dev server is not interactive: **`proc.spawn`** with streamed output (§7). A `web` dock cannot navigate to `localhost:3000`: **the browser dock** (§6.2) |
+| 6 | API playground | `http`, `secrets.ref`, `sqlite`, code view | Fits | — |
+| 7 | Release manager | `git`, `connectors`, `agents`, `ask` on publish | Fits | — |
+| 8 | Personal kanban | `sqlite`, A2UI | Fits | Needs no permission at all, which is the point of `state` and `sqlite` being free |
+| 9 | MCP App viewer | `mcp.connect`, web dock in MCP Apps mode | Fits | — (phase 7) |
+| 10 | **Magic whiteboard** | live document, `mcp.tool`, `agents` | Fits after amendment | A web page the runtime writes rather than the bundle: **live documents** (§6.1) |
+| 11 | **Browser QA / Playwright playground** | browser dock, editor, A2UI results, `agents` | Fits after amendment | Navigation and automation: **the browser dock** (§6.2) |
+| 12 | Tabletop game master | live map, A2UI dice and sheets, `sqlite` campaign, an agent as GM | Fits | Walkthrough in §15.1 |
+| 13 | Price watcher and form filler | headless `cdp` browser, `schedule`, `notify`, `sqlite` | Fits after amendment | `schedule` and the `cdp` backend. It runs only while the host runs (row 22) |
+| 14 | Home dashboard (Home Assistant, MQTT) | `http`, A2UI tiles, `notify` | Fits after amendment | Home Assistant pushes over a WebSocket: **`net`** (§7). MQTT over raw TCP does not fit; MQTT over WebSocket does |
+| 15 | Expense importer | dropped CSV or PDF, extraction, `sqlite`, chart | Fits after amendment | Files dropped on a dock: **`ui.on("drop")`**. Turning a receipt into rows without a conversation: **`ai.structured`** (§7). PDF text through `proc` (`pdftotext`) or pdf.js in a web dock |
+| 16 | Spoken-language tutor | web dock with microphone, `ai`, live transcript | Fits after amendment | Media access in a page: **`[web] permissions = ["microphone", "camera"]`**, MCP Apps' list, answered by `wry`'s permission handler and shown at consent |
+| 17 | Data notebook / spreadsheet | vendored grid in a web dock, `sqlite`, `ai` | Fits | QuickJS has no JIT. Heavy computation belongs in the web dock (a JIT engine and Web Workers) or in `proc`, and the script orchestrates. The template says so |
+| 18 | Slides from a repository | live pages, an agent narrating, full-screen | Fits after amendment | Full-screen or second-monitor docks need `layout.detach`, which waits on `inbox/detached-panes-proposal.md` |
+| 19 | Phone remote / second screen | `serve` on the LAN, a live page for the phone | Fits under a high-risk grant | `serve` beyond loopback is an open question in §18. With a per-session token and a QR code it is reasonable; without the grant it does not run |
+| 20 | Arduino / serial dashboard | serial port readings, charts | Fits under a high-risk grant | No serial API, by design. A `proc.spawn` of an allowlisted reader bridges it |
+| 21 | Real-time 2D game | canvas in a web dock, `state` high scores | Fits | A2UI cannot draw it, and need not: the webview runs at frame rate |
+| 22 | Nightly report while Ubiq is closed | `db`, `ai`, email through a connector | Fits after amendment | A space lives in the host process. The OS scheduler runs **`ubiq space run <id> --entry nightly`** headless, so a manifest may name extra entry points (`[entry] main`, `[entry.jobs] nightly`) |
+| 23 | Team standup board shared live by colleagues | shared state, presence | Does not fit | Multi-user real-time sync is not a space's job. The workaround is a shared store the user already has: a Postgres through `db`, or a git repository through `git` |
+| 24 | Clipboard history / global launcher | OS-wide hotkey, clipboard watching, tray | Does not fit | Hooks outside Ubiq's window belong to the OS. A space reaches the clipboard only on a user action |
+
+### 15.1 Walkthrough — the tabletop game master
+
+The goal is far from coding, which is why it is a good test. The user runs a role-playing campaign
+with an agent as game master.
+
+- **Docks:** a live document in the centre for the scene (map, illustrations as inline SVG, the
+  current room's description); an A2UI party sheet on the right; an A2UI dice tray and initiative
+  tracker at the bottom; the GM agent's chat on the left.
+- **State:** the campaign in `sqlite` (characters, inventory, locations, session log), the current
+  scene id in `state`.
+- **Agent link:** the script defines `mcp.tool("roll", …)`, `mcp.tool("set_scene", …)` and
+  `mcp.tool("update_character", …)`. The agent narrates in chat and calls those tools, and each
+  call updates the board and the sheets. A player's click on a door in the map
+  (`data-action="open"`) reaches the agent as an event, and the dice tray's result reaches it as a
+  tool result, so the agent never invents a roll.
+- **Permissions:** `agents` and `mcp`. No files, no network, no processes.
+
+It fits with nothing added beyond §6.1, and it shows the two-way agent link (§8) doing real work:
+the script is the rulebook and the agent is the storyteller, and neither can cheat the other.
+
+### 15.2 Walkthrough — the price watcher
+
+The user wants a set of product pages checked twice a day and a notification when a price drops.
+
+- `schedule.every("0 9,18 * * *", check)` wakes the instance. `browser.open({ backend: "cdp" })`
+  runs headless, so no window has to be open.
+- `check` visits each URL kept in `sqlite`, and reads the price with `page.evaluate`. For pages
+  that change their markup it asks `ai.structured` to extract `{ price, currency, in_stock }` from
+  `page.snapshot()` instead.
+- A drop raises `notify`. The A2UI list shows the history, and a chart in a web dock shows the
+  trend.
+- **Permissions:** `browser` with the shop hosts only, `ai` and `schedule`. The consent screen
+  shows that the browser cannot leave those hosts.
+
+It exposed three amendments (`schedule`, the `cdp` backend, `ai`) and one honest limit: it runs
+while the host runs. Row 22's headless entry point is the answer for a user who wants it from cron.
+
+### 15.3 Walkthrough — the home dashboard
+
+The user has Home Assistant at home and wants lights, sensors and a "leaving home" routine beside
+their agents.
+
+- `net.ws("wss://ha.local/api/websocket", { auth: { bearer: secrets.ref("ha-token") } })`
+  subscribes to state changes. The token never reaches the script.
+- Live tiles sit in an A2UI grid, and a toggle sends a service call over the same socket.
+- A "leaving home" command checks every sensor and asks an agent to summarise what is still on.
+- **Permissions:** `net` with one host, `secrets` and `agents`.
+
+Before `net` existed this did not fit, because a five-second `http` poll was the only option. MQTT
+on its raw port still does not fit, and the template points at MQTT over WebSocket instead.
+
+### 15.4 What the validation changed, and what it confirmed
+
+**Amendments now in the proposal:** live documents (§6.1), the browser dock (§6.2), `proc.spawn`,
+`term.snapshot`, `net`, `ai`, `schedule`, dock drop events, media permissions for web docks, extra
+headless entry points, and `layout.detach` as a dependency on the detached-panes proposal.
+
+**Confirmed by the exercise:**
+
+- **The docks reuse what exists.** The live document and the browser dock are the only new panel
+  kinds, and they carry eight rows between them (5, 10, 11, 12, 13, 16, 18, 19). The rest are built
+  from terminals, chats, editors, A2UI and web docks.
+- **The grant model scales down.** The kanban, the game and the whiteboard need no file, network or
+  process access, and those are exactly the spaces most likely to be shared.
+- **The agent link is the differentiator.** Rows 3, 4, 10, 11, 12 and 15 depend on the script
+  defining tools for an agent, or on the agent reading the space's state.
+- **QuickJS is the conductor, not the orchestra.** Wherever the work is heavy — rendering, charts,
+  a grid, a game loop, PDF parsing — it moves to a web dock or a process, and the runtime only
+  coordinates.
+
+**Where the model stops, on purpose:** multi-user real-time collaboration, OS-wide automation,
+raw sockets and devices, and running while Ubiq itself is not. Each has a workaround through a
+user-held store, `proc` or the headless CLI, and none of them is a reason to widen the runtime.
 
 ## 16. Wire changes
 
@@ -562,8 +794,8 @@ pane messages do, and catalogue messages reach every window.
 
 | Direction | Variants |
 |---|---|
-| UI → host | `ListSpaces`, `InstallSpace`, `UninstallSpace`, `ExportSpace`, `OpenSpace{space, project?, args}`, `CloseSpace`, `DetachSpace`, `SetSpaceMode`, `ReloadSpace`, `SpaceAction{instance, dock, envelope}`, `SpaceInput{instance, dock, pointer, value}`, `SpaceWebCall{instance, dock, call}`, `SpaceLayoutChanged`, `SpaceCommand`, `SpaceDialogAnswer`, `SaveSpaceManifest`, `SetSpaceGrants`, `SpaceEval` (author REPL) |
-| Host → UI | `SpacesListed`, `SpaceOpened{instance, manifest, layout}`, `SpaceLayout{instance, ops}`, `SpaceSurface{instance, dock, envelope}`, `SpaceWebEmit`, `SpaceContributions` (commands, menus, status items, keys), `SpaceDialog`, `SpaceConsole`, `SpaceConsent`, `SpaceClosed{reason}`, `SpaceError` |
+| UI → host | `ListSpaces`, `InstallSpace`, `UninstallSpace`, `ExportSpace`, `OpenSpace{space, project?, args}`, `CloseSpace`, `DetachSpace`, `SetSpaceMode`, `ReloadSpace`, `SpaceAction{instance, dock, envelope}`, `SpaceInput{instance, dock, pointer, value}`, `SpaceWebCall{instance, dock, call}`, `SpaceLayoutChanged`, `SpaceCommand`, `SpaceDialogAnswer`, `SaveSpaceManifest`, `SetSpaceGrants`, `SpaceEval` (author REPL), `SpaceDrop{instance, dock, files}`, `SpaceBrowserResult{instance, dock, op, result}`, `PaneSnapshot{pane, text}` |
+| Host → UI | `SpacesListed`, `SpaceOpened{instance, manifest, layout}`, `SpaceLayout{instance, ops}`, `SpaceSurface{instance, dock, envelope}`, `SpaceWebEmit`, `SpaceLive{instance, dock, patch}`, `SpaceBrowserOp{instance, dock, op}` (webview backend only), `SpaceScreencast{instance, dock, frame}` (cdp backend), `RequestPaneSnapshot{pane}`, `SpaceContributions` (commands, menus, status items, keys), `SpaceDialog`, `SpaceConsole`, `SpaceConsent`, `SpaceClosed{reason}`, `SpaceError` |
 
 Terminal, chat, editor and database docks need no new messages: the host spawns them through their
 own families and tells the interface only the descriptor that names the resulting id. Every new
@@ -577,11 +809,12 @@ variant owes a `capability()` classification.
 | 1 | `Message::capability()` and the grant store. Host instance worker. Space wire family. Spaces rail mode, `PanelKind::Space`, `layout`. A2UI keyed and incremental (`G250`/`G206`) with actions and two-way input. Commands and menus. Run mode for dev folders | 3–4 weeks |
 | 2 | Reused docks: `term`, `agents` with a chat dock, `fs`, `editor`, `db`. Then `sqlite`, `proc`, `http`, `secrets` with brokering, `connectors`. Consent screen and audit | 3 weeks |
 | 3 | Author mode: file tree, settings and permissions panels, console with REPL, hot reload, `ubiq.d.ts`, templates. `ubiq-space` MCP server with `space_*` and custom tools, `space_inspect` | 2–3 weeks |
-| 4 | Web docks: the `space` tenant, manifest CSP, bridge RPC. `serve`. `events` | 2 weeks |
-| 5 | Bundles: export, import, verify, manager, fork-to-edit, upgrade consent. Background spaces (the plugin case) | 1–2 weeks |
-| 6 | MCP Apps hosting and `mcp.connect` | 1–2 weeks |
-| 7 | Registry: signed index, publish, browse | Not proposed yet |
-| 8 | Out-of-process runtime behind isol8 | Not proposed yet |
+| 4 | Web docks: the `space` tenant, manifest CSP and media permissions, bridge RPC. Live documents and the whiteboard template, with partial tool input from the stream-json bridge. `serve`, `events`, `net`, `ai`, `schedule`, `proc.spawn`, `term.snapshot`, drop events | 2–3 weeks |
+| 5 | The browser dock: the Playwright-shaped API, the `webview` backend on macOS and Windows, then the `cdp` backend after a crate spike. `browser_*` MCP tools. The browser playground template | 3 weeks |
+| 6 | Bundles: export, import, verify, manager, fork-to-edit, upgrade consent. Background spaces (the plugin case). Headless entry points | 1–2 weeks |
+| 7 | MCP Apps hosting and `mcp.connect` | 1–2 weeks |
+| 8 | Registry: signed index, publish, browse | Not proposed yet |
+| 9 | Out-of-process runtime behind isol8 | Not proposed yet |
 
 Phases 0 and 1 already deliver something useful: a scripted A2UI tool with persistent state, with
 no power beyond its own docks. Phase 2 makes it a workbench, and phase 3 makes it self-building.
@@ -608,6 +841,11 @@ Each of these would become a row in `tech/decisions.md` when accepted:
    installed bundle is immutable and forked to edit.
 9. **The bundle format** is a zip with `space.toml` and `SHA256SUMS`, minisign-signed when it comes
    from a registry.
+10. **A live document may hold model-written HTML and, by manifest switch, script.** It is safe
+    because its page has no network beyond the bridge and its bridge carries only `action` events.
+11. **A browser dock is a separate panel kind with a separate permission.** It may navigate, unlike
+    a web dock. Every instance gets an isolated profile, navigation is confined to granted hosts,
+    and page content reaches an agent marked as untrusted.
 
 What it leaves open, for `backlog.md` once accepted:
 
@@ -617,7 +855,11 @@ What it leaves open, for `backlog.md` once accepted:
 - how a remote UI shows a `web` dock when the host is on another machine (the origin is the
   interface's, the bundle is the host's);
 - whether `agents.answer` should exist, or whether a permission prompt should always reach a human;
-- how much of `ubiq.d.ts` is generated from the capability table rather than written by hand.
+- how much of `ubiq.d.ts` is generated from the capability table rather than written by hand;
+- which crate drives the `cdp` backend, and whether Linux gets a `webview` backend when
+  `gpui-wry`'s Unix path lands;
+- whether `term.snapshot` should work for a pane no window is drawing, which would need a terminal
+  state engine on the host that the domain rules currently exclude.
 
 ## Related docs
 
