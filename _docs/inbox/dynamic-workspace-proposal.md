@@ -3,7 +3,7 @@ id: inbox-dynamic-workspace
 title: Proposal — dynamic workspaces, a scriptable workbench
 kind: proposal
 status: proposal
-summary: A new rail mode whose centre is a dockable workbench built and driven by a TypeScript program on a persistent, host-side QuickJS runtime — docks holding A2UI surfaces, web panels, agent-written live documents (the magic whiteboard), a Playwright-style browser, terminals, chats, editors or database tabs; a capability-granted `ubiq.*` API over layout, menus, state, a local SQLite, files, processes, terminals, HTTP and WebSockets, a loopback server, schedules, model calls, database connections, secrets, connectors and agents; a two-way agent link through the host's MCP server; Run and Author modes on one live instance; a `space.toml` manifest with a settings and permissions panel; zip bundles, a manager, and a signed registry later; and two dozen example spaces graded against the model.
+summary: A new rail mode whose centre is a dockable workbench built and driven by a TypeScript program on a persistent, host-side QuickJS runtime — docks holding A2UI surfaces, web panels, agent-written live documents (the magic whiteboard), a Playwright-style browser, terminals, chats, editors or database tabs; a capability-granted `ubiq.*` API over layout, menus, state, a local SQLite, files, processes, terminals, HTTP and WebSockets, a loopback server, schedules, model calls, database connections, secrets, connectors and agents; a two-way agent link through the host's MCP server; Run and Author modes on one live instance; a `space.toml` manifest with a settings and permissions panel; zip bundles, a manager, and a signed registry later; app-ly applications imported and run unchanged through a `window.shell` shim; and two dozen example spaces graded against the model.
 read_when: you are deciding how a user- or agent-authored tool runs inside Ubiq, what a script may reach, how a scripted panel is drawn in the dock, or how such a tool is packaged and shared
 updated: 2026-10-13
 depends_on: [inbox-plugin-system, inbox-a2ui, inbox-web-panel, ref-a2ui-protocol, ref-a2ui-catalog, feat-workbench, feat-workbench-sink, feat-workbench-db, feat-connectors, tech-architecture, tech-transport, tech-decisions]
@@ -406,16 +406,16 @@ asynchronous unless it is marked as synchronous below.
 | `http` | `fetch` with no CORS, to allowlisted hosts; `auth` takes a secret or connector reference | Host HTTP |
 | `net` | WebSocket and server-sent-event clients to allowlisted hosts, with the same `auth` references. No raw TCP or UDP | Host worker |
 | `browser` | A navigable, scriptable browser dock with a Playwright-shaped API (§6.2) | `wry` webview, or a host-driven Chromium |
-| `ai` | One-shot model calls — `complete`, `structured` (JSON-schema output), `embed` — through the user's configured providers, with no harness and no conversation | The assist family and `ai-provider` keys (`D86`) |
+| `ai` | One-shot model calls — `complete`, `structured` (JSON-schema output), `stream`, `embed`, with tools whose handlers run in the script — through the user's configured providers, with no harness and no conversation | The assist family and `ai-provider` keys (`D86`) |
 | `schedule` | `every(cron, fn)` and `at(time, fn)`, persisted, firing while the host runs and catching up once at start | New, in-host |
-| `serve` | Register routes on the loopback origin (`/_space/<instance>/…`) or on a declared port, handled in JS | `tiny_http` |
+| `serve` | Register routes on the loopback origin (`/_space/<instance>/…`) or on a declared port, handled in JS; `serve.ws` for a WebSocket server on the same listener | `tiny_http` |
 | `secrets` | `set(name)` (prompting the user), `has`, `ref(name)` to pass to `http`/`proc`; `reveal` only under its own permission | Keychain namespace `space/<id>` |
 | `connectors` | List the user's connections and `fetch` through one, with the token brokered | Connector family |
 | `agents` | `list`, `start`, `attach`, `prompt`, `cancel`, `status`, `history`, `on("update")`, `answer(permission)` | Conversation family |
 | `mcp` | `tool(name, schema, handler)` to expose a tool to agents; `connect(server)` as an MCP client | Host MCP server (`D102`) |
 | `projects` / `git` / `tasks` / `kb` / `search` | Read access to the families that exist, plus writes each under its own permission | Existing families |
 | `events` | Publish and subscribe between instances of the same space, or across spaces that both grant it | New, in-host |
-| `clipboard` / `open` | Write the clipboard; open a URL or file externally after a confirm | Existing |
+| `clipboard` / `open` | Write the clipboard; read it under `clipboard.read`; open a URL or file externally after a confirm | Existing |
 | `console` / `log` | Goes to the instance's log dock and the `space` log subsystem | Log sink |
 
 The runtime adds standard globals that rquickjs does not: `setTimeout`, `setInterval`,
@@ -671,6 +671,128 @@ index.
 - **Remote A2UI agents:** an A2A or HTTP agent that speaks A2UI natively can stream envelopes into
   an `a2ui` dock through a small adapter space.
 
+### 14.1 Migrating an app-ly application
+
+An [app-ly](https://github.com/mdnmdn/app-ly) application is the case a space must absorb without
+asking its author to rewrite anything. It is a folder with an `app.toml`, a `contents/` page that
+holds all the logic, and a `window.shell` object the shell injects. A space is the other way round,
+with the logic in a script and the page as one dock. Both shapes fit the same model, because a page
+that talks to a host object is exactly a web dock that talks to its script over the bridge.
+
+**The compatibility layer is a shim plus an adapter, not a second runtime:**
+
+- **`shell.js`** is an initialisation script Ubiq injects into the app's web dock. It defines
+  `window.shell` with app-ly's exact names, signatures and result shapes. Every method becomes one
+  bridge call. Promises reject with plain strings, `run` resolves on a non-zero exit, and BLOB
+  columns come back as `null`, all as in app-ly. `shell.settings` is synchronous because its values
+  are injected with the script.
+- **`ubiq:compat/app-ly`** is a built-in module shipped with Ubiq. It implements those bridge calls
+  on `ubiq.*`, so it is ordinary space code bound by the space's grant. The page still never sees
+  `ubiq.*`.
+- **The imported space's `src/main.ts`** is one line that re-exports the adapter. Its manifest opens
+  one centre dock showing `contents/`, and the app looks as it did, framed by a dock tab instead of
+  a window.
+
+**Import.** `ubiq space import <folder>`, or dropping the folder onto Spaces, does five things:
+
+1. It reads `app.toml` and the `.env` beside it.
+2. It writes a `space.toml` next to them and the one-line `main.ts`, and leaves `contents/` and
+   `app.toml` untouched. The same folder still runs in app-ly, so migration is reversible and the two
+   can live side by side.
+3. It registers the folder as a dev space.
+4. It shows the consent screen with the permissions it derived.
+5. It offers to copy the old `dataPath` (files, `.db` files, `logs/`) into the instance's data
+   folder, and to copy keychain entries under the old `keychainPrefix` into `space/<id>/`, with the
+   OS's own keychain prompt.
+
+From there it is a space like any other. It can be exported as a bundle, opened in Author mode, and
+**ported gradually**: logic moves from the page into `main.ts`, panels split into docks, and secrets
+become references, at whatever pace the author likes. The template's `AGENTS.md` tells an agent how
+to do the port.
+
+**`app.toml` to `space.toml`:**
+
+| app-ly | Space | Note |
+|---|---|---|
+| `name`, `icon` | `name`, `icon` | The id is derived from the name and confirmed at import |
+| `contents` | `[web] main = "contents/index.html"`, one centre dock | A file path makes its parent the root, as in app-ly |
+| `dataPath` | The instance data folder, under `files/` | Flat names only, the same rule app-ly enforces |
+| `showDevMenu` | Author mode with the web inspector | No manifest key needed |
+| `keychainPrefix` | The `space/<id>/` keychain namespace | Entries are copied once at import, on request |
+| `[settings]`, `.env` | `[settings]`, `.env` | `.env` stays a local file and is **never** packed into a bundle; export warns |
+| `[[allowedCommands]]` | `[[permissions.proc.commands]]`, field for field | Ubiq adopts app-ly's allowlist schema as its own `proc` grant: `name`, `program`, anchored `args` regexes, `extraArgs`, `maxArgs`, `cwd`, `env`, `timeoutMs` |
+| `[ai]` | `[ai]` defaults for the `ai` namespace | `"default"` maps to the user's default provider (below) |
+| `[webdriver]` | `[webdriver]` on the space's own web dock | Below |
+
+**`window.shell` to the model:**
+
+| app-ly API | Built on | Fidelity |
+|---|---|---|
+| `saveFile`, `readFile`, `deleteFile`, `renameFile` | `fs` on `$data/files` | Same |
+| `openFile`, `openFileLocation` | `open`, after a confirm | Same, plus the confirm |
+| `onFileDrop` | `ui.on("drop")`, same `{name, mime, size, body, encoding}` shape and 8 MiB cap | Same |
+| `readClipboard`, `writeClipboard` | `clipboard`; reading needs `clipboard.read` | Needs grant (read) |
+| `dbQuery`, `dbExecute`, `dbClose` | `sqlite.open(name)` per db name | Same, including positional params and `{columns, rows}` |
+| `fetch`, `get`, `post` | `http.fetch` | Needs grant: app-ly allows any host. The importer scans `contents/` for literal origins and proposes them as the host list; `"*"` remains possible and is flagged |
+| `notify`, `log` | `notify`, the space's log | Same |
+| `openWindow`, `closeWindow`, `onWindowNavigated/Loaded/Closed`, `getWindowBody`, `evalWindow` | A browser dock with the `webview` backend (§6.2); `evalWindow("main")` evaluates in the app's own dock | Mapped. Child windows already have no `window.shell`, as browser docks have no `ubiq.*`. Hosts come from the grant |
+| `authViaBrowser` | `serve` on an ephemeral loopback port plus `open` in the system browser | Same flow, same errors |
+| `secretSet`, `secretGet`, `secretDelete` | `secrets`; `secretGet` returns material, so it needs `secrets.reveal` | Needs high-risk grant. Porting to `secrets.ref` removes it |
+| `httpStart`, `onHttpRequest`, `httpRespond`, `httpStop` | `serve` on loopback | Same |
+| `wsStart`, `onWsConnection`, `onWsMessage`, `wsSend`, `wsClose`, `wsStop` | `serve.ws`, a WebSocket server on the same loopback listener | Same |
+| `listCommands`, `run`, `spawn` and the `ChildProcess` object | `proc.exec`, `proc.spawn` | Same, timeouts resolved in app-ly's order |
+| `ai.info`, `generate`, `generateObject`, `stream`, tools with page-side handlers | `ai.complete`, `ai.structured`, `ai.stream`; tool calls round-trip to the page's handlers over the bridge | Mapped, with a different model (below) |
+| `getWindowSize`, `getWindowPosition`, `getScreens`, `getScreenAt` | The dock's size and the window's screen | Degraded: answers describe the dock |
+| `setWindowSize`, `setWindowPosition`, `minimize` | No-op with a console warning, or the detached window once `layout.detach` exists | Degraded |
+| `settings` | Injected with `shell.js` | Same |
+
+**The three real differences:**
+
+- **AI.** app-ly runs Apple's on-device model, so `shell.ai` is free, offline and private, and it is
+  unavailable outside macOS 26 on Apple silicon. Ubiq's `ai` uses whatever provider the user
+  configured, so the same app may now work on every platform but cost money and send text to a
+  server. The consent screen names the provider. An `apple-on-device` provider in the assist family
+  would restore the original behaviour on Macs that have it, and a local provider such as Ollama
+  gives the same privacy elsewhere. `ai.info()` reports the provider honestly, so an app that checks
+  availability still behaves.
+- **Windows become docks.** The size and position calls describe the dock, and the app no longer
+  owns a window. Apps that only read their size work. The few that move or resize their own window
+  wait for `layout.detach`.
+- **Openness becomes a grant.** HTTP to any host, child windows to any URL and readable secrets are
+  open in app-ly and permissions here. The importer derives the narrowest grant it can, and anything
+  wider is the user's explicit choice at consent.
+
+**Agents and the CLI.**
+
+- **WebDriver.** The `[webdriver]` table is honoured. The space serves app-ly's W3C subset on
+  loopback with the same token rules, implemented over the `webview` backend's automation operations
+  (§6.2) applied to the app's own dock. Existing WebdriverIO and Selenium scripts keep working.
+- **Agent tools.** Agents get `space_inspect` and the `browser_*` tools on the same dock, which is
+  the agent-native route to the same control.
+- **CLI.** app-ly's headless commands (`info`, `ai`, `db`, `file`, `fetch`, `run`) are a
+  headless entry point the adapter ships: `ubiq space cli <id> db query main "select …"` behaves as
+  `app-ly db query main "select …"`, exit codes included. As in app-ly, windows, the keychain and
+  the local servers need the interface.
+- **Linux.** The app's own dock works through the external-browser fallback, and the bridge carries
+  `shell.*` either way. Its child windows need the `cdp` backend until `gpui-wry`'s Unix path lands.
+
+**Validation against app-ly's own demo.** The repository's `example/` app exercises every API
+group: files, notify, drop and clipboard, fetch, keychain, the HTTP and WebSocket servers, `run`,
+`spawn`, AI with tools and streaming, and child windows. Graded with the tables above:
+
+- **Run unchanged:** files, notify, drop, fetch (after the grant), the two servers, `run`, `spawn`,
+  child windows and `evalWindow`.
+- **Run with a consent:** clipboard read and `secretGet`.
+- **Run with a different model:** AI.
+- **Degraded, as stated:** the window geometry buttons.
+
+Nothing in it needs the page to change.
+
+The migration added five amendments to §7, all of them useful to native spaces too: `serve.ws`,
+`ai.stream`, `ai` tools with script-side handlers, `clipboard.read` as its own permission, and the
+`webview` automation operations applying to web docks as well as browser docks. It also adopts
+app-ly's command allowlist as the `proc` grant schema.
+
 ## 15. Validation — two dozen spaces against the model
 
 The model is only as good as the spaces it can hold. Each row below was designed against §4–§11 as
@@ -710,6 +832,7 @@ The second half of the list is deliberately unexpected: goals nobody would build
 | 22 | Nightly report while Ubiq is closed | `db`, `ai`, email through a connector | Fits after amendment | A space lives in the host process. The OS scheduler runs **`ubiq space run <id> --entry nightly`** headless, so a manifest may name extra entry points (`[entry] main`, `[entry.jobs] nightly`) |
 | 23 | Team standup board shared live by colleagues | shared state, presence | Does not fit | Multi-user real-time sync is not a space's job. The workaround is a shared store the user already has: a Postgres through `db`, or a git repository through `git` |
 | 24 | Clipboard history / global launcher | OS-wide hotkey, clipboard watching, tray | Does not fit | Hooks outside Ubiq's window belong to the OS. A space reaches the clipboard only on a user action |
+| 25 | Any app-ly application, unchanged | its `contents/` page in a web dock, `shell.js` and the `ubiq:compat/app-ly` adapter | Fits after amendment | `serve.ws`, `ai.stream`, `ai` tools, `clipboard.read`, automation on web docks (§14.1) |
 
 ### 15.1 Walkthrough — the tabletop game master
 
@@ -766,7 +889,9 @@ on its raw port still does not fit, and the template points at MQTT over WebSock
 
 **Amendments now in the proposal:** live documents (§6.1), the browser dock (§6.2), `proc.spawn`,
 `term.snapshot`, `net`, `ai`, `schedule`, dock drop events, media permissions for web docks, extra
-headless entry points, and `layout.detach` as a dependency on the detached-panes proposal.
+headless entry points, and `layout.detach` as a dependency on the detached-panes proposal. Row 25's
+app-ly migration (§14.1) added `serve.ws`, `ai.stream`, `ai` tools, `clipboard.read` and automation
+on web docks.
 
 **Confirmed by the exercise:**
 
@@ -811,7 +936,7 @@ variant owes a `capability()` classification.
 | 3 | Author mode: file tree, settings and permissions panels, console with REPL, hot reload, `ubiq.d.ts`, templates. `ubiq-space` MCP server with `space_*` and custom tools, `space_inspect` | 2–3 weeks |
 | 4 | Web docks: the `space` tenant, manifest CSP and media permissions, bridge RPC. Live documents and the whiteboard template, with partial tool input from the stream-json bridge. `serve`, `events`, `net`, `ai`, `schedule`, `proc.spawn`, `term.snapshot`, drop events | 2–3 weeks |
 | 5 | The browser dock: the Playwright-shaped API, the `webview` backend on macOS and Windows, then the `cdp` backend after a crate spike. `browser_*` MCP tools. The browser playground template | 3 weeks |
-| 6 | Bundles: export, import, verify, manager, fork-to-edit, upgrade consent. Background spaces (the plugin case). Headless entry points | 1–2 weeks |
+| 6 | Bundles: export, import, verify, manager, fork-to-edit, upgrade consent. Background spaces (the plugin case). Headless entry points. app-ly import: `shell.js`, `ubiq:compat/app-ly`, the CLI and WebDriver compatibility, validated against app-ly's `example/` | 2–3 weeks |
 | 7 | MCP Apps hosting and `mcp.connect` | 1–2 weeks |
 | 8 | Registry: signed index, publish, browse | Not proposed yet |
 | 9 | Out-of-process runtime behind isol8 | Not proposed yet |
@@ -846,6 +971,9 @@ Each of these would become a row in `tech/decisions.md` when accepted:
 11. **A browser dock is a separate panel kind with a separate permission.** It may navigate, unlike
     a web dock. Every instance gets an isolated profile, navigation is confined to granted hosts,
     and page content reaches an agent marked as untrusted.
+12. **app-ly applications run unchanged through a shim and an adapter written as space code.** The
+    importer never edits `contents/` or `app.toml`, and app-ly's command allowlist becomes the `proc`
+    grant schema.
 
 What it leaves open, for `backlog.md` once accepted:
 
