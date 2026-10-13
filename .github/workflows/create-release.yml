@@ -132,13 +132,15 @@ jobs:
   # One GitHub release carrying every platform this run built.
   publish:
     needs: [meta, macos, windows, linux]
-    # A platform that was not requested is skipped (fine); a requested one must have succeeded,
-    # and `meta` refuses a run with none selected.
+    # A platform that was not requested is skipped. The release is created when at least one
+    # requested platform succeeded (a partial release is warned about below); it is skipped only
+    # when every requested one failed or was cancelled. `meta` refuses a run with none selected.
     if: >-
       always() &&
       needs.meta.result == 'success' &&
-      !contains(needs.*.result, 'failure') &&
-      !contains(needs.*.result, 'cancelled')
+      (needs.macos.result == 'success' ||
+       needs.windows.result == 'success' ||
+       needs.linux.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -151,6 +153,19 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
       TAG: ${{ needs.meta.outputs.tag }}
     steps:
+      - name: Warn about platforms that did not build
+        env:
+          MACOS: ${{ needs.macos.result }}
+          WINDOWS: ${{ needs.windows.result }}
+          LINUX: ${{ needs.linux.result }}
+        run: |
+          for p in macos:"$MACOS" windows:"$WINDOWS" linux:"$LINUX"; do
+            case "${p#*:}" in
+              success|skipped) ;;
+              *) echo "::warning::partial release: ${p%%:*} ${p#*:} - no ${p%%:*} artifacts" ;;
+            esac
+          done
+
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4

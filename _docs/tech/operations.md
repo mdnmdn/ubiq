@@ -6,7 +6,7 @@ status: current
 summary: Prerequisites, the complete command reference, what a first build costs, the checks a change has to pass before it lands, and the runbook for a tool an agent cannot run.
 read_when: you are setting the project up, running or testing it, adding a command, or an agent reports that it cannot run a tool
 updated: 2026-10-09
-verified: 2026-10-08
+verified: 2026-10-13
 code_anchors: [Justfile, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/src/io/structured.rs, _tools/docs.py, _tools/dump.py, _tools/icns.py, _tools/webassets.py, _tools/drone.py, _tools/helpbundle.py, _tools/licenses.py, _tools/Info.plist, _devops/scripts/bundle-version.sh, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/handoff.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-app/build.rs, crates/ubiq-app/res/ubiq-app.rc, .github/workflows/create-release.yml, .github/workflows/release-macos.yml, .github/workflows/release-windows.yml, .github/workflows/release-linux.yml, _devops/scripts/channel-manifest.py, _devops/windows/ubiq.iss]
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -194,7 +194,8 @@ Bash, which a Windows runner carries).
 `.github/workflows/create-release.yml` is the one release entry point; the three platform workflows
 are `workflow_call` only. A run computes a channel, builds each selected platform, uploads workflow
 artifacts, and one `publish` job creates a single GitHub release carrying every platform built and
-the signed update manifest. A requested platform that fails stops the release; an unrequested one is
+the signed update manifest. The release is created if at least one requested platform succeeded, with a warning naming each
+that did not; it is skipped only when every requested one failed. An unrequested platform is
 skipped. Nothing is ever
 deleted, moved or force-pushed: every nightly is a new prerelease under a new tag.
 

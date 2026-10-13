@@ -52,10 +52,22 @@ def cargo_metadata() -> dict:
     """`--offline` first (no network, no surprises), then online for crates not yet downloaded."""
     base = ["cargo", "metadata", "--format-version", "1", "--locked"]
     for extra in (["--offline"], []):
-        result = subprocess.run(base + extra, cwd=REPO, capture_output=True, text=True)
+        result = subprocess.run(base + extra, cwd=REPO, capture_output=True)
+        # Decode explicitly: `text=True` uses the locale codec (cp1252 on Windows) and can crash.
+        out = result.stdout.decode("utf-8", errors="replace")
         if result.returncode == 0:
-            return json.loads(result.stdout)
-        last = result.stderr.strip()
+            if "\ufffd" in out:
+                print("licenses: warning: cargo metadata contained invalid UTF-8 that was replaced",
+                      file=sys.stderr)
+            meta = json.loads(out)
+            if "\ufffd" in out:
+                bad = sorted(f"{p.get('name')} {p.get('version')}" for p in meta["packages"]
+                             if any(isinstance(v, str) and "\ufffd" in v for v in p.values()))
+                if bad:
+                    print("licenses: warning: replaced characters in: " + ", ".join(bad),
+                          file=sys.stderr)
+            return meta
+        last = result.stderr.decode("utf-8", errors="replace").strip()
     die(f"cargo metadata failed:\n{last}")
     raise AssertionError  # unreachable
 
