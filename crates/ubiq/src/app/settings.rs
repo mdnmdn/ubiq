@@ -1817,6 +1817,7 @@ impl AppState {
                 disabled: !definition.disabled,
                 ..definition
             },
+            replaces: None,
         });
         cx.notify();
     }

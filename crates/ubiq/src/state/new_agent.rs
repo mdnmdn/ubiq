@@ -183,6 +183,10 @@ pub struct NewAgentForm {
     /// is settled by where the user asked for it, and a saved definition is edited in the scope it
     /// was written in ([`AgentDefinition::project`]).
     pub project: Option<ProjectId>,
+    /// The id the definition being edited was opened (or last saved) under. A Save whose name
+    /// field now says something else is a rename of this one — `SaveAgentDefinition::replaces` —
+    /// not a second definition. `None` for a form that is writing a new one.
+    pub original_id: Option<String>,
     /// The task this start is being assigned to, where the form was raised from the board's own
     /// "Assign to an agent" button — `None` for every other way in. Drives the two checkboxes
     /// `ui::new_agent` draws only here, and what [`task_assignment_prompt`] composes the opening
@@ -323,6 +327,7 @@ impl NewAgentForm {
             tab: NewAgentTab::default(),
             customize: false,
             target: None,
+            original_id: None,
             description: String::new(),
             agent_type: String::new(),
             account: None,
@@ -393,12 +398,14 @@ impl NewAgentForm {
             // project's settings goes back where it came from, and the global form never
             // acquires a project it was not opened with.
             project: definition.project,
+            original_id: (purpose == Purpose::AgentDefinition).then(|| definition.id.clone()),
             ..Self::new(purpose)
         }
     }
 
     /// What the form would be written down as. The id is the name field's, which the form does
-    /// not hold: a definition is filed under whatever it is called, and renaming is saving a second.
+    /// not hold: a definition is filed under whatever it is called, and renaming it moves the old one
+    /// (`original_id`) to the new name.
     pub fn as_definition(&self, id: String) -> AgentDefinition {
         AgentDefinition {
             id,

@@ -613,8 +613,15 @@ pub enum Message {
     /// costs a row in a list. A project's own are deleted one by one with
     /// [`Message::DeleteAgentDefinition`], and all together with the project, by the directory
     /// they live in going with it.
+    ///
+    /// `replaces` is the id the definition was opened under when it is being **renamed**: the host
+    /// moves that definition (its whole directory) to `definition.id` and rewrites the record,
+    /// instead of leaving the old one beside a new copy. It is refused with
+    /// [`Message::AccountError`] when `replaces` names none, or when `definition.id` is already
+    /// taken by a different definition. `None`, or equal to the id, is the plain write above.
     SaveAgentDefinition {
         definition: AgentDefinition,
+        replaces: Option<String>,
     },
     /// Copy a definition under a new name, in the scope it already lives in. Answered with
     /// [`Message::AgentDefinitions`], or [`Message::AccountError`] when `id` names none, when

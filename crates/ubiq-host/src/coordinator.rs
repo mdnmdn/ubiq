@@ -1931,8 +1931,14 @@ impl Coordinator {
             Message::ListAgentDefinitions => {
                 self.send_definitions(client);
             }
-            Message::SaveAgentDefinition { definition } => {
-                match self.agents.save_definition(definition) {
+            Message::SaveAgentDefinition {
+                definition,
+                replaces,
+            } => {
+                match self
+                    .agents
+                    .save_definition_replacing(definition, replaces.as_deref())
+                {
                     Ok(()) => self.send_definitions(client),
                     Err(error) => self.host.send(
                         To::Client(client),

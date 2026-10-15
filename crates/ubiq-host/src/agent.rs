@@ -859,11 +859,28 @@ impl Agents {
     ///   nothing a definition could name, so creating one is refused rather than left to a hidden
     ///   button. Editing an existing one is not refused: a machine that lost its harness must
     ///   still be able to repair what it already wrote.
-    pub fn save_definition(&self, mut definition: AgentDefinition) -> Result<()> {
+    pub fn save_definition(&self, definition: AgentDefinition) -> Result<()> {
+        self.save_definition_replacing(definition, None)
+    }
+
+    /// [`Self::save_definition`], and when `replaces` names a different id, a **rename**: the
+    /// definition's directory is moved to the new id first (so anything beside the record, such as
+    /// a captured login, follows) and the record is rewritten there. Refused, and nothing
+    /// touched, when `replaces` is not a definition in that scope or the new id is taken.
+    pub fn save_definition_replacing(
+        &self,
+        mut definition: AgentDefinition,
+        replaces: Option<&str>,
+    ) -> Result<()> {
         let store = match definition.project {
             Some(project) => self.project_definition_store(project),
             None => self.definition_store(),
         };
+        if let Some(old) = replaces.filter(|old| *old != definition.id) {
+            store
+                .rename(old, &definition.id)
+                .with_context(|| format!("renaming agent definition '{old}'"))?;
+        }
         let exists = store.profile(&definition.id).unwrap_or(None).is_some();
         may_write_definition(exists, self.has_available_harness())?;
         apply_role_mcps(&mut definition);
@@ -2287,6 +2304,42 @@ mod tests {
             assert!(agents.converses(id), "{id} should converse");
             assert!(agents.multi_turn(id), "{id} should take a second turn");
         }
+    }
+
+    /// Saving under a new name with `replaces` moves the definition: one left, under the new name,
+    /// and a rename onto a name another definition holds is refused with both untouched.
+    #[test]
+    fn renaming_a_definition_leaves_one_under_the_new_name() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let ids = |agents: &Agents| -> Vec<String> {
+            let mut ids: Vec<String> = agents
+                .definitions()
+                .unwrap()
+                .into_iter()
+                .map(|it| it.id)
+                .collect();
+            ids.sort();
+            ids
+        };
+
+        agents.save_definition(a_definition("old")).unwrap();
+        agents.save_definition(a_definition("taken")).unwrap();
+
+        agents
+            .save_definition_replacing(a_definition("new"), Some("old"))
+            .unwrap();
+        assert_eq!(ids(&agents), vec!["new".to_string(), "taken".to_string()]);
+
+        agents
+            .save_definition_replacing(a_definition("taken"), Some("new"))
+            .unwrap_err();
+        assert_eq!(ids(&agents), vec!["new".to_string(), "taken".to_string()]);
+
+        agents
+            .save_definition_replacing(a_definition("ghost"), Some("missing"))
+            .unwrap_err();
+        assert_eq!(ids(&agents), vec!["new".to_string(), "taken".to_string()]);
     }
 
     /// A definition written into a project is offered in that project and nowhere else, and a

@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-10-12
+updated: 2026-10-15
 verified: 2026-10-09
 review_cycle: monthly
 ---
@@ -245,6 +245,7 @@ change what Ubiq does (here), or where a document lives (there)?
 | G432 | **Redo breakdown** resets the Replan marks. Replan shows what was added, changed or abandoned when it returns to Breakdown, and a **Redo breakdown** from there rewrites the draft against the plan with nothing remembered of that comparison, so the marks the user was reviewing vanish. Closing it is keeping the baseline the marks compare against until **Start mission** | [`features/workbench-tasks.md`](./features/workbench-tasks.md) |
 | G433 | A legacy mission moves to Review by itself after a restart. A mission parent with no `MissionSettings` reads as `MissionSettings::legacy()` (`Manual`), and the runner's closed-subtasks rule moves its parent to `in review` on the first pass when every subtask is already closed, whatever phase the old record meant. Closing it is skipping the move for a parent that never carried settings | [`features/workbench-tasks.md`](./features/workbench-tasks.md) |
 | G434 | The window answers `Launched` before the start is confirmed. `AppState::launch_for_mission` sends `MissionLaunched` as soon as `compose_mission_launch` has sent `StartConversation` (or the revive) and the prompt, and the host records the task as started on that answer, so a start the coordinator then fails leaves a task recorded as launched with no agent behind it until the worker-gone scan finds it. Closing it is answering on `ConversationStarted` rather than on the send | [`features/workbench-tasks.md`](./features/workbench-tasks.md), [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G435 | Renaming an agent definition does not rewrite what names the old id: mission picks, saved profiles and the last-used start target keep pointing at an id that names no definition | [`features/workbench-agents.md`](./features/workbench-agents.md), [`tech/transport-contract.md`](./tech/transport-contract.md) |
 
 ## Open questions — a decision nobody has made
 
@@ -407,7 +408,6 @@ change what Ubiq does (here), or where a document lives (there)?
 | G421 | A selection drag does not auto-scroll. `ui/mdview/selection.rs` follows the pointer out of the block it started in, but nothing scrolls the list when the pointer reaches the viewport's edge, so a selection cannot be extended past what is on screen | [`features/workbench-ide.md`](./features/workbench-ide.md) |
 | G422 | The zoom dialog has no scrollbars. Its body scrolls both ways under the wheel (`ui/mdview/zoom.rs`), but nothing shows the reader where they are in a long fence or a wide table | [`features/workbench-ide.md`](./features/workbench-ide.md) |
 | G423 | The zoom dialog's Esc is handled by the view, not the window's Escape ladder. `ui/mdview/zoom.rs` closes on Esc itself, so the key bypasses `AppState::cancel_dialog` (`app/shell.rs`) and does not peel the overlays in the order every other dialog does | [`features/workbench-ide.md`](./features/workbench-ide.md) |
-
 
 ## Related docs
 

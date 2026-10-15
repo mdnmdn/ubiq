@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-10-06
-verified: 2026-10-08
+updated: 2026-10-15
+verified: 2026-10-15
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -32,7 +32,8 @@ off `state::status::agent_status(agent, conversation)`: the outer hexagon reads 
 inner core the activity or the result, and the core pulses only while the lifecycle is `Working`.
 The dock's own tab strip wears the same mark for a chat tab (`TabInfo::dot_status`), so a column's
 tab and a chat tab agree pixel for pixel; a tab with no live conversation reads `agent_status`'s
-record fallback rather than nothing. A column tab's name is capped at `TAB_NAME_MAX_WIDTH` and
+record fallback rather than nothing — never `Working`, so it never pulses. A chat tab reads the
+conversation through its owning project (`teams_conversation`), the same one its panel draws. A column tab's name is capped at `TAB_NAME_MAX_WIDTH` and
 ellipsised, the full name leading its tooltip. The one first line `ui::conversation::lifecycle_header` draws
 — the three-dots menu and, flush against the strip's right edge, the current-action `status_chip`
 — is where a reader scanning for *what* an agent is doing looks now; the hexagon on the tab says
@@ -178,7 +179,11 @@ button, and a name and a `Save` instead. Two forms asking one set of questions d
 the two drift apart. Picking an agent definition as the target fills every row below from what it saved;
 `Save agent definition` on a start form writes the answers back out under a name the window's prompt asks
 for, offered only when the target is a bare harness — saving a start that already points at a
-agent definition would be writing that agent definition over itself.
+agent definition would be writing that agent definition over itself. Changing the name of a
+definition opened for editing renames it (`NewAgentForm::original_id` rides out as
+`SaveAgentDefinition::replaces`) rather than leaving a copy, and is refused when the new name is
+taken; mission picks, saved profiles and the last-used start target that name the old one are left as
+they were.
 
 **The form's footer offers the MCP servers Ubiq itself injects.** `MCPs` opens a checklist of the
 `McpInfo` rows the host answered `ListMcps` with — one tick box per server, its title, what it is

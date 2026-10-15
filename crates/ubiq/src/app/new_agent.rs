@@ -1099,6 +1099,10 @@ impl AppState {
         }
         form.naming = false;
         let definition = form.as_definition(id.clone());
+        // A form opened on a saved definition and now named differently renames it. The form is
+        // left as it was: a refused rename (name taken) keeps it open, and the retry must still be
+        // a rename; a landed one closes it (`AgentDefinitions`).
+        let replaces = form.original_id.clone().filter(|old| *old != id);
         // A start form that has just written a definition is pointed at it: what it offers has not
         // changed, but what a second Save would overwrite now has a name.
         if self.workbench.new_agent.is_some()
@@ -1106,7 +1110,10 @@ impl AppState {
         {
             form.target = Some(Target::AgentDefinition(id));
         }
-        self.bus.send(Message::SaveAgentDefinition { definition });
+        self.bus.send(Message::SaveAgentDefinition {
+            definition,
+            replaces,
+        });
         cx.notify();
     }
 

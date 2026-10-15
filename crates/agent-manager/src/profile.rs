@@ -397,6 +397,31 @@ impl FsProfileStore {
         Ok(())
     }
 
+    /// Move profile `from` to `to`: its whole directory, so the config-overlay bases beside the
+    /// record go with it. The record inside still says `from` until the caller [`Self::save`]s it
+    /// under `to`. Errors when `from` is not there, when `to` already is, and when either is not a
+    /// single plain name — a rename never overwrites.
+    pub fn rename(&self, from: &str, to: &str) -> Result<()> {
+        let plain = |id: &str| {
+            matches!(
+                Path::new(id).components().collect::<Vec<_>>().as_slice(),
+                [std::path::Component::Normal(_)]
+            )
+        };
+        if !plain(from) || !plain(to) {
+            bail!("'{from}' and '{to}' must be plain names");
+        }
+        let (src, dst) = (self.root.join(from), self.root.join(to));
+        if !src.join("profile.toml").is_file() {
+            bail!("no profile named '{from}'");
+        }
+        if dst.exists() {
+            bail!("a profile called '{to}' already exists");
+        }
+        std::fs::rename(&src, &dst)
+            .with_context(|| format!("moving {} to {}", src.display(), dst.display()))
+    }
+
     /// Path of the config-overlay seed dir for a profile + harness:
     /// `<root>/<id>/base/<harness>`. This is where a captured login is
     /// persisted and seeded from; this method only computes the path (it does
