@@ -17,8 +17,8 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    App, ClipboardItem, HighlightStyle, InteractiveElement, MouseButton, Pixels, Point,
-    SharedString, StyledText,
+    App, ClipboardItem, Hsla, InteractiveElement, MouseButton, Pixels, Point, SharedString,
+    StyledText, TextRun,
 };
 
 use crate::theme;
@@ -41,6 +41,38 @@ struct Inner {
     dragging: bool,
     locate: Option<Locate>,
     notify: Option<Notify>,
+}
+
+/// `runs` with `range` (bytes of the text they cover) given `background`, splitting the runs that
+/// straddle its edges. The run lengths still sum to what they did.
+fn mark(runs: Vec<TextRun>, range: Range<usize>, background: Hsla) -> Vec<TextRun> {
+    let mut out = Vec::with_capacity(runs.len() + 2);
+    let mut start = 0;
+    for run in runs {
+        let end = start + run.len;
+        let piece = |from: usize, to: usize, marked: bool| {
+            (to > from).then(|| TextRun {
+                len: to - from,
+                background_color: if marked {
+                    Some(background)
+                } else {
+                    run.background_color
+                },
+                ..run.clone()
+            })
+        };
+        let inside_from = range.start.clamp(start, end);
+        let inside_to = range.end.clamp(start, end);
+        if inside_to <= inside_from {
+            out.extend(piece(start, end, false));
+        } else {
+            out.extend(piece(start, inside_from, false));
+            out.extend(piece(inside_from, inside_to, true));
+            out.extend(piece(inside_to, end, false));
+        }
+        start = end;
+    }
+    out
 }
 
 /// The view's one selection. Cheap to clone; every clone is the same selection.
@@ -153,18 +185,19 @@ impl Selection {
         }
     }
 
-    /// `styled` with this selection painted over it, when the selection is in element `key`.
-    pub fn paint(&self, styled: StyledText, key: Key, text: &str) -> StyledText {
-        match self.range(key, text) {
-            Some(range) => styled.with_highlights([(
-                range,
-                HighlightStyle {
-                    background_color: Some(theme::accent_selection().into()),
-                    ..Default::default()
-                },
-            )]),
-            None => styled,
-        }
+    /// The element for `text` shaped by `runs`, with this selection painted over it when the
+    /// selection is in element `key`.
+    ///
+    /// The selection is marked into the runs themselves: `StyledText::with_highlights` is ignored
+    /// once an element has explicit runs (and asserts in a debug build), and every caller here has
+    /// them — the mono face, a cell's marks. Pass the result to [`Selection::bind`] too, for its
+    /// layout.
+    pub fn paint(&self, text: SharedString, runs: Vec<TextRun>, key: Key) -> StyledText {
+        let runs = match self.range(key, &text) {
+            Some(range) => mark(runs, range, theme::accent_selection().into()),
+            None => runs,
+        };
+        StyledText::new(text).with_runs(runs)
     }
 
     /// Make `element` a place a selection can start: a left press anywhere in it records the

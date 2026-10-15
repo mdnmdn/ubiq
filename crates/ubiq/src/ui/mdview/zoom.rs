@@ -122,7 +122,17 @@ impl Zoom {
 /// block. Unchanged when there is no handler to take the click.
 ///
 /// `at` is the block's source offset, which the click hands to `on_zoom`.
-pub fn expandable(container: Div, at: usize, on_zoom: Option<&ZoomHandler>) -> Div {
+///
+/// `content` is the block's own children, taken here rather than added by the caller afterwards:
+/// siblings paint in order, so the button has to be the last child or the block's own backgrounds
+/// (a table's header row) are drawn over it.
+pub fn expandable(
+    container: Div,
+    at: usize,
+    on_zoom: Option<&ZoomHandler>,
+    content: impl IntoIterator<Item = AnyElement>,
+) -> Div {
+    let container = container.children(content);
     let Some(on_zoom) = on_zoom else {
         return container;
     };

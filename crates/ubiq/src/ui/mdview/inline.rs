@@ -554,13 +554,18 @@ fn marks(ranges: &[Range<usize>], current: Option<usize>) -> Vec<(Range<usize>, 
 /// (a code fence's body, raw HTML, front matter, `BlockKind::Other`'s raw source).
 pub fn literal(text: impl Into<SharedString>, base: &Base) -> StyledText {
     let text: SharedString = text.into();
-    let style = style_for(base, &[]);
-    let runs = if text.is_empty() {
+    let runs = literal_runs(&text, base);
+    StyledText::new(text).with_runs(runs)
+}
+
+/// [`literal`]'s runs: the one run spanning `text`, or none for an empty string. Public so a
+/// selection can be marked into them before the element is built.
+pub fn literal_runs(text: &str, base: &Base) -> Vec<TextRun> {
+    if text.is_empty() {
         Vec::new()
     } else {
-        vec![style.run(text.len())]
-    };
-    StyledText::new(text).with_runs(runs)
+        vec![style_for(base, &[]).run(text.len())]
+    }
 }
 
 #[cfg(test)]

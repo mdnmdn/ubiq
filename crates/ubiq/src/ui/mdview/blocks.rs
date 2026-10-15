@@ -589,8 +589,9 @@ fn text(
 fn code(language: Option<&str>, body: &str, m: &Metrics, capped: bool, at: usize) -> AnyElement {
     let size = m.body * 0.9;
     let text = SharedString::from(body.trim_end_matches('\n').to_string());
-    let styled = inline::literal(text.clone(), &Base::mono(theme::text()));
     let key = (at, 0);
+    let runs = inline::literal_runs(&text, &Base::mono(theme::text()));
+    let styled = m.selection.paint(text.clone(), runs, key);
     let scroll = div()
         .id(("mdview-code-scroll", at))
         .w_full()
@@ -602,7 +603,19 @@ fn code(language: Option<&str>, body: &str, m: &Metrics, capped: bool, at: usize
         .text_size(px(size))
         .line_height(px(size * theme::MD_CODE_LINE_HEIGHT));
     let scroll = m.selection.bind(scroll, &styled, key, text.clone());
-    let styled = m.selection.paint(styled, key, &text);
+
+    let label = language.map(|language| {
+        div()
+            .flex()
+            .flex_none()
+            .px_3()
+            .pt_1()
+            .font_family(theme::MONO_FONT)
+            .text_size(theme::font(Family::Chrome, Role::Label))
+            .text_color(theme::text_faint())
+            .child(SharedString::from(language.to_string()))
+            .into_any_element()
+    });
 
     zoom::expandable(
         wide(m, capped)
@@ -613,21 +626,10 @@ fn code(language: Option<&str>, body: &str, m: &Metrics, capped: bool, at: usize
             .border_color(theme::border()),
         at,
         m.on_zoom.as_ref(),
+        label
+            .into_iter()
+            .chain([scroll.child(styled).into_any_element()]),
     )
-    .when_some(language, |this, language| {
-        this.child(
-            div()
-                .flex()
-                .flex_none()
-                .px_3()
-                .pt_1()
-                .font_family(theme::MONO_FONT)
-                .text_size(theme::font(Family::Chrome, Role::Label))
-                .text_color(theme::text_faint())
-                .child(SharedString::from(language.to_string())),
-        )
-    })
-    .child(scroll.child(styled))
     .into_any_element()
 }
 
@@ -777,30 +779,31 @@ fn table(
             .border_color(theme::border()),
         at,
         m.on_zoom.as_ref(),
-    )
-    .child(
-        // The scroll container sits inside the border, so the frame stays put and the grid
-        // slides within it. Horizontal only, and axis-restricted, for the reasons [`code`]
-        // spells out: a wheel tick over a table still scrolls the document.
-        div()
-            .id(("mdview-table-scroll", at))
-            .w_full()
-            .flex()
-            .flex_col()
-            .overflow_x_scroll()
-            .restrict_scroll_to_axis()
-            .child(
-                table_row(head, alignments, &grid, m, (at, 0))
-                    .bg(theme::markdown().table_head)
-                    .border_b_1()
-                    .border_color(theme::border()),
-            )
-            .children(rows.iter().enumerate().map(|(n, cells)| {
-                table_row(cells, alignments, &grid, m, (at, n + 1))
-                    .when(n + 1 < rows.len(), |this| {
-                        this.border_b_1().border_color(theme::border())
-                    })
-            })),
+        [
+            // The scroll container sits inside the border, so the frame stays put and the grid
+            // slides within it. Horizontal only, and axis-restricted, for the reasons [`code`]
+            // spells out: a wheel tick over a table still scrolls the document.
+            div()
+                .id(("mdview-table-scroll", at))
+                .w_full()
+                .flex()
+                .flex_col()
+                .overflow_x_scroll()
+                .restrict_scroll_to_axis()
+                .child(
+                    table_row(head, alignments, &grid, m, (at, 0))
+                        .bg(theme::markdown().table_head)
+                        .border_b_1()
+                        .border_color(theme::border()),
+                )
+                .children(rows.iter().enumerate().map(|(n, cells)| {
+                    table_row(cells, alignments, &grid, m, (at, n + 1))
+                        .when(n + 1 < rows.len(), |this| {
+                            this.border_b_1().border_color(theme::border())
+                        })
+                }))
+                .into_any_element(),
+        ],
     )
     .into_any_element()
 }
@@ -858,10 +861,10 @@ fn table_row(
                         // One selectable element per cell: the key is the table's offset and the
                         // cell's place in the grid, the header being row 0.
                         let key = (at, row * grid.columns.len() + column);
-                        let text = inline::runs(&cell.spans, &base).0;
-                        let styled = inline::styled(&cell.spans, &base);
-                        let this = m.selection.bind(this, &styled, key, text.clone());
-                        this.child(m.selection.paint(styled, key, &text))
+                        let (text, runs) = inline::runs(&cell.spans, &base);
+                        let styled = m.selection.paint(text.clone(), runs, key);
+                        let this = m.selection.bind(this, &styled, key, text);
+                        this.child(styled)
                     }
                     None => this,
                 })
@@ -879,8 +882,9 @@ pub fn zoom_body(zoom: &Zoom, m: &Metrics, width: f32) -> AnyElement {
         Zoom::Code { body, .. } => {
             let size = m.body * 0.9;
             let text = SharedString::from(body.trim_end_matches('\n').to_string());
-            let styled = inline::literal(text.clone(), &Base::mono(theme::text()));
             let key = (ZOOM_AT, 0);
+            let runs = inline::literal_runs(&text, &Base::mono(theme::text()));
+            let styled = m.selection.paint(text.clone(), runs, key);
             let holder = div()
                 .id("md-zoom-code")
                 .whitespace_nowrap()
@@ -889,9 +893,7 @@ pub fn zoom_body(zoom: &Zoom, m: &Metrics, width: f32) -> AnyElement {
                 .text_size(px(size))
                 .line_height(px(size * theme::MD_CODE_LINE_HEIGHT));
             let holder = m.selection.bind(holder, &styled, key, text.clone());
-            holder
-                .child(m.selection.paint(styled, key, &text))
-                .into_any_element()
+            holder.child(styled).into_any_element()
         }
         Zoom::Table {
             alignments,
