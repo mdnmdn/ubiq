@@ -269,7 +269,10 @@ the same at every step.
 `agent_status` reads the live `Conversation` first, because its `run` and `stop_reason` carry the
 distinction the record cannot: a harness whose last turn ended but is still running answers `Idle`,
 where `WorkAgent`'s `Ended` covers both that and a harness gone for good; it falls back to the
-record only for an agent it holds no conversation with.
+record only for an agent it holds no conversation with. That fallback never reads `Working`: the
+host registers every agent as `Thinking` and never writes the field again, so a record's working
+activity reads `Idle · Unknown` — otherwise every agent the window does not hold would pulse, and
+one endless pulse redraws the whole window on every display frame.
 
 **The mark is a hexagon, and it carries both halves at once — a static outline and a separately
 animated core (T-99).** `ui::teams::status::status_mark(status, side, id)` over

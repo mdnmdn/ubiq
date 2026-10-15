@@ -283,13 +283,22 @@ pub fn delegate_status(tab: &SubagentTab) -> Status {
 /// periodic reading of it — so it wins wherever it exists. The record's `Activity` carries no
 /// lifecycle, which is the whole reason a card drawn from one cannot tell a harness that stopped
 /// from a turn that did.
+///
+/// **So a record alone is never `Working`.** The host registers every agent as
+/// `Activity::Thinking` and never writes the field again — only a window holding the conversation
+/// refreshes it — so a stopped agent behind a chat tab's *Restore* page, or any agent this window
+/// does not hold, would read as a turn in flight for ever, and `Working` is what pulses: one
+/// endless animation is a full-window redraw on every display frame. With no stream to witness a
+/// turn it reads `Idle`, the outline alone.
 pub fn agent_status(agent: &WorkAgent, conversation: Option<&Conversation>) -> Status {
     let Some(conversation) = conversation else {
         return match agent.activity {
             Activity::NeedsYou => Status::new(Lifecycle::Waiting, Doing::NeedsYou),
             Activity::Ended => Status::new(Lifecycle::Ended, Doing::Unknown),
             Activity::Failed => Status::new(Lifecycle::Ended, Doing::Failed),
-            activity => Status::new(Lifecycle::Working, Doing::from_activity(activity)),
+            Activity::Thinking | Activity::Writing | Activity::Tools => {
+                Status::new(Lifecycle::Idle, Doing::Unknown)
+            }
         };
     };
     conversation_status(conversation)

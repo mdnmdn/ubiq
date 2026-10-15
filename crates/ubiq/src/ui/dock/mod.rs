@@ -299,9 +299,12 @@ impl WorkbenchPanel {
                 // The hexagon the agents column's tab wears too (T-99/T-102), from the one
                 // vocabulary both read — a reader scanning the tab row is asking which
                 // conversation wants them, and the label alone does not answer it. A tab attached
-                // to nothing wears no mark — there is no conversation there to have a state.
+                // to nothing wears no mark — there is no conversation there to have a state. The
+                // conversation is read the way the record is, through its owning project: the
+                // active project's alone misses another held project's agent and falls back to
+                // the record, which is not the conversation the panel below is drawing.
                 let status = agent.map(|agent| {
-                    crate::state::status::agent_status(agent, app.conversation(agent.id, cx))
+                    crate::state::status::agent_status(agent, app.teams_conversation(agent.id, cx))
                 });
                 TabInfo {
                     label,
