@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules with the repositories a project holds above them, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip of icon actions and the HEAD pill.
 read_when: you are changing the Git screen — its refs, history, change lists, commit box or diff — or the strip above it
-updated: 2026-10-05
-verified: 2026-10-05
-code_anchors: [crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/tests/git.rs]
+updated: 2026-10-15
+verified: 2026-10-15
+code_anchors: [crates/ubiq/src/state/git.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/tests/git.rs]
 depends_on: [feat-workbench, tech-ui, tech-version-control]
 review_cycle: monthly
 ---
@@ -77,6 +77,10 @@ for the life of the window and is not saved.
 
 **The uncommitted row is the top row of the history, and it is there only while something is
 uncommitted.** With no changes the row is not drawn; otherwise it reads `Uncommitted changes (N)`.
+The count is distinct paths with staged, unstaged or conflicted changes; ignored-only paths do not
+count. The Changes panel uses the same total. After the selected repository's information has
+loaded, it says `Nothing to commit` when that total is zero, including when the repository holds
+only ignored files or directories.
 It is selected the same way a commit is and is what the screen opens on, and a click on it reveals
 the Changes panel — opening its region if that is shut, adding the panel and focusing its tab.
 Picking a commit points the panel beside it at that commit instead. The panel says what the log said and no more — a commit's own file list
@@ -196,8 +200,12 @@ the graph's and the board's: which sidebar sections are shut, which ref and whic
 selected, what is typed in the search and the commit box, which changed path the diff is about and
 what it is compared against. It holds no working-tree records — `group_changes()` takes the
 `GitEntry` pairs the host sent, which `OpenProject::git_entries` keeps whole beside the projection
-the explorer got, and buckets them into `ChangeGroups`' conflicted, modified and untracked in one
-pass, each path once — and `settle()` drops a selection whose path has gone clean.
+the explorer got, and buckets them into `ChangeGroups`' conflicted, staged and unstaged in one
+pass. A path changed in both the index and worktree appears in both lists; a conflicted path appears
+only in Conflicted. `OpenProject::refilter_git()` in `app/mod.rs` builds `git_screen_entries` from
+the selected repository's paths, retaining only conflicts or entries with an index or worktree
+change. The history count, Changes total and empty state read that slice, while ignored marks stay
+in the full map for the explorer. `settle()` drops a selection whose path has gone clean.
 `grouped_refs()` does the same for the sidebar's five sections. **What a frame reads, a reply
  computes:** `set_commits()` and `extend_commits()` build each commit's search haystack, the graph's
  per-row cells and the lane count as they land, so `history()`, `visible_commits()` and `lanes()`

@@ -430,8 +430,9 @@ pub struct OpenProject {
     /// The selected nested repository's own overview (head, tracking, operation). Absent while
     /// `git_repo` is empty — `git` is the project's own — and until the host has answered.
     pub git_nested: Option<RepoOverview>,
-    /// `git_entries` as the Git screen draws them: the selected repository's paths only, where
-    /// `git_entries` is the whole project's map. Rebuilt by [`OpenProject::refilter_git`].
+    /// Actionable changed paths for the Git screen's selected repository, where `git_entries` is
+    /// the whole project's map and still carries ignored-directory marks for the explorer.
+    /// Rebuilt by [`OpenProject::refilter_git`].
     pub git_screen_entries: Vec<GitEntry>,
     /// The Git screen's view of all of it: which sections are open, what is selected, what is
     /// typed in the commit box. Per project, for the reason the graph's view is.
@@ -476,9 +477,11 @@ impl OpenProject {
         }
     }
 
-    /// Rebuild [`OpenProject::git_screen_entries`] from the whole map: the selected repository's
-    /// paths only. The project's own repository drops every path under a managed nested one; a
-    /// nested repository keeps only its own, prefix included, which is how the host reports them.
+    /// Rebuild [`OpenProject::git_screen_entries`] from the whole map: actionable changed paths
+    /// for the selected repository. The project's own repository drops every path under a managed
+    /// nested one; a nested repository keeps only its own, prefix included, which is how the host
+    /// reports them. Ignored-only directory entries stay in `git_entries` for the explorer but do
+    /// not count as uncommitted changes here.
     pub fn refilter_git(&mut self) {
         let under = |path: &str, root: &str| {
             path.strip_prefix(root)
@@ -503,6 +506,9 @@ impl OpenProject {
                 .cloned()
                 .collect()
         };
+        self.git_screen_entries.retain(|entry| {
+            entry.conflicted || entry.index.is_some() || entry.worktree.is_some()
+        });
     }
 
     /// A project this window has just taken, in the furniture it was last left in.
