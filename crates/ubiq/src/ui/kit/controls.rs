@@ -66,6 +66,20 @@ pub fn section_label(text: &str) -> impl IntoElement {
         .child(SharedString::from(text.to_uppercase()))
 }
 
+/// How often a running pulse redraws, per second. A pulse is a slow fade on a hint at the edge of
+/// vision; drawing it at display rate repainted the whole window 60-120 times a second for nothing
+/// the eye could use.
+pub const PULSE_FPS: f32 = 15.0;
+
+/// The repeating [`Animation`] every status pulse is built on: `repeat_synced` so the marks on a
+/// screen share one clock, and `with_max_fps` so GPUI drives it from a timer at [`PULSE_FPS`]
+/// instead of asking for a frame after every frame. Add the easing at the call site.
+pub fn pulse_animation(duration: Duration) -> Animation {
+    Animation::new(duration)
+        .repeat_synced()
+        .with_max_fps(PULSE_FPS)
+}
+
 /// A 7px state dot with the soft ring that makes it readable against any surface.
 ///
 /// A `Div` rather than `impl IntoElement`, because a caller that animates it — the lifecycle dot
@@ -488,9 +502,7 @@ pub fn hex_mark(
     let core = if pulse {
         core.with_animation(
             id,
-            Animation::new(Duration::from_millis(2_400))
-                .repeat()
-                .with_easing(pulsating_between(0.35, 1.0)),
+            pulse_animation(Duration::from_millis(2_400)).with_easing(pulsating_between(0.35, 1.0)),
             |this, delta| this.opacity(delta),
         )
         .into_any_element()

@@ -876,44 +876,108 @@ impl Agents {
             Some(project) => self.project_definition_store(project),
             None => self.definition_store(),
         };
-        if let Some(old) = replaces.filter(|old| *old != definition.id) {
+        let renamed = replaces
+            .filter(|old| *old != definition.id)
+            .map(str::to_string);
+        let new_id = definition.id.clone();
+        if let Some(old) = &renamed {
             store
                 .rename(old, &definition.id)
                 .with_context(|| format!("renaming agent definition '{old}'"))?;
         }
-        let exists = store.profile(&definition.id).unwrap_or(None).is_some();
-        may_write_definition(exists, self.has_available_harness())?;
-        apply_role_mcps(&mut definition);
-        let record = DefinitionRecord {
-            id: definition.id,
-            description: definition.description,
-            harness: Some(definition.agent_type),
-            account: definition.account,
-            defaults: ProfileDefaults {
-                model: definition.model,
-                thinking: definition.thinking,
-                prompt: definition.prompt,
-                mcps: (!definition.mcps.is_empty()).then_some(definition.mcps),
-                skills: (!definition.skills.is_empty()).then_some(definition.skills),
+        // The record on disk, read back under its final name: what the interface does not carry
+        // (`extends`, isolation, hooks, instructions) is kept from it rather than reset.
+        let prior = store.profile(&definition.id).unwrap_or(None);
+        let written = (|| -> Result<()> {
+            may_write_definition(prior.is_some(), self.has_available_harness())?;
+            apply_role_mcps(&mut definition);
+            let kept = prior.unwrap_or_default();
+            let record = DefinitionRecord {
+                id: definition.id,
+                description: definition.description,
+                harness: Some(definition.agent_type),
+                account: definition.account,
+                defaults: ProfileDefaults {
+                    model: definition.model,
+                    thinking: definition.thinking,
+                    prompt: definition.prompt,
+                    mcps: (!definition.mcps.is_empty()).then_some(definition.mcps),
+                    skills: (!definition.skills.is_empty()).then_some(definition.skills),
+                    ..kept.defaults
+                },
+                mode: definition.mode,
+                max_subagents: definition.max_subagents,
+                mission_assistant: definition.mission_assistant,
+                tags: definition.tags,
+                disabled: definition.disabled.then_some(true),
+                extra_rw: definition
+                    .grants
+                    .into_iter()
+                    .filter(|grant| grant.write)
+                    .map(|grant| grant.path)
+                    .collect(),
+                extends: kept.extends,
+                isolate: kept.isolate,
                 ..Default::default()
-            },
-            mode: definition.mode,
-            max_subagents: definition.max_subagents,
-            mission_assistant: definition.mission_assistant,
-            tags: definition.tags,
-            disabled: definition.disabled.then_some(true),
-            extra_rw: definition
-                .grants
-                .into_iter()
-                .filter(|grant| grant.write)
-                .map(|grant| grant.path)
-                .collect(),
-            ..Default::default()
-        };
-        store
-            .save(&record)
-            .with_context(|| format!("saving agent definition '{}'", record.id))?;
+            };
+            store
+                .save(&record)
+                .with_context(|| format!("saving agent definition '{}'", record.id))?;
+            Ok(())
+        })();
+        if let Err(error) = written {
+            // A folder moved under a record that still says the old id fails every retry.
+            if let Some(old) = &renamed {
+                let _ = store.rename(&new_id, old);
+            }
+            return Err(error);
+        }
+        if let Some(old) = renamed {
+            // A definition that `extends` the old id would otherwise name nothing.
+            Self::retarget_extends(&store, &old, &new_id);
+        }
         Ok(())
+    }
+
+    /// Point every definition in `scope`'s store that `extends` `old` at `new`. Best effort: a
+    /// record that cannot be rewritten keeps its old parent, which is what it had before.
+    pub fn retarget_extends_in(&self, scope: Option<ProjectId>, old: &str, new: &str) {
+        let store = match scope {
+            Some(project) => self.project_definition_store(project),
+            None => self.definition_store(),
+        };
+        Self::retarget_extends(&store, old, new);
+    }
+
+    /// A **global** definition `old` became `new`: repoint the `extends` of `project`'s own
+    /// definitions, and answer whether the project's other references (mission picks) should
+    /// follow. They should not when the project holds its own `old` (that one shadows the global,
+    /// so the pick never meant it) or its own `new` (the pick would silently mean the project's
+    /// definition instead, and a definition extending `new` could extend itself).
+    pub fn retarget_global_rename(&self, project: ProjectId, old: &str, new: &str) -> bool {
+        let own = self.project_definitions(project).unwrap_or_default();
+        if own.iter().any(|it| it.id == old) {
+            return false;
+        }
+        if own.iter().any(|it| it.id == new) {
+            tracing::warn!(
+                "project {project} has its own '{new}': its references to the global '{old}' were left"
+            );
+            return false;
+        }
+        self.retarget_extends_in(Some(project), old, new);
+        true
+    }
+
+    fn retarget_extends(store: &FsProfileStore, old: &str, new: &str) {
+        for mut record in store.profiles().unwrap_or_default() {
+            if record.extends.as_deref() == Some(old) {
+                record.extends = Some(new.to_string());
+                if let Err(error) = store.save(&record) {
+                    tracing::warn!("'{}' still extends '{old}': {error:#}", record.id);
+                }
+            }
+        }
     }
 
     /// Copy a definition under a new name, into `project`'s scope (the global root when `None`).
@@ -2325,10 +2389,57 @@ mod tests {
 
         agents.save_definition(a_definition("old")).unwrap();
         agents.save_definition(a_definition("taken")).unwrap();
+        agents.save_definition(a_definition("child")).unwrap();
+        let store = agents.definition_store();
+        let mut child = store.profile("child").unwrap().unwrap();
+        child.extends = Some("old".to_string());
+        store.save(&child).unwrap();
 
         agents
             .save_definition_replacing(a_definition("new"), Some("old"))
             .unwrap();
+        assert_eq!(
+            ids(&agents),
+            vec!["child".to_string(), "new".to_string(), "taken".to_string()]
+        );
+        assert_eq!(
+            store.profile("child").unwrap().unwrap().extends.as_deref(),
+            Some("new"),
+            "a definition extending the old id follows the rename"
+        );
+        // A save keeps what the interface does not carry: the child's own `extends`.
+        agents.save_definition(a_definition("child")).unwrap();
+        assert_eq!(
+            store.profile("child").unwrap().unwrap().extends.as_deref(),
+            Some("new")
+        );
+
+        // A project holding the new name is left alone by a global rename.
+        let project = ProjectId::generate();
+        agents
+            .save_definition(AgentDefinition {
+                project: Some(project),
+                ..a_definition("taken2")
+            })
+            .unwrap();
+        let pstore = agents.project_definition_store(project);
+        let mut own = pstore.profile("taken2").unwrap().unwrap();
+        own.extends = Some("new".to_string());
+        pstore.save(&own).unwrap();
+        assert!(!agents.retarget_global_rename(project, "new", "taken2"));
+        assert_eq!(
+            pstore.profile("taken2").unwrap().unwrap().extends.as_deref(),
+            Some("new")
+        );
+        assert!(agents.retarget_global_rename(project, "new", "other"));
+        assert_eq!(
+            pstore.profile("taken2").unwrap().unwrap().extends.as_deref(),
+            Some("other")
+        );
+
+        let ids = |agents: &Agents| -> Vec<String> {
+            ids(agents).into_iter().filter(|id| id != "child").collect()
+        };
         assert_eq!(ids(&agents), vec!["new".to_string(), "taken".to_string()]);
 
         agents

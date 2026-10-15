@@ -462,6 +462,19 @@ when the turn ends); an idle conversation has the one Send. All three are what E
 by user]`, or the tool-use variant) is dropped by `Conversation::apply` rather than pushed as a
 `ConvBlock::User`: not drawn, and not in the sent history Up walks.
 
+**An echo opens a turn, but never reopens an ended one** (`T-388`). Every bridge synthesises the user echo on
+the thread that writes the prompt while the turn's end comes off the reader, so an instant turn can end
+first. `AppState::send_prompt` counts each send on the conversation (`Conversation::expect_turn`) and each
+real echo spends one. A clean `TurnEnded` that has not seen the echo of a counted send leaves one echo owed:
+that late echo is drawn but leaves `run` idle. A failed end owes nothing, and no end owes more than one, so
+a turn end nobody's send waits on — Codex's extra one per steered prompt — cannot shift later turns. The
+interrupt marker opens nothing either — it trails the cancelled turn. An ACP `session/load` replays the
+history ahead of its handshake with no `TurnEnded`: agent output, or a user chunk no send accounts for,
+before the launch's `Started` marks a replay, and that `Started` sets `run` back to idle. Claude Code's
+first echo also precedes its `Started`, but its send accounts for it, so it stays a live turn. A prompt the
+host sends itself is not counted: its late echo still reopens, and a Claude Code agent the host
+autostarts reads idle from its `Started` until its first output.
+
 **The glyph says the state; the word lives in its tooltip.** `state::status::conversation_status` reads
 `launched`, `run`, `stop_reason`, `pending`, `blocks`, `accepts_input` and `config` into a `Status` — **a
 pair**: a `Lifecycle` (Starting, Ready, Idle, Working, Waiting, Unloaded, Ended) and a `Doing` (Queued,

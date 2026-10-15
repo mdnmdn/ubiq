@@ -719,6 +719,9 @@ pub struct WorkbenchState {
     /// The same, per project — see `InterfacePrefs::last_start_by_project`. The form opens on its
     /// project's entry, and on [`Self::last_start`] where the project has none.
     pub last_start_by_project: std::collections::BTreeMap<String, crate::state::prefs::LastStart>,
+    /// A definition rename sent and not yet echoed: `(old, new, scope)`. The last-used start
+    /// target moves to `new` only once the definitions list shows it landed.
+    pub pending_definition_rename: Option<(String, String, Option<ubiq_proto::ids::ProjectId>)>,
     /// The size presets the user saved. The built-ins are not in it — they are code, so a build
     /// that retunes one moves it for everybody. See `state/prefs.rs`.
     pub size_presets: Vec<crate::state::prefs::SizePreset>,
@@ -850,8 +853,13 @@ pub struct WorkbenchState {
     pub doc_binds: std::collections::HashMap<AgentId, ubiq_proto::plan::DocumentHandle>,
     /// Where each agent's doc queue stands, as the host last broadcast it (`D207`) — the threads
     /// waiting for it and why. Drawn beside the bound-agent label in annotation mode.
-    pub doc_agent_queues:
-        std::collections::HashMap<AgentId, (Vec<ubiq_proto::plan::DocThreadRef>, ubiq_proto::plan::DocDelivery)>,
+    pub doc_agent_queues: std::collections::HashMap<
+        AgentId,
+        (
+            Vec<ubiq_proto::plan::DocThreadRef>,
+            ubiq_proto::plan::DocDelivery,
+        ),
+    >,
     /// The annotation thread rail's width, dragged from its edge against the page. Session-only.
     pub doc_rail_width: f32,
     /// An agent refused a document another owns (`Message::DocOwnershipConflict`): the question
@@ -1065,6 +1073,7 @@ impl Default for WorkbenchState {
             interface_rest: Default::default(),
             last_start: None,
             last_start_by_project: Default::default(),
+            pending_definition_rename: None,
             size_presets: Vec::new(),
             size_prompt: None,
             custom_themes: Vec::new(),

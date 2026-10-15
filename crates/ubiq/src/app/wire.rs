@@ -2241,7 +2241,12 @@ impl AppState {
                     } => {
                         self.workbench.work_error = None;
                         let open = self.projects.get_mut(&project_id)?;
-                        let work = open.board.boards.named.entry(board).or_insert_with(WorkProjection::empty);
+                        let work = open
+                            .board
+                            .boards
+                            .named
+                            .entry(board)
+                            .or_insert_with(WorkProjection::empty);
                         work.replace_all(Vec::new(), Vec::new(), tasks);
                     }
                     Message::TaskCreated { project_id, task } => {
@@ -2269,8 +2274,8 @@ impl AppState {
                         if open.board.is_moving(task.id) {
                             open.board.moving = None;
                         }
-                        let refill = open.board.selected == Some(task.id)
-                            && open.board.editing.is_none();
+                        let refill =
+                            open.board.selected == Some(task.id) && open.board.editing.is_none();
                         open.board
                             .boards
                             .named
@@ -3007,8 +3012,9 @@ impl AppState {
                         // survives every answer.
                         account.is_empty()
                             || accounts.iter().any(|info| {
-                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
-                        })
+                                info.id == *account
+                                    && info.logged_in.iter().any(|id| id == agent_type)
+                            })
                     });
                 self.workbench
                     .settings
@@ -3018,8 +3024,9 @@ impl AppState {
                         // survives every answer.
                         account.is_empty()
                             || accounts.iter().any(|info| {
-                            info.id == *account && info.logged_in.iter().any(|id| id == agent_type)
-                        })
+                                info.id == *account
+                                    && info.logged_in.iter().any(|id| id == agent_type)
+                            })
                     });
                 self.workbench.settings.accounts = accounts;
                 // The accounts page is what the answer was asked for: it arrives after the page
@@ -3082,6 +3089,7 @@ impl AppState {
                 self.workbench.settings.definitions = global;
                 self.workbench.settings.project_definitions = scoped;
                 self.workbench.settings.definition_form = None;
+                self.follow_definition_rename();
                 cx.notify();
             }
             // What this build can inject into a harness. Replaced whole, the same way the harness

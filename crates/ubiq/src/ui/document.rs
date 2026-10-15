@@ -18,11 +18,11 @@
 //! it and brings its block into view. A fresh thread is written in the composer at the rail's foot,
 //! with its mark chips and the "@agent" toggle.
 
-use gpui::{
-    AnyElement, App, Context, CursorStyle, DragMoveEvent, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, list, px,
-};
 use gpui::AppContext as _;
+use gpui::{
+    AnyElement, App, Context, CursorStyle, DragMoveEvent, Entity, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, list, px,
+};
 use gpui_component::input::Textarea;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -31,22 +31,23 @@ use crate::app::AppState;
 use crate::state::document::{
     AnnotationsBody, ComposerTarget, DocumentBody, DocumentEditor, Notice,
 };
+use crate::state::status::{Lifecycle, agent_status};
+use crate::state::workbench::MenuId;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::eid;
 use crate::ui::eid2;
-use crate::state::status::{Lifecycle, agent_status};
-use crate::state::workbench::MenuId;
 use crate::ui::kit::{
-    Picker, PickerStyle, check_box, choice_pill, ghost_button, icon_button, primary_button, slab, toggle_pill,
+    Picker, PickerStyle, check_box, choice_pill, ghost_button, icon_button, primary_button, slab,
+    toggle_pill,
 };
+use crate::ui::mdview::annotation::{MARKS, mark_label};
+use crate::ui::mdview::view::MdView;
 use crate::ui::teams::status::{card_colour, status_mark};
 use crate::ui::{handler, indexed};
 use ubiq_proto::ids::AnnotationId;
-use ubiq_proto::work::AgentId;
-use crate::ui::mdview::annotation::{MARKS, mark_label};
-use crate::ui::mdview::view::MdView;
 use ubiq_proto::plan::{Annotation, AnnotationMark, AnnotationState};
+use ubiq_proto::work::AgentId;
 use ubiq_proto::work::{Comment, CommentAuthor};
 
 /// The rail is a fixed column: a thread is short, and a wider one would only narrow the document.
@@ -113,16 +114,14 @@ pub fn surface(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>)
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .on_drag_move(
-            cx.listener(|this, event: &DragMoveEvent<RailEdge>, _, cx| {
-                let right = f32::from(event.bounds.right());
-                let room = f32::from(event.bounds.size.width) - PAGE_MIN;
-                let width = (right - f32::from(event.event.position.x))
-                    .clamp(RAIL_MIN, RAIL_MAX.min(room.max(RAIL_MIN)));
-                this.workbench.doc_rail_width = width;
-                cx.notify();
-            }),
-        )
+        .on_drag_move(cx.listener(|this, event: &DragMoveEvent<RailEdge>, _, cx| {
+            let right = f32::from(event.bounds.right());
+            let room = f32::from(event.bounds.size.width) - PAGE_MIN;
+            let width = (right - f32::from(event.event.position.x))
+                .clamp(RAIL_MIN, RAIL_MAX.min(room.max(RAIL_MIN)));
+            this.workbench.doc_rail_width = width;
+            cx.notify();
+        }))
         .children(doc.notice.as_ref().map(banner))
         .children(state_banner(doc, cx))
         .child(
@@ -389,7 +388,7 @@ fn agent_strip(app: &AppState, doc: &DocumentEditor, cx: &mut Context<AppState>)
 
     let mark = bound.map(|agent| {
         let status = agent_status(agent, app.conversation(agent.id, cx));
-        status_mark(status, 14.0, eid("doc-agent-mark", &key))
+        status_mark(status, 14.0, eid("doc-agent-mark", &key), cx)
     });
     // Where the agent's queue stands, said in words beside its name: nothing once delivered.
     let queue = doc
@@ -1017,7 +1016,8 @@ fn composer_field(
                 } else {
                     theme::border()
                 })
-                .child(Textarea::new(&app.annotation_composer_input)
+                .child(
+                    Textarea::new(&app.annotation_composer_input)
                         .appearance(false)
                         .bordered(false)
                         .w_full()

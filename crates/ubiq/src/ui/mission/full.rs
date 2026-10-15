@@ -105,7 +105,7 @@ pub fn tab(
     let term = app.mission_term(cx);
 
     panel()
-        .child(header(work, task_id, &term, task, mission))
+        .child(header(work, task_id, &term, task, mission, cx))
         .child(body(app, task_id, window, cx))
         .into_any_element()
 }
@@ -127,6 +127,7 @@ fn header(
     term: &str,
     task: &TaskRecord,
     mission: &MissionSnapshot,
+    cx: &gpui::App,
 ) -> impl IntoElement {
     let colour = phase_colour(mission.phase);
 
@@ -145,6 +146,7 @@ fn header(
             mission,
             eid("mission-full-hex", task_id),
             14.,
+            cx,
         ))
         .child(section_label(term))
         .when_some(task.key.clone(), |row, key| {
@@ -470,7 +472,10 @@ fn elapsed(task: &TaskRecord) -> String {
 /// while the mission is planning, a replan once it is running or in review.
 fn plan_docs(task_id: TaskId, mission: &MissionSnapshot, cx: &mut Context<AppState>) -> AnyElement {
     let planning = mission.phase == Phase::Planning;
-    let can_replan = matches!(mission.phase, Phase::Running | Phase::Paused | Phase::Review);
+    let can_replan = matches!(
+        mission.phase,
+        Phase::Running | Phase::Paused | Phase::Review
+    );
 
     let mut body = div()
         .flex()
@@ -613,9 +618,7 @@ fn history(
                 eid2("mission-hist-task", task_id, task),
                 task_label(work, task),
                 on,
-                cx.listener(move |this, _, _, cx| {
-                    this.set_history_task((!on).then_some(task), cx)
-                }),
+                cx.listener(move |this, _, _, cx| this.set_history_task((!on).then_some(task), cx)),
             )
             .into_any_element()
         })

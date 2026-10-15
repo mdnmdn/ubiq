@@ -2437,7 +2437,7 @@ directory they live in going with it — `ProjectForgotten` names none of them.
 under; when it differs from `definition.id` the host moves that definition's whole directory to the
 new id (`FsProfileStore::rename`, through `Agents::save_definition_replacing`) and rewrites the
 record there. It is refused with `AccountError`, nothing touched, when `replaces` names no
-definition in that scope or the new id is taken. Nothing that names the old id is rewritten.
+definition in that scope or the new id is taken. The host then rewrites what names the old id: `extends` in the definition stores and every mission's `planner` and `worker` pick (a global rename skips a project whose own scope holds the same id). The last-used start target is interface state, moved by the window.
 
 **One list carries both scopes.** `AgentDefinition::project` is absent for a global agent definition and names
 the project for one written inside it (`D158`); the scope is where the host found the record, not

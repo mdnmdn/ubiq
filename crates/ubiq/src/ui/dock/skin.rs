@@ -497,6 +497,7 @@ impl TabGroupRenderer for Skin {
                         status,
                         14.0,
                         ("ubiq-tab-mark", ix),
+                        cx,
                     ));
                 } else if let Some(colour) = info.dot_colour {
                     // The dot is the conversation view's, not the dock's: one element and one

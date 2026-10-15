@@ -52,12 +52,11 @@ pub mod settings;
 pub mod slider;
 
 pub use colour::{HsvAction, colour_picker};
-pub use quota::quota_ring;
 pub use controls::{
     badge, card, check_box, choice_pill, disclosure, elided, elided_with, field, ghost_button,
     hex_mark, icon_button, icon_button_tip, meter, mono, pill, primary_button, progress_ring,
-    progress_ring_in, progress_ring_pair, removable_tag, section_label, slab, state_chip,
-    status_dot, stepper, tag, toggle_pill,
+    progress_ring_in, progress_ring_pair, pulse_animation, removable_tag, section_label, slab,
+    state_chip, status_dot, stepper, tag, toggle_pill,
 };
 pub use files::{
     file_row, filter_bar, kind_icon, row_font, row_height, row_indent, twisty, view_switch,
@@ -67,9 +66,12 @@ pub use menu::{
     ContextItem, MultiPicker, Picker, PickerStyle, context_menu, context_panel, multi_label,
     multi_order,
 };
-pub use overlay::{confirm_modal, modal, modal_note, modal_sized, modal_sized_pinned, prompt_modal};
+pub use overlay::{
+    confirm_modal, modal, modal_note, modal_sized, modal_sized_pinned, prompt_modal,
+};
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;
+pub use quota::quota_ring;
 pub use ribbon::{RIBBON_SIZE, Ribbon, RibbonCorner, ribbon};
 pub use settings::{
     column, heading, hint_row, label_block, label_hint, nav_item, setting_row, settings_split,

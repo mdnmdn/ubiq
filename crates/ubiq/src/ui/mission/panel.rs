@@ -130,13 +130,7 @@ pub fn render(
         .child(phase_line(mission))
         .child(progress(work, task_id, mission, cx))
         .child(sections)
-        .child(guidance(
-            app,
-            task_id,
-            view.guidance_to_running,
-            window,
-            cx,
-        ))
+        .child(guidance(app, task_id, view.guidance_to_running, window, cx))
         .children(super::menu::overlay(app, task_id, cx))
         .into_any_element()
 }
@@ -194,6 +188,7 @@ fn header(
             mission,
             eid("mission-hex", task_id),
             14.,
+            cx,
         ))
         .child(section_label(term))
         .when_some(task.key.clone(), |row, key| {
@@ -241,6 +236,7 @@ pub fn mission_hex(
     mission: &MissionSnapshot,
     id: gpui::ElementId,
     side: f32,
+    cx: &gpui::App,
 ) -> AnyElement {
     let members: Vec<_> = mission
         .agents
@@ -258,7 +254,7 @@ pub fn mission_hex(
         true => crate::ui::work::doing_colour(crate::state::status::Doing::NeedsYou),
         false => theme::fade(phase_colour(mission.phase), 0.25),
     };
-    hex_mark(id, ring, Some(fill), side, attention)
+    hex_mark(id, ring, Some(fill), side, attention && !cx.reduce_motion())
 }
 
 // ── the phase line ──────────────────────────────────────────────────
@@ -305,7 +301,12 @@ pub(super) fn phase_steps(phase: Phase) -> impl IntoElement {
         })
         .collect();
 
-    div().flex().flex_wrap().items_center().gap_1().children(steps)
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_1()
+        .children(steps)
 }
 
 fn phase_line(mission: &MissionSnapshot) -> impl IntoElement {
@@ -318,8 +319,9 @@ fn phase_line(mission: &MissionSnapshot) -> impl IntoElement {
         .items_center()
         .gap_2()
         .child(match phase {
-            Phase::Abandoned => state_chip(phase.label(), phase_colour(phase), 1.0)
-                .into_any_element(),
+            Phase::Abandoned => {
+                state_chip(phase.label(), phase_colour(phase), 1.0).into_any_element()
+            }
             _ => phase_steps(phase).into_any_element(),
         })
         .when(phase == Phase::Paused, |row| {
@@ -349,9 +351,7 @@ pub(super) fn driver_switch(
             eid("mission-driver-manual", task_id),
             "Manual",
             driver == Driver::Manual,
-            cx.listener(move |this, _, _, cx| {
-                this.set_mission_driver(task_id, Driver::Manual, cx)
-            }),
+            cx.listener(move |this, _, _, cx| this.set_mission_driver(task_id, Driver::Manual, cx)),
         ))
 }
 
@@ -546,11 +546,7 @@ fn need_row(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(
-                    Icon::new(icon)
-                        .with_size(Size::XSmall)
-                        .text_color(colour),
-                )
+                .child(Icon::new(icon).with_size(Size::XSmall).text_color(colour))
                 .child(elided(
                     id,
                     text,
@@ -662,9 +658,7 @@ pub(super) fn needs_you_rows(
                         eid2("mission-need-tasks", task_id, index),
                         None,
                         "Open tasks",
-                        cx.listener(move |this, _, _, cx| {
-                            this.open_mission_tasks_tab(task_id, cx)
-                        }),
+                        cx.listener(move |this, _, _, cx| this.open_mission_tasks_tab(task_id, cx)),
                     )
                     .into_any_element(),
                     primary_button(
@@ -753,12 +747,7 @@ pub(super) fn needs_you_rows(
                         None,
                         "Done",
                         cx.listener(move |this, _, _, cx| {
-                            this.mission_task_action(
-                                project_id,
-                                task,
-                                MissionTaskAction::Done,
-                                cx,
-                            )
+                            this.mission_task_action(project_id, task, MissionTaskAction::Done, cx)
                         }),
                     )
                     .into_any_element(),
@@ -809,7 +798,10 @@ pub(super) fn needs_you_rows(
                     key,
                     IconName::TriangleAlert,
                     theme::warning(),
-                    format!("{} \u{2014} agent review failed twice", task_label(work, task)),
+                    format!(
+                        "{} \u{2014} agent review failed twice",
+                        task_label(work, task)
+                    ),
                     vec![
                         ghost_button(
                             eid2("mission-need-open", task_id, index),
@@ -1086,12 +1078,7 @@ fn next(
                         IconName::Play,
                         false,
                         cx.listener(move |this, _, _, cx| {
-                            this.mission_task_action(
-                                project_id,
-                                task,
-                                MissionTaskAction::Start,
-                                cx,
-                            )
+                            this.mission_task_action(project_id, task, MissionTaskAction::Start, cx)
                         }),
                     )
                     .tooltip(|window, cx| {
@@ -1145,7 +1132,11 @@ fn draft_list(
                         .with_size(Size::XSmall)
                         .text_color(theme::warning())
                 }))
-                .children(task.review_of.is_some().then(|| mono("review", theme::text_faint())))
+                .children(
+                    task.review_of
+                        .is_some()
+                        .then(|| mono("review", theme::text_faint())),
+                )
                 .into_any_element()
         })
         .collect();

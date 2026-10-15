@@ -434,6 +434,23 @@ pub struct Conversation {
     /// the whole queue — see [`Self::discharge_attachments`].
     prompt_attachments: VecDeque<Vec<Attachment>>,
 
+    /// Prompts this window sent whose echo has not arrived — bumped by [`Self::expect_turn`],
+    /// spent by each real echo. What makes an echo *owed*: only a send can owe one, so a turn end
+    /// nobody prompted (Codex's extra `TurnEnded` per steered prompt) owes nothing.
+    sent_unechoed: u32,
+    /// Whether the turn now running has echoed its prompt yet. Read by `TurnEnded` to decide
+    /// [`Self::echo_owed`].
+    turn_echoed: bool,
+    /// A turn ended cleanly before the echo of a prompt this window sent, so the next echo is that
+    /// prompt's, late — drawn, but not a turn opening. Every bridge synthesises the echo on the
+    /// thread that writes the prompt while the turn's end comes off the reader, so an instant turn
+    /// can end first.
+    echo_owed: bool,
+    /// History arrived before this launch's `Started` — agent output, or a user chunk no send of
+    /// this window accounts for: an ACP `session/load` replaying, which closes with no
+    /// `TurnEnded`. `Started` sets the run back to idle when it did.
+    replayed: bool,
+
     /// The highest sequence number applied. An update that does not follow it
     /// is a gap, and a gap is worth saying rather than silently drawing.
     seq: u64,
@@ -513,6 +530,10 @@ impl Conversation {
             next_attached_id: 0,
             prompt_preamble: None,
             prompt_attachments: VecDeque::new(),
+            sent_unechoed: 0,
+            turn_echoed: false,
+            echo_owed: false,
+            replayed: false,
             seq: 0,
             tools: HashMap::new(),
             open: None,
@@ -866,6 +887,16 @@ impl Conversation {
             ConvUpdate::Started { model, mode, .. } => {
                 self.model = model;
                 self.mode = mode;
+                // An ACP `session/load` replays the whole history ahead of its handshake and
+                // closes it with this, not a `TurnEnded`: nothing it opened is running. Claude
+                // Code's first echo precedes its `Started` too, but a send of this window accounts
+                // for it, so that live turn does not mark a replay.
+                if !self.launched && self.replayed {
+                    self.run = Run::Idle;
+                    self.turn_echoed = false;
+                    self.echo_owed = false;
+                }
+                self.replayed = false;
                 self.launched = true;
             }
 
@@ -874,13 +905,16 @@ impl Conversation {
                 // per prompt, and merging two would merge two questions.
                 self.end_open_thought();
                 self.open = None;
+                let mut opens = true;
                 if let Some(text) = text_of(&content) {
                     let said = self.strip_preamble(text);
                     // Claude Code echoes a synthetic user-role message when a turn is cancelled —
                     // `[Request interrupted by user]`, or the tool-use variant. Nobody typed it, so
                     // it is dropped rather than pushed: not drawn as a message, and not there for
                     // the sent history to hand back as if it were the last thing the user said.
-                    if !is_cancelled_turn_marker(&said) {
+                    // It is the cancelled turn's trailer, often behind its end, so it opens nothing.
+                    opens = !is_cancelled_turn_marker(&said);
+                    if opens {
                         // Spent only by the *real* turn. A chunk with no text in it and a
                         // synthetic interrupt echo are both this turn's harness talking, not this
                         // turn — taking the front of the queue for either would draw the real
@@ -893,14 +927,28 @@ impl Conversation {
                         });
                     }
                 }
-                self.run = Run::Working;
+                if opens {
+                    let sent = self.sent_unechoed > 0;
+                    self.sent_unechoed = self.sent_unechoed.saturating_sub(1);
+                    if std::mem::take(&mut self.echo_owed) {
+                        // The late echo of a turn that already ended is drawn above but reopens
+                        // nothing: no `TurnEnded` is coming to close it again.
+                        opens = false;
+                    } else if !self.launched && !sent {
+                        self.replayed = true;
+                    }
+                }
+                if opens {
+                    self.turn_echoed = true;
+                    self.run = Run::Working;
+                }
             }
             ConvUpdate::AgentChunk {
                 content,
                 message_id,
                 subagent,
             } => {
-                self.run = Run::Working;
+                self.agent_working();
                 self.append(message_id, content, false, subagent);
             }
             ConvUpdate::ThoughtChunk {
@@ -908,12 +956,12 @@ impl Conversation {
                 message_id,
                 subagent,
             } => {
-                self.run = Run::Working;
+                self.agent_working();
                 self.append(message_id, content, true, subagent);
             }
 
             ConvUpdate::ToolCall(call) => {
-                self.run = Run::Working;
+                self.agent_working();
                 self.end_open_thought();
                 self.open = None;
                 self.tools.insert(call.id.clone(), self.blocks.len());
@@ -1020,9 +1068,17 @@ impl Conversation {
                 // discharged with it. A turn that ended cleanly is left alone: its own echo may
                 // still be a frame behind the end, and a send made while it ran is still in
                 // flight behind it.
-                if matches!(stop_reason, StopReason::Failed) || error.is_some() {
+                let broke = matches!(stop_reason, StopReason::Failed) || error.is_some();
+                if broke {
                     self.discharge_attachments();
                 }
+                // The same bargain for the run: a clean end that has not echoed a send of this
+                // window yet still owes that echo, and it must not reopen the turn. One at most,
+                // and every other unechoed send is forgotten here, so a lost echo cannot carry an
+                // off-by-one into later turns. A broken end owes nothing.
+                self.echo_owed = !broke && !self.turn_echoed && self.sent_unechoed > 0;
+                self.sent_unechoed = u32::from(self.echo_owed);
+                self.turn_echoed = false;
                 self.stop_reason = Some(stop_reason);
                 self.error = error;
             }
@@ -1038,12 +1094,36 @@ impl Conversation {
         self.launched && self.run != Run::Ended && self.accepts_input
     }
 
+    /// Say that a prompt is leaving this window, so its echo is owed — see
+    /// [`Self::sent_unechoed`]. Called by the one place `PromptAgent` is built.
+    pub fn expect_turn(&mut self) {
+        self.sent_unechoed += 1;
+    }
+
+    /// The agent itself is talking, so a turn is running. Before this launch's `Started` it can
+    /// only be history an ACP `session/load` is replaying — see [`Self::replayed`].
+    fn agent_working(&mut self) {
+        self.run = Run::Working;
+        if !self.launched {
+            self.replayed = true;
+        }
+    }
+
+    /// Forget the turn bookkeeping, because no turn of this run can still end or echo.
+    fn forget_turn(&mut self) {
+        self.sent_unechoed = 0;
+        self.turn_echoed = false;
+        self.echo_owed = false;
+        self.replayed = false;
+    }
+
     /// The harness has gone.
     pub fn ended(&mut self, stop_reason: StopReason) {
         self.end_open_thought();
         self.open = None;
         self.pending.clear();
         self.discharge_attachments();
+        self.forget_turn();
         self.run = Run::Ended;
         self.stop_reason = Some(stop_reason);
     }
@@ -1058,6 +1138,7 @@ impl Conversation {
         self.open_config = None;
         self.pending.clear();
         self.discharge_attachments();
+        self.forget_turn();
     }
 
     /// Forget one request, because it has been answered. Idempotent: an answer that raced the
@@ -2077,7 +2158,11 @@ mod tests {
 
         c.apply(4, said_by("Good day.", "t751", Some("general-purpose")));
         assert_eq!(c.subagent_activity("t751"), Some("Good day.".to_string()));
-        assert_eq!(c.subagent_doing("t751"), Doing::Writing, "the chip still says the kind");
+        assert_eq!(
+            c.subagent_doing("t751"),
+            Doing::Writing,
+            "the chip still says the kind"
+        );
     }
 
     /// Markdown off the line a card reads, and the kind's word only where nothing is left.
@@ -2534,7 +2619,10 @@ mod tests {
     fn a_parent_counts_everything_and_a_delegate_its_subtree() {
         let mut c = conversation();
         for (ix, id) in ["chef", "pastry", "kitchen"].into_iter().enumerate() {
-            c.apply(ix as u64 + 1, task_call(id, "Subagent", ToolStatus::InProgress));
+            c.apply(
+                ix as u64 + 1,
+                task_call(id, "Subagent", ToolStatus::InProgress),
+            );
         }
         c.apply(
             4,
@@ -2566,7 +2654,10 @@ mod tests {
             );
         }
 
-        assert_eq!(c.total_tokens(), Some(30_100 + 18_000 + 2_000 + 3_000 + 500));
+        assert_eq!(
+            c.total_tokens(),
+            Some(30_100 + 18_000 + 2_000 + 3_000 + 500)
+        );
         assert_eq!(c.delegate_tokens("chef"), Some((18_500, 0)), "own + sous");
         assert_eq!(c.delegate_tokens("pastry"), Some((2_000, 0)));
         assert_eq!(c.delegate_tokens("kitchen"), Some((3_000, 0)));
@@ -3141,5 +3232,131 @@ mod tests {
 
         assert_eq!(c.run, Run::Idle);
         assert_eq!(c.dequeue_front().unwrap().text, "next up");
+    }
+
+    fn user(text: &str) -> ConvUpdate {
+        ConvUpdate::UserChunk {
+            content: ConvContent::Text(text.to_string()),
+            message_id: None,
+        }
+    }
+
+    fn turn_ended() -> ConvUpdate {
+        ConvUpdate::TurnEnded {
+            stop_reason: StopReason::EndTurn,
+            error: None,
+        }
+    }
+
+    fn started() -> ConvUpdate {
+        ConvUpdate::Started {
+            session_id: None,
+            model: None,
+            mode: None,
+            tools: Vec::new(),
+            agents: Vec::new(),
+        }
+    }
+
+    /// The echo is synthesised on the thread that wrote the prompt and the end comes off the
+    /// reader, so an instant turn can end first. Its echo is still drawn, but it reopens nothing —
+    /// and the next turn's own echo opens that turn as before.
+    #[test]
+    fn a_late_echo_does_not_reopen_an_ended_turn() {
+        let mut c = conversation();
+        c.launched = true;
+        c.expect_turn();
+        c.apply(1, chunk("done already", Some("m1")));
+        c.apply(2, turn_ended());
+        c.apply(3, user("the question"));
+
+        assert_eq!(c.run, Run::Idle, "the late echo left the turn ended");
+        assert!(matches!(&c.blocks[..], [_, ConvBlock::User { text, .. }] if text == "the question"));
+
+        c.expect_turn();
+        c.apply(4, user("the next question"));
+        assert_eq!(c.run, Run::Working, "a real next turn still opens");
+    }
+
+    /// Codex ends a turn once more for each prompt steered into it. A turn end nobody's send is
+    /// waiting on owes no echo, so the next turn's echo still opens it — every turn after, too.
+    #[test]
+    fn a_steered_double_turn_end_owes_no_echo() {
+        let mut c = conversation();
+        c.launched = true;
+        c.expect_turn();
+        c.apply(1, user("first"));
+        c.expect_turn();
+        c.apply(2, user("steered in"));
+        c.apply(3, turn_ended());
+        c.apply(4, turn_ended());
+        assert_eq!(c.run, Run::Idle);
+
+        for (n, seq) in [(0, 5), (1, 7)] {
+            c.expect_turn();
+            c.apply(seq, user(&format!("next {n}")));
+            assert_eq!(c.run, Run::Working, "turn {n} opens on its echo");
+            c.apply(seq + 1, turn_ended());
+        }
+    }
+
+    /// A turn that broke owes no echo, so the next turn's echo is that turn opening.
+    #[test]
+    fn a_failed_turn_owes_no_echo() {
+        let mut c = conversation();
+        c.apply(
+            1,
+            ConvUpdate::TurnEnded {
+                stop_reason: StopReason::Failed,
+                error: Some("refused".to_string()),
+            },
+        );
+        c.apply(2, user("again"));
+        assert_eq!(c.run, Run::Working);
+    }
+
+    /// Claude Code's interrupt marker trails the cancelled turn, often behind its end.
+    #[test]
+    fn an_interrupt_marker_after_the_end_opens_nothing() {
+        let mut c = conversation();
+        c.apply(1, user("go"));
+        c.apply(2, turn_ended());
+        c.apply(3, user("[Request interrupted by user]"));
+        assert_eq!(c.run, Run::Idle);
+    }
+
+    /// An ACP `session/load` replays history ahead of its handshake with no `TurnEnded`; the
+    /// handshake's `Started` is what closes it.
+    #[test]
+    fn a_session_load_replay_does_not_leave_the_run_working() {
+        let mut c = conversation();
+        c.apply(1, user("old question"));
+        c.apply(2, chunk("old answer", Some("m1")));
+        c.apply(3, started());
+        assert_eq!(c.run, Run::Idle);
+        assert!(c.launched);
+
+        c.expect_turn();
+        c.apply(4, user("new question"));
+        assert_eq!(c.run, Run::Working, "the live turn after the replay opens");
+    }
+
+    /// A replayed history of user turns alone is still history: no send accounts for it.
+    #[test]
+    fn a_user_only_replay_does_not_leave_the_run_working() {
+        let mut c = conversation();
+        c.apply(1, user("asked, never answered"));
+        c.apply(2, started());
+        assert_eq!(c.run, Run::Idle);
+    }
+
+    /// Claude Code's first echo also precedes its `Started`, and that turn is live.
+    #[test]
+    fn a_first_echo_before_started_keeps_the_turn_working() {
+        let mut c = conversation();
+        c.expect_turn();
+        c.apply(1, user("hello"));
+        c.apply(2, started());
+        assert_eq!(c.run, Run::Working);
     }
 }

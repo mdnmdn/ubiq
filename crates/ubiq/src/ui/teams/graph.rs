@@ -25,9 +25,9 @@
 //! same arrangement through the same module, which is the only way the two cannot drift apart.
 
 use gpui::{
-    App, AppContext as _, Context, DragMoveEvent, Entity, InteractiveElement,
-    IntoElement, ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, point, px,
+    App, AppContext as _, Context, DragMoveEvent, Entity, InteractiveElement, IntoElement,
+    ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div,
+    point, px,
 };
 use gpui_component::{Icon, Sizable as _};
 
@@ -38,8 +38,8 @@ use crate::app::AppState;
 use crate::state::conversation::{Conversation, SubagentTab};
 use crate::state::status::Status;
 use crate::state::teams::{
-    CARD_WIDTH, GROUP_LABEL, GROUP_PAD, TEAMS_CARD_HEIGHT, TeamsSpan, agent_status, delegate_status,
-    fence,
+    CARD_WIDTH, GROUP_LABEL, GROUP_PAD, TEAMS_CARD_HEIGHT, TeamsSpan, agent_status,
+    delegate_status, fence,
 };
 use crate::state::work;
 use crate::state::work::{AgentLabel, WorkState};
@@ -577,6 +577,7 @@ fn subagent_card(
                 status,
                 18.0 * zoom,
                 eid2("teams-subagent-mark", agent, ix),
+                cx,
             ))
             .child(elided_with(
                 eid2("teams-subagent-name", agent, ix),
@@ -729,7 +730,12 @@ fn agent_card(
             .flex_none()
             .items_center()
             .gap(px(7.0 * zoom))
-            .child(status_mark(status, 22.0 * zoom, eid("teams-card-mark", id)))
+            .child(status_mark(
+                status,
+                22.0 * zoom,
+                eid("teams-card-mark", id),
+                cx,
+            ))
             .child(div().flex_1().min_w(px(0.)).child(elided_with(
                 eid("teams-card-name", id),
                 label.title.clone(),

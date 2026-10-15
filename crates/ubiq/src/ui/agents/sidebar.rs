@@ -33,13 +33,13 @@ use crate::app::AppState;
 use crate::state::agents::AgentsView;
 use crate::state::work::WorkProjection;
 use crate::theme;
+use crate::ui::conversation::ConversationView;
 use crate::ui::eid;
 use crate::ui::kit::{
     badge, elided, elided_with, icon_button, mono, panel, panel_header, section_label, state_chip,
     status_dot,
 };
 use crate::ui::mission::panel::{mission_hex, phase_colour};
-use crate::ui::conversation::ConversationView;
 
 pub fn render(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
     let mut rows: Vec<AnyElement> = Vec::new();
@@ -193,9 +193,7 @@ fn missions_section(
     let mut missions: Vec<(&ubiq_proto::work::TaskRecord, &MissionSnapshot)> = open
         .missions
         .values()
-        .filter(|record| {
-            show_closed || !matches!(record.phase, Phase::Done | Phase::Abandoned)
-        })
+        .filter(|record| show_closed || !matches!(record.phase, Phase::Done | Phase::Abandoned))
         .filter_map(|record| work.task(record.task_id).map(|task| (task, record)))
         .collect();
     // The header — and `New mission` on it — is drawn whenever a project is open, whether or not
@@ -334,6 +332,7 @@ fn mission_row(
             mission,
             eid("agents-mission-hex", task_id),
             13.,
+            cx,
         ))
         .child(state_chip(
             mission.phase.label(),
@@ -574,6 +573,7 @@ fn agent_row(
             status,
             14.0,
             eid("agents-row-mark", id),
+            cx,
         ))
         // The title, then the identity faint beside it — capped so a long one never squeezes the
         // title out — and the standard agent tooltip on both.

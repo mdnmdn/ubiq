@@ -182,8 +182,8 @@ for, offered only when the target is a bare harness — saving a start that alre
 agent definition would be writing that agent definition over itself. Changing the name of a
 definition opened for editing renames it (`NewAgentForm::original_id` rides out as
 `SaveAgentDefinition::replaces`) rather than leaving a copy, and is refused when the new name is
-taken; mission picks, saved profiles and the last-used start target that name the old one are left as
-they were.
+taken. What names the old one follows: the host rewrites `extends` in the definition stores and every
+mission's planner and worker pick, and the window moves the last-used start target when the definitions list echoes the rename. A save also keeps the record's `extends` and isolation, which the form does not carry.
 
 **The form's footer offers the MCP servers Ubiq itself injects.** `MCPs` opens a checklist of the
 `McpInfo` rows the host answered `ListMcps` with — one tick box per server, its title, what it is

@@ -574,7 +574,10 @@ fn mission_block(
     let gone = mission::worker_gone(task, |agent| app.conversation_live(agent));
     let closed = matches!(task.status, Status::Done | Status::Abandoned);
 
-    let act = |key: &'static str, label: &'static str, action: MissionTaskAction, cx: &mut Context<AppState>| {
+    let act = |key: &'static str,
+               label: &'static str,
+               action: MissionTaskAction,
+               cx: &mut Context<AppState>| {
         ghost_button(
             eid2(key, "mission-block", id),
             None,
@@ -585,15 +588,16 @@ fn mission_block(
         )
         .into_any_element()
     };
-    let note = |key: &'static str, label: &'static str, kind: NoteKind, cx: &mut Context<AppState>| {
-        ghost_button(
-            eid2(key, "mission-block", id),
-            None,
-            label,
-            cx.listener(move |this, _, _, cx| this.open_mission_note(kind, cx)),
-        )
-        .into_any_element()
-    };
+    let note =
+        |key: &'static str, label: &'static str, kind: NoteKind, cx: &mut Context<AppState>| {
+            ghost_button(
+                eid2(key, "mission-block", id),
+                None,
+                label,
+                cx.listener(move |this, _, _, cx| this.open_mission_note(kind, cx)),
+            )
+            .into_any_element()
+        };
 
     let mut buttons: Vec<AnyElement> = Vec::new();
     if task.status == Status::InReview && task.approve {
@@ -639,7 +643,10 @@ fn mission_block(
                             approve,
                             cx.listener(move |this, _, _, cx| this.set_task_approve(!approve, cx)),
                         ))
-                        .child(mono("approve \u{2014} wait for Confirm", theme::text_muted())),
+                        .child(mono(
+                            "approve \u{2014} wait for Confirm",
+                            theme::text_muted(),
+                        )),
                 )
                 .child(
                     div()
@@ -804,6 +811,7 @@ fn footer(app: &AppState, task: &TaskRecord, cx: &mut Context<AppState>) -> impl
                     status,
                     14.0,
                     crate::ui::eid("board-agent-mark", agent),
+                    cx,
                 ))
                 .child(div().flex_1().min_w(px(0.)).child(crate::ui::kit::elided(
                     crate::ui::eid("board-agent-name", agent),

@@ -175,7 +175,10 @@ impl AppState {
             return;
         };
         let suffix_text = suffix.unwrap_or_default();
-        let prompt = format!("{}{suffix_text}", task_assignment_prompt(&label, true, false));
+        let prompt = format!(
+            "{}{suffix_text}",
+            task_assignment_prompt(&label, true, false)
+        );
         self.aim_start(NewAgentSurface::Chat, cx);
         self.open_new_agent(
             NewAgentOpen {
@@ -1006,6 +1009,15 @@ impl AppState {
             }
             None => text,
         };
+        // Its echo is owed from here: a turn that ends before the echo arrives must not be
+        // reopened by it (`T-388`).
+        if let Some(conversation) = self
+            .projects
+            .values_mut()
+            .find_map(|open| open.conversations.get_mut(&agent_id))
+        {
+            conversation.expect_turn();
+        }
         self.bus.send(Message::PromptAgent { agent_id, text });
     }
 
@@ -1110,11 +1122,51 @@ impl AppState {
         {
             form.target = Some(Target::AgentDefinition(id));
         }
+        // The host rewrites what it stores that names the old id; the last-used start target is
+        // interface state, so it follows when the definitions list echoes the rename.
+        self.workbench.pending_definition_rename = replaces
+            .clone()
+            .map(|old| (old, definition.id.clone(), definition.project));
         self.bus.send(Message::SaveAgentDefinition {
             definition,
             replaces,
         });
         cx.notify();
+    }
+
+    /// The definitions list has just been replaced: if a rename was in flight and it landed (the
+    /// new id is there, the old one is gone), move the last-used start target to the new id.
+    pub(super) fn follow_definition_rename(&mut self) {
+        let Some((old, new, scope)) = self.workbench.pending_definition_rename.take() else {
+            return;
+        };
+        let held = |id: &str| {
+            let list = match scope {
+                Some(_) => &self.workbench.settings.project_definitions,
+                None => &self.workbench.settings.definitions,
+            };
+            list.iter().any(|it| it.id == id && it.project == scope)
+        };
+        if !held(&new) || held(&old) {
+            return;
+        }
+        let mut moved = false;
+        let mut follow = |last: &mut crate::state::prefs::LastStart| {
+            if last.definition.as_deref() == Some(old.as_str()) && last.definition_project == scope
+            {
+                last.definition = Some(new.clone());
+                moved = true;
+            }
+        };
+        if let Some(last) = self.workbench.last_start.as_mut() {
+            follow(last);
+        }
+        for last in self.workbench.last_start_by_project.values_mut() {
+            follow(last);
+        }
+        if moved {
+            self.remember_interface();
+        }
     }
 
     /// Ask the host what this harness offers. Cheap after the first ask — the host caches the

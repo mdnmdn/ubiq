@@ -9,7 +9,7 @@
 //! the rest are Lucide's, taken as they come.
 
 use gpui::{
-    ElementId, InteractiveElement as _, IntoElement, ParentElement, Rgba,
+    App, ElementId, InteractiveElement as _, IntoElement, ParentElement, Rgba,
     StatefulInteractiveElement as _, Styled, div, px,
 };
 use gpui_component::{Sizable as _, tooltip::Tooltip};
@@ -34,13 +34,18 @@ use crate::ui::work::{doing_colour, lifecycle_colour, status_colour, status_icon
 /// **The core pulses while there is somewhere to look.** Only [`Lifecycle::Working`] does — not
 /// idle, not done, not waiting on the reader, the three restful readings a moving core would cry
 /// wolf over. `id` names the animation, so two marks on the same canvas never share a clock.
-pub fn status_mark(status: Status, side: f32, id: impl Into<ElementId>) -> impl IntoElement {
+pub fn status_mark(
+    status: Status,
+    side: f32,
+    id: impl Into<ElementId>,
+    cx: &App,
+) -> impl IntoElement {
     let fill = match status.doing {
         Doing::Unknown => None,
         Doing::Done => Some(theme::text_faint()),
         doing => Some(doing_colour(doing)),
     };
-    let pulse = status.lifecycle == Lifecycle::Working;
+    let pulse = status.lifecycle == Lifecycle::Working && !cx.reduce_motion();
     div()
         .flex()
         .flex_none()

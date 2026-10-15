@@ -820,7 +820,11 @@ two marks on the same screen never share a clock. `ui::teams::status::status_mar
 id)` is the shared caller: the outer hexagon reads `status.lifecycle`'s colour, the core reads
 `status.doing` — grey rather than a colour once `Doing::Done`, so a delegate that finished clean
 does not keep reading as still going — and the core pulses only while `status.lifecycle` is
-`Working`, the one reading a moving core would not cry wolf over. It draws on the Teams agent and
+`Working`, the one reading a moving core would not cry wolf over — and not at all for a reader who
+asked for reduced motion (`status_mark` takes the `App` to ask). Every status pulse (this core, the
+lifecycle dot, the `writing_mark` squares) is built on `kit::pulse_animation`, a synced repeat
+capped at `PULSE_FPS` (15) so GPUI drives it from a timer instead of redrawing the window every
+display frame. It draws on the Teams agent and
 delegate cards, the agents column's own tab strip and the dock's chat tab (T-99, T-102) — one mark,
 the same primitive, everywhere a conversation's state is shown as more than a dot.
 

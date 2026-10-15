@@ -26,10 +26,10 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, ClickEvent, ClipboardItem, Context, Div, ElementId,
-    Focusable, InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    point, pulsating_between, px,
+    AnimationExt, AnyElement, App, ClickEvent, ClipboardItem, Context, Div, ElementId, Focusable,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement,
+    Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, point,
+    pulsating_between, px,
 };
 use gpui_component::input::Textarea;
 use gpui_component::text::TextView;
@@ -55,8 +55,8 @@ use crate::theme;
 use crate::ui::kit::menu::MENU_ANCHOR_UP;
 use crate::ui::kit::{
     self, ContextItem, Picker, PickerStyle, UbiqIcon, context_menu, ghost_button, harness_icon,
-    icon_button, icon_button_tip, mono, pill, popover, primary_button, progress_ring, progress_ring_in,
-    removable_tag, status_dot, tag as kit_tag,
+    icon_button, icon_button_tip, mono, pill, popover, primary_button, progress_ring,
+    progress_ring_in, pulse_animation, removable_tag, status_dot, tag as kit_tag,
 };
 use crate::ui::{handler, indexed};
 
@@ -179,14 +179,12 @@ pub fn render(
         // Resume, offered where the reason is (`T-327`). A harness with a session id resumes into
         // it — the host keeps that on the pending row.
         if !conversation.launched {
-            strip = strip.child(
-                div().flex_none().child(ghost_button(
-                    view.eid("error-retry"),
-                    Some(IconName::RotateCw),
-                    "Retry",
-                    cx.listener(move |this, _, _, cx| this.resume_agent(id, cx)),
-                )),
-            );
+            strip = strip.child(div().flex_none().child(ghost_button(
+                view.eid("error-retry"),
+                Some(IconName::RotateCw),
+                "Retry",
+                cx.listener(move |this, _, _, cx| this.resume_agent(id, cx)),
+            )));
         }
         root = root.child(strip);
     }
@@ -695,9 +693,7 @@ pub fn lifecycle_dot(
     }
     dot.with_animation(
         id,
-        Animation::new(Duration::from_millis(2_000))
-            .repeat()
-            .with_easing(pulsating_between(0.45, 1.0)),
+        pulse_animation(Duration::from_millis(2_000)).with_easing(pulsating_between(0.45, 1.0)),
         |this, delta| this.opacity(delta),
     )
     .into_any_element()
@@ -1020,7 +1016,10 @@ fn plan_rows(
         let (shape, estimate) = block_shape(block);
         let shape = match attached.get(&ix) {
             Some(requests) => (
-                hashed((shape, requests.iter().map(|r| prompt_shape(r)).collect::<Vec<_>>())),
+                hashed((
+                    shape,
+                    requests.iter().map(|r| prompt_shape(r)).collect::<Vec<_>>(),
+                )),
                 estimate + px(120.) * requests.len() as f32,
             ),
             None => (shape, estimate),
@@ -1417,7 +1416,11 @@ fn transcript(
 
     if let Some(scroll) = scroll {
         // Any change to the rows marks the transcript for the next periodic forced relayout.
-        scroll.note_rows(hashed(rows.iter().map(|row| (row.key, row.sig)).collect::<Vec<_>>()));
+        scroll.note_rows(hashed(
+            rows.iter()
+                .map(|row| (row.key, row.sig))
+                .collect::<Vec<_>>(),
+        ));
         // Somewhere to be taken to, asked for by the strip that named the prompt. Resolved here
         // rather than where it was asked for, because only the frame that planned the rows knows
         // which row a block ended up as.
@@ -1534,8 +1537,11 @@ fn transcript(
             if forced && let Some(scroll) = scroll {
                 scroll.report_force_result(again);
             }
+            // Asked *after* the frame: a notify made while this frame is still drawing is dropped,
+            // and the row would keep its first height until something unrelated redrew.
             if again {
-                cx.notify();
+                let entity = cx.entity();
+                window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
             }
             built
         },
@@ -1690,23 +1696,21 @@ fn writing_mark(activity: Activity, variant: u64, view: &ConversationView) -> An
                 mark_cell(colour)
                     .with_animation(
                         view.eid(&format!("writing-scan-{n}")),
-                        Animation::new(Duration::from_millis(1_400))
-                            .repeat()
-                            .with_easing(move |delta| {
-                                // A triangle wave, so the light runs to the end of the row and
-                                // comes back rather than jumping home: one pass out and one pass
-                                // back per cycle.
-                                let head = if delta < 0.5 {
-                                    delta * 2.0
-                                } else {
-                                    (1.0 - delta) * 2.0
-                                } * (SCAN_CELLS - 1) as f32;
-                                // How near the head is to this square, softened so the squares
-                                // beside it glow too and the row reads as one moving light rather
-                                // than five taking turns to blink.
-                                let near = 1.0 - ((head - at).abs() / 1.8).min(1.0);
-                                0.15 + near * 0.85
-                            }),
+                        pulse_animation(Duration::from_millis(1_400)).with_easing(move |delta| {
+                            // A triangle wave, so the light runs to the end of the row and
+                            // comes back rather than jumping home: one pass out and one pass
+                            // back per cycle.
+                            let head = if delta < 0.5 {
+                                delta * 2.0
+                            } else {
+                                (1.0 - delta) * 2.0
+                            } * (SCAN_CELLS - 1) as f32;
+                            // How near the head is to this square, softened so the squares
+                            // beside it glow too and the row reads as one moving light rather
+                            // than five taking turns to blink.
+                            let near = 1.0 - ((head - at).abs() / 1.8).min(1.0);
+                            0.15 + near * 0.85
+                        }),
                         |this, delta| this.opacity(delta),
                     )
                     .into_any_element()
@@ -1721,11 +1725,9 @@ fn writing_mark(activity: Activity, variant: u64, view: &ConversationView) -> An
                 mark_cell(colour)
                     .with_animation(
                         view.eid(&format!("writing-pulse-{n}")),
-                        Animation::new(Duration::from_millis(1_100))
-                            .repeat()
-                            .with_easing(move |delta| {
-                                pulsating_between(0.2, 1.0)((delta + phase) % 1.0)
-                            }),
+                        pulse_animation(Duration::from_millis(1_100)).with_easing(move |delta| {
+                            pulsating_between(0.2, 1.0)((delta + phase) % 1.0)
+                        }),
                         |this, delta| this.opacity(delta),
                     )
                     .into_any_element()
@@ -2381,12 +2383,7 @@ fn permission(
     let detail_clamped = detail_lines > PROMPT_CLAMP_LINES;
     let clamped = title_clamped || detail_clamped;
 
-    let buttons = permission_buttons(
-        agent,
-        pending,
-        &format!("{}-permission", view.id),
-        cx,
-    );
+    let buttons = permission_buttons(agent, pending, &format!("{}-permission", view.id), cx);
 
     div()
         .px_3()
@@ -3225,10 +3222,7 @@ fn stop_button(
 fn identity_chip(conversation: &Conversation, view: &ConversationView) -> AnyElement {
     let mark = harness_icon(&conversation.harness);
     let mut identity_tip = if conversation.account.is_empty() {
-        format!(
-            "{} \u{2014} default account",
-            conversation.harness
-        )
+        format!("{} \u{2014} default account", conversation.harness)
     } else {
         format!(
             "{} \u{b7} signed in as {} \u{2014} chosen once, when the agent was started",
@@ -3530,13 +3524,13 @@ fn composer(
                 }
             }),
         )
-        .capture_action(
-            cx.listener(move |this, _: &gpui_component::input::MoveDown, window, cx| {
+        .capture_action(cx.listener(
+            move |this, _: &gpui_component::input::MoveDown, window, cx| {
                 if this.recall_history(slot, false, window, cx) {
                     cx.stop_propagation();
                 }
-            }),
-        )
+            },
+        ))
         // A paste of a file or a picture is an attachment on this turn. Hung here rather than on
         // the workbench root because this is the one node that knows *which* conversation the
         // focused field types into — the slot is an index and nothing maps it back. A board with
@@ -4076,7 +4070,11 @@ fn queue_list(
             // One line: newlines and runs of blanks fold to a single space so a multiline prompt
             // cannot break the row; `elided_with` cuts it to the width and carries the whole text
             // as its tooltip.
-            let line = message.text.split_whitespace().collect::<Vec<_>>().join(" ");
+            let line = message
+                .text
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
 
             div()
                 .id(view.eid(&format!("queued-{queued_id}")))

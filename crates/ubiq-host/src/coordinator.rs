@@ -1935,11 +1935,20 @@ impl Coordinator {
                 definition,
                 replaces,
             } => {
+                let renamed = replaces
+                    .clone()
+                    .filter(|old| *old != definition.id)
+                    .map(|old| (old, definition.id.clone(), definition.project));
                 match self
                     .agents
                     .save_definition_replacing(definition, replaces.as_deref())
                 {
-                    Ok(()) => self.send_definitions(client),
+                    Ok(()) => {
+                        if let Some((old, new, scope)) = renamed {
+                            self.retarget_definition(client, &old, &new, scope);
+                        }
+                        self.send_definitions(client)
+                    }
                     Err(error) => self.host.send(
                         To::Client(client),
                         Message::AccountError {
@@ -7610,6 +7619,50 @@ impl Coordinator {
             // Nothing to broadcast and nothing a window can do about it: every list already on
             // screen is the one from before, which is better than emptying them all.
             Err(error) => tracing::warn!("the accounts could not be read: {error:#}"),
+        }
+    }
+
+    /// A definition was renamed: rewrite what still names the old id. A project definition's
+    /// rename touches that project only; a global one reaches every project whose own scope does not
+    /// hold either id (the old one shadows it, the new one would be shadowed by it, and a pick
+    /// or an `extends` would mean a different definition there).
+    /// `extends` in the project stores and every mission's planner and worker pick follow.
+    fn retarget_definition(
+        &mut self,
+        client: ClientId,
+        old: &str,
+        new: &str,
+        scope: Option<ProjectId>,
+    ) {
+        let projects: Vec<ProjectId> = match scope {
+            Some(project) => vec![project],
+            None => self.projects.records().iter().map(|it| it.id).collect(),
+        };
+        for project in projects {
+            if scope.is_none() && !self.agents.retarget_global_rename(project, old, new) {
+                continue;
+            }
+            let (_, tasks) = self.work.lock().tasks(project);
+            for task in tasks {
+                let picks = task.mission.as_ref().is_some_and(|m| {
+                    m.planner.as_deref() == Some(old) || m.worker.as_deref() == Some(old)
+                });
+                if !picks {
+                    continue;
+                }
+                let replies = self.work.lock().edit(project, task.id, |record| {
+                    let Some(mission) = record.mission.as_mut() else {
+                        return false;
+                    };
+                    for pick in [&mut mission.planner, &mut mission.worker] {
+                        if pick.as_deref() == Some(old) {
+                            *pick = Some(new.to_string());
+                        }
+                    }
+                    true
+                });
+                self.answer(client, replies);
+            }
         }
     }
 

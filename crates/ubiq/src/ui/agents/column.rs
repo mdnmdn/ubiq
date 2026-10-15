@@ -183,6 +183,7 @@ fn tab(
         status,
         14.0,
         eid("agents-tab-mark", id),
+        cx,
     ))
     .child(
         div()
