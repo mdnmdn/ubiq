@@ -1281,6 +1281,129 @@ fn the_screen_follows_the_repository_it_was_pointed_at(cx: &mut TestAppContext) 
     )));
 }
 
+#[gpui::test]
+fn the_git_screen_excludes_ignored_only_paths_but_keeps_real_changes(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let _ = fixture.said();
+
+    let ignored_entries = (0..2)
+        .map(|index| {
+            let mut ignored = entry(&format!("ignored/{index}"), None, None);
+            ignored.ignored = true;
+            ignored
+        })
+        .collect::<Vec<_>>();
+    fixture.deliver(
+        Message::GitOverview {
+            project_id: fixture.project,
+            repo: String::new(),
+            overview: Some(overview("main", None)),
+        },
+        cx,
+    );
+    fixture.deliver(
+        Message::GitWorkingTree {
+            project_id: fixture.project,
+            generation: 1,
+            entries: ignored_entries.clone(),
+            rollups: Vec::new(),
+            repos: Vec::new(),
+            truncated: false,
+        },
+        cx,
+    );
+
+    let own_paths = |cx: &mut TestAppContext| -> Vec<String> {
+        fixture.state.read_with(cx, |state, cx| {
+            state
+                .git_entries(cx)
+                .unwrap_or(&[])
+                .iter()
+                .map(|entry| entry.rel_path.clone())
+                .collect()
+        })
+    };
+    assert!(
+        own_paths(cx).is_empty(),
+        "ignored-only paths do not appear as uncommitted changes"
+    );
+    fixture.state.read_with(cx, |state, _cx| {
+        let open = state
+            .held_project(fixture.project)
+            .expect("project is held");
+        assert_eq!(open.git_entries.len(), 2, "the full map keeps ignored rows");
+        assert!(open.git_entries.iter().all(|entry| entry.ignored));
+    });
+
+    let mut entries = ignored_entries;
+    entries.extend([
+        entry("staged.txt", Some(GitPathChange::Modified), None),
+        entry(
+            "both.txt",
+            Some(GitPathChange::Modified),
+            Some(GitPathChange::Modified),
+        ),
+        GitEntry {
+            conflicted: true,
+            ..entry("conflict.txt", None, None)
+        },
+        entry("untracked.txt", None, Some(GitPathChange::Untracked)),
+        {
+            let mut ignored = entry("vendor/lib/ignored", None, None);
+            ignored.ignored = true;
+            ignored
+        },
+    ]);
+    fixture.deliver(
+        Message::GitWorkingTree {
+            project_id: fixture.project,
+            generation: 2,
+            entries,
+            rollups: Vec::new(),
+            repos: vec![nested_repo("vendor/lib", true)],
+            truncated: false,
+        },
+        cx,
+    );
+    assert_eq!(
+        own_paths(cx),
+        vec![
+            "staged.txt".to_string(),
+            "both.txt".to_string(),
+            "conflict.txt".to_string(),
+            "untracked.txt".to_string(),
+        ],
+        "ignored-only rows are excluded, and a staged-and-modified path counts once"
+    );
+    fixture.state.read_with(cx, |state, _cx| {
+        let open = state
+            .held_project(fixture.project)
+            .expect("project is held");
+        assert_eq!(open.git_entries.len(), 7, "the full map keeps ignored rows");
+        assert_eq!(
+            open.git_entries
+                .iter()
+                .filter(|entry| entry.ignored && entry.index.is_none() && entry.worktree.is_none())
+                .count(),
+            3,
+            "all ignored-only rows remain in the source map"
+        );
+    });
+
+    fixture
+        .window
+        .update(cx, |_, _window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.select_git_repo("vendor/lib".into(), cx)
+            });
+        })
+        .expect("the window is open");
+    assert!(
+        own_paths(cx).is_empty(),
+        "a selected managed repository with ignored-only entries is clean"
+    );
+}
+
 // ── T-269: checkout affordances, the dead menu rows, and revert-to-commit ──
 
 fn ref_row_kind(name: &str, kind: GitRefKind, current: bool) -> GitRef {

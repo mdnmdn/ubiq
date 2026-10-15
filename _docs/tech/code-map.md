@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Generated map of the application's source tree, and the inverted index from every file to the documents that anchor it.
 read_when: you changed a file and need to know which documents owe an update, or you are looking for where something lives
-updated: 2026-10-01
+updated: 2026-10-15
 verified: 2026-09-23
 depends_on: [tech-structure]
 review_cycle: monthly
@@ -234,7 +234,6 @@ crates/ubiq-host/src/
 │   ├── apply.rs
 │   ├── feed.rs
 │   └── mod.rs
-├── .DS_Store
 └── acp.rs
 
 crates/ubiq/src/
@@ -589,17 +588,16 @@ crates/ubiq/src/
 │   ├── about.rs
 │   └── updates.rs
 ├── version.rs
-├── ext/
-│   ├── id.rs
-│   ├── ids.rs
-│   ├── mod.rs
-│   ├── registry.rs
-│   ├── settings.rs
-│   ├── rail.rs
-│   ├── menu.rs
-│   ├── runner.rs
-│   └── viewer.rs
-└── .DS_Store
+└── ext/
+    ├── id.rs
+    ├── ids.rs
+    ├── mod.rs
+    ├── registry.rs
+    ├── settings.rs
+    ├── rail.rs
+    ├── menu.rs
+    ├── runner.rs
+    └── viewer.rs
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -860,7 +858,7 @@ the documents in its row.
 | `crates/ubiq/src/app/kb.rs` | [`wip/kb.md`](../wip/kb.md) |
 | `crates/ubiq/src/app/mark.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/src/app/mission.rs` | [`features/workbench-agents.md`](../features/workbench-agents.md), [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
-| `crates/ubiq/src/app/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
+| `crates/ubiq/src/app/mod.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench-git.md`](../features/workbench-git.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/src/app/nav.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/new_agent.rs` | [`features/workbench-agents.md`](../features/workbench-agents.md) |
 | `crates/ubiq/src/app/new_mission.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
