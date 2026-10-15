@@ -14,14 +14,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::app::AppState;
+use gpui::{Context, WeakEntity};
 use ubiq_archify::compile::{Opts, compile};
 use ubiq_archify::diag::{Diagnostic, Severity};
 use ubiq_archify::model::Doc;
 use ubiq_archify::model::common::Animation;
 use ubiq_archify::scene::{Bounds, GroupId, GroupKind, Scene};
 use ubiq_archify::tokens::{Preset, restyle};
-use gpui::{Context, WeakEntity};
-use crate::app::AppState;
 
 use crate::state::archify::ui;
 
@@ -102,7 +102,10 @@ pub fn run_compile(run: &Run) -> Outcome {
     let mut diagnostics = compiled.receipt.diagnostics.clone();
     diagnostics.extend(compiled.warnings.iter().cloned());
     // The settings' palette over the preset the document names (P9.1, D38).
-    let preset = Preset::pick(&run.palette, compiled.doc.as_ref().and_then(Doc::visual_preset));
+    let preset = Preset::pick(
+        &run.palette,
+        compiled.doc.as_ref().and_then(Doc::visual_preset),
+    );
     Outcome {
         ok: compiled.receipt.ok,
         profile: compiled.profile,
@@ -193,16 +196,18 @@ fn target_of(d: &Diagnostic, scene: &Scene) -> Option<(String, GroupId)> {
     if let Some(found) = named.iter().flatten().find_map(|id| node_group(id)) {
         return Some(found);
     }
-    let edge = (0..scene.groups.len() as u32).map(GroupId).find_map(|group| {
-        let g = scene.group(group)?;
-        let e = g.edge.as_ref().filter(|_| g.kind == GroupKind::Edge)?;
-        let id = e.id.as_deref()?;
-        named
-            .iter()
-            .flatten()
-            .any(|n| *n == id)
-            .then(|| (e.from.clone(), group))
-    });
+    let edge = (0..scene.groups.len() as u32)
+        .map(GroupId)
+        .find_map(|group| {
+            let g = scene.group(group)?;
+            let e = g.edge.as_ref().filter(|_| g.kind == GroupKind::Edge)?;
+            let id = e.id.as_deref()?;
+            named
+                .iter()
+                .flatten()
+                .any(|n| *n == id)
+                .then(|| (e.from.clone(), group))
+        });
     if edge.is_some() {
         return edge;
     }
@@ -394,8 +399,8 @@ fn element(b: &[u8], open: usize, index: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ubiq_archify::diag::Subject;
     use serde_json::Value;
+    use ubiq_archify::diag::Subject;
 
     const EVENT_STREAM: &str =
         include_str!("../../../../ubiq-archify/tests/fixtures/event-stream.dataflow.golden.json");

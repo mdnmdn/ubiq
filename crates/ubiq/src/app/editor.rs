@@ -422,9 +422,8 @@ impl AppState {
     /// knowledge-base document — both draw the same header and the same popover, and a lookup
     /// over the tabs alone left the popover inert in the KB.
     pub fn reading_file(&self, key: &str, cx: &App) -> Option<&OpenFile> {
-        self.file(key, cx).or_else(|| {
-            self.kb(cx)?.docs.iter().find(|doc| doc.key() == key)
-        })
+        self.file(key, cx)
+            .or_else(|| self.kb(cx)?.docs.iter().find(|doc| doc.key() == key))
     }
 
     fn reading_file_mut(&mut self, key: &str, cx: &App) -> Option<&mut OpenFile> {
@@ -2506,7 +2505,10 @@ impl AppState {
         if !file.follows_disk() || !file.dirty() || file.is_saving() || file.follow {
             return;
         }
-        let Some(text) = file.buffer().map(|buffer| buffer.read(cx).value().to_string()) else {
+        let Some(text) = file
+            .buffer()
+            .map(|buffer| buffer.read(cx).value().to_string())
+        else {
             return;
         };
         let (path, expected) = (file.path.clone(), file.version());

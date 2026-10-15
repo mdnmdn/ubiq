@@ -11,17 +11,15 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, ElementId, Focusable, InteractiveElement as _, IntoElement,
-    ParentElement,
+    AnyElement, Context, ElementId, Focusable, InteractiveElement as _, IntoElement, ParentElement,
     StatefulInteractiveElement as _, Styled, Window, div, px,
 };
-use gpui_component::{IconName, Sizable as _};
 use gpui_component::input::{Input, Textarea};
+use gpui_component::{IconName, Sizable as _};
 
 use crate::app::AppState;
 use crate::state::Layer;
 use crate::state::new_mission::PlanSource;
-use ubiq_proto::mission::Driver;
 use crate::theme;
 use crate::ui::kit::menu::{MultiPicker, Picker, PickerStyle};
 use crate::ui::kit::{
@@ -29,6 +27,7 @@ use crate::ui::kit::{
     primary_button, removable_tag,
 };
 use crate::ui::{handler, indexed};
+use ubiq_proto::mission::Driver;
 
 const CONTROL_WIDTH: f32 = 230.;
 

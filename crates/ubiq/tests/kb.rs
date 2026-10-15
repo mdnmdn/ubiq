@@ -1275,7 +1275,16 @@ fn a_locked_wiki_is_unlocked_through_its_dialog(cx: &mut TestAppContext) {
     type_into("one", "two", cx);
     assert!(fixture.said().is_empty(), "a mismatch is not sent");
     fixture.with(cx, |state, _, cx| {
-        assert!(state.kb(cx).unwrap().password.as_ref().unwrap().error.is_some());
+        assert!(
+            state
+                .kb(cx)
+                .unwrap()
+                .password
+                .as_ref()
+                .unwrap()
+                .error
+                .is_some()
+        );
     });
 
     type_into("one", "one", cx);
@@ -1291,7 +1300,11 @@ fn a_locked_wiki_is_unlocked_through_its_dialog(cx: &mut TestAppContext) {
     fixture.with(cx, |state, _, cx| {
         let dialog = state.kb(cx).unwrap().password.clone().unwrap();
         assert!(dialog.busy);
-        assert_eq!(dialog.new.read(cx).value().as_ref(), "", "the buffer is emptied");
+        assert_eq!(
+            dialog.new.read(cx).value().as_ref(),
+            "",
+            "the buffer is emptied"
+        );
     });
 
     fixture.deliver(

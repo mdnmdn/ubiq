@@ -27,7 +27,6 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-
 use ubiq_proto::bus::Hub;
 
 use crate::carrier::{Closer, Socket, pump};

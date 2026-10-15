@@ -38,7 +38,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ElementId, Entity, FontWeight, Focusable, InteractiveElement, IntoElement,
+    AnyElement, App, ElementId, Entity, Focusable, FontWeight, InteractiveElement, IntoElement,
     ParentElement, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, anchored,
     deferred, div, point, px, relative,
 };
@@ -110,7 +110,17 @@ pub fn modal_sized(
     window: &Window,
 ) -> AnyElement {
     modal_frame(
-        id, edge, width, fill_height, title, actions, body, footer, on_dismiss, true, window,
+        id,
+        edge,
+        width,
+        fill_height,
+        title,
+        actions,
+        body,
+        footer,
+        on_dismiss,
+        true,
+        window,
     )
 }
 
@@ -130,7 +140,17 @@ pub fn modal_sized_pinned(
     window: &Window,
 ) -> AnyElement {
     modal_frame(
-        id, edge, width, fill_height, title, actions, body, footer, on_dismiss, false, window,
+        id,
+        edge,
+        width,
+        fill_height,
+        title,
+        actions,
+        body,
+        footer,
+        on_dismiss,
+        false,
+        window,
     )
 }
 

@@ -25,11 +25,13 @@ use ubiq_proto::messages::Message;
 use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
 use super::catalogue::{
-    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ARCHIFY, UBIQ_ASK, UBIQ_HELP, UBIQ_KB, UBIQ_DOC, UBIQ_MISSION, UBIQ_PLAN,
-    UBIQ_SQL_READ, UBIQ_SQL_WRITE, USE_TASK,
+    MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ARCHIFY, UBIQ_ASK, UBIQ_DOC, UBIQ_HELP, UBIQ_KB,
+    UBIQ_MISSION, UBIQ_PLAN, UBIQ_SQL_READ, UBIQ_SQL_WRITE, USE_TASK,
 };
 use super::registry::AgentFacts;
-use super::{ArchifyReach, AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess};
+use super::{
+    ArchifyReach, AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess,
+};
 
 /// Call one tool. `server` and `tool` have already been matched against the catalogue's server;
 /// the tool has not, so an unknown one ends here as the in-band error a model sees.
@@ -71,8 +73,8 @@ pub fn call(
         }
         // The same handlers, the document named by a path in the agent's project (`D161`).
         (UBIQ_DOC, _) => {
-            let reach =
-                plan.ok_or_else(|| "this host has no document store for agents to reach".to_string())?;
+            let reach = plan
+                .ok_or_else(|| "this host has no document store for agents to reach".to_string())?;
             super::plan::doc_call(tool, arguments, facts, reach)
         }
         (UBIQ_MISSION, _) => {

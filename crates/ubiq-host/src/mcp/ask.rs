@@ -393,13 +393,8 @@ mod tests {
         let asks = Arc::new(Asks::with_timeout(Duration::from_millis(20)));
         let (hub, host) = bus::hub();
         let reach = reaching(Arc::clone(&asks));
-        let refused = parked(
-            &well_formed(),
-            &facts("not-a-ulid"),
-            &host.voice(),
-            &reach,
-        )
-        .unwrap_err();
+        let refused =
+            parked(&well_formed(), &facts("not-a-ulid"), &host.voice(), &reach).unwrap_err();
         assert!(refused.contains("only a conversation"), "{refused}");
         assert!(asks.is_empty());
         drop(hub);

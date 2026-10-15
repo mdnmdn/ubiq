@@ -32,7 +32,7 @@ use ubiq_proto::ids::{AnnotationId, BlockId, CommentId, TaskId};
 use ubiq_proto::plan::{
     AnnotationMark, HighlightColour, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
 };
-use ubiq_proto::work::{AgentId, Addressee, CommentAuthor};
+use ubiq_proto::work::{Addressee, AgentId, CommentAuthor};
 
 /// The wire, for any annotated document. The interface never invents a route: every method here
 /// is a message that already exists in `crates/ubiq-proto/src/messages.rs`, and the handle is the

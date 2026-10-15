@@ -17,6 +17,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::app::AppState;
+use crate::state::viewport::Viewport;
+use gpui::{Context, Window};
 use ubiq_archify::motion::consts::DIM_FOCUS;
 use ubiq_archify::motion::lens::{self, LensFilter};
 use ubiq_archify::motion::{
@@ -24,14 +27,11 @@ use ubiq_archify::motion::{
     sample,
 };
 use ubiq_archify::scene::{Bounds, GroupKind, Scene, Tier};
-use gpui::{Context, Window};
-use crate::app::AppState;
-use crate::state::viewport::Viewport;
 
 use crate::state::archify::focus::{self, Reach};
 use crate::state::archify::motion::{self, Framing};
-use crate::ui::archify::paint::tier_of;
 use crate::state::archify::{Interaction, ui};
+use crate::ui::archify::paint::tier_of;
 
 /// A frame asked for and not delivered for this long (ms) is assumed lost (the window closed under
 /// it) and may be asked for again.
@@ -470,7 +470,10 @@ pub fn lens_text(l: &LensState) -> String {
 }
 
 pub fn route_text(scene: &Scene, r: &Route) -> String {
-    let first = r.nodes.first().map_or_else(String::new, |n| label(scene, n));
+    let first = r
+        .nodes
+        .first()
+        .map_or_else(String::new, |n| label(scene, n));
     if r.nodes.len() < 2 {
         return format!("Route from {first} \u{b7} n steps on, click a node for a destination");
     }
@@ -539,7 +542,9 @@ pub fn advance(
 
 /// Tell the user why something did not happen: a notification.
 pub fn tell(app: &mut AppState, text: String) {
-    app.raise_notification(crate::ui::archify::agent::notification(crate::ui::archify::agent::Notice { text }));
+    app.raise_notification(crate::ui::archify::agent::notification(
+        crate::ui::archify::agent::Notice { text },
+    ));
 }
 
 fn finish(this: &mut AppState, result: Result<(), String>, cx: &mut Context<AppState>) {
@@ -927,9 +932,15 @@ mod tests {
         assert_eq!(ask.nodes, ["a", "b"]);
         assert_eq!(ask.framing, Framing::Route);
         assert!(f.request, "the comets run");
-        assert!(m.frame(&input(&s, &w, false, false), 30.0).camera.is_none(), "asked once");
+        assert!(
+            m.frame(&input(&s, &w, false, false), 30.0).camera.is_none(),
+            "asked once"
+        );
         let hud = m.hud("k").unwrap();
-        assert_eq!(hud.text, "Relationship \u{b7} a \u{2192} b \u{b7} 1 direct edge");
+        assert_eq!(
+            hud.text,
+            "Relationship \u{b7} a \u{2192} b \u{b7} 1 direct edge"
+        );
         assert!(!hud.route);
         // Esc ends it; a second Esc has nothing to end.
         assert!(m.end_interaction("k", 40.0) && !m.end_interaction("k", 41.0));
@@ -942,7 +953,10 @@ mod tests {
         let err = m.relate("k", "a", "c", 10.0).unwrap_err();
         assert_eq!(err, "a and c are not connected.");
         assert!(m.hud("k").is_none());
-        assert!(m.relate("nope", "a", "b", 0.0).is_err(), "no picture, no relationship");
+        assert!(
+            m.relate("nope", "a", "b", 0.0).is_err(),
+            "no picture, no relationship"
+        );
     }
 
     #[test]
@@ -968,24 +982,35 @@ mod tests {
         m.route("k", RouteKey::Begin("a".into()), 10.0).unwrap();
         let f = m.frame(&input(&s, &w, false, false), 20.0);
         let ask = f.camera.unwrap();
-        assert_eq!((ask.nodes, ask.framing), (vec!["a".to_string()], Framing::Step));
-        assert_eq!(m.hud("k").unwrap().text, "Route from a \u{b7} n steps on, click a node for a destination");
+        assert_eq!(
+            (ask.nodes, ask.framing),
+            (vec!["a".to_string()], Framing::Step)
+        );
+        assert_eq!(
+            m.hud("k").unwrap().text,
+            "Route from a \u{b7} n steps on, click a node for a destination"
+        );
 
         m.route("k", RouteKey::Step, 30.0).unwrap();
         let f = m.frame(&input(&s, &w, false, false), 40.0);
         let ask = f.camera.unwrap();
         assert_eq!(ask.nodes, ["a", "b"], "the node before and the one reached");
-        assert_eq!(m.hud("k").unwrap().text, "Route \u{b7} a \u{2192} b \u{b7} 2/2");
+        assert_eq!(
+            m.hud("k").unwrap().text,
+            "Route \u{b7} a \u{2192} b \u{b7} 2/2"
+        );
         assert!(m.hud("k").unwrap().route);
 
         let end = m.route("k", RouteKey::Step, 50.0).unwrap_err();
         assert!(end.starts_with("End of the line"), "{end}");
         assert_eq!(
-            m.route("k", RouteKey::Target("c".into()), 60.0).unwrap_err(),
+            m.route("k", RouteKey::Target("c".into()), 60.0)
+                .unwrap_err(),
             "No route: c is not reachable from a along the edges."
         );
         assert_eq!(
-            m.route("k", RouteKey::Target("a".into()), 60.0).unwrap_err(),
+            m.route("k", RouteKey::Target("a".into()), 60.0)
+                .unwrap_err(),
             "That is where the route starts."
         );
         assert!(m.end_interaction("k", 70.0) && !m.route_active("k"));

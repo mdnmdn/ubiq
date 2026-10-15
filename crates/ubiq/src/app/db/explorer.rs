@@ -273,7 +273,13 @@ impl AppState {
     }
 
     /// Ask the host for the DBML of a tree node and remember what to do with the answer.
-    pub fn export_dbml(&mut self, conn: DbConnId, id: &str, sink: DbmlSink, cx: &mut Context<Self>) {
+    pub fn export_dbml(
+        &mut self,
+        conn: DbConnId,
+        id: &str,
+        sink: DbmlSink,
+        cx: &mut Context<Self>,
+    ) {
         let Some(project) = self.project(cx) else {
             return;
         };

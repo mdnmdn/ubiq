@@ -17,7 +17,6 @@ use ubiq_proto::ids::{DbConnId, DbExportId, ProjectId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 
-
 // ── The window ──────────────────────────────────────────────────────
 
 struct Fixture {
@@ -73,7 +72,6 @@ impl Fixture {
         }
         said
     }
-
 }
 
 fn a_project() -> ProjectSnapshot {
@@ -143,7 +141,13 @@ fn tree(conn: DbConnId) -> Node {
         "public",
         vec![t],
     );
-    let d = node("c/d", conn, NodeKind::Database("shop".into()), "shop", vec![s]);
+    let d = node(
+        "c/d",
+        conn,
+        NodeKind::Database("shop".into()),
+        "shop",
+        vec![s],
+    );
     node("c", conn, NodeKind::Connection, "prod", vec![d])
 }
 
@@ -155,7 +159,13 @@ impl Fixture {
         });
     }
 
-    fn export(&self, conn: DbConnId, id: &str, sink: ubiq::state::db::DbmlSink, cx: &mut TestAppContext) {
+    fn export(
+        &self,
+        conn: DbConnId,
+        id: &str,
+        sink: ubiq::state::db::DbmlSink,
+        cx: &mut TestAppContext,
+    ) {
         self.state
             .update(cx, |state, cx| state.export_dbml(conn, id, sink, cx));
     }
@@ -167,7 +177,10 @@ fn each_node_kind_asks_for_its_own_scope() {
     let root = tree(conn);
     let scope = |id: &str| root.find(id).expect(id).dbml_scope();
     assert_eq!(scope("c"), Some((None, StructureScope::default())));
-    assert_eq!(scope("c/d"), Some((Some("shop".into()), StructureScope::default())));
+    assert_eq!(
+        scope("c/d"),
+        Some((Some("shop".into()), StructureScope::default()))
+    );
     assert_eq!(
         scope("c/d/s"),
         Some((
@@ -203,8 +216,14 @@ fn the_menu_offers_both_dbml_entries_on_the_right_rows() {
         assert!(entries.contains(&DbAction::CopyDbml), "{row:?}");
         assert!(entries.contains(&DbAction::OpenDbml), "{row:?}");
     }
-    for row in [DbMenuRow::Connection { connected: false }, DbMenuRow::Column] {
-        assert!(!db_menu_entries(row).contains(&DbAction::CopyDbml), "{row:?}");
+    for row in [
+        DbMenuRow::Connection { connected: false },
+        DbMenuRow::Column,
+    ] {
+        assert!(
+            !db_menu_entries(row).contains(&DbAction::CopyDbml),
+            "{row:?}"
+        );
     }
 }
 
@@ -238,7 +257,12 @@ fn the_export_is_sent_with_the_nodes_scope(cx: &mut TestAppContext) {
     );
 }
 
-fn ready(fx: &Fixture, conn: DbConnId, request: DbExportId, result: Result<String, DbFailure>) -> Message {
+fn ready(
+    fx: &Fixture,
+    conn: DbConnId,
+    request: DbExportId,
+    result: Result<String, DbFailure>,
+) -> Message {
     Message::DbDbmlReady {
         project_id: fx.project,
         conn,
@@ -305,7 +329,10 @@ fn a_ready_reply_opens_an_untitled_file(cx: &mut TestAppContext) {
     });
     assert_eq!(
         names,
-        vec![("users.dbml".to_string(), true), ("users-2.dbml".to_string(), true)]
+        vec![
+            ("users.dbml".to_string(), true),
+            ("users-2.dbml".to_string(), true)
+        ]
     );
 }
 
@@ -322,8 +349,8 @@ fn a_failed_reply_raises_a_notification(cx: &mut TestAppContext) {
         matches!(m, Message::RaiseNotification { request } if request.text.contains("no such schema"))
     });
     assert!(raised);
-    let opened = fx
-        .state
-        .read_with(cx, |state, cx| state.open_project(cx).map_or(0, |o| o.editor.open.len()));
+    let opened = fx.state.read_with(cx, |state, cx| {
+        state.open_project(cx).map_or(0, |o| o.editor.open.len())
+    });
     assert_eq!(opened, 0);
 }

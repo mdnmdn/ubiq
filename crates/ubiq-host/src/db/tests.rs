@@ -776,13 +776,11 @@ fn the_access_overlay_is_local_and_the_description_shared() {
         "{shared}"
     );
     let local = std::fs::read_to_string(rig.db.inner.files(rig.project).agents).unwrap();
-    assert!(
-        rig.db.inner.files(rig.project).agents.ends_with(format!(
-            "projects/{}/local/{}",
-            rig.project,
-            store::AGENTS_FILE
-        ))
-    );
+    assert!(rig.db.inner.files(rig.project).agents.ends_with(format!(
+        "projects/{}/local/{}",
+        rig.project,
+        store::AGENTS_FILE
+    )));
     assert!(
         local.contains(&id.to_string()) && local.contains("access = \"ro\""),
         "{local}"

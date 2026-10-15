@@ -390,7 +390,11 @@ fn estimate(block: &Block, m: &Metrics) -> f32 {
                 _ => 1.0,
             };
             let per_line = PROSE_COLUMNS / scale;
-            wrapped_lines(text.chars().count() as f32, per_line).0 as f32 * m.body * scale * 1.2 * m.line_spacing
+            wrapped_lines(text.chars().count() as f32, per_line).0 as f32
+                * m.body
+                * scale
+                * 1.2
+                * m.line_spacing
         }
         BlockKind::Code { body, .. } | BlockKind::FrontMatter { body, .. } => {
             (body.lines().count().max(1) as f32) * m.body * 0.9 * 1.35 + m.body

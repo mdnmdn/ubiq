@@ -199,13 +199,16 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.send_board(project_id, Message::UpdateTask {
+        self.send_board(
             project_id,
-            task_id,
-            title,
-            description,
-            priority,
-        });
+            Message::UpdateTask {
+                project_id,
+                task_id,
+                title,
+                description,
+                priority,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.stop_editing();
         }
@@ -239,11 +242,14 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.send_board(project_id, Message::SetTaskField {
+        self.send_board(
             project_id,
-            task_id,
-            field,
-        });
+            Message::SetTaskField {
+                project_id,
+                task_id,
+                field,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.stop_editing();
         }
@@ -466,11 +472,14 @@ impl AppState {
             return;
         };
         self.close_menu(cx);
-        self.send_board(project_id, Message::AssignTask {
+        self.send_board(
             project_id,
-            task_id,
-            session,
-        });
+            Message::AssignTask {
+                project_id,
+                task_id,
+                session,
+            },
+        );
         cx.notify();
     }
 
@@ -646,11 +655,14 @@ impl AppState {
         if attachments.len() == before {
             return;
         }
-        self.send_board(project_id, Message::SetTaskField {
+        self.send_board(
             project_id,
-            task_id,
-            field: TaskField::Attachments(attachments),
-        });
+            Message::SetTaskField {
+                project_id,
+                task_id,
+                field: TaskField::Attachments(attachments),
+            },
+        );
         cx.notify();
     }
 
@@ -741,11 +753,14 @@ impl AppState {
         if title.is_empty() {
             return;
         }
-        self.send_board(project_id, Message::AddStep {
+        self.send_board(
             project_id,
-            task_id,
-            title,
-        });
+            Message::AddStep {
+                project_id,
+                task_id,
+                title,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.form.new_step.clear();
         }
@@ -766,11 +781,14 @@ impl AppState {
         if text.is_empty() {
             return;
         }
-        self.send_board(project_id, Message::AddComment {
+        self.send_board(
             project_id,
-            task_id,
-            text,
-        });
+            Message::AddComment {
+                project_id,
+                task_id,
+                text,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.form.new_comment.clear();
         }
@@ -802,12 +820,15 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.send_board(project_id, Message::RenameStep {
+        self.send_board(
             project_id,
-            task_id,
-            step_id,
-            title,
-        });
+            Message::RenameStep {
+                project_id,
+                task_id,
+                step_id,
+                title,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.stop_editing();
         }
@@ -820,11 +841,14 @@ impl AppState {
         let Some((project_id, task_id, _)) = self.open_task_form(cx) else {
             return;
         };
-        self.send_board(project_id, Message::RemoveStep {
+        self.send_board(
             project_id,
-            task_id,
-            step_id,
-        });
+            Message::RemoveStep {
+                project_id,
+                task_id,
+                step_id,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.stop_editing();
         }
@@ -846,10 +870,13 @@ impl AppState {
             cx.notify();
             return;
         }
-        self.send_board(project_id, Message::DeleteTask {
+        self.send_board(
             project_id,
-            task_id,
-        });
+            Message::DeleteTask {
+                project_id,
+                task_id,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.confirm_delete = false;
             board.clear_mission_if(task_id);
@@ -1124,11 +1151,14 @@ impl AppState {
             typed
         };
 
-        self.send_board(project_id, Message::CreateTask {
+        self.send_board(
             project_id,
-            title,
-            session,
-        });
+            Message::CreateTask {
+                project_id,
+                title,
+                session,
+            },
+        );
         if let Some(board) = self.board_mut(cx) {
             board.stop_draft();
             board.awaiting_new = true;
@@ -1166,13 +1196,16 @@ impl AppState {
         pending: PendingTask,
     ) {
         if !pending.description.trim().is_empty() {
-            self.send_board(project_id, Message::UpdateTask {
+            self.send_board(
                 project_id,
-                task_id,
-                title: None,
-                description: Some(pending.description),
-                priority: None,
-            });
+                Message::UpdateTask {
+                    project_id,
+                    task_id,
+                    title: None,
+                    description: Some(pending.description),
+                    priority: None,
+                },
+            );
         }
         if !pending.name_it {
             return;
@@ -1212,13 +1245,16 @@ impl AppState {
             .map(ubiq_proto::assist::plain_text)
             .find(|line| !line.is_empty());
         if let Some(title) = title {
-            self.send_board(project_id, Message::UpdateTask {
+            self.send_board(
                 project_id,
-                task_id,
-                title: Some(title),
-                description: None,
-                priority: None,
-            });
+                Message::UpdateTask {
+                    project_id,
+                    task_id,
+                    title: Some(title),
+                    description: None,
+                    priority: None,
+                },
+            );
         }
         true
     }
@@ -1359,11 +1395,14 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
-        self.send_board(project_id, Message::ToggleStep {
+        self.send_board(
             project_id,
-            task_id,
-            step_id,
-        });
+            Message::ToggleStep {
+                project_id,
+                task_id,
+                step_id,
+            },
+        );
         cx.notify();
     }
 
@@ -1438,12 +1477,15 @@ impl AppState {
             if let Some(work) = self.board_work_mut(cx) {
                 work.place(task_id, status, before);
             }
-            self.send_board(project_id, Message::MoveTask {
+            self.send_board(
                 project_id,
-                task_id,
-                status,
-                before,
-            });
+                Message::MoveTask {
+                    project_id,
+                    task_id,
+                    status,
+                    before,
+                },
+            );
         }
         cx.notify();
     }
@@ -1550,12 +1592,15 @@ impl AppState {
         if let Some(work) = self.board_work_mut(cx) {
             work.place(task_id, Status::Done, None);
         }
-        self.send_board(project_id, Message::MoveTask {
+        self.send_board(
             project_id,
-            task_id,
-            status: Status::Done,
-            before: None,
-        });
+            Message::MoveTask {
+                project_id,
+                task_id,
+                status: Status::Done,
+                before: None,
+            },
+        );
         cx.notify();
     }
 

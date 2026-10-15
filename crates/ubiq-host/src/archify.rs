@@ -74,7 +74,10 @@ impl Git for ProcessGit {
         let path = resolve(input);
         std::fs::canonicalize(&path)
             .map(|real| real.to_string_lossy().into_owned())
-            .map_err(|e| RootError { reason: node_message(&e, &path), requested: path.to_string_lossy().into_owned() })
+            .map_err(|e| RootError {
+                reason: node_message(&e, &path),
+                requested: path.to_string_lossy().into_owned(),
+            })
     }
 
     fn run(&self, root: &str, args: &[&str]) -> GitRun {
@@ -86,7 +89,9 @@ impl Git for ProcessGit {
             .output();
         match output {
             Err(e) => GitRun::Unavailable(format!("spawnSync git {e}")),
-            Ok(out) if out.stdout.len() > MAX_OUTPUT_BYTES => GitRun::Unavailable("spawnSync git ENOBUFS".to_owned()),
+            Ok(out) if out.stdout.len() > MAX_OUTPUT_BYTES => {
+                GitRun::Unavailable("spawnSync git ENOBUFS".to_owned())
+            }
             Ok(out) => GitRun::Done {
                 status: out.status.code().unwrap_or(-1),
                 stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -101,7 +106,11 @@ impl Git for ProcessGit {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            if (a.dev(), a.ino()) == (b.dev(), b.ino()) { Entry::Same } else { Entry::Different }
+            if (a.dev(), a.ino()) == (b.dev(), b.ino()) {
+                Entry::Same
+            } else {
+                Entry::Different
+            }
         }
         #[cfg(not(unix))]
         {

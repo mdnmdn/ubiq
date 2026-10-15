@@ -150,7 +150,12 @@ fn line(row: &KbRow, font_size: f32, cx: &mut Context<AppState>) -> AnyElement {
     )
     .on_click(cx.listener(move |this, _, window, cx| {
         // A locked wiki's own row asks for its password; everything else is a tree press.
-        if path.is_empty() && this.kb(cx).and_then(|kb| kb.source(source)).is_some_and(|v| v.locked().is_some()) {
+        if path.is_empty()
+            && this
+                .kb(cx)
+                .and_then(|kb| kb.source(source))
+                .is_some_and(|v| v.locked().is_some())
+        {
             this.open_kb_unlock(source, window, cx);
             return;
         }

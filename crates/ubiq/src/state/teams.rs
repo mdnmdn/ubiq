@@ -32,8 +32,8 @@ use super::conversation::SubagentTab;
 use super::work::WorkProjection;
 
 pub use super::layout::{
-    Algo, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, RING_PAD, Rings, SUB_BOX, SUB_GAP, SUB_HEIGHT,
-    SUB_WIDTH, TEAMS_CARD_HEIGHT, fence, sub_slot,
+    Algo, CARD_WIDTH, GROUP_LABEL, GROUP_PAD, Layout, RING_PAD, Rings, SUB_BOX, SUB_GAP,
+    SUB_HEIGHT, SUB_WIDTH, TEAMS_CARD_HEIGHT, fence, sub_slot,
 };
 
 /// The work this mode draws: the host's projection, narrowed to the agents this window actually
@@ -151,10 +151,7 @@ pub use super::status::{Doing, Lifecycle, Status, agent_status, delegate_status}
 pub enum TeamsSelection {
     Session(SessionId),
     Agent(AgentId),
-    Subagent {
-        agent: AgentId,
-        subagent: String,
-    },
+    Subagent { agent: AgentId, subagent: String },
 }
 
 /// Which half of an inspector a `teams` link names. `Teams` has no inspector of its own — a
@@ -630,9 +627,7 @@ impl TeamsView {
     /// Whether anything is being hidden, so the control that clears the filters can say whether it
     /// has anything to do.
     pub fn filtered(&self) -> bool {
-        !self.sessions.is_empty()
-            || self.buckets.len() < Bucket::all().len()
-            || self.hide_done
+        !self.sessions.is_empty() || self.buckets.len() < Bucket::all().len() || self.hide_done
     }
 
     pub fn zoom_by(&mut self, delta: f32) {

@@ -835,11 +835,25 @@ fn mode_visibility_is_stored_by_group(cx: &mut TestAppContext) {
     state.update(cx, |state, cx| {
         state.toggle_mode(RailMode::GIT, cx);
         assert!(!state.mode_enabled(RailMode::GIT, cx));
-        assert!(!state.workbench.settings.ui.hidden_modes.contains(&RailMode::GIT));
+        assert!(
+            !state
+                .workbench
+                .settings
+                .ui
+                .hidden_modes
+                .contains(&RailMode::GIT)
+        );
 
         state.toggle_mode(RailMode::CONTROL, cx);
         assert!(!state.mode_enabled(RailMode::CONTROL, cx));
-        assert!(state.workbench.settings.ui.hidden_modes.contains(&RailMode::CONTROL));
+        assert!(
+            state
+                .workbench
+                .settings
+                .ui
+                .hidden_modes
+                .contains(&RailMode::CONTROL)
+        );
     });
     cx.run_until_parked();
 }

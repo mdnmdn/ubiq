@@ -934,8 +934,9 @@ impl AppState {
             let key = kind.tab_key().or_else(|| kind.kb_key());
             let db_tab = kind.db_key();
             let board_enabled = kind.board_key().is_some_and(|id| {
-                self.open_project(cx)
-                    .is_some_and(|open| open.board.boards.tabs().iter().any(|b| b.id.as_str() == id))
+                self.open_project(cx).is_some_and(|open| {
+                    open.board.boards.tabs().iter().any(|b| b.id.as_str() == id)
+                })
             });
             let at = Visibility {
                 is_ide,

@@ -20,13 +20,13 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::app::AppState;
+use crate::state::viewport::Viewport;
+use gpui::{Context, Window, point, px};
 use ubiq_archify::motion::{
     CameraMove, CameraState, FrameOptions, MotionConfig, frame_to_nodes as core_frame, start_move,
 };
 use ubiq_archify::scene::Bounds;
-use gpui::{Context, Window, point, px};
-use crate::app::AppState;
-use crate::state::viewport::Viewport;
 
 use crate::state::archify::ui;
 
@@ -125,7 +125,11 @@ pub fn frame(
 
 /// The base-space camera that frames `boxes` (viewBox units): padding 48, `0.9·fit`, scale in
 /// `[1, 2.15]` times the fit (1.9 on a narrow panel). `None` for no boxes or an unmeasured panel.
-pub fn frame_to_nodes(panel: [f32; 2], view_box: [f32; 2], boxes: &[Bounds]) -> Option<CameraState> {
+pub fn frame_to_nodes(
+    panel: [f32; 2],
+    view_box: [f32; 2],
+    boxes: &[Bounds],
+) -> Option<CameraState> {
     frame(panel, view_box, boxes, Framing::Node)
 }
 
@@ -348,11 +352,19 @@ fn apply(app: &mut AppState, key: &str, target: CameraState, cx: &mut Context<Ap
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ubiq_archify::motion::{CameraTween, consts};
     use crate::state::viewport::Content;
+    use ubiq_archify::motion::{CameraTween, consts};
 
-    const A: CameraState = CameraState { scale: 1.0, x: 0.0, y: 0.0 };
-    const B: CameraState = CameraState { scale: 2.0, x: -100.0, y: -40.0 };
+    const A: CameraState = CameraState {
+        scale: 1.0,
+        x: 0.0,
+        y: 0.0,
+    };
+    const B: CameraState = CameraState {
+        scale: 2.0,
+        x: -100.0,
+        y: -40.0,
+    };
 
     fn live() -> MotionConfig {
         config_for(true, false)
@@ -378,7 +390,9 @@ mod tests {
         let mut cams = Cameras::default();
         tween(&mut cams, A, B, 0.0);
         assert!(cams.is_active("k"));
-        let Step::Apply(s) = cams.step("k", A, 100.0) else { panic!("mid-flight") };
+        let Step::Apply(s) = cams.step("k", A, 100.0) else {
+            panic!("mid-flight")
+        };
         assert!(s.scale > 1.0 && s.scale < 2.0);
         cams.applied("k", s);
         assert_eq!(cams.step("k", s, 420.0), Step::Done(B));
@@ -390,10 +404,15 @@ mod tests {
     fn a_manual_move_interrupts_and_keeps_the_rendered_state() {
         let mut cams = Cameras::default();
         tween(&mut cams, A, B, 0.0);
-        let Step::Apply(s) = cams.step("k", A, 100.0) else { panic!() };
+        let Step::Apply(s) = cams.step("k", A, 100.0) else {
+            panic!()
+        };
         cams.applied("k", s);
         // The wheel zoomed between frames: the camera is not where the sample left it.
-        let manual = CameraState { scale: s.scale * 1.2, ..s };
+        let manual = CameraState {
+            scale: s.scale * 1.2,
+            ..s
+        };
         assert_eq!(cams.step("k", manual, 120.0), Step::Interrupted(manual));
         assert!(!cams.is_active("k"), "the move is dropped, not resumed");
         assert_eq!(cams.step("k", manual, 140.0), Step::Idle);
@@ -406,8 +425,13 @@ mod tests {
         let rendered_now = CameraTween::new(A, B, 0.0, 420.0).interrupt(100.0);
         // Replace mid-flight, starting where the camera is.
         tween(&mut cams, rendered_now, A, 100.0);
-        let Step::Apply(s) = cams.step("k", rendered_now, 101.0) else { panic!() };
-        assert!((s.scale - rendered_now.scale).abs() < 0.05, "no jump back to the old start");
+        let Step::Apply(s) = cams.step("k", rendered_now, 101.0) else {
+            panic!()
+        };
+        assert!(
+            (s.scale - rendered_now.scale).abs() < 0.05,
+            "no jump back to the old start"
+        );
     }
 
     #[test]
@@ -426,7 +450,11 @@ mod tests {
         for cfg in [config_for(false, false), config_for(true, true)] {
             let mut cams = Cameras::default();
             cams.begin("k", &cfg, A, B, 0.0);
-            assert_eq!(cams.step("k", A, 1.0), Step::Done(B), "instant: one frame, the end state");
+            assert_eq!(
+                cams.step("k", A, 1.0),
+                Step::Done(B),
+                "instant: one frame, the end state"
+            );
         }
     }
 
@@ -437,9 +465,15 @@ mod tests {
         tween(&mut cams, A, B, 0.0);
         assert!(cams.claim_frame("k", 1.0));
         assert!(!cams.claim_frame("k", 2.0), "already on its way");
-        assert!(cams.claim_frame("k", 1.0 + LOST_AFTER_MS + 1.0), "a lost frame is asked again");
+        assert!(
+            cams.claim_frame("k", 1.0 + LOST_AFTER_MS + 1.0),
+            "a lost frame is asked again"
+        );
         let _ = cams.step("k", A, 3.0);
-        assert!(cams.claim_frame("k", 4.0), "delivered, so the next may be asked");
+        assert!(
+            cams.claim_frame("k", 4.0),
+            "delivered, so the next may be asked"
+        );
     }
 
     #[test]
@@ -456,17 +490,29 @@ mod tests {
         assert_eq!(n.scale, 1.9);
         // The whole diagram frames at the overview.
         let all = Bounds::new(0.0, 0.0, 1000.0, 500.0);
-        assert_eq!(frame_to_nodes([1000.0, 500.0], [1000.0, 500.0], &[all]).unwrap().scale, 1.0);
+        assert_eq!(
+            frame_to_nodes([1000.0, 500.0], [1000.0, 500.0], &[all])
+                .unwrap()
+                .scale,
+            1.0
+        );
         assert!(frame_to_nodes([1000.0, 500.0], [1000.0, 500.0], &[]).is_none());
     }
 
     #[test]
     fn base_space_matches_where_archify_puts_a_point() {
         // viewBox 400x200 in a 800x800 panel: fit 2, centred vertically (offset 200).
-        let a = CameraState { scale: 1.5, x: -30.0, y: 12.0 };
+        let a = CameraState {
+            scale: 1.5,
+            x: -30.0,
+            y: 12.0,
+        };
         let b = to_base(a, [400.0, 200.0], [800.0, 800.0]);
         let p = [100.0, 50.0];
-        let archify = [a.x + a.scale * (0.0 + p[0] * 2.0), a.y + a.scale * (200.0 + p[1] * 2.0)];
+        let archify = [
+            a.x + a.scale * (0.0 + p[0] * 2.0),
+            a.y + a.scale * (200.0 + p[1] * 2.0),
+        ];
         let base = [b.x + p[0] * b.scale, b.y + p[1] * b.scale];
         assert!((archify[0] - base[0]).abs() < 1e-9 && (archify[1] - base[1]).abs() < 1e-9);
     }
@@ -477,7 +523,11 @@ mod tests {
         let mut vp = Viewport::default();
         vp.set_panel(800.0, 600.0, 10.0, 20.0);
         vp.set_content(content);
-        let target = CameraState { scale: 3.0, x: -250.0, y: -90.0 };
+        let target = CameraState {
+            scale: 3.0,
+            x: -250.0,
+            y: -90.0,
+        };
 
         let (factor, [dx, dy]) = plan(rendered(&vp), target);
         let origin = (vp.origin_x, vp.origin_y);
@@ -485,7 +535,10 @@ mod tests {
         vp.pan_by(dx, dy);
         let got = rendered(&vp);
         assert!((got.scale - 3.0).abs() < 1e-3, "{got:?}");
-        assert!((got.x - -250.0).abs() < 0.01 && (got.y - -90.0).abs() < 0.01, "{got:?}");
+        assert!(
+            (got.x - -250.0).abs() < 0.01 && (got.y - -90.0).abs() < 0.01,
+            "{got:?}"
+        );
 
         // A pure pan needs no zoom.
         let (factor, _) = plan(got, CameraState { x: 0.0, ..got });
@@ -498,12 +551,24 @@ mod tests {
             let o = f.options(w);
             (o.max_scale, o.padding, o.include_neighbours)
         };
-        assert_eq!(cap(Framing::Node, 1000.0), (None, 48.0, false), "the core's 2.15");
-        assert_eq!(cap(Framing::Neighbours, 1000.0), (None, 48.0, true), "the core's 1.9");
+        assert_eq!(
+            cap(Framing::Node, 1000.0),
+            (None, 48.0, false),
+            "the core's 2.15"
+        );
+        assert_eq!(
+            cap(Framing::Neighbours, 1000.0),
+            (None, 48.0, true),
+            "the core's 1.9"
+        );
         assert_eq!(cap(Framing::Route, 1000.0), (None, 48.0, false));
         assert_eq!(cap(Framing::Step, 1000.0), (Some(1.65), 64.0, false));
         assert_eq!(cap(Framing::Node, 600.0).0, Some(1.9));
-        assert_eq!(cap(Framing::Step, 600.0).0, Some(1.65), "a journey step is already below 1.9");
+        assert_eq!(
+            cap(Framing::Step, 600.0).0,
+            Some(1.65),
+            "a journey step is already below 1.9"
+        );
     }
 
     #[test]
@@ -513,7 +578,10 @@ mod tests {
         let scale = |f| frame(panel, vb, &boxes, f).unwrap().scale;
         assert!((scale(Framing::Node) - 2.15).abs() < 1e-9);
         assert!((scale(Framing::Step) - 1.65).abs() < 1e-9);
-        assert_eq!(frame_to_nodes(panel, vb, &boxes), frame(panel, vb, &boxes, Framing::Node));
+        assert_eq!(
+            frame_to_nodes(panel, vb, &boxes),
+            frame(panel, vb, &boxes, Framing::Node)
+        );
         assert_eq!(frame(panel, vb, &[], Framing::Route), None);
     }
 }

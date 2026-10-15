@@ -4,9 +4,9 @@
 //! (`ubiq_archify::motion::lens`); the dim, the matching comets and the 24-edge cap come from the
 //! motion state; this file is the control and its words.
 
-use gpui::{Context, ElementId, IntoElement};
 use crate::app::AppState;
 use crate::ui::kit::choice_pill;
+use gpui::{Context, ElementId, IntoElement};
 
 use crate::state::archify::animate;
 

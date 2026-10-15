@@ -373,9 +373,7 @@ fn teams_create_overlay(app: &AppState, cx: &mut Context<AppState>) -> Option<An
     let at = point(px(menu.at.0), px(menu.at.1));
 
     let items = match menu.stage {
-        TeamsCreateStage::Kind => vec![
-            kit::ContextItem::new("New agent"),
-        ],
+        TeamsCreateStage::Kind => vec![kit::ContextItem::new("New agent")],
         // A row is the project's name in full, resolved through `project_face` so the rail's
         // badges, a card's chip and this list cannot disagree about which project is which.
         TeamsCreateStage::AgentProject => app

@@ -595,7 +595,11 @@ impl KbState {
     /// The host answered the password question. An error keeps the dialog up for another try; an
     /// acceptance takes it down. An answer for a dialog no longer up is dropped.
     pub fn password_answered(&mut self, source: KbSourceId, error: Option<String>) {
-        let Some(dialog) = self.password.as_mut().filter(|dialog| dialog.source == source) else {
+        let Some(dialog) = self
+            .password
+            .as_mut()
+            .filter(|dialog| dialog.source == source)
+        else {
             return;
         };
         match error {

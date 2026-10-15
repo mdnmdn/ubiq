@@ -11,8 +11,8 @@
 //! hashes differently from the one last scheduled, so an edit, a reload from disk and a changed
 //! quality override all arrive the same way.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Instant;
@@ -22,8 +22,8 @@ use ubiq_archify::scene::{Bounds, GroupId, Scene};
 
 use crate::state::archify::compiled::{Due, Outcome};
 use crate::state::archify::focus::Reach;
-use crate::ui::archify::theme::ChartTheme;
 use crate::ui::archify::agent::{self, AgentCall, Ask, Notice};
+use crate::ui::archify::theme::ChartTheme;
 
 pub mod animate;
 pub mod compiled;
@@ -85,9 +85,7 @@ pub fn picture_key(tab_key: &str) -> String {
 
 /// The tab key a picture key was made from (`picture_key` undone).
 pub fn tab_of(picture_key: &str) -> &str {
-    picture_key
-        .strip_prefix("archify.")
-        .unwrap_or(picture_key)
+    picture_key.strip_prefix("archify.").unwrap_or(picture_key)
 }
 
 /// The hash a tab's text is compared by.
@@ -287,7 +285,11 @@ impl Ui {
             return;
         }
         self.settings = settings;
-        let theme = self.settings.chart_theme.as_deref().map_or(ChartTheme::Auto, ChartTheme::parse);
+        let theme = self
+            .settings
+            .chart_theme
+            .as_deref()
+            .map_or(ChartTheme::Auto, ChartTheme::parse);
         crate::ui::archify::theme::set_chart_theme(theme);
         self.recompile_all();
     }
@@ -349,7 +351,6 @@ impl Ui {
         let tab = self.tab(key);
         tab.panel_open = !tab.panel_open;
     }
-
 }
 
 #[cfg(test)]
@@ -373,7 +374,10 @@ mod tests {
         let mut ui = Ui::default();
         let first = ui.want_compile(KEY, "a").unwrap();
         assert_eq!(first.due, Due::Now);
-        assert!(ui.want_compile(KEY, "a").is_none(), "the same text is not scheduled twice");
+        assert!(
+            ui.want_compile(KEY, "a").is_none(),
+            "the same text is not scheduled twice"
+        );
 
         // Nothing has landed yet, so an edit still does not wait.
         assert_eq!(ui.want_compile(KEY, "ab").unwrap().due, Due::Now);
@@ -442,7 +446,10 @@ mod tests {
         let mut ui = Ui::default();
         ui.tab(KEY);
         let t0 = Instant::now();
-        assert!(ui.agent_called(None, "archify_guide".into(), true, t0).is_none());
+        assert!(
+            ui.agent_called(None, "archify_guide".into(), true, t0)
+                .is_none()
+        );
         // Unbound: every tab shows it until the tab has a newer call of its own.
         assert_eq!(ui.call_for(KEY).unwrap().tool, "archify_guide");
         let later = t0 + std::time::Duration::from_secs(2);
@@ -450,7 +457,12 @@ mod tests {
         assert_eq!(ui.call_for(KEY).unwrap().tool, "archify_validate");
         assert!(!ui.call_for(KEY).unwrap().ok);
         // A call naming a tab nothing drew is unbound.
-        ui.agent_called(Some("gone.archify".into()), "archify_validate".into(), true, later);
+        ui.agent_called(
+            Some("gone.archify".into()),
+            "archify_validate".into(),
+            true,
+            later,
+        );
         assert_eq!(ui.unbound_call.as_ref().unwrap().tool, "archify_validate");
     }
 
@@ -458,7 +470,12 @@ mod tests {
     fn a_call_is_filed_under_the_tab_of_its_relative_path() {
         let mut ui = Ui::default();
         ui.tab(KEY);
-        ui.agent_called(Some(KEY.into()), "archify_render".into(), true, Instant::now());
+        ui.agent_called(
+            Some(KEY.into()),
+            "archify_render".into(),
+            true,
+            Instant::now(),
+        );
         assert_eq!(ui.tabs[KEY].agent.as_ref().unwrap().tool, "archify_render");
     }
 

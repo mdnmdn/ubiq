@@ -7,17 +7,17 @@
 //! one place — `AppState` — responsible for state and redraws.
 
 pub mod a2ui;
-pub mod archify;
+pub mod about;
 pub mod acp_capabilities;
 pub mod agents;
 pub mod all_projects;
+pub mod archify;
 pub mod ask;
 pub mod board;
 pub mod catalog;
 pub mod chat;
 pub mod clone;
 pub mod conversation;
-pub mod about;
 pub mod db;
 pub mod dock;
 pub mod document;

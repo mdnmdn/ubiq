@@ -11,23 +11,21 @@
 
 use std::time::{Duration, Instant};
 
-use ubiq_archify::compile::peek;
-use ubiq_archify::diag::Diagnostic;
-use gpui::{
-    AnyElement, App, ClickEvent, Context, IntoElement, Styled, WeakEntity, Window,
-};
-use gpui_component::IconName;
 use crate::app::AppState;
 use crate::state::new_agent::NewAgentOpen;
 use crate::theme;
 use crate::ui::kit::ghost_button;
+use gpui::{AnyElement, App, ClickEvent, Context, IntoElement, Styled, WeakEntity, Window};
+use gpui_component::IconName;
+use ubiq_archify::compile::peek;
+use ubiq_archify::diag::Diagnostic;
 use ubiq_proto::notifications::{Family, NotificationRequest};
 
 use crate::state::archify::compiled::Outcome;
 use crate::state::archify::focus::reveal_delta;
 use crate::state::archify::motion;
-use crate::ui::archify::panels::where_of;
 use crate::state::archify::ui;
+use crate::ui::archify::panels::where_of;
 
 /// The notification category.
 pub const CATEGORY: &str = "archify";
@@ -163,7 +161,10 @@ pub fn prompt_for_doc(rel: &str, diagram_type: Option<&str>, outcome: Option<&Ou
                 o.profile
             ));
             if !o.diagnostics.is_empty() {
-                prompt.push_str(&format!("\n\nWarnings right now, {}", summary(&o.diagnostics)));
+                prompt.push_str(&format!(
+                    "\n\nWarnings right now, {}",
+                    summary(&o.diagnostics)
+                ));
             }
         }
         None => {
@@ -209,17 +210,21 @@ pub fn chip(call: &AgentCall) -> AnyElement {
     } else {
         theme::danger()
     };
-    crate::ui::archify::panels::flat_chip(chip_label(call, Instant::now()), colour).into_any_element()
+    crate::ui::archify::panels::flat_chip(chip_label(call, Instant::now()), colour)
+        .into_any_element()
 }
 
 /// The top row's **Ask agent** button. `on_click` comes from `cx.listener`, so it reaches
 /// `AppState`.
-pub fn ask_button(
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
-    ghost_button("archify-ask-agent", Some(IconName::Bot), "Ask agent", on_click)
-        .h_full()
-        .into_any_element()
+pub fn ask_button(on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> AnyElement {
+    ghost_button(
+        "archify-ask-agent",
+        Some(IconName::Bot),
+        "Ask agent",
+        on_click,
+    )
+    .h_full()
+    .into_any_element()
 }
 
 /// Ask agent on the tab `key`: build the prompt from the file and what is wrong with it now, and
@@ -326,8 +331,7 @@ mod tests {
     use ubiq_archify::diag::Subject;
 
     fn diag(code: &str, path: &str, message: &str) -> Diagnostic {
-        Diagnostic::error(code, message)
-            .with_subject(Subject::of("dataflow").with_path(path))
+        Diagnostic::error(code, message).with_subject(Subject::of("dataflow").with_path(path))
     }
 
     #[test]

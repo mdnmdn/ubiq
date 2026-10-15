@@ -1227,9 +1227,10 @@ fn kb(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -
                             .text_size(theme::font(Family::Chrome, Role::Meta))
                             .text_color(theme::text_faint())
                             .child(SharedString::from(access))
-                            .children(view.is_protected().then(|| {
-                                div().flex_none().child("\u{b7} password protected")
-                            }))
+                            .children(
+                                view.is_protected()
+                                    .then(|| div().flex_none().child("\u{b7} password protected")),
+                            )
                             .children(view.is_protected().then(|| {
                                 ghost_button(
                                     crate::ui::eid("project-kb-password", id),
@@ -1402,7 +1403,11 @@ fn general(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Fo
                 ),
         )
         .child(colour_block)
-        .children((form == Form::Live).then(|| modes_block(app, false, cx)).flatten())
+        .children(
+            (form == Form::Live)
+                .then(|| modes_block(app, false, cx))
+                .flatten(),
+        )
         .child(
             div()
                 .flex()
@@ -1497,9 +1502,7 @@ pub(crate) fn modes_block(
     cx: &mut Context<AppState>,
 ) -> Option<AnyElement> {
     let tiles: Vec<AnyElement> = RailMode::every()
-        .filter(|mode| {
-            mode.spec().is_some() && mode.is_app() == app_scope
-        })
+        .filter(|mode| mode.spec().is_some() && mode.is_app() == app_scope)
         .map(|mode| {
             let on = app.mode_enabled(mode, cx);
             let (fg, bg) = if on {
@@ -1887,13 +1890,11 @@ fn boards_section(
     window: &Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let head = div()
-        .pt_4()
-        .child(heading(
-            "Boards",
-            "The default board keeps missions, agents and sync. A named board is a plain kanban \
+    let head = div().pt_4().child(heading(
+        "Boards",
+        "The default board keeps missions, agents and sync. A named board is a plain kanban \
              in a file of its own, and gets a tab over the tasks view while it is shown.",
-        ));
+    ));
     let Some(boards) = app.project_boards(project) else {
         return div()
             .child(head)
@@ -2016,15 +2017,12 @@ fn boards_section(
                 .items_center()
                 .gap_2()
                 .child(
-                    framed_active(
-                        theme::border(),
-                        input_on(&app.board_name_input, window, cx),
-                    )
-                    .h(px(30.))
-                    .w(px(220.))
-                    .items_center()
-                    .px_2()
-                    .child(Input::new(&app.board_name_input).appearance(false)),
+                    framed_active(theme::border(), input_on(&app.board_name_input, window, cx))
+                        .h(px(30.))
+                        .w(px(220.))
+                        .items_center()
+                        .px_2()
+                        .child(Input::new(&app.board_name_input).appearance(false)),
                 )
                 .child(primary_button(
                     "project-board-create",
@@ -2119,17 +2117,15 @@ fn agent_definitions(
         .children(project_definitions(app, form, window, cx))
         // The fixture has no project behind it, so there is no list to draw: the page shows the
         // question, and the live dialog is where the answer has rows.
-        .children(
-            form_project(app, form, cx).is_none().then(|| {
-                div()
-                    .text_size(theme::font(Family::Chrome, Role::Meta))
-                    .text_color(theme::text_faint())
-                    .child(
-                        "A definition is filed under a project id \u{2014} a folder that is not \
+        .children(form_project(app, form, cx).is_none().then(|| {
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Meta))
+                .text_color(theme::text_faint())
+                .child(
+                    "A definition is filed under a project id \u{2014} a folder that is not \
                          in the catalogue yet has nowhere to put one.",
-                    )
-            }),
-        )
+                )
+        }))
         .into_any_element()
 }
 
@@ -2221,7 +2217,15 @@ fn project_definitions(
         .map(|definition| {
             let shadowed = own.iter().any(|it| it.id == definition.id);
             let inherited = scope.use_global || scope.allowed.iter().any(|it| it == &definition.id);
-            inherited_row(app, definition, project, shadowed, inherited, scope.use_global, cx)
+            inherited_row(
+                app,
+                definition,
+                project,
+                shadowed,
+                inherited,
+                scope.use_global,
+                cx,
+            )
         })
         .collect();
 

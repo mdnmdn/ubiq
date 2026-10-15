@@ -2188,9 +2188,7 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         ElementId::Name(format!("app-settings-acp-{}-install", agent.id).into()),
                         Some(IconName::ArrowDown),
                         "Install",
-                        cx.listener(move |this, _, _, cx| {
-                            this.install_acp_adapter(id.clone(), cx)
-                        }),
+                        cx.listener(move |this, _, _, cx| this.install_acp_adapter(id.clone(), cx)),
                     )
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new(command.clone()).build(window, cx)
@@ -2254,9 +2252,17 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .children(outcome.map(|(ok, detail)| {
                     div()
                         .text_size(small)
-                        .text_color(if ok { theme::success() } else { theme::danger() })
+                        .text_color(if ok {
+                            theme::success()
+                        } else {
+                            theme::danger()
+                        })
                         .child(if detail.is_empty() {
-                            if ok { "Installed".to_string() } else { "Install failed".to_string() }
+                            if ok {
+                                "Installed".to_string()
+                            } else {
+                                "Install failed".to_string()
+                            }
                         } else {
                             detail
                         })

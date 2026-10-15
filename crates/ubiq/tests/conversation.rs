@@ -1933,7 +1933,8 @@ fn up_walks_the_sent_history(cx: &mut TestAppContext) {
             .window
             .update(cx, |_, window, cx| {
                 fixture.state.update(cx, |state, cx| {
-                    state.column_inputs[0].update(cx, |input, cx| input.set_value(text, window, cx));
+                    state.column_inputs[0]
+                        .update(cx, |input, cx| input.set_value(text, window, cx));
                     state.prompt_agent(id, 0, window, cx);
                 })
             })
@@ -2845,7 +2846,10 @@ fn a_markdown_message_wraps_at_the_panel_width_and_leaves_no_band(cx: &mut TestA
     // The same markdown in a plain column of the message's own width: how tall it is when it
     // wraps there, which is what the transcript row has to be.
     let column = f32::from(message.size.width);
-    let alone = cx.add_window(move |_, _| MarkdownColumn { width: column, body });
+    let alone = cx.add_window(move |_, _| MarkdownColumn {
+        width: column,
+        body,
+    });
     let mut acx = VisualTestContext::from_window(alone.into(), cx);
     acx.run_until_parked();
     let wrapped = acx
@@ -2907,6 +2911,9 @@ fn the_periodic_relayout_is_asked_only_after_the_rows_changed() {
     assert!(scroll.relayout_if_changed(), "changed rows: one relayout");
     assert!(scroll.take_force());
 
-    assert!(!scroll.relayout_if_changed(), "then none until something changes");
+    assert!(
+        !scroll.relayout_if_changed(),
+        "then none until something changes"
+    );
     assert!(!scroll.take_force());
 }

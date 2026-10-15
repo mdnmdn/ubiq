@@ -650,7 +650,12 @@ impl AppState {
         if board.active.is_default() {
             Some(&mut open.work)
         } else {
-            Some(board.named.entry(board.active.clone()).or_insert_with(WorkProjection::empty))
+            Some(
+                board
+                    .named
+                    .entry(board.active.clone())
+                    .or_insert_with(WorkProjection::empty),
+            )
         }
     }
 
@@ -964,9 +969,9 @@ impl AppState {
             || self
                 .new_agent_form()
                 .is_some_and(|form| form.open.is_some())
-            || w.new_mission.as_ref().is_some_and(|form| {
-                form.planner_open || form.worker_open || form.tasks_open
-            })
+            || w.new_mission
+                .as_ref()
+                .is_some_and(|form| form.planner_open || form.worker_open || form.tasks_open)
             || s.ai_form.as_ref().is_some_and(|form| form.open.is_some())
             || s.app_form.as_ref().is_some_and(|form| form.open)
             || self.notifications.muting.is_some();

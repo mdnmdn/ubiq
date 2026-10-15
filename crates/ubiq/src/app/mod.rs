@@ -70,12 +70,12 @@ use crate::state::vim::VimState;
 use crate::state::web_panel::WebPanels;
 use crate::state::work::WorkProjection;
 use crate::state::{
-    ActiveSearch, AttachmentPreview, ChatHost, ChatId, ChatTab, EditorPaneState, ExplorerAction, ExplorerKey,
-    ExplorerPressed, ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage, Follow,
-    KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentStage, NewAgentSurface,
-    OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region, SearchState,
-    TeamsCreateMenu, TeamsCreateStage, Toggle, WindowRegistry, WorkbenchState, kb_parent_path,
-    prefs,
+    ActiveSearch, AttachmentPreview, ChatHost, ChatId, ChatTab, EditorPaneState, ExplorerAction,
+    ExplorerKey, ExplorerPressed, ExplorerState, ExplorerView, FileBody, FileDialog, FileLanguage,
+    Follow, KbDocKey, KbPressed, KbState, LogState, MenuId, NewAgentMenu, NewAgentStage,
+    NewAgentSurface, OpenFile, PanelKind, ProjectSettings, ProjectSettingsMode, RailMode, Region,
+    SearchState, TeamsCreateMenu, TeamsCreateStage, Toggle, WindowRegistry, WorkbenchState,
+    kb_parent_path, prefs,
 };
 use crate::theme::{self, Mode, ThemeId};
 use crate::ui;
@@ -1397,11 +1397,11 @@ pub struct AppState {
 
 // The screen-sized halves of `AppState`. Each is one `impl AppState` block; the struct,
 // its companions and the free window functions stay here.
+mod about;
 mod agents;
 mod ask;
 mod board;
 mod boot;
-mod about;
 mod capture;
 mod catalog;
 mod chat;
@@ -1651,7 +1651,7 @@ pub fn install_key_bindings(cx: &mut App) {
         gpui::KeyBinding::new("ctrl--", NavBack, Some("Input")),
         gpui::KeyBinding::new("ctrl-shift--", NavForward, Some("Input")),
         // ⌘⌥K writes down the line the caret is on, so it has to be live from inside the buffer.
-        gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Input")),        // ⌘K raises the navigator from inside a field too, by the same device. **Not** ⌃K: the
+        gpui::KeyBinding::new("cmd-alt-k", ToggleBookmark, Some("Input")), // ⌘K raises the navigator from inside a field too, by the same device. **Not** ⌃K: the
         // component library owns that one inside an input.
         gpui::KeyBinding::new("cmd-k", OpenNavigator, Some("Input")),
         // ⌘⏎ in the titlebar's field skips the navigator and searches for what is typed.

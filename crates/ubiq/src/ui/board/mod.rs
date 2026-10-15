@@ -869,7 +869,11 @@ fn mission_marks(app: &AppState, task: &TaskRecord, cx: &App) -> Vec<AnyElement>
         }
     }
     if mission::worker_gone(task, |agent| app.conversation_live(agent)) {
-        marks.push(mark(IconName::TriangleAlert, "worker gone", theme::danger()));
+        marks.push(mark(
+            IconName::TriangleAlert,
+            "worker gone",
+            theme::danger(),
+        ));
     }
     marks
 }

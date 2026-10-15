@@ -305,19 +305,40 @@ mod tests {
     fn a_click_plan_chooses_focus_relationship_or_route_destination() {
         let node = |n: &str| Some(n.to_string());
         // Plain: focus the node, or clear on empty space.
-        assert_eq!(click_plan(node("b"), false, Some("a"), false), Click::Focus(node("b")));
-        assert_eq!(click_plan(None, false, Some("a"), false), Click::Focus(None));
+        assert_eq!(
+            click_plan(node("b"), false, Some("a"), false),
+            Click::Focus(node("b"))
+        );
+        assert_eq!(
+            click_plan(None, false, Some("a"), false),
+            Click::Focus(None)
+        );
         // Shift on a second node while one is focused: the relationship.
         assert_eq!(
             click_plan(node("b"), true, Some("a"), false),
-            Click::Relate { from: "a".into(), to: "b".into() }
+            Click::Relate {
+                from: "a".into(),
+                to: "b".into()
+            }
         );
         // Shift on the focused node itself, or with nothing focused, is a plain click.
-        assert_eq!(click_plan(node("a"), true, Some("a"), false), Click::Focus(node("a")));
-        assert_eq!(click_plan(node("b"), true, None, false), Click::Focus(node("b")));
+        assert_eq!(
+            click_plan(node("a"), true, Some("a"), false),
+            Click::Focus(node("a"))
+        );
+        assert_eq!(
+            click_plan(node("b"), true, None, false),
+            Click::Focus(node("b"))
+        );
         // A route owns the clicks: a node is the destination (shift or not), space does nothing.
-        assert_eq!(click_plan(node("b"), false, None, true), Click::Route("b".into()));
-        assert_eq!(click_plan(node("b"), true, Some("a"), true), Click::Route("b".into()));
+        assert_eq!(
+            click_plan(node("b"), false, None, true),
+            Click::Route("b".into())
+        );
+        assert_eq!(
+            click_plan(node("b"), true, Some("a"), true),
+            Click::Route("b".into())
+        );
         assert_eq!(click_plan(None, false, Some("a"), true), Click::Nothing);
     }
 

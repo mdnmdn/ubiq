@@ -83,6 +83,8 @@
 pub(crate) mod acp;
 #[cfg(feature = "harness")]
 pub mod agent;
+#[cfg(feature = "harness")]
+pub mod archify;
 pub mod armed;
 pub mod ask;
 #[cfg(feature = "harness")]
@@ -121,8 +123,6 @@ pub mod host_path;
 pub mod index;
 pub mod kb;
 pub mod links;
-#[cfg(feature = "harness")]
-pub mod archify;
 #[cfg(feature = "harness")]
 pub mod mcp;
 #[cfg(feature = "harness")]

@@ -24,7 +24,9 @@ mod tests {
 
     impl HeaderExt for ureq::http::Response<ureq::Body> {
         fn header(&self, name: &str) -> Option<&str> {
-            self.headers().get(name).and_then(|value| value.to_str().ok())
+            self.headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
         }
     }
 
@@ -46,7 +48,8 @@ mod tests {
         let body = ureq::get(&format!("{base}README.md"))
             .call()
             .unwrap()
-            .into_body().read_to_string()
+            .into_body()
+            .read_to_string()
             .unwrap();
         assert!(body.contains("Hello"), "missing rendered heading: {body}");
         assert!(
@@ -74,7 +77,12 @@ mod tests {
     fn search_finds_a_term_and_skips_the_dotfile() {
         let (_dir, base) = serve_temp_project("web-export-test-search");
         let get_json = |url: &str| -> serde_json::Value {
-            let text = ureq::get(url).call().unwrap().into_body().read_to_string().unwrap();
+            let text = ureq::get(url)
+                .call()
+                .unwrap()
+                .into_body()
+                .read_to_string()
+                .unwrap();
             serde_json::from_str(&text).unwrap()
         };
 
@@ -106,7 +114,8 @@ mod tests {
         let small = ureq::get(&format!("{base}notes.xyz"))
             .call()
             .unwrap()
-            .into_body().read_to_string()
+            .into_body()
+            .read_to_string()
             .unwrap();
         assert!(
             small.contains("plain text notes"),
@@ -116,7 +125,8 @@ mod tests {
         let big = ureq::get(&format!("{base}big.xyz"))
             .call()
             .unwrap()
-            .into_body().read_to_string()
+            .into_body()
+            .read_to_string()
             .unwrap();
         assert!(
             big.len() < 300 * 1024,
@@ -138,7 +148,12 @@ mod tests {
             raw.header("Content-Type"),
             Some("text/plain; charset=utf-8")
         );
-        assert!(raw.into_body().read_to_string().unwrap().contains("# Hello"));
+        assert!(
+            raw.into_body()
+                .read_to_string()
+                .unwrap()
+                .contains("# Hello")
+        );
 
         let dl = ureq::get(&format!("{base}README.md?raw=1&dl=1"))
             .call()
@@ -158,7 +173,8 @@ mod tests {
         let body = ureq::get(&format!("{base}shot.png"))
             .call()
             .unwrap()
-            .into_body().read_to_string()
+            .into_body()
+            .read_to_string()
             .unwrap();
         assert!(
             body.contains("<img src=\"?raw=1\""),
@@ -237,7 +253,13 @@ mod tests {
             csp.contains("default-src 'self'") && csp.contains("frame-ancestors 'none'"),
             "the chrome's policy names only this origin: {csp}"
         );
-        assert!(chrome.into_body().read_to_string().unwrap().contains("bridge.js"));
+        assert!(
+            chrome
+                .into_body()
+                .read_to_string()
+                .unwrap()
+                .contains("bridge.js")
+        );
 
         let shim = ureq::get(&format!("{}bridge.js", session.url))
             .call()
@@ -264,7 +286,8 @@ mod tests {
             &ureq::get(&format!("{}bridge", session.url))
                 .call()
                 .unwrap()
-                .into_body().read_to_string()
+                .into_body()
+                .read_to_string()
                 .unwrap(),
         )
         .unwrap();
@@ -407,7 +430,8 @@ mod tests {
         let second = ureq::get(&session.url)
             .call()
             .unwrap()
-            .into_body().read_to_string()
+            .into_body()
+            .read_to_string()
             .unwrap();
         assert!(!second.contains(&nonce), "a nonce is minted per response");
 
@@ -415,13 +439,17 @@ mod tests {
         let map = ureq::get(&format!("{}vendor/importmap.json", session.url))
             .call()
             .unwrap();
-        assert_eq!(map.into_body().read_to_string().unwrap(), r#"{"imports":{}}"#);
+        assert_eq!(
+            map.into_body().read_to_string().unwrap(),
+            r#"{"imports":{}}"#
+        );
 
         assert!(
             ureq::get(&format!("{}app.js", session.url))
                 .call()
                 .unwrap()
-                .into_body().read_to_string()
+                .into_body()
+                .read_to_string()
                 .unwrap()
                 .contains("EXCALIDRAW_ASSET_PATH"),
             "the chrome module is the Excalidraw one, not the demo's"
@@ -465,7 +493,8 @@ mod tests {
             ureq::get(&format!("{}app.js", session.url))
                 .call()
                 .unwrap()
-                .into_body().read_to_string()
+                .into_body()
+                .read_to_string()
                 .unwrap()
                 .contains("proto=json"),
             "the chrome module is the draw.io one, not the demo's"

@@ -83,7 +83,13 @@ pub fn between(lo: &str, hi: Option<&str>) -> String {
         }
     }
     out.into_iter()
-        .map(|d| if d == 0 { '.' } else { (b'A' + (d - 1) as u8) as char })
+        .map(|d| {
+            if d == 0 {
+                '.'
+            } else {
+                (b'A' + (d - 1) as u8) as char
+            }
+        })
         .collect()
 }
 
@@ -139,10 +145,14 @@ pub type Seen<'a> = (BlockId, &'a str);
 pub fn carry(prev: &[Seen<'_>], next: &[Seen<'_>], codes: &HashMap<BlockId, String>) -> Carried {
     let normalise = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
     let prev_ids: HashSet<BlockId> = prev.iter().map(|(id, _)| *id).collect();
-    let next_text: HashMap<BlockId, String> =
-        next.iter().map(|(id, text)| (*id, normalise(text))).collect();
-    let prev_text: Vec<(BlockId, String)> =
-        prev.iter().map(|(id, text)| (*id, normalise(text))).collect();
+    let next_text: HashMap<BlockId, String> = next
+        .iter()
+        .map(|(id, text)| (*id, normalise(text)))
+        .collect();
+    let prev_text: Vec<(BlockId, String)> = prev
+        .iter()
+        .map(|(id, text)| (*id, normalise(text)))
+        .collect();
     // A previous block can have split when it is gone, or survives as a strict part of itself.
     let splittable = |id: &BlockId, old: &str| match next_text.get(id) {
         None => true,
@@ -215,7 +225,12 @@ mod tests {
     fn split_children_sort_between_parent_and_next_sibling() {
         assert_eq!(split("AAB", 2), vec!["AAB.AA", "AAB.AB"]);
         assert_eq!(split("AAB.AB", 2)[0], "AAB.AB.AA");
-        let mut all = vec!["AAC".to_string(), "AAB.AB".into(), "AAB".into(), "AAB.AA".into()];
+        let mut all = vec![
+            "AAC".to_string(),
+            "AAB.AB".into(),
+            "AAB".into(),
+            "AAB.AA".into(),
+        ];
         all.sort();
         assert_eq!(all, vec!["AAB", "AAB.AA", "AAB.AB", "AAC"]);
     }
@@ -258,8 +273,9 @@ mod tests {
             BlockId::generate(),
             BlockId::generate(),
         );
-        let codes: HashMap<BlockId, String> =
-            [(a, "AAA"), (b, "AAB"), (c, "AAC")].map(|(i, s)| (i, s.to_string())).into();
+        let codes: HashMap<BlockId, String> = [(a, "AAA"), (b, "AAB"), (c, "AAC")]
+            .map(|(i, s)| (i, s.to_string()))
+            .into();
         let prev = [(a, "# T"), (b, "One. Two."), (c, "Three.")];
         // `b` survives as its first half; `part` is its second.
         let next = [(a, "# T"), (b, "One."), (part, "Two."), (c, "Three.")];
@@ -273,10 +289,16 @@ mod tests {
     #[test]
     fn renumbering_is_a_fresh_flat_mint() {
         let ids: Vec<BlockId> = (0..2).map(|_| BlockId::generate()).collect();
-        let mut codes: HashMap<BlockId, String> =
-            [(ids[0], "AAB.AA".to_string()), (ids[1], "AAB.AB".to_string())].into();
+        let mut codes: HashMap<BlockId, String> = [
+            (ids[0], "AAB.AA".to_string()),
+            (ids[1], "AAB.AB".to_string()),
+        ]
+        .into();
         codes.clear();
         fill(&mut codes, &ids);
-        assert_eq!((codes[&ids[0]].as_str(), codes[&ids[1]].as_str()), ("AAA", "AAB"));
+        assert_eq!(
+            (codes[&ids[0]].as_str(), codes[&ids[1]].as_str()),
+            ("AAA", "AAB")
+        );
     }
 }

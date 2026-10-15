@@ -3531,7 +3531,9 @@ mod tests {
         let custom = resolve(ThemeId("custom-md"), None).palette;
         assert_eq!(custom.markdown().code_chip.r, rgba_of(0xfafafa).r);
         assert!(
-            !EDITABLE_TOKENS.iter().any(|spec| spec.key.starts_with("markdown.")),
+            !EDITABLE_TOKENS
+                .iter()
+                .any(|spec| spec.key.starts_with("markdown.")),
             "the derived group is not editable"
         );
 

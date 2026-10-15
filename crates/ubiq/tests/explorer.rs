@@ -411,14 +411,20 @@ fn a_folder_the_filter_matched_is_asked_about_once() {
 #[test]
 fn an_ignored_folders_empty_prefetch_does_not_strand_an_open_or_matched_folder() {
     let mut tree = ExplorerState::empty();
-    tree.merge(listing("", vec![dir("", "bin"), dir("", "obj"), dir("", "lib")]));
+    tree.merge(listing(
+        "",
+        vec![dir("", "bin"), dir("", "obj"), dir("", "lib")],
+    ));
 
     // Expanded while its prefetch is in flight: toggle says Done (it is loading).
     tree.begin_cache(&["bin".to_string()]);
     tree.cache_sent(&["bin".to_string()]);
     assert_eq!(tree.toggle("bin"), Toggle::Done);
     assert!(tree.cache_answered("bin"));
-    assert!(tree.cache_skipped("bin", &[]), "an open folder is asked in full");
+    assert!(
+        tree.cache_skipped("bin", &[]),
+        "an open folder is asked in full"
+    );
 
     // A wanted path below an unopened folder, the same.
     tree.begin_cache(&["obj".to_string()]);

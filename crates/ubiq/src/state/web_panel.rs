@@ -83,9 +83,9 @@ impl BundleState {
     pub fn unavailable(&self, name: &str) -> Option<String> {
         match self {
             BundleState::Ready { .. } | BundleState::Unknown => None,
-            BundleState::Fetching { done, total, .. } if *total > 0 => Some(format!(
-                "Downloading {name}\u{2026} {done}/{total} files"
-            )),
+            BundleState::Fetching { done, total, .. } if *total > 0 => {
+                Some(format!("Downloading {name}\u{2026} {done}/{total} files"))
+            }
             BundleState::Fetching { .. } => Some(format!("Downloading {name}\u{2026}")),
             BundleState::Unavailable { reason } => Some(reason.clone()),
         }

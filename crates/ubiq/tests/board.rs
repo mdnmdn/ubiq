@@ -1226,7 +1226,10 @@ fn board_tabs_follow_the_list_and_fall_back_to_the_default_board() {
     ]);
     let tabs: Vec<_> = board.boards.tabs().iter().map(|b| b.name.clone()).collect();
     assert_eq!(tabs, ["Default", "Ideas"], "a disabled board has no tab");
-    assert!(board.boards.work().is_none(), "the default board is the project's own work");
+    assert!(
+        board.boards.work().is_none(),
+        "the default board is the project's own work"
+    );
 
     board.switch_board(BoardId("ideas".to_string()));
     assert!(board.boards.work().is_some());

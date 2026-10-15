@@ -132,7 +132,10 @@ impl AppState {
 
     /// Whether a live connection to the saved remote `id` is attached to this window.
     pub fn saved_remote_attached(&self, id: &str) -> bool {
-        self.bus.remote_conns().iter().any(|conn| conn.save_id == id)
+        self.bus
+            .remote_conns()
+            .iter()
+            .any(|conn| conn.save_id == id)
     }
 
     /// Dial a saved remote now, with no modal. A no-op only when it is already attached; otherwise

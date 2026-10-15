@@ -15,8 +15,8 @@ use gpui::{Context, Window};
 use ubiq_proto::ids::{ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::mission::{
-    Driver, LaunchOutcome, LaunchRequest, LaunchRole, MissionAction, MissionField,
-    MissionSnapshot, MissionTaskAction, Phase,
+    Driver, LaunchOutcome, LaunchRequest, LaunchRole, MissionAction, MissionField, MissionSnapshot,
+    MissionTaskAction, Phase,
 };
 use ubiq_proto::work::AgentId;
 
@@ -91,7 +91,10 @@ impl AppState {
 
     /// One mission's computed history as this window last asked for it, newest first. `None` until
     /// the first `MissionHistory` lands.
-    pub fn mission_history(&self, task_id: TaskId) -> Option<&Vec<ubiq_proto::mission::HistoryEntry>> {
+    pub fn mission_history(
+        &self,
+        task_id: TaskId,
+    ) -> Option<&Vec<ubiq_proto::mission::HistoryEntry>> {
         self.projects
             .values()
             .find_map(|open| open.mission_history.get(&task_id))
@@ -557,11 +560,9 @@ impl AppState {
             NoteKind::Redo(mission) => {
                 self.mission_control(mission, MissionAction::RedoBreakdown { note: text }, cx)
             }
-            NoteKind::RejectMission(mission) => self.mission_control(
-                mission,
-                MissionAction::RejectMission { feedback: text },
-                cx,
-            ),
+            NoteKind::RejectMission(mission) => {
+                self.mission_control(mission, MissionAction::RejectMission { feedback: text }, cx)
+            }
         }
         input.update(cx, |state, cx| state.set_value("", window, cx));
         self.workbench.mission_note = None;

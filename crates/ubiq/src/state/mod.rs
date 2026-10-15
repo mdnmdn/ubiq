@@ -9,15 +9,15 @@
 //! let `ui/` draw the domain without ever mentioning the contract it came across.
 
 pub mod a2ui;
-pub mod archify;
+pub mod about;
 pub mod agents;
+pub mod archify;
 pub mod ask;
 pub mod board;
 pub mod catalog;
 pub mod chat;
 pub mod clone;
 pub mod conversation;
-pub mod about;
 pub mod db;
 pub mod diagrams;
 pub mod dock;
@@ -70,9 +70,7 @@ pub mod zoom;
 pub use agents::{AgentsView, BenchRow, Column};
 pub use ask::{AskDialog, AskDraft, AskRecord, AskStage};
 pub use board::{BoardState, Field, TaskForm};
-pub use chat::{
-    AttachChoices, ChatHost, ChatPick, ChatPicks, ChatTab, attach_choices, chat_picks,
-};
+pub use chat::{AttachChoices, ChatHost, ChatPick, ChatPicks, ChatTab, attach_choices, chat_picks};
 pub use conversation::{ConvBlock, Conversation, Pending, Run};
 pub use diagrams::{DiagramImage, DiagramPalette};
 pub use dock::{ChatId, PanelClass, PanelKind, Region};
@@ -118,7 +116,7 @@ pub use work::{WorkProjection, WorkState};
 pub use workbench::{
     AllProjectsState, AttachmentPreview, FileDialog, HarnessChoice, HelpTargeting, MenuId,
     NewAgentMenu, NewAgentStage, NewAgentSurface, ProjectSettings, ProjectSettingsMode, RailMode,
-    RowAction, SizePrompt, TeamsCreateMenu, TeamsCreateStage, ThemeEditor, ThemePrompt,
-    ViewerMenu, ViewerMenuRow, WorkbenchState,
+    RowAction, SizePrompt, TeamsCreateMenu, TeamsCreateStage, ThemeEditor, ThemePrompt, ViewerMenu,
+    ViewerMenuRow, WorkbenchState,
 };
 pub use zoom::ImageZoom;

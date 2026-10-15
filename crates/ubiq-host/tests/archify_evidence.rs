@@ -15,9 +15,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde_json::Value;
 use ubiq_archify::compile::{Opts, compile, compile_with};
 use ubiq_host::archify::verifier;
-use serde_json::Value;
 
 const GIT_ENV: [(&str, &str); 8] = [
     ("GIT_CONFIG_GLOBAL", "/dev/null"),
@@ -31,8 +31,17 @@ const GIT_ENV: [(&str, &str); 8] = [
 ];
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").current_dir(dir).args(args).envs(GIT_ENV).output().expect("git is installed");
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .envs(GIT_ENV)
+        .output()
+        .expect("git is installed");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
 
@@ -69,7 +78,13 @@ fn without_rule(value: &mut Value) {
 fn replacing(value: &Value, bases: &[String]) -> Value {
     let mut text = value.to_string();
     for base in bases {
-        text = text.replace(&serde_json::to_string(base).unwrap().trim_matches('"').to_owned(), "<root-base>");
+        text = text.replace(
+            &serde_json::to_string(base)
+                .unwrap()
+                .trim_matches('"')
+                .to_owned(),
+            "<root-base>",
+        );
     }
     serde_json::from_str(&text).unwrap()
 }
@@ -87,27 +102,63 @@ fn verification_matches_archify_with_a_real_repository() {
     let oracle: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let work = work_dir("oracle");
     // The resolved path first: on macOS it extends the plain one (`/private/var/...`).
-    let bases = vec![std::fs::canonicalize(&work).unwrap().to_string_lossy().into_owned(), work.to_string_lossy().into_owned()];
+    let bases = vec![
+        std::fs::canonicalize(&work)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+        work.to_string_lossy().into_owned(),
+    ];
 
     let files = &oracle["files"];
     let origin = oracle["origin"].as_str().unwrap();
     let sha = build(&work.join("main"), files, Some(origin));
-    assert_eq!(sha, oracle["sha"], "the oracle repository must build to the same commit everywhere");
-    build(&work.join("ssh-origin"), files, Some("git@github.com:acme/widget.git"));
+    assert_eq!(
+        sha, oracle["sha"],
+        "the oracle repository must build to the same commit everywhere"
+    );
+    build(
+        &work.join("ssh-origin"),
+        files,
+        Some("git@github.com:acme/widget.git"),
+    );
     build(&work.join("no-origin"), files, None);
-    build(&work.join("other-origin"), files, Some("https://github.com/someone/else.git"));
-    build(&work.join("cred-origin"), files, Some("https://user:secret@github.com/someone/else.git"));
-    build(&work.join("query-origin"), files, Some("https://github.com/someone/else.git?token=abc"));
+    build(
+        &work.join("other-origin"),
+        files,
+        Some("https://github.com/someone/else.git"),
+    );
+    build(
+        &work.join("cred-origin"),
+        files,
+        Some("https://user:secret@github.com/someone/else.git"),
+    );
+    build(
+        &work.join("query-origin"),
+        files,
+        Some("https://github.com/someone/else.git?token=abc"),
+    );
     build(&work.join("dirty"), files, Some(origin));
-    std::fs::write(work.join("dirty/src/a.rs"), "fn a() {\n    b();\n}\n// one\n// two\n// three\n").unwrap();
+    std::fs::write(
+        work.join("dirty/src/a.rs"),
+        "fn a() {\n    b();\n}\n// one\n// two\n// three\n",
+    )
+    .unwrap();
     std::fs::create_dir_all(work.join("plain")).unwrap();
 
     let (mut runs, mut passed, mut mismatched) = (0, 0, Vec::new());
     for case in oracle["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let doc_type = case["doc"]["diagram_type"].as_str().unwrap();
-        let text = case["doc"].to_string().replace("@SHA_UPPER@", &sha.to_uppercase()).replace("@SHA@", &sha);
-        let opts = Opts { input: "<input>", doc_type: Some(doc_type), quality: None };
+        let text = case["doc"]
+            .to_string()
+            .replace("@SHA_UPPER@", &sha.to_uppercase())
+            .replace("@SHA@", &sha);
+        let opts = Opts {
+            input: "<input>",
+            doc_type: Some(doc_type),
+            quality: None,
+        };
         let compiled = match case["root"].as_str() {
             None => compile(&text, &opts),
             Some(root) => {
@@ -121,14 +172,24 @@ fn verification_matches_archify_with_a_real_repository() {
             }
         };
         runs += 1;
-        let mut ours = replacing(&serde_json::to_value(&compiled.receipt.diagnostics).unwrap(), &bases);
+        let mut ours = replacing(
+            &serde_json::to_value(&compiled.receipt.diagnostics).unwrap(),
+            &bases,
+        );
         without_rule(&mut ours);
         let mut problems = Vec::new();
         if compiled.ok() != (case["ok"] == true) {
-            problems.push(format!("ok: Archify {}, ours {}", case["ok"], compiled.ok()));
+            problems.push(format!(
+                "ok: Archify {}, ours {}",
+                case["ok"],
+                compiled.ok()
+            ));
         }
         if ours != case["diagnostics"] {
-            problems.push(format!("diagnostics\n    Archify: {}\n    ours:    {ours}", case["diagnostics"]));
+            problems.push(format!(
+                "diagnostics\n    Archify: {}\n    ours:    {ours}",
+                case["diagnostics"]
+            ));
         }
         if problems.is_empty() {
             passed += 1;
@@ -138,7 +199,12 @@ fn verification_matches_archify_with_a_real_repository() {
     }
     let _ = std::fs::remove_dir_all(&work);
     println!("repository evidence: {runs} documents, {passed} exact");
-    assert!(mismatched.is_empty(), "{} mismatches:\n{}", mismatched.len(), mismatched.join("\n"));
+    assert!(
+        mismatched.is_empty(),
+        "{} mismatches:\n{}",
+        mismatched.len(),
+        mismatched.join("\n")
+    );
     assert!(runs >= 40);
 }
 
@@ -157,11 +223,18 @@ fn without_a_verifier_evidence_is_refused_as_archify_refuses_it_without_a_root()
         })
         .to_string()
     };
-    let opts = Opts { input: "<input>", doc_type: Some("dataflow"), quality: None };
+    let opts = Opts {
+        input: "<input>",
+        doc_type: Some("dataflow"),
+        quality: None,
+    };
     let sha = "a".repeat(40);
     let good = serde_json::json!({"url": "https://github.com/acme/widget", "revision": sha});
     // The path escapes the repository, but Archify says `root-required` first: nothing is read yet.
-    let c = compile(&doc(good.clone(), serde_json::json!([{"path": "../x.rs"}])), &opts);
+    let c = compile(
+        &doc(good.clone(), serde_json::json!([{"path": "../x.rs"}])),
+        &opts,
+    );
     assert_eq!(c.diagnostics()[0].code, "repository-evidence/root-required");
     // The declaration is checked before the root is asked for.
     let bad_url = serde_json::json!({"url": "/home/me/widget", "revision": sha});

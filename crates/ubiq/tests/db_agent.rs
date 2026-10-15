@@ -289,7 +289,10 @@ fn two_quick_edits_both_land() {
     let mut tab = DbSqlTab::from_editor(&editor);
 
     tab.sent_edit("select 2");
-    assert!(!tab.edit_due("select 3"), "the first edit is still in flight");
+    assert!(
+        !tab.edit_due("select 3"),
+        "the first edit is still in flight"
+    );
 
     // The host accepts the first: only the revision moves, and the second is now due at rev 2.
     let echoed = DbEditor {
@@ -297,7 +300,10 @@ fn two_quick_edits_both_land() {
         rev: 2,
         ..editor.clone()
     };
-    assert!(!tab.adopt_editor(&echoed), "the user's own edit is not news");
+    assert!(
+        !tab.adopt_editor(&echoed),
+        "the user's own edit is not news"
+    );
     assert!(tab.pending_text.is_none(), "no clobber");
     assert!(tab.edit_due("select 3"));
     tab.sent_edit("select 3");

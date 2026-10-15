@@ -46,11 +46,23 @@ struct Outcome {
 
 impl Outcome {
     fn error(message: impl Into<String>) -> Self {
-        Outcome { text: message.into(), is_error: true, ok: false, path: None, show: false }
+        Outcome {
+            text: message.into(),
+            is_error: true,
+            ok: false,
+            path: None,
+            show: false,
+        }
     }
 
     fn text(text: impl Into<String>) -> Self {
-        Outcome { text: text.into(), is_error: false, ok: true, path: None, show: false }
+        Outcome {
+            text: text.into(),
+            is_error: false,
+            ok: true,
+            path: None,
+            show: false,
+        }
     }
 }
 
@@ -65,7 +77,10 @@ pub fn call(
     let roots = [PathBuf::from(&facts.project.path)];
     let outcome = run(&roots, tool, arguments);
     if let Ok(project_id) = facts.project.id.parse::<ProjectId>() {
-        let rel = outcome.path.as_deref().and_then(|file| relative(&roots, file));
+        let rel = outcome
+            .path
+            .as_deref()
+            .and_then(|file| relative(&roots, file));
         reach.everyone.send(Message::ArchifyToolCall {
             project_id,
             rel: rel.clone(),
@@ -75,10 +90,16 @@ pub fn call(
         if outcome.show
             && let Some(rel) = rel
         {
-            reach.everyone.send(Message::ArchifyShow { project_id, rel });
+            reach
+                .everyone
+                .send(Message::ArchifyShow { project_id, rel });
         }
     }
-    if outcome.is_error { Err(outcome.text) } else { Ok(Value::String(outcome.text)) }
+    if outcome.is_error {
+        Err(outcome.text)
+    } else {
+        Ok(Value::String(outcome.text))
+    }
 }
 
 /// The `/`-separated path of a canonical `file` relative to the project root it is inside.
@@ -86,7 +107,12 @@ fn relative(roots: &[PathBuf], file: &Path) -> Option<String> {
     roots.iter().find_map(|root| {
         let root = std::fs::canonicalize(root).ok()?;
         let rel = file.strip_prefix(&root).ok()?;
-        Some(rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"))
+        Some(
+            rel.components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/"),
+        )
     })
 }
 
@@ -127,7 +153,11 @@ fn new_tool(roots: &[PathBuf], args: &Value) -> Outcome {
             DOC_TYPES.join(", ")
         ));
     }
-    let name = args.get("name").and_then(Value::as_str).unwrap_or("").trim();
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
     let slug = slug(name);
     if slug.is_empty() {
         return Outcome::error("archify_new needs a name with letters or digits");
@@ -141,7 +171,10 @@ fn new_tool(roots: &[PathBuf], args: &Value) -> Outcome {
         Err(reason) => return Outcome::error(reason),
     };
     let file = target.join(format!("{slug}{}", compile::EXTENSION));
-    let text = format!("{}\n", serde_json::to_string_pretty(&doc).unwrap_or_default());
+    let text = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&doc).unwrap_or_default()
+    );
     let written = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -152,7 +185,9 @@ fn new_tool(roots: &[PathBuf], args: &Value) -> Outcome {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             return Outcome::error(format!(
                 "{} exists already: pick another name or edit that file",
-                file.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+                file.file_name()
+                    .map(|n| n.to_string_lossy())
+                    .unwrap_or_default()
             ));
         }
         Err(e) => return Outcome::error(format!("cannot write the file: {e}")),
@@ -163,7 +198,11 @@ fn new_tool(roots: &[PathBuf], args: &Value) -> Outcome {
     let rel = roots
         .iter()
         .filter_map(|r| std::fs::canonicalize(r).ok())
-        .find_map(|r| file.strip_prefix(&r).ok().map(|p| p.to_string_lossy().replace('\\', "/")))
+        .find_map(|r| {
+            file.strip_prefix(&r)
+                .ok()
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+        })
         .unwrap_or_default();
     Outcome {
         text: json!({"ok": true, "path": rel, "type": doc_type}).to_string(),
@@ -215,8 +254,14 @@ fn schema_tool(args: &Value) -> Outcome {
 }
 
 fn guide_tool(args: &Value) -> Outcome {
-    let scenario = args.get("scenario").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
-    let topic = args.get("topic").and_then(Value::as_str).filter(|s| !s.is_empty());
+    let scenario = args
+        .get("scenario")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty());
+    let topic = args
+        .get("topic")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
     if let Some(text) = scenario {
         if topic.is_some() {
             return Outcome::error("give either scenario or topic, not both");
@@ -306,7 +351,15 @@ fn render_tool(roots: &[PathBuf], args: &Value) -> Outcome {
         Ok(evidence) => evidence,
         Err(outcome) => return outcome,
     };
-    let compiled = compile::compile_with(&text, &compile::Opts { input: &input, doc_type: type_hint, quality }, evidence.as_deref());
+    let compiled = compile::compile_with(
+        &text,
+        &compile::Opts {
+            input: &input,
+            doc_type: type_hint,
+            quality,
+        },
+        evidence.as_deref(),
+    );
     if !compiled.ok() {
         let mut outcome = receipt_outcome(compiled.receipt, &compiled.stages_run);
         outcome.path = resolved;
@@ -332,13 +385,38 @@ fn render_summary(compiled: &compile::Compiled, shown: bool) -> Value {
             g.placement.boundaries.len(),
             Some(g.placement.view_box),
         ),
-        Some(Layout::Dataflow { geometry: g, .. }) => (g.nodes.len(), g.flows.len(), g.frames.len(), Some(g.view_box)),
-        Some(Layout::Sequence { geometry: g, .. }) => (g.participants.len(), g.messages.len(), g.segments.len(), Some(g.view_box)),
-        Some(Layout::Lifecycle { geometry: g, .. }) => (g.states.len(), g.transitions.len(), g.bands.len(), Some(g.view_box)),
+        Some(Layout::Dataflow { geometry: g, .. }) => (
+            g.nodes.len(),
+            g.flows.len(),
+            g.frames.len(),
+            Some(g.view_box),
+        ),
+        Some(Layout::Sequence { geometry: g, .. }) => (
+            g.participants.len(),
+            g.messages.len(),
+            g.segments.len(),
+            Some(g.view_box),
+        ),
+        Some(Layout::Lifecycle { geometry: g, .. }) => (
+            g.states.len(),
+            g.transitions.len(),
+            g.bands.len(),
+            Some(g.view_box),
+        ),
         // Workflow: nodes, routed edges, lanes (its frames), at the final canvas.
         Some(Layout::Workflow { geometry, .. }) => match geometry.as_ref() {
-            compile::WorkflowGeometry::V1(g) => (g.nodes.len(), g.edges.len(), g.lanes.len(), Some(g.view_box)),
-            compile::WorkflowGeometry::V2(g) => (g.placement.nodes.len(), g.edges.len(), g.placement.lanes.len(), Some(g.view_box)),
+            compile::WorkflowGeometry::V1(g) => (
+                g.nodes.len(),
+                g.edges.len(),
+                g.lanes.len(),
+                Some(g.view_box),
+            ),
+            compile::WorkflowGeometry::V2(g) => (
+                g.placement.nodes.len(),
+                g.edges.len(),
+                g.placement.lanes.len(),
+                Some(g.view_box),
+            ),
         },
         None => (0, 0, 0, None),
     };
@@ -347,11 +425,20 @@ fn render_summary(compiled: &compile::Compiled, shown: bool) -> Value {
     m.insert("type".into(), compiled.receipt.doc_type.clone().into());
     m.insert("input".into(), compiled.receipt.input.clone().into());
     m.insert("profile".into(), compiled.profile.into());
-    m.insert("counts".into(), json!({"nodes": nodes, "edges": edges, "frames": frames}));
-    m.insert("viewBox".into(), view_box.map_or(Value::Null, |vb| json!(vb)));
+    m.insert(
+        "counts".into(),
+        json!({"nodes": nodes, "edges": edges, "frames": frames}),
+    );
+    m.insert(
+        "viewBox".into(),
+        view_box.map_or(Value::Null, |vb| json!(vb)),
+    );
     let mut diagnostics: Vec<&Diagnostic> = compiled.receipt.diagnostics.iter().collect();
     diagnostics.extend(compiled.warnings.iter());
-    m.insert("diagnostics".into(), serde_json::to_value(&diagnostics).unwrap_or(Value::Null));
+    m.insert(
+        "diagnostics".into(),
+        serde_json::to_value(&diagnostics).unwrap_or(Value::Null),
+    );
     m.insert("shown".into(), shown.into());
     Value::Object(m)
 }
@@ -372,7 +459,11 @@ fn layout_tool(roots: &[PathBuf], args: &Value) -> Outcome {
         .map(str::to_owned)
         .or_else(|| compile::peek(&text).diagram_type)
         .or_else(|| compile::type_from_name(&input));
-    let opts = compile::Opts { input: &input, doc_type: doc_type.as_deref(), quality };
+    let opts = compile::Opts {
+        input: &input,
+        doc_type: doc_type.as_deref(),
+        quality,
+    };
     let evidence = match evidence_of(roots, args, resolved.as_deref(), type_hint) {
         Ok(evidence) => evidence,
         Err(outcome) => return outcome,
@@ -502,7 +593,10 @@ fn evidence_of(
     file: Option<&Path>,
     type_hint: Option<&str>,
 ) -> Result<Option<Evidence>, Outcome> {
-    let canonical: Vec<PathBuf> = roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).collect();
+    let canonical: Vec<PathBuf> = roots
+        .iter()
+        .filter_map(|r| std::fs::canonicalize(r).ok())
+        .collect();
     let root = match args.get("repo_root").and_then(Value::as_str) {
         Some(given) => {
             let given_path = Path::new(given);
@@ -511,9 +605,10 @@ fn evidence_of(
             } else {
                 roots.iter().map(|r| r.join(given_path)).collect()
             };
-            let found = candidates.iter().filter_map(|c| std::fs::canonicalize(c).ok()).find(|real| {
-                real.is_dir() && canonical.iter().any(|r| real.starts_with(r))
-            });
+            let found = candidates
+                .iter()
+                .filter_map(|c| std::fs::canonicalize(c).ok())
+                .find(|real| real.is_dir() && canonical.iter().any(|r| real.starts_with(r)));
             match found {
                 Some(real) => Some(real),
                 None => {
@@ -612,7 +707,13 @@ mod tests {
     use ubiq_proto::bus::{self, To};
 
     const PROJECT: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
-    const KINDS: [&str; 5] = ["architecture", "workflow", "sequence", "dataflow", "lifecycle"];
+    const KINDS: [&str; 5] = [
+        "architecture",
+        "workflow",
+        "sequence",
+        "dataflow",
+        "lifecycle",
+    ];
 
     /// A temp project folder, a facts record pointing at it, and a window listening for the
     /// broadcasts. The hub is held for the test's life: a mailbox holds only a weak sender.
@@ -650,8 +751,17 @@ mod tests {
                     colour: 0,
                 },
             };
-            let reach = ArchifyReach { everyone: host.mailbox(To::Everyone) };
-            Rig { dir, facts, reach, window, _hub: hub, _host: host }
+            let reach = ArchifyReach {
+                everyone: host.mailbox(To::Everyone),
+            };
+            Rig {
+                dir,
+                facts,
+                reach,
+                window,
+                _hub: hub,
+                _host: host,
+            }
         }
 
         /// `(is_error, text)`.
@@ -678,7 +788,10 @@ mod tests {
         }
 
         fn next(&self) -> Option<Message> {
-            self.window.from_host().recv_timeout(Duration::from_millis(300)).ok()
+            self.window
+                .from_host()
+                .recv_timeout(Duration::from_millis(300))
+                .ok()
         }
 
         /// The next tool-call broadcast: `(rel, tool, ok)`.
@@ -721,9 +834,15 @@ mod tests {
         assert!(!is_error && !text.is_empty());
         let (is_error, text) = rig.call("archify_guide", json!({"topic": "nope"}));
         assert!(is_error && text.contains("authoring-defaults"), "{text}");
-        let (is_error, text) = rig.call("archify_guide", json!({"scenario": "order lifecycle", "topic": "repair"}));
+        let (is_error, text) = rig.call(
+            "archify_guide",
+            json!({"scenario": "order lifecycle", "topic": "repair"}),
+        );
         assert!(is_error && text.contains("not both"), "{text}");
-        let (is_error, text) = rig.call("archify_guide", json!({"scenario": "order lifecycle from cart to refund"}));
+        let (is_error, text) = rig.call(
+            "archify_guide",
+            json!({"scenario": "order lifecycle from cart to refund"}),
+        );
         assert!(!is_error, "{text}");
         assert!(serde_json::from_str::<Value>(&text).is_ok());
 
@@ -743,7 +862,14 @@ mod tests {
         assert!(receipt["stagesRun"].as_array().unwrap().len() >= 3);
         assert!(receipt["notChecked"].as_str().is_some());
         // The broadcast names the file the call was about, relative to the project: that is the tab.
-        assert_eq!(rig.tool_call(), (Some("diagrams/good.archify".into()), "archify_validate".into(), true));
+        assert_eq!(
+            rig.tool_call(),
+            (
+                Some("diagrams/good.archify".into()),
+                "archify_validate".into(),
+                true
+            )
+        );
         assert!(rig.next().is_none(), "validate shows nothing");
 
         // Inline, as an object, as a string; an inline document names no file.
@@ -756,13 +882,28 @@ mod tests {
         let _ = rig.tool_call();
 
         let receipt = rig.receipt(json!({"document": "{\"a\": "}));
-        assert_eq!((receipt["ok"].clone(), receipt["stage"].clone()), (json!(false), json!("input")));
+        assert_eq!(
+            (receipt["ok"].clone(), receipt["stage"].clone()),
+            (json!(false), json!("input"))
+        );
         assert_eq!(codes(&receipt), ["input/json-parse"]);
-        assert_eq!(codes(&rig.receipt(json!({"document": {"a": 1}}))), ["cli/missing-option-value"]);
-        assert_eq!(codes(&rig.receipt(json!({"document": good, "type": "gantt"}))), ["cli/unknown-diagram-type"]);
-        assert_eq!(codes(&rig.receipt(json!({"document": good, "quality": "gold"}))), ["cli/invalid-option-value"]);
+        assert_eq!(
+            codes(&rig.receipt(json!({"document": {"a": 1}}))),
+            ["cli/missing-option-value"]
+        );
+        assert_eq!(
+            codes(&rig.receipt(json!({"document": good, "type": "gantt"}))),
+            ["cli/unknown-diagram-type"]
+        );
+        assert_eq!(
+            codes(&rig.receipt(json!({"document": good, "quality": "gold"}))),
+            ["cli/invalid-option-value"]
+        );
         assert_eq!(codes(&rig.receipt(json!({}))), ["cli/missing-option-value"]);
-        assert_eq!(codes(&rig.receipt(json!({"path": "a.json", "document": "{}"}))), ["cli/usage"]);
+        assert_eq!(
+            codes(&rig.receipt(json!({"path": "a.json", "document": "{}"}))),
+            ["cli/usage"]
+        );
         // Inside the project but not there: a diagnostic the agent can act on.
         let receipt = rig.receipt(json!({"path": "diagrams/missing.archify"}));
         assert_eq!(receipt["stage"], "input");
@@ -785,14 +926,23 @@ mod tests {
             assert!(summary["viewBox"].is_array(), "{kind}");
             assert!(!text.contains("<svg") && !text.contains("<html"));
             // The chip first, then the tab to open.
-            assert_eq!(rig.tool_call(), (Some(rel.clone()), "archify_render".into(), true));
+            assert_eq!(
+                rig.tool_call(),
+                (Some(rel.clone()), "archify_render".into(), true)
+            );
             assert_eq!(rig.show(), rel);
         }
 
         // Inline: summarised, but there is no tab to show.
-        let (_, out) = rig.call("archify_render", json!({"document": rig.starter("dataflow")}));
+        let (_, out) = rig.call(
+            "archify_render",
+            json!({"document": rig.starter("dataflow")}),
+        );
         let summary: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!((summary["ok"].clone(), summary["shown"].clone()), (json!(true), json!(false)));
+        assert_eq!(
+            (summary["ok"].clone(), summary["shown"].clone()),
+            (json!(true), json!(false))
+        );
         assert_eq!(rig.tool_call(), (None, "archify_render".into(), true));
         assert!(rig.next().is_none());
 
@@ -805,7 +955,14 @@ mod tests {
         let receipt: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(receipt["ok"], false);
         assert_eq!(codes(&receipt), ["schema/enum"]);
-        assert_eq!(rig.tool_call(), (Some("diagrams/bad.archify".into()), "archify_render".into(), false));
+        assert_eq!(
+            rig.tool_call(),
+            (
+                Some("diagrams/bad.archify".into()),
+                "archify_render".into(),
+                false
+            )
+        );
         assert!(rig.next().is_none(), "no Show after a failure");
     }
 
@@ -813,10 +970,14 @@ mod tests {
     fn layout_returns_a_receipt_with_geometry() {
         let rig = Rig::new();
         for kind in KINDS {
-            let (is_error, text) = rig.call("archify_layout", json!({"document": rig.starter(kind)}));
+            let (is_error, text) =
+                rig.call("archify_layout", json!({"document": rig.starter(kind)}));
             assert!(!is_error, "{kind}: {text}");
             let layout: Value = serde_json::from_str(&text).unwrap();
-            assert!(layout.get("viewBox").is_some() || layout.get("contract").is_some(), "{kind}: {text}");
+            assert!(
+                layout.get("viewBox").is_some() || layout.get("contract").is_some(),
+                "{kind}: {text}"
+            );
             assert_eq!(rig.tool_call(), (None, "archify_layout".into(), true));
         }
     }
@@ -829,15 +990,27 @@ mod tests {
             let (is_error, text) = rig.call("archify_new", json!({"type": kind, "name": name}));
             assert!(!is_error, "{kind}: {text}");
             let rel = format!("my-{kind}-flow.archify");
-            assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), json!({"ok": true, "path": rel, "type": kind}));
-            assert_eq!(rig.tool_call(), (Some(rel.clone()), "archify_new".into(), true));
+            assert_eq!(
+                serde_json::from_str::<Value>(&text).unwrap(),
+                json!({"ok": true, "path": rel, "type": kind})
+            );
+            assert_eq!(
+                rig.tool_call(),
+                (Some(rel.clone()), "archify_new".into(), true)
+            );
             assert_eq!(rig.show(), rel);
-            let written: Value =
-                serde_json::from_str(&std::fs::read_to_string(rig.dir.path().join("project").join(&rel)).unwrap()).unwrap();
+            let written: Value = serde_json::from_str(
+                &std::fs::read_to_string(rig.dir.path().join("project").join(&rel)).unwrap(),
+            )
+            .unwrap();
             assert_eq!(written["diagram_type"], kind);
             assert_eq!(written["meta"]["title"], name);
             let receipt = rig.receipt(json!({"path": rel}));
-            assert_eq!((receipt["ok"].clone(), receipt["type"].clone()), (json!(true), json!(kind)), "{receipt}");
+            assert_eq!(
+                (receipt["ok"].clone(), receipt["type"].clone()),
+                (json!(true), json!(kind)),
+                "{receipt}"
+            );
             let _ = rig.tool_call();
         }
 
@@ -845,7 +1018,12 @@ mod tests {
         let args = json!({"type": "dataflow", "name": "Orders", "dir": "diagrams/deep"});
         let (is_error, text) = rig.call("archify_new", args.clone());
         assert!(!is_error, "{text}");
-        assert!(rig.dir.path().join("project/diagrams/deep/orders.archify").is_file());
+        assert!(
+            rig.dir
+                .path()
+                .join("project/diagrams/deep/orders.archify")
+                .is_file()
+        );
         let _ = rig.tool_call();
         assert_eq!(rig.show(), "diagrams/deep/orders.archify");
         rig.write("diagrams/deep/orders.archify", "{\"keep\": true}");
@@ -853,7 +1031,8 @@ mod tests {
         assert!(is_error && text.contains("exists already"), "{text}");
         assert_eq!(rig.tool_call(), (None, "archify_new".into(), false));
         assert_eq!(
-            std::fs::read_to_string(rig.dir.path().join("project/diagrams/deep/orders.archify")).unwrap(),
+            std::fs::read_to_string(rig.dir.path().join("project/diagrams/deep/orders.archify"))
+                .unwrap(),
             "{\"keep\": true}"
         );
 
@@ -861,8 +1040,14 @@ mod tests {
         for (args, expect) in [
             (json!({"type": "gantt", "name": "x"}), "unknown type"),
             (json!({"type": "dataflow", "name": " !! "}), "name"),
-            (json!({"type": "dataflow", "name": "x", "dir": "../out"}), "not inside a project root"),
-            (json!({"type": "dataflow", "name": "x", "dir": "/etc"}), "not inside a project root"),
+            (
+                json!({"type": "dataflow", "name": "x", "dir": "../out"}),
+                "not inside a project root",
+            ),
+            (
+                json!({"type": "dataflow", "name": "x", "dir": "/etc"}),
+                "not inside a project root",
+            ),
         ] {
             let (is_error, text) = rig.call("archify_new", args.clone());
             assert!(is_error && text.contains(expect), "{args}: {text}");
@@ -876,10 +1061,17 @@ mod tests {
     fn paths_outside_the_project_are_refused_and_still_announced() {
         let rig = Rig::new();
         let secret = rig.dir.path().join("secret.json");
-        for path in ["../secret.json".to_owned(), secret.to_string_lossy().into_owned(), "/etc/passwd".to_owned()] {
+        for path in [
+            "../secret.json".to_owned(),
+            secret.to_string_lossy().into_owned(),
+            "/etc/passwd".to_owned(),
+        ] {
             for tool in ["archify_validate", "archify_render", "archify_layout"] {
                 let (is_error, text) = rig.call(tool, json!({"path": path}));
-                assert!(is_error && text.contains("not inside a project root"), "{tool} {path}: {text}");
+                assert!(
+                    is_error && text.contains("not inside a project root"),
+                    "{tool} {path}: {text}"
+                );
                 assert_eq!(rig.tool_call(), (None, tool.into(), false));
             }
         }
@@ -904,16 +1096,38 @@ mod tests {
         let roots = [dir.join("root")];
         let canonical = std::fs::canonicalize(dir.join("root/sub/a.dataflow.json")).unwrap();
 
-        assert_eq!(resolve(&roots, "sub/a.dataflow.json"), Ok(canonical.clone()));
-        assert_eq!(resolve(&roots, dir.join("root/sub/a.dataflow.json").to_str().unwrap()), Ok(canonical));
-        assert!(matches!(resolve(&roots, "../outside.json"), Err(PathError::Outside(_))));
-        assert!(matches!(resolve(&roots, dir.join("outside.json").to_str().unwrap()), Err(PathError::Outside(_))));
-        assert!(matches!(resolve(&roots, "nope.json"), Err(PathError::Missing(_))));
+        assert_eq!(
+            resolve(&roots, "sub/a.dataflow.json"),
+            Ok(canonical.clone())
+        );
+        assert_eq!(
+            resolve(
+                &roots,
+                dir.join("root/sub/a.dataflow.json").to_str().unwrap()
+            ),
+            Ok(canonical)
+        );
+        assert!(matches!(
+            resolve(&roots, "../outside.json"),
+            Err(PathError::Outside(_))
+        ));
+        assert!(matches!(
+            resolve(&roots, dir.join("outside.json").to_str().unwrap()),
+            Err(PathError::Outside(_))
+        ));
+        assert!(matches!(
+            resolve(&roots, "nope.json"),
+            Err(PathError::Missing(_))
+        ));
         assert!(matches!(resolve(&[], "a.json"), Err(PathError::Outside(_))));
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(dir.join("outside.json"), dir.join("root/link.json")).unwrap();
-            assert!(matches!(resolve(&roots, "link.json"), Err(PathError::Outside(_))));
+            std::os::unix::fs::symlink(dir.join("outside.json"), dir.join("root/link.json"))
+                .unwrap();
+            assert!(matches!(
+                resolve(&roots, "link.json"),
+                Err(PathError::Outside(_))
+            ));
         }
     }
 }

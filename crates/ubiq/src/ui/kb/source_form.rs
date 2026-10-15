@@ -28,7 +28,8 @@ use crate::state::overlay::Layer;
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    Picker, PickerStyle, check_box, elided, ghost_button, hint_row, label_hint, primary_button, slab,
+    Picker, PickerStyle, check_box, elided, ghost_button, hint_row, label_hint, primary_button,
+    slab,
 };
 use crate::ui::sink::style::{framed_active, input_on};
 use crate::ui::{handler, indexed};

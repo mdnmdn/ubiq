@@ -562,7 +562,10 @@ impl AppState {
         };
         let (value, caret) = {
             let state = input.read(cx);
-            (state.value().to_string(), state.cursor().min(state.value().len()))
+            (
+                state.value().to_string(),
+                state.cursor().min(state.value().len()),
+            )
         };
         let on_first = value.is_empty() || !value[..caret].contains('\n');
         let on_last = value.is_empty() || !value[caret..].contains('\n');

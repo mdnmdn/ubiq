@@ -288,7 +288,11 @@ fn annotated_paths(root: &Path) -> (Vec<String>, bool) {
         if !body.to_ascii_lowercase().ends_with(".md") {
             continue;
         }
-        let Ok(rel) = entry.path().with_file_name(body).strip_prefix(root).map(Path::to_path_buf)
+        let Ok(rel) = entry
+            .path()
+            .with_file_name(body)
+            .strip_prefix(root)
+            .map(Path::to_path_buf)
         else {
             continue;
         };
@@ -314,7 +318,10 @@ fn read(target: &Target, facts: &AgentFacts, reach: &PlanReach) -> Result<Value,
     // The blocks' lineage codes (`D208`), for a document that is annotated already — asking an
     // unannotated one would index it and write its sidecar as a side effect of a read.
     let blocks = if plans.is_annotated(target) {
-        plans.annotation_list(target).ok().map(|(blocks, _, _)| blocks)
+        plans
+            .annotation_list(target)
+            .ok()
+            .map(|(blocks, _, _)| blocks)
     } else {
         None
     };

@@ -547,7 +547,8 @@ impl Default for ViewPrefs {
 fn modes_without_retired<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<std::collections::HashMap<RailMode, ModeLayout>, D::Error> {
-    let raw = <std::collections::HashMap<String, ModeLayout> as serde::Deserialize>::deserialize(d)?;
+    let raw =
+        <std::collections::HashMap<String, ModeLayout> as serde::Deserialize>::deserialize(d)?;
     Ok(raw
         .into_iter()
         .filter(|(key, _)| !crate::ext::rail::is_retired(key))

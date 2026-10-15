@@ -23,29 +23,28 @@
 //!
 //! Everything the viewer keeps about a tab is in `state::Ui`, keyed by the tab's key.
 
-use ubiq_archify::compile::{self, Opts, peek};
-use ubiq_archify::layout_json;
-use ubiq_archify::tokens::Token;
-use gpui::{
-    AnyElement, App, AppContext, ClickEvent, ClipboardItem, Context, IntoElement, ParentElement, Styled,
-    Window, div,
-};
 use crate::app::AppState;
-use crate::ext::viewer::{self, Claim, ViewerAction, ViewerCtx, ViewerSpec};
 use crate::ext::Registry;
+use crate::ext::viewer::{self, Claim, ViewerAction, ViewerCtx, ViewerSpec};
 use crate::state::OpenFile;
 use crate::state::editor::{FileLanguage, ViewLayout};
 use crate::theme;
 use crate::ui::viewer::{note, surface};
+use gpui::{
+    AnyElement, App, AppContext, ClickEvent, ClipboardItem, Context, IntoElement, ParentElement,
+    Styled, Window, div,
+};
+use ubiq_archify::compile::{self, Opts, peek};
+use ubiq_archify::layout_json;
+use ubiq_archify::tokens::Token;
 
-use crate::ui::archify::agent::{self, Notice};
+use crate::ext::ids;
 use crate::state::archify::compiled::{self, Outcome};
 use crate::state::archify::{self as state, picture_key, ui};
-use crate::ui::archify::theme::ChartTheme;
 use crate::state::archify::{animate, motion};
+use crate::ui::archify::agent::{self, Notice};
+use crate::ui::archify::theme::ChartTheme;
 use crate::ui::archify::{finder, paint, panels};
-use crate::ext::ids;
-
 
 /// The positions of the editor's top row: the picture first, then the source. No Split.
 const LAYOUTS: &[ViewLayout] = &[ViewLayout::Preview, ViewLayout::Source];
@@ -114,13 +113,14 @@ fn render(ctx: &ViewerCtx<'_>, window: &mut Window, cx: &mut Context<AppState>) 
                 finder::view(ctx.app, &key, scene, window, cx),
             )
         }
-        None => (note(placeholder(outcome.as_deref()), theme::text_faint()), None),
+        None => (
+            note(placeholder(outcome.as_deref()), theme::text_faint()),
+            None,
+        ),
     };
 
     // The finder's list is a sibling of the picture, not inside it (it holds its own keys).
-    let mut root = surface()
-        .child(body)
-        .children(finder);
+    let mut root = surface().child(body).children(finder);
     if panel_open && let Some(outcome) = &outcome {
         root = root.child(panels::panel(&tab_key, ctx.buffer, outcome, cx));
     }
@@ -129,11 +129,7 @@ fn render(ctx: &ViewerCtx<'_>, window: &mut Window, cx: &mut Context<AppState>) 
 
 /// The left of the editor's top row: how the document fares (a chip that opens and closes the
 /// diagnostics) and what the agent last did to it. Preview only — Source has no picture.
-fn header_left(
-    _app: &AppState,
-    file: &OpenFile,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+fn header_left(_app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
     if file.layout == ViewLayout::Source {
         return div().into_any_element();
     }
@@ -152,15 +148,11 @@ fn header_left(
 }
 
 /// The right of the top row, before the layout pills: Ask agent.
-fn header_right(
-    _app: &AppState,
-    file: &OpenFile,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+fn header_right(_app: &AppState, file: &OpenFile, cx: &mut Context<AppState>) -> AnyElement {
     let ask_key = file.key();
-    agent::ask_button(cx.listener(move |this, _: &ClickEvent, window, cx| {
-        agent::ask(this, &ask_key, window, cx)
-    }))
+    agent::ask_button(
+        cx.listener(move |this, _: &ClickEvent, window, cx| agent::ask(this, &ask_key, window, cx)),
+    )
 }
 
 /// Why there is no picture: still compiling, errors to fix, or a type without a layout yet.
@@ -238,26 +230,38 @@ fn menu(_app: &AppState, file: &OpenFile, cx: &App) -> Vec<ViewerAction> {
             enabled: true,
             run: copy_layout,
         },
-        export_action("Save as PNG\u{2026}", has_scene, |a, k, _w, cx| save(a, k, Export::Png, cx)),
-        export_action("Save as SVG\u{2026}", has_scene, |a, k, _w, cx| save(a, k, Export::Svg, cx)),
-        export_action("Copy as PNG", has_scene, |a, k, _w, cx| copy(a, k, Export::Png, cx)),
-        export_action("Copy as SVG", has_scene, |a, k, _w, cx| copy(a, k, Export::Svg, cx)),
+        export_action("Save as PNG\u{2026}", has_scene, |a, k, _w, cx| {
+            save(a, k, Export::Png, cx)
+        }),
+        export_action("Save as SVG\u{2026}", has_scene, |a, k, _w, cx| {
+            save(a, k, Export::Svg, cx)
+        }),
+        export_action("Copy as PNG", has_scene, |a, k, _w, cx| {
+            copy(a, k, Export::Png, cx)
+        }),
+        export_action("Copy as SVG", has_scene, |a, k, _w, cx| {
+            copy(a, k, Export::Svg, cx)
+        }),
         ViewerAction {
             label: "Copy as JSON".into(),
             enabled: true,
-            run: |app, key, _window, cx| {
-                match source_of(app, key, cx) {
-                    Some((_, text)) => {
-                        cx.write_to_clipboard(ClipboardItem::new_string(text));
-                        say(app, "Diagram JSON copied.", cx);
-                    }
-                    None => say(app, "Nothing to copy.", cx),
+            run: |app, key, _window, cx| match source_of(app, key, cx) {
+                Some((_, text)) => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    say(app, "Diagram JSON copied.", cx);
                 }
+                None => say(app, "Nothing to copy.", cx),
             },
         },
-        chart_theme_action(ChartTheme::Auto, |app, _, _, cx| set_chart(app, ChartTheme::Auto, cx)),
-        chart_theme_action(ChartTheme::Dark, |app, _, _, cx| set_chart(app, ChartTheme::Dark, cx)),
-        chart_theme_action(ChartTheme::Light, |app, _, _, cx| set_chart(app, ChartTheme::Light, cx)),
+        chart_theme_action(ChartTheme::Auto, |app, _, _, cx| {
+            set_chart(app, ChartTheme::Auto, cx)
+        }),
+        chart_theme_action(ChartTheme::Dark, |app, _, _, cx| {
+            set_chart(app, ChartTheme::Dark, cx)
+        }),
+        chart_theme_action(ChartTheme::Light, |app, _, _, cx| {
+            set_chart(app, ChartTheme::Light, cx)
+        }),
     ]
 }
 
@@ -266,7 +270,11 @@ fn export_action(
     enabled: bool,
     run: fn(&mut AppState, &str, &mut Window, &mut Context<AppState>),
 ) -> ViewerAction {
-    ViewerAction { label: label.into(), enabled, run }
+    ViewerAction {
+        label: label.into(),
+        enabled,
+        run,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -323,16 +331,26 @@ fn encode(svg: String, kind: Export) -> Result<Vec<u8>, String> {
 /// "Save as ...": the native dialog, render off the UI thread, then the host writes the file.
 fn save(app: &mut AppState, key: &str, kind: Export, cx: &mut Context<AppState>) {
     let Some(svg) = svg_of(key, cx) else {
-        return say(app, "Nothing to export: the diagram has no picture yet.", cx);
+        return say(
+            app,
+            "Nothing to export: the diagram has no picture yet.",
+            cx,
+        );
     };
-    let rel = app.file(key, cx).map(|f| f.path.clone()).unwrap_or_default();
+    let rel = app
+        .file(key, cx)
+        .map(|f| f.path.clone())
+        .unwrap_or_default();
     let rel = std::path::Path::new(&rel);
     let root = app
         .project_snapshot(cx)
         .map(|s| s.record.path.clone())
         .unwrap_or_default();
     let dir = std::path::Path::new(&root).join(rel.parent().unwrap_or(std::path::Path::new("")));
-    let stem = rel.file_stem().and_then(|s| s.to_str()).unwrap_or("diagram");
+    let stem = rel
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("diagram");
     let name = format!("{stem}.{}", kind.ext());
     let chosen = cx.prompt_for_new_path(&dir, Some(&name));
     cx.spawn(async move |this, cx| {
@@ -357,7 +375,11 @@ fn save(app: &mut AppState, key: &str, kind: Export, cx: &mut Context<AppState>)
 /// "Copy as ...": SVG goes as text, PNG as an image entry once rasterised.
 fn copy(app: &mut AppState, key: &str, kind: Export, cx: &mut Context<AppState>) {
     let Some(svg) = svg_of(key, cx) else {
-        return say(app, "Nothing to export: the diagram has no picture yet.", cx);
+        return say(
+            app,
+            "Nothing to export: the diagram has no picture yet.",
+            cx,
+        );
     };
     if kind == Export::Svg {
         cx.write_to_clipboard(ClipboardItem::new_string(svg));
@@ -383,7 +405,11 @@ fn chart_theme_action(
     theme: ChartTheme,
     run: fn(&mut AppState, &str, &mut Window, &mut Context<AppState>),
 ) -> ViewerAction {
-    let tick = if crate::ui::archify::theme::chart_theme() == theme { "\u{2713} " } else { "" };
+    let tick = if crate::ui::archify::theme::chart_theme() == theme {
+        "\u{2713} "
+    } else {
+        ""
+    };
     ViewerAction {
         label: format!("{tick}Chart theme: {}", theme.label()).into(),
         enabled: true,

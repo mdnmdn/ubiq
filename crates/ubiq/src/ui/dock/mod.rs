@@ -782,10 +782,9 @@ impl Render for WorkbenchPanel {
                     || body(&kind, app, window, cx),
                 ),
                 PanelKind::Centre if app.workbench.rail_mode == crate::state::RailMode::TASKS => {
-                    crate::state::board::with_view_board(
-                        ubiq_proto::work::BoardId::DEFAULT,
-                        || body(&kind, app, window, cx),
-                    )
+                    crate::state::board::with_view_board(ubiq_proto::work::BoardId::DEFAULT, || {
+                        body(&kind, app, window, cx)
+                    })
                 }
                 _ => body(&kind, app, window, cx),
             })

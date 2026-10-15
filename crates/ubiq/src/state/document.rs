@@ -37,8 +37,7 @@ use gpui::{Entity, Subscription};
 use ubiq_proto::ids::{AnnotationId, BlockId, CommentId, ProjectId, TaskId};
 use ubiq_proto::plan::{
     Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocBinding, HighlightColour,
-    PlanBlock,
-    PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
+    PlanBlock, PlanChangeStats, PlanChangedRegion, PlanRevision, SaveOrigin,
 };
 use ubiq_proto::work::Addressee;
 

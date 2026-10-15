@@ -23,23 +23,23 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use ubiq_archify::motion::{DetailAlpha, Highlight, Overlay, OverlayStroke};
-use ubiq_archify::scene::{
-    Anchor, Cmd, Detail, GroupId, GroupKind, Layer, PathShape, PolylineShape, RectShape, Scene,
-    Shape, Stroke, TextShape, Tier,
-};
-use ubiq_archify::tokens::{self, Mode, Preset, Token};
+use crate::app::AppState;
+use crate::state::viewport::{Camera, Content, Viewport};
+use crate::theme as ubiq_theme;
+use crate::ui::kit::{choice_pill, mono, pill, popover};
+use crate::ui::viewer::viewport::surface;
 use gpui::{
     AnyElement, App, Bounds, Context, ElementId, FocusHandle, FontWeight, InteractiveElement,
     IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, PathBuilder, Pixels, Point, Rgba, Styled, TextAlign, TextRun, Window, actions,
     canvas, div, fill, point, px, size,
 };
-use crate::app::AppState;
-use crate::state::viewport::{Camera, Content, Viewport};
-use crate::theme as ubiq_theme;
-use crate::ui::kit::{choice_pill, mono, pill, popover};
-use crate::ui::viewer::viewport::surface;
+use ubiq_archify::motion::{DetailAlpha, Highlight, Overlay, OverlayStroke};
+use ubiq_archify::scene::{
+    Anchor, Cmd, Detail, GroupId, GroupKind, Layer, PathShape, PolylineShape, RectShape, Scene,
+    Shape, Stroke, TextShape, Tier,
+};
+use ubiq_archify::tokens::{self, Mode, Preset, Token};
 
 use crate::state::archify::animate::{self, RouteKey};
 use crate::state::archify::focus::{self, Click, Lit, Reach};
@@ -619,9 +619,13 @@ fn paint_scene(
         if let Shape::Rect(r) = &item.shape
             && r.fill.is_some_and(|f| f.token == Token::Mask)
         {
-            let next = scene.items.get(i + 1).filter(|n| n.layer == item.layer && n.group == item.group);
+            let next = scene
+                .items
+                .get(i + 1)
+                .filter(|n| n.layer == item.layer && n.group == item.group);
             if let Some(Shape::Text(t)) = next.map(|n| &n.shape)
-                && detail_factor(t.detail, frame.tier, frame.fade, frame.reveal.get()) < PLATE_CUTOFF
+                && detail_factor(t.detail, frame.tier, frame.fade, frame.reveal.get())
+                    < PLATE_CUTOFF
             {
                 continue;
             }
@@ -672,7 +676,10 @@ fn grid(preset: Preset, frame: &Frame, window: &mut Window) {
     let Some(style) = tokens::frame_style(preset).grid else {
         return;
     };
-    let (w, h) = (f32::from(frame.panel.size.width), f32::from(frame.panel.size.height));
+    let (w, h) = (
+        f32::from(frame.panel.size.width),
+        f32::from(frame.panel.size.height),
+    );
     let scale = frame.camera.scale;
     if scale <= 0.0 || !scale.is_finite() {
         return;
@@ -681,13 +688,23 @@ fn grid(preset: Preset, frame: &Frame, window: &mut Window) {
     while step * scale < 6.0 {
         step *= 2.0;
     }
-    let stroke = Stroke { token: Token::Grid, width: tokens::GRID_STROKE, dash: style.dash.to_vec() };
+    let stroke = Stroke {
+        token: Token::Grid,
+        width: tokens::GRID_STROKE,
+        dash: style.dash.to_vec(),
+    };
     let colour = frame.colour(Token::Grid, style.opacity);
     let px_width = frame.stroke_px(&stroke, false);
     let mut pen = frame.pen(&stroke, px_width);
     // The visible rect in vu, then the first multiple of `step` at or after each edge.
-    let (x0, x1) = (-frame.camera.offset_x / scale, (w - frame.camera.offset_x) / scale);
-    let (y0, y1) = (-frame.camera.offset_y / scale, (h - frame.camera.offset_y) / scale);
+    let (x0, x1) = (
+        -frame.camera.offset_x / scale,
+        (w - frame.camera.offset_x) / scale,
+    );
+    let (y0, y1) = (
+        -frame.camera.offset_y / scale,
+        (h - frame.camera.offset_y) / scale,
+    );
     let mut x = (x0 / step).ceil() * step;
     while x <= x1 {
         pen.move_to(frame.at([f64::from(x), f64::from(y0)]));

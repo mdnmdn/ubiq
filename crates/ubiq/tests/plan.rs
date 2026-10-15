@@ -31,7 +31,8 @@ use ubiq_proto::ids::{AnnotationId, BlockId, ProjectId, TaskId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::plan::{
     Annotation, AnnotationMark, AnnotationState, BlockHighlight, DocBinding, DocDelivery,
-    DocThreadRef, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion, SaveOrigin,
+    DocThreadRef, DocumentHandle, HighlightColour, PlanBlock, PlanChangeStats, PlanChangedRegion,
+    SaveOrigin,
 };
 use ubiq_proto::projects::{ProjectHealth, ProjectRecord, ProjectSnapshot};
 use ubiq_proto::work::{
@@ -283,11 +284,9 @@ fn open_mission_doc_asks_and_loads(cx: &mut TestAppContext) {
         said.iter()
             .any(|message| matches!(message, Message::LoadPlan { doc } if *doc == handle))
     );
-    assert!(
-        said.iter().any(
-            |message| matches!(message, Message::ListPlanAnnotations { doc, .. } if *doc == handle)
-        )
-    );
+    assert!(said.iter().any(
+        |message| matches!(message, Message::ListPlanAnnotations { doc, .. } if *doc == handle)
+    ));
     fixture.state.read_with(cx, |state, _| {
         let doc = state.workbench.plan.as_ref().expect("the modal is open");
         assert_eq!(doc.doc, handle);
@@ -1352,12 +1351,17 @@ fn editing_a_comment_round_trips(cx: &mut TestAppContext) {
     });
     fixture.state.read_with(cx, |state, _| {
         let plan = state.workbench.plan.as_ref().expect("open");
-        assert_eq!(plan.composer, Some(ComposerTarget::Edit(annotation_id, comment_id)));
+        assert_eq!(
+            plan.composer,
+            Some(ComposerTarget::Edit(annotation_id, comment_id))
+        );
         assert_eq!(plan.composer_text, "first draft");
     });
 
     // Unchanged: closes without a message.
-    fixture.with(cx, |state, window, cx| state.submit_annotation_composer(window, cx));
+    fixture.with(cx, |state, window, cx| {
+        state.submit_annotation_composer(window, cx)
+    });
     assert!(fixture.said().is_empty());
 
     fixture.with(cx, |state, window, cx| {

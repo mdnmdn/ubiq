@@ -66,16 +66,17 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         ),
     };
 
-    let mut body = div()
-        .key_context(CONTEXT)
-        .on_action(cx.listener(|this, _: &KbPasswordSubmit, window, cx| {
-            this.submit_kb_password(window, cx)
-        }))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .pt_3()
-        .child(modal_note(note));
+    let mut body =
+        div()
+            .key_context(CONTEXT)
+            .on_action(cx.listener(|this, _: &KbPasswordSubmit, window, cx| {
+                this.submit_kb_password(window, cx)
+            }))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .pt_3()
+            .child(modal_note(note));
 
     if dialog.mode.asks_current() {
         body = body.child(field(&dialog.current, window, cx));

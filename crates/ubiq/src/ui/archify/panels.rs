@@ -7,17 +7,17 @@
 
 use std::sync::Arc;
 
-use ubiq_archify::diag::{Diagnostic, Severity};
+use crate::app::AppState;
+use crate::state::editor::ViewLayout;
+use crate::theme::{self, Family, Role};
+use crate::ui::kit::{icon_button, mono, panel_header, pill};
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::input::{EditorState, Position};
 use gpui_component::{Icon, IconName, Sizable as _, Size};
-use crate::app::AppState;
-use crate::state::editor::ViewLayout;
-use crate::theme::{self, Family, Role};
-use crate::ui::kit::{icon_button, mono, panel_header, pill};
+use ubiq_archify::diag::{Diagnostic, Severity};
 
 use crate::state::archify::compiled::{self, Outcome};
 use crate::state::archify::{picture_key, ui};

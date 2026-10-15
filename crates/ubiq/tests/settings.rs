@@ -1143,7 +1143,14 @@ fn the_agents_list_is_grouped_by_scope_and_narrowed_by_tags(cx: &mut TestAppCont
     };
     assert_eq!(
         labels(cx),
-        vec!["This project", "reviewer", "", "Global", "standard", "runner"],
+        vec![
+            "This project",
+            "reviewer",
+            "",
+            "Global",
+            "standard",
+            "runner"
+        ],
         "the project's own first, then the global ones"
     );
 

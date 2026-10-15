@@ -24,9 +24,9 @@
 
 use std::cell::{Cell, RefCell};
 
-use ubiq_archify::tokens::{self, Mode, Preset, Token};
-use gpui::Rgba;
 use crate::theme as ubiq_theme;
+use gpui::Rgba;
+use ubiq_archify::tokens::{self, Mode, Preset, Token};
 
 thread_local! {
     /// The preset the next paint resolves in. GPUI renders and paints on the main thread, in turn.
@@ -68,7 +68,10 @@ impl ChartTheme {
 
     /// Anything unknown is `Auto`.
     pub fn parse(s: &str) -> ChartTheme {
-        Self::ALL.into_iter().find(|t| t.as_str() == s).unwrap_or(ChartTheme::Auto)
+        Self::ALL
+            .into_iter()
+            .find(|t| t.as_str() == s)
+            .unwrap_or(ChartTheme::Auto)
     }
 }
 
@@ -123,7 +126,10 @@ pub fn css(c: Rgba) -> String {
 
 /// The active chart theme's palette for a diagram in `preset`.
 pub fn chart_palette(preset: Preset) -> ChartPalette {
-    ChartPalette { mode: chart_mode(), preset }
+    ChartPalette {
+        mode: chart_mode(),
+        preset,
+    }
 }
 
 /// The Ubiq palette the classic chrome tokens read in `mode`: the current theme, or its
@@ -287,12 +293,21 @@ mod tests {
         assert_eq!(ground(Preset::Editorial), data(tokens::EDITORIAL_DARK.mask));
         assert_ne!(ground(Preset::Blueprint), ground(Preset::Editorial));
         let text = |p| resolve_in(Token::Text, Mode::Light, p);
-        assert_eq!(text(Preset::SignalFlow), data(tokens::SIGNAL_FLOW_LIGHT.text));
+        assert_eq!(
+            text(Preset::SignalFlow),
+            data(tokens::SIGNAL_FLOW_LIGHT.text)
+        );
         // Classic takes the Ubiq ground, whatever the table says.
-        assert_eq!(resolve_in(Token::Bg, Mode::Dark, Preset::Classic), ubiq_theme::pane_bg());
+        assert_eq!(
+            resolve_in(Token::Bg, Mode::Dark, Preset::Classic),
+            ubiq_theme::pane_bg()
+        );
         // The brand ink is the vendor's colour in every preset.
         let ink = Token::BrandInk(0x18bfff);
-        assert_eq!(resolve_in(ink, Mode::Dark, Preset::Blueprint), resolve_in(ink, Mode::Dark, Preset::Classic));
+        assert_eq!(
+            resolve_in(ink, Mode::Dark, Preset::Blueprint),
+            resolve_in(ink, Mode::Dark, Preset::Classic)
+        );
     }
 
     #[test]
@@ -306,7 +321,10 @@ mod tests {
         set_chart_theme(ChartTheme::Dark);
         assert_eq!(chart_mode(), Mode::Dark);
         let p = chart_palette(Preset::Classic);
-        assert_eq!(p.resolve(Token::Bg), resolve_in(Token::Bg, Mode::Dark, Preset::Classic));
+        assert_eq!(
+            p.resolve(Token::Bg),
+            resolve_in(Token::Bg, Mode::Dark, Preset::Classic)
+        );
         set_chart_theme(ChartTheme::Auto);
     }
 

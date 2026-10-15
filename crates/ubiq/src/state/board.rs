@@ -250,7 +250,9 @@ impl Boards {
     pub fn apply(&mut self, list: Vec<BoardInfo>) -> bool {
         self.named.retain(|id, _| list.iter().any(|b| b.id == *id));
         for info in list.iter().filter(|b| !b.id.is_default()) {
-            self.named.entry(info.id.clone()).or_insert_with(WorkProjection::empty);
+            self.named
+                .entry(info.id.clone())
+                .or_insert_with(WorkProjection::empty);
         }
         self.list = list;
         let gone = !self.active.is_default()

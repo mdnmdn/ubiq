@@ -10,16 +10,16 @@
 
 use std::sync::Arc;
 
-use ubiq_archify::scene::{GroupKind, Scene};
-use ubiq_archify::tokens::{Kind, Token};
+use crate::app::{AppState, DialogCancel};
+use crate::ui::kit::{Picker, PickerStyle};
+use crate::ui::{handler, indexed};
 use gpui::{
     Anchor, AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Styled,
     Window, div, px,
 };
 use gpui_component::input::InputEvent;
-use crate::app::{AppState, DialogCancel};
-use crate::ui::kit::{Picker, PickerStyle};
-use crate::ui::{handler, indexed};
+use ubiq_archify::scene::{GroupKind, Scene};
+use ubiq_archify::tokens::{Kind, Token};
 
 use crate::state::archify::focus::Reach;
 use crate::state::archify::motion::Framing;
@@ -50,7 +50,9 @@ pub fn entries(scene: &Scene, query: &str) -> Vec<Entry> {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
     let mut found: Vec<(u8, Entry)> = Vec::new();
     for g in scene.groups.iter().filter(|g| g.kind == GroupKind::Node) {
-        let Some(node) = g.node_id.clone() else { continue };
+        let Some(node) = g.node_id.clone() else {
+            continue;
+        };
         let kind = g.node_kind;
         let hay = [
             Some(node.as_str()),
@@ -83,11 +85,27 @@ pub fn entries(scene: &Scene, query: &str) -> Vec<Entry> {
         .flatten()
         .collect::<Vec<_>>()
         .join(" \u{b7} ");
-        let label = if g.label.is_empty() { node.clone() } else { g.label.clone() };
-        found.push((rank, Entry { node, label, detail, kind }));
+        let label = if g.label.is_empty() {
+            node.clone()
+        } else {
+            g.label.clone()
+        };
+        found.push((
+            rank,
+            Entry {
+                node,
+                label,
+                detail,
+                kind,
+            },
+        ));
     }
     found.sort_by_key(|(rank, _)| *rank);
-    found.into_iter().take(MAX_RESULTS).map(|(_, e)| e).collect()
+    found
+        .into_iter()
+        .take(MAX_RESULTS)
+        .map(|(_, e)| e)
+        .collect()
 }
 
 // --------------------------------------------------------------------------------------------- //
@@ -104,11 +122,15 @@ pub fn open(app: &mut AppState, key: &str, window: &mut Window, cx: &mut Context
     });
     ui(cx).view(key).finder = true;
     if !std::mem::replace(&mut ui(cx).finder_bound, true) {
-        cx.subscribe_in(&search, window, |this, _, event: &InputEvent, window, cx| {
-            if matches!(event, InputEvent::PressEnter { .. }) {
-                enter(this, window, cx);
-            }
-        })
+        cx.subscribe_in(
+            &search,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    enter(this, window, cx);
+                }
+            },
+        )
         .detach();
     }
     cx.notify();
@@ -148,8 +170,12 @@ pub fn choose(
 
 /// Enter in the filter field: the first row.
 fn enter(app: &mut AppState, window: &mut Window, cx: &mut Context<AppState>) {
-    let Some(key) = ui(cx).open_finder() else { return };
-    let Some(scene) = scene_of(&key, cx) else { return };
+    let Some(key) = ui(cx).open_finder() else {
+        return;
+    };
+    let Some(scene) = scene_of(&key, cx) else {
+        return;
+    };
     let query = app.picker_search.read(cx).value().to_string();
     if let Some(first) = entries(&scene, &query).into_iter().next() {
         choose(app, &key, first.node, window, cx);
@@ -174,7 +200,11 @@ pub fn view(
     }
     let query = app.picker_search.read(cx).value().to_string();
     let found = entries(scene, &query);
-    let focused = app.picker_search.read(cx).focus_handle(cx).is_focused(window);
+    let focused = app
+        .picker_search
+        .read(cx)
+        .focus_handle(cx)
+        .is_focused(window);
     let entity = cx.entity();
     let nodes: Vec<String> = found.iter().map(|e| e.node.clone()).collect();
     let (pick_key, dismiss_key, cancel_key) = (key.to_string(), key.to_string(), key.to_string());
@@ -226,8 +256,20 @@ mod tests {
             s.groups.push(g);
         };
         node("web", Kind::Frontend, "Web app", None, &["public"]);
-        node("api", Kind::Backend, "Orders API", Some("Platform \u{203a} Core"), &[]);
-        node("orders-db", Kind::Database, "Orders store", Some("Platform"), &["pii"]);
+        node(
+            "api",
+            Kind::Backend,
+            "Orders API",
+            Some("Platform \u{203a} Core"),
+            &[],
+        );
+        node(
+            "orders-db",
+            Kind::Database,
+            "Orders store",
+            Some("Platform"),
+            &["pii"],
+        );
         node("proxy", Kind::Backend, "Billing auth proxy", None, &[]);
         node("auth", Kind::Security, "Auth", None, &["public"]);
         s.groups.push(Group::new(GroupKind::Frame, "frame-x", b));
@@ -241,16 +283,27 @@ mod tests {
     #[test]
     fn an_empty_query_lists_every_node_and_no_frame() {
         let s = scene();
-        assert_eq!(ids(&entries(&s, "")), ["web", "api", "orders-db", "proxy", "auth"]);
+        assert_eq!(
+            ids(&entries(&s, "")),
+            ["web", "api", "orders-db", "proxy", "auth"]
+        );
         assert_eq!(entries(&s, "   ").len(), 5);
     }
 
     #[test]
     fn every_word_must_match_the_label_id_kind_context_or_a_tag() {
         let s = scene();
-        assert_eq!(ids(&entries(&s, "orders")), ["api", "orders-db"], "by label or id");
+        assert_eq!(
+            ids(&entries(&s, "orders")),
+            ["api", "orders-db"],
+            "by label or id"
+        );
         assert_eq!(ids(&entries(&s, "orders api")), ["api"]);
-        assert_eq!(ids(&entries(&s, "DATABASE")), ["orders-db"], "by kind, ignoring case");
+        assert_eq!(
+            ids(&entries(&s, "DATABASE")),
+            ["orders-db"],
+            "by kind, ignoring case"
+        );
         assert_eq!(ids(&entries(&s, "core")), ["api"], "by context");
         assert_eq!(ids(&entries(&s, "public")), ["web", "auth"], "by tag");
         assert!(entries(&s, "nothing here").is_empty());
@@ -282,7 +335,12 @@ mod tests {
     fn the_list_is_capped() {
         let mut s = Scene::default();
         for i in 0..100 {
-            s.groups.push(Group::node(&format!("n{i}"), Kind::Backend, "n", Bounds::new(0.0, 0.0, 1.0, 1.0)));
+            s.groups.push(Group::node(
+                &format!("n{i}"),
+                Kind::Backend,
+                "n",
+                Bounds::new(0.0, 0.0, 1.0, 1.0),
+            ));
         }
         assert_eq!(entries(&s, "").len(), MAX_RESULTS);
     }

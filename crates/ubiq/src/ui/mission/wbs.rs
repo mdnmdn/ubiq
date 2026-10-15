@@ -278,7 +278,16 @@ fn graph(
         };
         board.block(
             (spot.0, spot.1, NODE.0, NODE.1),
-            node(work, task, arranged, view, marks, (spot.0, spot.1), zoom, cx),
+            node(
+                work,
+                task,
+                arranged,
+                view,
+                marks,
+                (spot.0, spot.1),
+                zoom,
+                cx,
+            ),
         );
     }
 

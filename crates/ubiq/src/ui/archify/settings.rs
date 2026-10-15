@@ -7,13 +7,13 @@
 //! state: the camera is instant (`motion.rs`, P7.2) and so are the fades, and the comets are static
 //! (`animate.rs`, P7.3).
 
-use gpui::{AnyElement, Context, IntoElement, Window};
-use gpui_component::{Icon, IconName};
 use crate::app::AppState;
 use crate::ext::settings::{SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec};
 use crate::ext::{Registry, ids};
 use crate::ui::eid;
 use crate::ui::kit::{check_box, choice_pill, column, heading, setting_row};
+use gpui::{AnyElement, Context, IntoElement, Window};
+use gpui_component::{Icon, IconName};
 
 use crate::state::archify::ui;
 

@@ -241,11 +241,7 @@ fn branch_picker(app: &AppState, window: &Window, cx: &mut Context<AppState>) ->
 /// about, so this row and a commit row are the same choice. `lanes` is the graph's width, the same
 /// count every commit row below it draws with, so a wide graph does not misalign this row's own
 /// columns against theirs.
-fn uncommitted_row(
-    app: &AppState,
-    lanes: usize,
-    cx: &mut Context<AppState>,
-) -> Option<AnyElement> {
+fn uncommitted_row(app: &AppState, lanes: usize, cx: &mut Context<AppState>) -> Option<AnyElement> {
     let selected = app
         .git_view(cx)
         .map(|git| git.selected_commit.is_none())
@@ -258,24 +254,26 @@ fn uncommitted_row(
         return None;
     }
 
-    Some(row_base("git-commit-uncommitted", selected)
-        .child(div().w(px(gutter_width(lanes))).flex_none())
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .truncate()
-                .text_size(theme::font(Family::Chrome, Role::Body))
-                .text_color(theme::text())
-                .child(format!("Uncommitted changes ({changed})")),
-        )
-        .child(div().w(px(AUTHOR_COL)).flex_none())
-        .child(div().w(px(WHEN_COL)).flex_none().child(
-            mono("now", theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
-        ))
-        .child(div().w(px(SHA_COL)).flex_none())
-        .on_click(cx.listener(|this, _, _, cx| this.show_git_changes(cx)))
-        .into_any_element())
+    Some(
+        row_base("git-commit-uncommitted", selected)
+            .child(div().w(px(gutter_width(lanes))).flex_none())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_size(theme::font(Family::Chrome, Role::Body))
+                    .text_color(theme::text())
+                    .child(format!("Uncommitted changes ({changed})")),
+            )
+            .child(div().w(px(AUTHOR_COL)).flex_none())
+            .child(div().w(px(WHEN_COL)).flex_none().child(
+                mono("now", theme::text_faint()).text_size(theme::font(Family::Chrome, Role::Meta)),
+            ))
+            .child(div().w(px(SHA_COL)).flex_none())
+            .on_click(cx.listener(|this, _, _, cx| this.show_git_changes(cx)))
+            .into_any_element(),
+    )
 }
 
 /// One commit: its lane graph, whatever points at it, its summary, who wrote it, when, and its

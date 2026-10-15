@@ -1562,9 +1562,7 @@ fn grow_field(
                 .w_full()
                 .text_size(theme::font(Family::Chrome, Role::Body)),
         )
-        .on_action(cx.listener(move |this, _: &SubmitSearch, window, cx| {
-            submit(this, window, cx)
-        }))
+        .on_action(cx.listener(move |this, _: &SubmitSearch, window, cx| submit(this, window, cx)))
 }
 
 /// The field a sub-task is renamed in, shown in place of its title.

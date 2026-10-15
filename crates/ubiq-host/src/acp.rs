@@ -98,9 +98,9 @@ pub(crate) fn check(root: &Path, commands: &BTreeMap<String, String>) -> Message
             refreshed.registry,
             match refreshed.source {
                 acp_registry::Source::Fresh => None,
-                acp_registry::Source::Cached(why) => {
-                    Some(format!("Showing the cached registry \u{2014} the fetch failed: {why}"))
-                }
+                acp_registry::Source::Cached(why) => Some(format!(
+                    "Showing the cached registry \u{2014} the fetch failed: {why}"
+                )),
             },
         ),
         Err(error) => {
@@ -180,7 +180,10 @@ pub(crate) fn install(root: &Path, id: &str, commands: &BTreeMap<String, String>
 
 fn run_install(root: &Path, id: &str, commands: &BTreeMap<String, String>) -> (bool, String) {
     let Some(registry) = acp_registry::load_cached(&cache_dir(root)) else {
-        return (false, "no cached ACP registry \u{2014} check first".to_string());
+        return (
+            false,
+            "no cached ACP registry \u{2014} check first".to_string(),
+        );
     };
     let path = crate::shells::user_path();
     let Some(words) = detect(&registry, commands, path)
@@ -272,7 +275,11 @@ fn run_with_timeout(
 
 /// The last `lines` non-empty lines of `text`.
 fn tail(text: &str, lines: usize) -> String {
-    let all: Vec<&str> = text.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect();
+    let all: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        .collect();
     all[all.len().saturating_sub(lines)..].join("\n")
 }
 

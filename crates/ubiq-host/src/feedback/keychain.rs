@@ -12,7 +12,8 @@ pub const ACCOUNT: &str = "intake-key";
 /// The stored override: `Ok(None)` when there is none (absent or empty), `Err` when the keychain
 /// could not say — a state the caller must not read as "no override", and should retry.
 pub fn load() -> Result<Option<String>, String> {
-    let unread = |error: keyring::Error| format!("the feedback key was not read from the keychain: {error}");
+    let unread =
+        |error: keyring::Error| format!("the feedback key was not read from the keychain: {error}");
     let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(unread)?;
     match entry.get_password() {
         Ok(key) => Ok(Some(key).filter(|key| !key.is_empty())),

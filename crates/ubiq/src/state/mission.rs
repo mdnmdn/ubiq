@@ -101,7 +101,9 @@ impl MissionMenuRow {
     pub fn enabled(self, phase: Phase) -> bool {
         match self {
             MissionMenuRow::PauseResume => matches!(phase, Phase::Running | Phase::Paused),
-            MissionMenuRow::Replan => matches!(phase, Phase::Running | Phase::Paused | Phase::Review),
+            MissionMenuRow::Replan => {
+                matches!(phase, Phase::Running | Phase::Paused | Phase::Review)
+            }
             MissionMenuRow::OpenOnBoard => true,
             MissionMenuRow::Complete | MissionMenuRow::Abandon => {
                 !matches!(phase, Phase::Done | Phase::Abandoned)

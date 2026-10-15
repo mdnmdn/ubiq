@@ -231,7 +231,10 @@ impl AppState {
     /// Back under the modal: the title field takes the keyboard again.
     fn focus_feedback_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.workbench.feedback.is_some() {
-            self.feedback_title_input.read(cx).focus_handle(cx).focus(window, cx);
+            self.feedback_title_input
+                .read(cx)
+                .focus_handle(cx)
+                .focus(window, cx);
         }
     }
 

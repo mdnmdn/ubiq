@@ -53,7 +53,12 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
     // saving that definition back over itself.
     let savable = matches!(form.target, Some(Target::Harness { .. }));
 
-    let mut actions = div().flex().flex_wrap().items_center().justify_end().gap_2();
+    let mut actions = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_end()
+        .gap_2();
     if savable {
         actions = actions.child(ghost_button(
             "new-agent-save-definition",
@@ -283,7 +288,10 @@ pub fn policies_modal(
                         .h(px(30.))
                         .flex_1()
                         .px_2()
-                        .child(gpui_component::input::Input::new(&app.new_agent_grant_input).appearance(false)),
+                        .child(
+                            gpui_component::input::Input::new(&app.new_agent_grant_input)
+                                .appearance(false),
+                        ),
                 )
                 .child(ghost_button(
                     "new-agent-grant-add",

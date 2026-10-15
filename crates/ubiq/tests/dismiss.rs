@@ -387,7 +387,9 @@ fn a_list_going_down_gives_the_form_the_keyboard(cx: &mut gpui::TestAppContext) 
 
     handle
         .update(cx, |_, window, cx| {
-            state.update(cx, |state, cx| state.open_new_agent(Default::default(), window, cx));
+            state.update(cx, |state, cx| {
+                state.open_new_agent(Default::default(), window, cx)
+            });
         })
         .expect("the window is open");
     cx.run_until_parked();

@@ -1525,7 +1525,11 @@ mod tests {
         let project_dir = tempfile::tempdir().unwrap();
         let root = project_dir.path().canonicalize().unwrap();
         std::fs::create_dir_all(root.join("docs")).unwrap();
-        std::fs::write(root.join("docs/spec.md"), "# Spec\n\nStep one.\n\nStep two.\n").unwrap();
+        std::fs::write(
+            root.join("docs/spec.md"),
+            "# Spec\n\nStep one.\n\nStep two.\n",
+        )
+        .unwrap();
 
         let (hub, host) = bus::hub();
         let registry = Registry::new();
@@ -1587,7 +1591,11 @@ mod tests {
         assert_eq!(found["documents"][0]["path"], "docs/spec.md");
         assert_eq!(found["documents"][0]["open"], 1);
 
-        let listed = answered(&call(&url, "list_annotations", json!({"path": "docs/spec.md"})));
+        let listed = answered(&call(
+            &url,
+            "list_annotations",
+            json!({"path": "docs/spec.md"}),
+        ));
         assert_eq!(listed["path"], "docs/spec.md");
         let annotation = &listed["annotations"][0];
         assert_eq!(annotation["block_text"], "Step two.");
@@ -1611,7 +1619,10 @@ mod tests {
             json!({"path": "docs/spec.md", "body": body, "expected_revision": revision}),
         ));
         assert_eq!(written["body"], body);
-        assert_eq!(std::fs::read_to_string(root.join("docs/spec.md")).unwrap(), body);
+        assert_eq!(
+            std::fs::read_to_string(root.join("docs/spec.md")).unwrap(),
+            body
+        );
 
         let resolved = answered(&call(
             &url,
@@ -1691,7 +1702,10 @@ mod tests {
         );
         assert_eq!(refused["result"]["isError"], true);
         let said = refused["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(said.contains(&owner.to_string()) && said.contains("ask the user"), "{said}");
+        assert!(
+            said.contains(&owner.to_string()) && said.contains("ask the user"),
+            "{said}"
+        );
         assert_eq!(
             std::fs::read_to_string(root.join("spec.md")).unwrap(),
             "# Spec\n\nStep one.\n",
