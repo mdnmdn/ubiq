@@ -402,6 +402,22 @@ impl AppState {
             return;
         };
         let purpose = form.purpose;
+        // A definition form picks its harness through this same row, and must keep everything
+        // that is not the harness's: the scope it was opened in, the name it renames from, the
+        // agent prompt, the description, the tags, the servers and folders. Rebuilding it from
+        // defaults (what a *start* does, below) turned a project definition global, made an edit
+        // a copy and emptied the prompt. The harness's own answers are dropped as for any pair.
+        if purpose == Purpose::AgentDefinition
+            && let Target::Harness {
+                agent_type,
+                account,
+            } = &target
+        {
+            let (agent_type, account) = (agent_type.clone(), account.clone());
+            form.target = Some(target.clone());
+            self.pick_new_agent_pair(agent_type, account, window, cx);
+            return;
+        }
         // The tab is the question being asked, not part of the answer: picking on one must not
         // move the form to the other. A customization belongs to the answer it was made against,
         // so it goes with the answer.

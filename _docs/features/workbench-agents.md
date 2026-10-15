@@ -180,6 +180,11 @@ the two drift apart. Picking an agent definition as the target fills every row b
 `Save agent definition` on a start form writes the answers back out under a name the window's prompt asks
 for, offered only when the target is a bare harness — saving a start that already points at a
 agent definition would be writing that agent definition over itself. Changing the name of a
+definition form picks its harness through the same target row a start does, and that pick keeps the
+form's scope, name, agent prompt, description, tags, servers and folders — only what the harness owns
+(model, level, mode) is dropped; the definition is written into the project the form was opened from
+(a new one from a project's settings is that project's, from the app's settings global). Changing the
+name of a
 definition opened for editing renames it (`NewAgentForm::original_id` rides out as
 `SaveAgentDefinition::replaces`) rather than leaving a copy, and is refused when the new name is
 taken. What names the old one follows: the host rewrites `extends` in the definition stores and every

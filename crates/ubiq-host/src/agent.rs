@@ -3125,6 +3125,44 @@ mod tests {
         assert_eq!(agents.definitions().unwrap().len(), 1, "the global stands");
     }
 
+    /// A save lands in the scope the definition names and nowhere else, and what the form owns —
+    /// the harness above all — always comes from the save, over whatever the stored record held.
+    #[test]
+    fn a_save_lands_in_its_scope_and_the_form_owns_the_harness() {
+        let root = tempfile::TempDir::new().unwrap();
+        let agents = with_a_harness(root.path());
+        let project = ProjectId::generate();
+
+        agents
+            .save_definition(AgentDefinition {
+                project: Some(project),
+                prompt: Some("be brief".to_string()),
+                ..a_definition("mine")
+            })
+            .unwrap();
+        assert!(agents.definitions().unwrap().is_empty(), "not global");
+        assert_eq!(agents.project_definitions(project).unwrap().len(), 1);
+
+        let store = agents.project_definition_store(project);
+        let mut record = store.profile("mine").unwrap().unwrap();
+        record.extends = Some("base".to_string());
+        store.save(&record).unwrap();
+
+        agents
+            .save_definition(AgentDefinition {
+                project: Some(project),
+                agent_type: "codex".to_string(),
+                prompt: Some("be brief".to_string()),
+                ..a_definition("mine")
+            })
+            .unwrap();
+        let saved = store.profile("mine").unwrap().unwrap();
+        assert_eq!(saved.harness.as_deref(), Some("codex"));
+        assert_eq!(saved.defaults.prompt.as_deref(), Some("be brief"));
+        assert_eq!(saved.extends.as_deref(), Some("base"), "kept: not a form field");
+        assert!(agents.definitions().unwrap().is_empty());
+    }
+
     fn a_definition(id: &str) -> AgentDefinition {
         AgentDefinition {
             id: id.to_string(),

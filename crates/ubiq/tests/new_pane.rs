@@ -921,3 +921,72 @@ fn starting_in_a_terminal_with_an_unavailable_harness_sends_nothing(cx: &mut Tes
         "a refused start must leave the form up rather than silently dismissing it"
     );
 }
+
+// ── the agent definition form keeps what is not the harness's ─────────────────────
+
+/// Picking the harness on a definition form is a pair pick, not a start's rebuild: the project
+/// the definition lives in, the name it renames from and what it is for all ride out on the save.
+#[gpui::test]
+fn picking_a_harness_on_a_definition_form_keeps_its_scope_and_words(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    fixture.answer_agent_types(
+        vec![
+            an_agent("claude-code", "Claude Code", true),
+            an_agent("codex", "Codex", true),
+        ],
+        cx,
+    );
+    let _ = fixture.said();
+    let project = fixture.project;
+    let definition = ubiq_proto::messages::AgentDefinition {
+        id: "mine".to_string(),
+        description: Some("for reviews".to_string()),
+        agent_type: "claude-code".to_string(),
+        account: None,
+        model: None,
+        mode: None,
+        thinking: None,
+        max_subagents: None,
+        prompt: Some("be brief".to_string()),
+        mcps: Vec::new(),
+        skills: Vec::new(),
+        mission_assistant: None,
+        tags: vec!["reviewer".to_string()],
+        disabled: false,
+        project: Some(project),
+        grants: Vec::new(),
+    };
+
+    fixture
+        .window
+        .update(cx, |_, window, cx| {
+            fixture.state.update(cx, |state, cx| {
+                state.open_definition_form(Some(definition), None, window, cx);
+                state.pick_new_agent_target(
+                    Target::Harness {
+                        agent_type: "codex".to_string(),
+                        account: None,
+                    },
+                    window,
+                    cx,
+                );
+                state.save_new_agent_definition(cx);
+            });
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+
+    let saved = fixture
+        .said()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::SaveAgentDefinition { definition, .. } => Some(definition),
+            _ => None,
+        })
+        .expect("saving asks the host to write the definition");
+    assert_eq!(saved.agent_type, "codex");
+    assert_eq!(saved.project, Some(project), "still the project's");
+    assert_eq!(saved.prompt.as_deref(), Some("be brief"));
+    assert_eq!(saved.description.as_deref(), Some("for reviews"));
+    assert_eq!(saved.tags, vec!["reviewer".to_string()]);
+}
