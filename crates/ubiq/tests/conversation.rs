@@ -1570,6 +1570,28 @@ fn a_row_is_its_measurement_until_its_content_moves_and_then_its_last_one() {
     );
 }
 
+/// A row measured while its markdown body was still being parsed keeps that height — it is the
+/// best one there is — but is not settled by it: its content signature has not moved, and the
+/// frame the parse lands on still has to measure it, or the row keeps the previous parse's
+/// height and the next row draws over its last lines.
+#[test]
+fn a_row_measured_mid_parse_is_measured_again_until_a_settled_measurement() {
+    let scroll = TranscriptScroll::default();
+
+    assert!(scroll.measured_unsettled(7, 1, px(60.)), "first sight is news");
+    assert_eq!(scroll.row_height(7, px(40.)), px(60.), "the provisional height is used");
+    assert!(
+        scroll.needs_measure(7, 1),
+        "and the same content still asks to be measured"
+    );
+
+    assert!(
+        scroll.measured(7, 1, px(93.)),
+        "the parse landed: the row grew and is drawn again"
+    );
+    assert!(!scroll.needs_measure(7, 1), "now it is settled");
+}
+
 /// A window whose only content is one conversation, drawn with whichever `header` the test wants —
 /// standing in for the agents column (`header: true`) and the chat panel (`header: false`) without
 /// dragging in either surface's own dock plumbing.

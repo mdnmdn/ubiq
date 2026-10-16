@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-12
-verified: 2026-10-12
+updated: 2026-10-16
+verified: 2026-10-16
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -148,14 +148,23 @@ is in the viewport.
 **Heights are remembered.** `TranscriptScroll` keys measured heights by row *identity* (a fold opening moves
 every row below it) against the content, the width and the conversation family's body size. Unchanged is its
 measurement; changed is its *last*; never drawn is an estimate (a line per eighty characters). The last two
-are re-measured by the frame that draws them. The plan also records which block each row stands for, so the
+are re-measured by the frame that draws them. A tool card's signature carries its content's size in bytes,
+not only its count of entries, so output growing inside an entry re-measures the card. **An agent body is
+measured against its own parse**: `TranscriptScroll` owns each visible body's `TextViewState` (`body`,
+evicted the frame after it is not drawn), because a streamed append — and any body over gpui-component's
+4 KB synchronous limit — is parsed in the background and lands a frame or more after the row was measured.
+While a body's committed parse trails its text (`body_settling`) the row's height is stored as provisional
+(`measured_unsettled`) and measured again; the parse's commit redraws the window, and that frame settles it.
+A row already settled at its signature keeps its height while it re-parses after scrolling back into view,
+rather than collapsing to the empty parse. The plan also records which block each row stands for, so the
 strip above can resolve a block to a row. **Every row is `w_full`** (`build_row`): the list lays a row out as a
 root of its own, and a root with no width is as wide as its content's min-content — for markdown, the longest
 line unwrapped — so a message ran past the panel's edge and left a blank band where its box and its wrapping
 disagreed.
 
 **A forced re-measure runs on a timer** underneath `needs_measure`'s signature check, because a long busy
-conversation's rows drift in a way no signature explains (a resize always fixes it).
+conversation's rows drifted in a way no signature explained (a resize always fixes it) — the parse lag and
+the tool-content size above were the causes found.
 `TranscriptScroll::force_relayout` asks the next frame to re-measure unconditionally; `AppState::new`
 (`app/boot.rs`) ticks one per composer slot every four seconds for the window's life, but asks only when the transcript's
 rows (identity and signature, noted per frame by `note_rows`) changed since the last forced pass — a quiet

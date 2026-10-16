@@ -830,11 +830,27 @@ fn block_shape(block: &ConvBlock) -> (u64, Pixels) {
         }
         ConvBlock::Tool { call, open } => {
             let len = call.title.len() + call.content.len();
+            // What an open card draws under its header, in bytes: a call's output can grow inside
+            // an entry it already had — a terminal's text, an edit's new side — without the count
+            // of entries moving, and a signature that read only the count kept the shorter card.
+            let body: usize = call
+                .content
+                .iter()
+                .map(|item| match item {
+                    ToolContent::Text(text) => text.len(),
+                    ToolContent::Diff {
+                        path,
+                        old_text,
+                        new_text,
+                    } => path.len() + old_text.as_ref().map_or(0, String::len) + new_text.len(),
+                })
+                .sum();
             (
                 len,
                 hashed((
                     len,
                     call.content.len(),
+                    body,
                     *open,
                     std::mem::discriminant(&call.status),
                 )),
@@ -1136,6 +1152,7 @@ fn build_row(
     preview: Option<&AttachmentPreview>,
     view: &ConversationView,
     root: &gpui::Entity<AppState>,
+    scroll: Option<&TranscriptScroll>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let inner = match &row.kind {
@@ -1149,6 +1166,7 @@ fn build_row(
                 preview,
                 view,
                 root,
+                scroll.map(|scroll| (scroll, row.key)),
                 cx,
             ),
             None => div().into_any_element(),
@@ -1213,6 +1231,7 @@ fn one_block(
     preview: Option<&AttachmentPreview>,
     view: &ConversationView,
     root: &gpui::Entity<AppState>,
+    body_cache: Option<(&TranscriptScroll, u64)>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     match block {
@@ -1223,19 +1242,26 @@ fn one_block(
             let turn = user_turn(id, ix, text, files, preview, view, cx);
             copyable(view, ix, text, turn)
         }
-        ConvBlock::Agent { body, .. } => copyable(
-            view,
-            ix,
-            body,
+        ConvBlock::Agent { body, .. } => {
             // The body as a `SharedString` the conversation keeps: a streaming tail is copied when
             // it grows rather than every time this frame builds it.
-            TextView::markdown(
-                view.eid(&format!("md-{ix}")),
-                conversation.markdown(ix, body),
+            let text = conversation.markdown(ix, body);
+            // The markdown state lives on the slot's height cache where there is one, so the
+            // cache can tell a measurement taken before the body's parse landed (see
+            // `TranscriptScroll::body_settling`).
+            let markdown = match body_cache {
+                Some((scroll, key)) => TextView::new(&scroll.body(key, &text, cx)),
+                None => TextView::markdown(view.eid(&format!("md-{ix}")), text),
+            };
+            copyable(
+                view,
+                ix,
+                body,
+                markdown
+                    .on_link_click(crate::ui::on_link(root.clone(), None))
+                    .into_any_element(),
             )
-            .on_link_click(crate::ui::on_link(root.clone(), None))
-            .into_any_element(),
-        ),
+        }
         // A run of one. The plan draws every thinking block through `RowKind::Thinking`, so this
         // is the arm for a thought reached some other way — the same box, standing for itself.
         ConvBlock::Thought { open, .. } => thought_group(conversation, id, &[ix], *open, view, cx),
@@ -1402,6 +1428,7 @@ fn transcript(
             (id, conversation.viewing_subagent().map(str::to_string)),
             tail_signature(conversation, &visible),
         );
+        scroll.begin_frame();
     }
 
     // Which transcript these rows belong to, and at what width and type size. The first keeps a
@@ -1494,11 +1521,18 @@ fn transcript(
                     preview,
                     &building,
                     &entity,
+                    scroll,
                     cx,
                 );
+                // A body whose markdown parse has not landed lays out at the previous parse's
+                // height, under a signature that already names the new text — so it is measured
+                // provisionally, and again on the frame the parse commits. A body settled at
+                // this signature, mid-reparse after scrolling back into view, keeps its height
+                // rather than collapsing to the empty parse, forced pass or not.
+                let settling = scroll.is_some_and(|scroll| scroll.body_settling(row.key, cx));
                 if let Some(scroll) = scroll
                     && width > px(0.)
-                    && (forced || scroll.needs_measure(row.key, row.sig))
+                    && (scroll.needs_measure(row.key, row.sig) || (forced && !settling))
                 {
                     let before = scroll.cached(row.key);
                     let measured = element.layout_as_root(
@@ -1509,7 +1543,11 @@ fn transcript(
                         window,
                         cx,
                     );
-                    again |= scroll.measured(row.key, row.sig, measured.height);
+                    again |= if settling {
+                        scroll.measured_unsettled(row.key, row.sig, measured.height)
+                    } else {
+                        scroll.measured(row.key, row.sig, measured.height)
+                    };
                     // The diagnostic for a transcript that cannot reach its own end: a row whose
                     // signature never moved but whose height did is a height the cache had no way
                     // to invalidate. Only a forced pass re-measures such a row, so only a forced

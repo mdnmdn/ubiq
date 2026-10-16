@@ -16,8 +16,9 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use std::sync::Arc;
 
-use gpui::{Pixels, SharedString, px};
+use gpui::{App, AppContext as _, Context, Entity, Pixels, SharedString, Subscription, px};
 use gpui_component::VirtualListScrollHandle;
+use gpui_component::text::TextViewState;
 use ubiq_proto::conversation::{
     ConfigOption, ConfigValue, ConvContent, ConvUpdate, PermissionOption, PlanEntry,
     RateLimitRecord, StopReason, Subagent, TokenSpend, ToolCallPatch, ToolCallRecord, ToolStatus,
@@ -1655,7 +1656,33 @@ pub struct TranscriptScroll {
     /// periodic timer change-driven: a quiet transcript is re-measured once after its last
     /// change, then left alone.
     dirty: Cell<bool>,
+    /// The markdown state behind every agent body drawn in the last frame, keyed by row identity.
+    ///
+    /// **Owned here so the height cache can see when a body's parse lands.** A `TextView` parses
+    /// streamed appends (and any body over 4 KiB) on a background thread and commits the result a
+    /// frame or more later, so the frame that measured the row measured the *previous* parse. The
+    /// signature cannot tell — the text it hashes has not moved since — and the row kept a height
+    /// one paragraph short, which the next row then drew over until a resize re-measured it.
+    /// [`Self::body_settling`] is that missing signal.
+    bodies: RefCell<HashMap<u64, Body>>,
+    /// The frame counter [`Self::bodies`] is evicted against: a body not drawn in the previous
+    /// frame is dropped, the life a `TextView`'s own keyed state has.
+    frame: Cell<u64>,
 }
+
+/// One agent body's markdown state, and the text last handed to it.
+struct Body {
+    state: Entity<TextViewState>,
+    text: SharedString,
+    /// The frame that last drew it — see [`TranscriptScroll::begin_frame`].
+    used: u64,
+    /// Redraws the window when a parse commits, so the frame that re-measures the row comes.
+    _redraw: Subscription,
+}
+
+/// What a provisional measurement's signature is stored under: a row measured while its body's
+/// parse was still in flight is measured again, whatever its content signature says.
+const UNSETTLED: u64 = 0x9e37_79b9_7f4a_7c15;
 
 impl Default for TranscriptScroll {
     fn default() -> Self {
@@ -1674,6 +1701,8 @@ impl Default for TranscriptScroll {
             force_result: Cell::default(),
             rows_seen: Cell::default(),
             dirty: Cell::default(),
+            bodies: RefCell::default(),
+            frame: Cell::default(),
         }
     }
 }
@@ -1828,6 +1857,66 @@ impl TranscriptScroll {
             Some((_, was)) => (height - was).abs() > MEASURE_SLACK,
             None => true,
         }
+    }
+
+    /// [`Self::measured`] for a row whose body was still being parsed: the height is kept — it is
+    /// the best one there is — but under a signature no row carries, so the next frame drawing
+    /// the row measures it again. The frame after the parse lands is the one that settles it.
+    pub fn measured_unsettled(&self, key: u64, sig: u64, height: Pixels) -> bool {
+        self.measured(key, sig ^ UNSETTLED, height)
+    }
+
+    /// Start a frame's use of [`Self::bodies`]: drop every body the previous frame did not draw.
+    /// Called once per frame, before the rows are built.
+    pub fn begin_frame(&self) {
+        let frame = self.frame.get().wrapping_add(1);
+        self.frame.set(frame);
+        self.bodies
+            .borrow_mut()
+            .retain(|_, body| body.used.wrapping_add(1) >= frame);
+    }
+
+    /// The markdown state for the agent body a row draws, created on first sight and handed the
+    /// body's current text. A text that extends the last one is an append to the state, which
+    /// is what keeps a streaming body's parse incremental.
+    pub fn body<T: 'static>(
+        &self,
+        key: u64,
+        text: &SharedString,
+        cx: &mut Context<T>,
+    ) -> Entity<TextViewState> {
+        let frame = self.frame.get();
+        let mut bodies = self.bodies.borrow_mut();
+        if let Some(body) = bodies.get_mut(&key) {
+            body.used = frame;
+            let same = (body.text.as_ptr() == text.as_ptr() && body.text.len() == text.len())
+                || body.text.as_str() == text.as_str();
+            if !same {
+                body.text = text.clone();
+                body.state.update(cx, |state, cx| state.set_text(text, cx));
+            }
+            return body.state.clone();
+        }
+        let state = cx.new(|cx| TextViewState::markdown(text, cx));
+        let redraw = cx.observe(&state, |_, _, cx| cx.notify());
+        bodies.insert(
+            key,
+            Body {
+                state: state.clone(),
+                text: text.clone(),
+                used: frame,
+                _redraw: redraw,
+            },
+        );
+        state
+    }
+
+    /// Whether the row's body has text its markdown has not finished parsing — so a height
+    /// measured now is a height of the previous parse, not of what the row will draw.
+    pub fn body_settling(&self, key: u64, cx: &App) -> bool {
+        self.bodies.borrow().get(&key).is_some_and(|body| {
+            body.state.read(cx).rendered_text().source().len() != body.text.len()
+        })
     }
 
     /// Put the reader where the last frame's measurements say a row is. Answers a jump asked for

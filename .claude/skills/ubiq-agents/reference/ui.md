@@ -27,7 +27,7 @@ taken was taken as somebody.
 | The queue | `enqueue(text) -> u64`, `dequeue_front()`, `remove_queued(id)` |
 | Attachments | `Attachment`, `attach(path, size)` (dedupes by path, refreshing the size), `detach(id)`, `clear_attached()`, `compose_prompt(typed)` — **the one place `@path` mentions are written** |
 | Subagents | `SubagentTab` (with `model` and `waiting`), `subagents()`, `subagent_name(id)`, `has_subagent(id)`, `viewing_subagent()` |
-| Scroll | `TranscriptScroll` — one per composer slot on `AppState::transcript_scrolls`, keyed by `TranscriptKey = (AgentId, Option<String>)`: `sync(key, signature)`, `away()`, `request(block)` / `take_request()` / `request_held()`, `to_tail()`, `windows(children)`, `child_bounds(ix)`, `near_viewport(bounds)` |
+| Scroll | `TranscriptScroll` — one per composer slot on `AppState::transcript_scrolls`, keyed by `TranscriptKey = (AgentId, Option<String>)`: `sync(key, signature)`, `away()`, `request(block)` / `take_request()` / `request_held()`, `to_tail()`, row heights (`row_height` / `needs_measure` / `measured` / `measured_unsettled`), the agent bodies' markdown state (`begin_frame`, `body(key, text)`, `body_settling(key)` — a row is re-measured until its background parse lands), `windows(children)`, `child_bounds(ix)`, `near_viewport(bounds)` |
 | Folding | Tool calls: `toggle_tool(id)`, `toggle_group(id)`, `open_groups`. Reasoning: `toggle_thought_group(&[usize])` over a whole run, `end_open_thought()`, `touched_thoughts` (every block a reader moved by hand, never overridden again) |
 | Labels | `short_model_label(harness, model)` — one shortener, so a conversation never spells a model two ways |
 
