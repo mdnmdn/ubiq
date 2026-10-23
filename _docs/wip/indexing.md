@@ -5,9 +5,9 @@ kind: wip
 status: current
 summary: What Ubiq keeps about a project so a search need not re-read it — a per-project level defaulting from an application setting, and a full-text index that selects candidate files for the existing content search rather than answering it. The full-text half is built; the symbol half the `full` level names is not, which is the gap this document exists to record.
 read_when: you are changing what Ubiq indexes, how a content search is answered, or what the indexing level means
-updated: 2026-09-10
-verified: 2026-09-29
-code_anchors: [crates/ubiq-host/src/index/mod.rs, crates/ubiq-host/src/index/text.rs, crates/ubiq-host/src/index/ceiling.rs, crates/ubiq-host/src/search/worker.rs, crates/ubiq-host/src/search/hits.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs]
+updated: 2026-10-23
+verified: 2026-10-23
+code_anchors: [crates/ubiq-host/src/index/mod.rs, crates/ubiq-host/src/index/text.rs, crates/ubiq-host/src/index/ceiling.rs, crates/ubiq-host/src/search/worker.rs, crates/ubiq-host/src/search/hits.rs, crates/ubiq-host/src/search/walk.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs]
 depends_on: [tech-architecture, tech-transport, tech-structure, feat-workbench]
 ---
 
@@ -135,8 +135,10 @@ The index lives in a host-owned `index/` directory under `projects/<ulid>/`, the
 interface's `ui/` workarea: the interface is never told it exists. Both sit under the project's own
 directory, so Forget and the orphan collector remove them without knowing what either holds.
 
-**The cold build runs `search::walk::builder`** — the same walk content search runs, so the two can
-never disagree about what a project's files are. It is triggered when a project opens, not at boot:
+**The cold build runs `search::walk::walks`** — the same walk content search runs, so the two can
+never disagree about what a project's files are. That walk is the project's own, then one per nested
+git repository, each under its own `.gitignore` only, so a checkout listed in the outer `.gitignore`
+is still indexed. It is triggered when a project opens, not at boot:
 an index for a project nobody has open is work nobody asked for.
 
 **A build empties the index first**, even when a stamped one is on disk. The walk overwrites every

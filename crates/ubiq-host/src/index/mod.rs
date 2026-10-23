@@ -160,6 +160,8 @@ fn handle(
                 let _ = existing;
                 return;
             }
+            // A build is a whole walk anyway, so what is known of nested repositories is renewed.
+            crate::search::walk::invalidate(&root);
             match build(project_id, &root, &home, &excludes) {
                 Ok(text) => {
                     if let Ok(mut readers) = readers.lock() {
@@ -278,8 +280,8 @@ fn build(
 /// The walk is [`crate::search::walk::builder`] — the same one content search runs, so the index
 /// and the search can never disagree about what a project's files are.
 fn fill(text: &mut text::Text, root: &std::path::Path, excludes: &[String]) {
-    let builder = match crate::search::walk::builder(root, root, &[], excludes) {
-        Ok(builder) => builder,
+    let walks = match crate::search::walk::walks(root, root, &[], excludes) {
+        Ok(walks) => walks,
         Err(error) => {
             tracing::warn!(%error, "the index walk could not start");
             return;
@@ -291,29 +293,31 @@ fn fill(text: &mut text::Text, root: &std::path::Path, excludes: &[String]) {
     // walk collects and this drains it.
     let (found, ready) = flume::unbounded::<(String, String)>();
     let root = root.to_path_buf();
-    builder.build_parallel().run(|| {
-        let found = found.clone();
-        let root = root.clone();
-        Box::new(move |entry| {
-            let Ok(entry) = entry else {
-                return ignore::WalkState::Continue;
-            };
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                return ignore::WalkState::Continue;
-            }
-            let len = entry.metadata().map(|meta| meta.len()).unwrap_or(u64::MAX);
-            if let Some(body) = read_indexable_with_len(entry.path(), len) {
-                let rel = entry
-                    .path()
-                    .strip_prefix(&root)
-                    .unwrap_or(entry.path())
-                    .to_string_lossy()
-                    .into_owned();
-                let _ = found.send((rel, body));
-            }
-            ignore::WalkState::Continue
-        })
-    });
+    for builder in walks {
+        builder.build_parallel().run(|| {
+            let found = found.clone();
+            let root = root.clone();
+            Box::new(move |entry| {
+                let Ok(entry) = entry else {
+                    return ignore::WalkState::Continue;
+                };
+                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                    return ignore::WalkState::Continue;
+                }
+                let len = entry.metadata().map(|meta| meta.len()).unwrap_or(u64::MAX);
+                if let Some(body) = read_indexable_with_len(entry.path(), len) {
+                    let rel = entry
+                        .path()
+                        .strip_prefix(&root)
+                        .unwrap_or(entry.path())
+                        .to_string_lossy()
+                        .into_owned();
+                    let _ = found.send((rel, body));
+                }
+                ignore::WalkState::Continue
+            })
+        });
+    }
     drop(found);
 
     for (written, (rel, body)) in ready.iter().enumerate() {

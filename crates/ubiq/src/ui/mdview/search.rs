@@ -1,5 +1,7 @@
-//! Find in document: the navigation state and the per-row hit plumbing. The find bar itself — the
-//! field, the facets, the bindings — is not ported yet.
+//! Find in document: the navigation state, the per-row hit plumbing, and the find bar — a field,
+//! the case and whole-word facets, prev/next and a close, floated over the page's top-right corner
+//! (`Cmd+F` opens it, `Enter`/`Shift+Enter` step, `Esc` closes). One implementation for every
+//! `MdView`: the markdown preview and the annotation surface are the same view.
 //!
 //! The engine owns the scan — [`ubiq_md::Document::find`] returns every hit as a root block index
 //! plus a source byte range, non-overlapping and in source order — and owns **no navigation
@@ -23,7 +25,40 @@ use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder as _;
+use gpui::{
+    AnyElement, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement as _,
+    KeyBinding, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, actions, div, px,
+};
+use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::{Icon, IconName, Sizable as _, Size};
 use ubiq_md::{Document, FindOptions, Match};
+
+use super::view::MdView;
+use crate::theme::{self, Family, Role};
+
+actions!(md_find, [MdFindOpen, MdFindNext, MdFindPrev, MdFindClose]);
+
+/// The bar's key context, and the predicate its keys are bound under so they win inside the field.
+const KEY_CONTEXT: &str = "MdFind";
+const KEY_PREDICATE: &str = "MdFind > Input";
+
+/// The find keys, for `app::install_key_bindings` to register after the library's own.
+pub fn key_bindings() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("cmd-f", MdFindOpen, Some("MdView")),
+        KeyBinding::new("ctrl-f", MdFindOpen, Some("MdView")),
+        KeyBinding::new("cmd-g", MdFindNext, Some("MdView")),
+        KeyBinding::new("cmd-shift-g", MdFindPrev, Some("MdView")),
+        KeyBinding::new("f3", MdFindNext, Some("MdView")),
+        KeyBinding::new("shift-f3", MdFindPrev, Some("MdView")),
+        KeyBinding::new("cmd-f", MdFindOpen, Some(KEY_PREDICATE)),
+        KeyBinding::new("enter", MdFindNext, Some(KEY_PREDICATE)),
+        KeyBinding::new("shift-enter", MdFindPrev, Some(KEY_PREDICATE)),
+        KeyBinding::new("escape", MdFindClose, Some(KEY_PREDICATE)),
+    ]
+}
 
 // ── The state ───────────────────────────────────────────────────────
 
@@ -32,8 +67,8 @@ use ubiq_md::{Document, FindOptions, Match};
 /// debounce invalidate it without this module hearing about the reparse at all.
 #[derive(PartialEq, Eq)]
 struct Key {
-    blocks: usize,
-    hash: u64,
+    /// A hash of the whole source: any edit, same length or not, rebuilds the list.
+    source: u64,
     query: String,
     opts: FindOptions,
 }
@@ -52,6 +87,9 @@ pub struct Find {
     /// bar. The first step then *reveals* the current match instead of stepping past it, which is
     /// what makes the first Enter land on the first hit rather than the second.
     fresh: bool,
+    /// The bar's field, created on the first open: a `gpui_component` input needs a `Window`.
+    input: Option<Entity<InputState>>,
+    _watch: Option<Subscription>,
 }
 
 impl Find {
@@ -79,8 +117,7 @@ impl Find {
             return;
         }
         let key = Key {
-            blocks: doc.blocks.len(),
-            hash: doc.blocks.first().map_or(0, |block| block.hash),
+            source: ubiq_md::content_hash(&doc.source),
             query: query.to_string(),
             opts: self.options,
         };
@@ -204,6 +241,203 @@ fn clamp(current: usize, count: usize) -> usize {
         0 => 0,
         count => current.min(count - 1),
     }
+}
+
+// ── The bar ─────────────────────────────────────────────────────────
+
+impl MdView {
+    /// What is typed in the field, or nothing before the bar was ever opened.
+    pub(super) fn find_query(&self, cx: &App) -> String {
+        self.find
+            .input
+            .as_ref()
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_default()
+    }
+
+    /// Open the bar (creating the field on first use) and put the caret in it.
+    pub fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = match self.find.input.clone() {
+            Some(input) => input,
+            None => {
+                let input = cx
+                    .new(|cx| InputState::new(window, cx).placeholder("Find in document\u{2026}"));
+                let watch = cx.subscribe(&input, |this, _, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.find_changed(cx);
+                    }
+                });
+                self.find.input = Some(input.clone());
+                self.find._watch = Some(watch);
+                input
+            }
+        };
+        let was_open = self.find.open;
+        self.find.open = true;
+        input.update(cx, |state, cx| state.focus(window, cx));
+        if was_open {
+            // Already searching: refocus only, keep the current hit.
+            cx.notify();
+        } else {
+            self.find_changed(cx);
+        }
+    }
+
+    /// Close the bar, drop the highlights and hand the keyboard back to the page.
+    pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.find.open = false;
+        self.find.forget();
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    /// A new query or a flipped facet: rescan, and land on the first hit.
+    fn find_changed(&mut self, cx: &mut Context<Self>) {
+        let query = self.find_query(cx);
+        self.find.restart();
+        self.find.refresh(&self.doc, &query);
+        self.reveal_match(true, cx);
+    }
+
+    /// Step to the next or previous hit and scroll its row into view.
+    pub fn find_step(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if !self.find.open {
+            return;
+        }
+        let query = self.find_query(cx);
+        self.find.refresh(&self.doc, &query);
+        self.reveal_match(forward, cx);
+    }
+
+    fn reveal_match(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if let Some(row) = self.find.step(forward) {
+            self.list.scroll_to_reveal_item(row);
+        }
+        cx.notify();
+    }
+
+    /// The bar's actions, wired on the view's root.
+    pub(super) fn find_actions(
+        root: gpui::Stateful<gpui::Div>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        root.on_action(cx.listener(|this, _: &MdFindOpen, window, cx| this.open_find(window, cx)))
+            .on_action(cx.listener(|this, _: &MdFindNext, _, cx| this.find_step(true, cx)))
+            .on_action(cx.listener(|this, _: &MdFindPrev, _, cx| this.find_step(false, cx)))
+            .on_action(cx.listener(|this, _: &MdFindClose, window, cx| this.close_find(window, cx)))
+    }
+
+    /// The floating bar, when open. `right` is how far in from the view's right edge it floats —
+    /// past a minimap strip on that side.
+    pub(super) fn find_bar(&self, right: f32, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let input = self.find.input.clone().filter(|_| self.find.open)?;
+        let position = self.find.position();
+        let none = position == "no matches";
+        let options = self.find.options;
+        let size = theme::font(Family::Chrome, Role::Body);
+
+        let step = |id: &'static str, icon: IconName, tip: &'static str, forward: bool| {
+            crate::ui::kit::icon_button_tip(
+                id,
+                icon,
+                tip,
+                true,
+                cx.listener(move |this, _, _, cx| this.find_step(forward, cx)),
+            )
+        };
+
+        Some(
+            div()
+                .id("md-find")
+                .key_context(KEY_CONTEXT)
+                .absolute()
+                .top(px(8.))
+                .right(px(right))
+                .h(px(30.))
+                .flex()
+                .items_center()
+                .bg(theme::surface_raised())
+                .border_l(px(theme::ACCENT_EDGE))
+                .border_color(theme::accent())
+                .occlude()
+                // A press inside the bar is the bar's: nothing under it hears it.
+                .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
+                .text_size(size)
+                .child(div().w(px(200.)).px_1().child(Input::new(&input).appearance(false)))
+                .child(
+                    div()
+                        .min_w(px(64.))
+                        .px_1()
+                        .text_color(if none {
+                            theme::danger()
+                        } else {
+                            theme::text_muted()
+                        })
+                        .child(position),
+                )
+                .child(facet(
+                    "md-find-case",
+                    "Aa",
+                    "Match case",
+                    options.case_sensitive,
+                    cx.listener(|this, _, _, cx| {
+                        this.find.options.case_sensitive = !this.find.options.case_sensitive;
+                        this.find_changed(cx);
+                    }),
+                ))
+                .child(facet(
+                    "md-find-word",
+                    "W",
+                    "Whole word",
+                    options.whole_word,
+                    cx.listener(|this, _, _, cx| {
+                        this.find.options.whole_word = !this.find.options.whole_word;
+                        this.find_changed(cx);
+                    }),
+                ))
+                .child(step("md-find-prev", IconName::ChevronUp, "Previous match", false))
+                .child(step("md-find-next", IconName::ChevronDown, "Next match", true))
+                .child(crate::ui::kit::icon_button_tip(
+                    "md-find-close",
+                    Icon::new(IconName::Close).with_size(Size::XSmall),
+                    "Close",
+                    true,
+                    cx.listener(|this, _, window, cx| this.close_find(window, cx)),
+                ))
+                .into_any_element(),
+        )
+    }
+}
+
+/// One of the bar's facets: the bare glyph, lit when on and faint when off.
+fn facet(
+    id: &'static str,
+    label: &'static str,
+    tip: &'static str,
+    on: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::Stateful<gpui::Div> {
+    let tip: SharedString = tip.into();
+    div()
+        .id(id)
+        .h_full()
+        .px_2()
+        .flex()
+        .flex_none()
+        .items_center()
+        .cursor_pointer()
+        .text_color(if on {
+            theme::accent()
+        } else {
+            theme::text_faint()
+        })
+        .when(on, |this| this.bg(theme::accent_soft()))
+        .hover(|this| this.bg(theme::hover()))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+        })
+        .on_click(on_click)
+        .child(label)
 }
 
 // ── The row's highlight ─────────────────────────────────────────────

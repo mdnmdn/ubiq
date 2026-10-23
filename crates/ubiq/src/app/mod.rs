@@ -1690,6 +1690,7 @@ pub fn install_key_bindings(cx: &mut App) {
     cx.bind_keys(crate::ui::db::explorer::key_bindings());
     cx.bind_keys(crate::ui::kb::password::key_bindings());
     cx.bind_keys(crate::ui::mdview::outline::key_bindings());
+    cx.bind_keys(crate::ui::mdview::search::key_bindings());
     cx.bind_keys(crate::ui::mdview::blockedit::key_bindings());
     cx.bind_keys(crate::ui::archify::paint::key_bindings());
     gpui_terminal::install_key_bindings(cx);

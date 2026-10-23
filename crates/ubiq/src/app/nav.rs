@@ -75,6 +75,20 @@ impl AppState {
         cx.notify();
     }
 
+    /// Follow a search result: go there, then give the opened editor the keyboard. The click is a
+    /// decision to read the file, so the tab takes focus once it has a buffer to hold it.
+    pub fn open_search_hit(&mut self, dest: Destination, cx: &mut Context<Self>) {
+        let focus = match &dest.view {
+            View::Ide { key } => Some(key.clone()),
+            _ => None,
+        };
+        self.navigate(dest, cx);
+        if focus.is_some() {
+            self.pending_editor_focus = focus;
+        }
+        cx.notify();
+    }
+
     /// Put a place on the clipboard as its `ubiq://` text — the one form that survives a
     /// document, a chat message and tomorrow.
     pub fn copy_link(&self, dest: &Destination, cx: &mut App) {

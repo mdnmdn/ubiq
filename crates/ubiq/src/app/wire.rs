@@ -4051,7 +4051,21 @@ impl AppState {
         // `CloseEditor` — goes unreachable until something else takes focus.
         if !file.viewer.shows_buffer(file.layout) {
             self.pending_editor_focus = None;
-            self.workbench_focus.focus(window, cx);
+            // A markdown preview takes the keyboard itself, so Cmd+F works without a click.
+            let md = file.md.clone().filter(|_| {
+                matches!(
+                    file.layout,
+                    crate::state::editor::ViewLayout::Preview
+                        | crate::state::editor::ViewLayout::Annotation
+                )
+            });
+            match md {
+                Some(md) => {
+                    let handle = gpui::Focusable::focus_handle(md.read(cx), cx);
+                    handle.focus(window, cx);
+                }
+                None => self.workbench_focus.focus(window, cx),
+            }
             return;
         }
         let editor = match &file.body {

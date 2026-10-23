@@ -111,8 +111,8 @@ pub fn run(job: &Job) {
     // Walk the project tree: the project's own ignore rules (`.gitignore`, `.ignore`, hidden
     // files), plus the filter's include globs and every exclude. A glob that will not compile is
     // a [`SearchError::BadFilter`].
-    let builder = match walk::builder(&job.root, &start, &job.filter.patterns, &job.excludes) {
-        Ok(builder) => builder,
+    let walks = match walk::walks(&job.root, &start, &job.filter.patterns, &job.excludes) {
+        Ok(walks) => walks,
         Err(error) => {
             job.reply_to.send(Message::SearchError {
                 project_id,
@@ -122,7 +122,6 @@ pub fn run(job: &Job) {
             return;
         }
     };
-    let walker = builder.build_parallel();
 
     let cancel = job.cancel.clone();
 
@@ -130,93 +129,98 @@ pub fn run(job: &Job) {
     // is visited by exactly one thread, and the accumulator is only touched between files.
     let state = Arc::new(Mutex::new(State::new()));
 
-    walker.run({
-        let state = state.clone();
-        let cancel = cancel.clone();
-        let reply_to = job.reply_to.clone();
-        let walk_root = job.root.clone();
-
-        move || {
-            let cancel = cancel.clone();
+    // The project's own walk, then one per nested repository (`walk::walks`). A walk that finds
+    // the cancel flag set quits on its first entry, so a ceiling hit in one stops the rest.
+    for builder in walks {
+        builder.build_parallel().run({
             let matcher = matcher.clone();
             let state = state.clone();
-            let reply_to = reply_to.clone();
-            let walk_root = walk_root.clone();
+            let cancel = cancel.clone();
+            let reply_to = job.reply_to.clone();
+            let walk_root = job.root.clone();
 
-            Box::new(move |entry| {
-                // Check the cancel flag between files.
-                if cancel.load(Ordering::Relaxed) {
-                    return ignore::WalkState::Quit;
-                }
+            move || {
+                let cancel = cancel.clone();
+                let matcher = matcher.clone();
+                let state = state.clone();
+                let reply_to = reply_to.clone();
+                let walk_root = walk_root.clone();
 
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(_) => return ignore::WalkState::Continue,
-                };
+                Box::new(move |entry| {
+                    // Check the cancel flag between files.
+                    if cancel.load(Ordering::Relaxed) {
+                        return ignore::WalkState::Quit;
+                    }
 
-                // Only files are searchable.
-                if !entry.file_type().is_some_and(|t| t.is_file()) {
-                    return ignore::WalkState::Continue;
-                }
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(_) => return ignore::WalkState::Continue,
+                    };
 
-                // Compute the project-relative path by stripping the walk root.
-                let abs_path = entry.path();
-                let rel_path = abs_path
-                    .strip_prefix(&walk_root)
-                    .unwrap_or(abs_path)
-                    .to_string_lossy()
-                    .into_owned();
+                    // Only files are searchable.
+                    if !entry.file_type().is_some_and(|t| t.is_file()) {
+                        return ignore::WalkState::Continue;
+                    }
 
-                let hit = hits::scan_file(&matcher, abs_path, rel_path);
+                    // Compute the project-relative path by stripping the walk root.
+                    let abs_path = entry.path();
+                    let rel_path = abs_path
+                        .strip_prefix(&walk_root)
+                        .unwrap_or(abs_path)
+                        .to_string_lossy()
+                        .into_owned();
 
-                // Every visited file passes through this shared tail, hits or not: `files_seen`,
-                // progress, batching and the ceiling checks all depend on seeing every file, not
-                // just the ones that matched.
-                let mut state = state.lock().unwrap();
-                state.saw_file();
+                    let hit = hits::scan_file(&matcher, abs_path, rel_path);
 
-                if let Some(hit) = hit {
-                    state.add_file(hit);
-                }
+                    // Every visited file passes through this shared tail, hits or not: `files_seen`,
+                    // progress, batching and the ceiling checks all depend on seeing every file, not
+                    // just the ones that matched.
+                    let mut state = state.lock().unwrap();
+                    state.saw_file();
 
-                let batch = state.should_flush().then(|| state.take_batch());
-                let files_seen = state.files_seen;
-                let report = files_seen - state.reported_at >= ceiling::PROGRESS_INTERVAL;
-                if report {
-                    state.reported_at = files_seen;
-                }
-                let at_ceiling = state.at_ceiling();
-                // Drop the lock before sending.
-                drop(state);
+                    if let Some(hit) = hit {
+                        state.add_file(hit);
+                    }
 
-                if let Some(batch) = batch {
-                    reply_to.send(Message::SearchMatches {
-                        project_id,
-                        search_id,
-                        batch,
-                    });
-                }
+                    let batch = state.should_flush().then(|| state.take_batch());
+                    let files_seen = state.files_seen;
+                    let report = files_seen - state.reported_at >= ceiling::PROGRESS_INTERVAL;
+                    if report {
+                        state.reported_at = files_seen;
+                    }
+                    let at_ceiling = state.at_ceiling();
+                    // Drop the lock before sending.
+                    drop(state);
 
-                // Progress report at intervals, independent of whether a batch flushed — a search
-                // with few hits must still be seen to be moving.
-                if report {
-                    reply_to.send(Message::SearchProgress {
-                        project_id,
-                        search_id,
-                        files_seen,
-                    });
-                }
+                    if let Some(batch) = batch {
+                        reply_to.send(Message::SearchMatches {
+                            project_id,
+                            search_id,
+                            batch,
+                        });
+                    }
 
-                // Check ceilings.
-                if at_ceiling {
-                    cancel.store(true, Ordering::Relaxed);
-                    return ignore::WalkState::Quit;
-                }
+                    // Progress report at intervals, independent of whether a batch flushed — a search
+                    // with few hits must still be seen to be moving.
+                    if report {
+                        reply_to.send(Message::SearchProgress {
+                            project_id,
+                            search_id,
+                            files_seen,
+                        });
+                    }
 
-                ignore::WalkState::Continue
-            })
-        }
-    });
+                    // Check ceilings.
+                    if at_ceiling {
+                        cancel.store(true, Ordering::Relaxed);
+                        return ignore::WalkState::Quit;
+                    }
+
+                    ignore::WalkState::Continue
+                })
+            }
+        });
+    }
 
     // Flush any remaining hits.
     let mut state = state.lock().unwrap();

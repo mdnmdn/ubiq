@@ -804,6 +804,10 @@ impl Render for MdView {
         );
         self.reserved.set(reserved.unwrap_or(0.0));
         let width = pane - reserved.unwrap_or(0.0);
+        // The match list follows the document this frame draws (a reparse behind the debounce
+        // changes its key), before any row asks for its hits.
+        let query = self.find_query(cx);
+        self.find.refresh(&self.doc, &query);
         let metrics = self
             .metrics(window, width)
             .with_link_handler(Self::link_handler(cx))
@@ -839,6 +843,12 @@ impl Render for MdView {
         });
 
         let zoom = self.zoom_overlay(&metrics, window, cx);
+        let bar_right = 16.0
+            + match self.config.minimap_side {
+                theme::MdMinimapSide::Right => reserved.unwrap_or(0.0),
+                theme::MdMinimapSide::Left => 0.0,
+            };
+        let find_bar = self.find_bar(bar_right, cx);
         let rows = list(self.list.clone(), {
             let view = view.clone();
             move |ix, _window, cx: &mut App| {
@@ -856,11 +866,17 @@ impl Render for MdView {
         let seen = self.width.clone();
         let drag = self.selection.clone();
         let measure = canvas(
-            move |bounds, _window, cx| {
+            move |bounds, window, cx| {
                 let w = f32::from(bounds.size.width);
                 if (seen.get() - w).abs() > 0.5 {
                     seen.set(w);
-                    view.update(cx, |_, cx| cx.notify()).ok();
+                    // Deferred past the draw: a `notify` raised *during* prepaint is dropped by
+                    // GPUI (the window is not marked dirty mid-draw), so the first frame, laid out
+                    // against the window's width, stayed until a scroll happened to redraw.
+                    let view = view.clone();
+                    window.defer(cx, move |_, cx| {
+                        view.update(cx, |_, cx| cx.notify()).ok();
+                    });
                 }
             },
             // The selection drag is tracked on the window, not the view: the view's own mouse
@@ -894,9 +910,8 @@ impl Render for MdView {
             theme::MdMinimapSide::Right => (None, strip),
         };
 
-        div()
-            .id("mdview")
-            .key_context("MdView")
+        let root = div().id("mdview").key_context("MdView");
+        Self::find_actions(root, cx)
             .track_focus(&self.focus)
             .relative()
             .flex()
@@ -916,10 +931,13 @@ impl Render for MdView {
                     window.focus(&this.focus, cx);
                 }
             }))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 let key = event.keystroke.key.as_str();
                 if key == "escape" && this.zoom.is_some() {
                     this.close_zoom(cx);
+                    cx.stop_propagation();
+                } else if key == "escape" && this.find.open {
+                    this.close_find(window, cx);
                     cx.stop_propagation();
                 } else if key == "c"
                     && event.keystroke.modifiers.secondary()
@@ -957,6 +975,7 @@ impl Render for MdView {
             .children(before)
             .child(rows)
             .children(after)
+            .children(find_bar)
             .children(navigator)
             .children(zoom)
     }

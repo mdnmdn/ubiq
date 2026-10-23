@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-10-16
+updated: 2026-10-23
 verified: 2026-10-09
 review_cycle: monthly
 ---
@@ -395,7 +395,6 @@ change what Ubiq does (here), or where a document lives (there)?
 | G404 | DB mode has not been looked at on screen. It builds and its pure halves are tested, but no run has driven the explorer, a table tab, a SQL tab or the connection form in a window, so layout, focus and key handling are read from code only | [`features/workbench-db.md`](./features/workbench-db.md) |
 | G405 | A code fence in an `MdView` is drawn unhighlighted. The block renderer (`ui/mdview/blocks.rs`) paints a fence's text in one colour; the tree-sitter highlighter the source editor uses is not run over it | [`features/workbench-ide.md`](./features/workbench-ide.md), [`features/workbench-tasks.md`](./features/workbench-tasks.md) |
 | G406 | An `MdView`'s text selects one block at a time and copies (`ui/mdview/selection.rs`, G420), but nothing feeds a selection into a new thread (T-305): `AnnotatePlan` always goes out with `quote: None`, so a thread cannot quote a passage | [`features/workbench-tasks.md`](./features/workbench-tasks.md), [`features/workbench-ide.md`](./features/workbench-ide.md) |
-| G407 | An `MdView`'s find has no bar. `ui/mdview/search.rs` holds the find state and the per-row hit plumbing, but no control opens it and no field types into it | [`features/workbench-ide.md`](./features/workbench-ide.md) |
 | G408 | A diff cannot be read on an `MdView`. A markdown file's diff tab is drawn by `ui/viewer/diff.rs` over raw lines, so a changed paragraph is never shown rendered, block against block | [`features/workbench-ide.md`](./features/workbench-ide.md) |
 | G409 | A launch's extra folders are not persisted on the conversation row. `StartConversation.grants` (the New agent dialog's `Custom policies`) reach the run's isolation set at launch (`crates/ubiq-host/src/agent.rs`, `compose_run`) and are never written down, so a relaunch after a restart rebuilds the policy from the saved definition's `grants` alone and loses what that start added. Fixing it needs the folders on the conversation's record and the revive path reading them | [`tech/transport-contract.md`](./tech/transport-contract.md), [`features/workbench-agents.md`](./features/workbench-agents.md) |
 | G413 | `crates/agent-manager/src/credentials/os.rs` stores macOS keychain items with `security add-generic-password … -w <value>`, so the secret (a credential, the custom keychain's own password) sits on that process's argv, readable by any same-user process listing processes while it runs. It should reach `security` on stdin (`-w` last, no value) or through the Security framework | [`tech/decisions.md`](./tech/decisions.md) |

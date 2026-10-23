@@ -5,7 +5,7 @@
 //! - [`blocks`] — one root block, one row: the typographic scale, the measure, the rhythm.
 //! - [`prose`] — the native text element a paragraph or heading is shaped and painted in.
 //! - [`inline`] — a block's inline spans to text runs, for both [`prose`] and `StyledText`.
-//! - [`search`] — find-in-document state and the per-row hit plumbing (the find bar is later).
+//! - [`search`] — find-in-document state and the per-row hit plumbing and the find bar (Cmd+F).
 //! - [`fences`] — mermaid / excalidraw fences and image blocks, through `ui/viewer`'s renderers.
 //! - [`sync`] — source ↔ preview scroll linking and reparse splicing, by block index.
 //! - [`structure`] — the navigator's flat list of places (the document's headings).

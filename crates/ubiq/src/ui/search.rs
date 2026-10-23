@@ -137,13 +137,14 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             break;
         }
         let path = file.rel_path.clone();
-        let dest = hit_dest(project, &path, None);
+        // A file row opens on its first occurrence, the same line that row's first hit names.
+        let dest = hit_dest(project, &path, file.hits.first().map(|hit| hit.line));
         rows.push(
             div()
                 .id(gpui::ElementId::Name(format!("search-file-{path}").into()))
                 .cursor_pointer()
                 .hover(|this| this.bg(theme::hover()))
-                .on_click(cx.listener(move |this, _, _, cx| this.navigate(dest.clone(), cx)))
+                .on_click(cx.listener(move |this, _, _, cx| this.open_search_hit(dest.clone(), cx)))
                 .h(px(row + 2.))
                 .px_3()
                 .flex()
@@ -202,7 +203,9 @@ fn results(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     ))
                     .cursor_pointer()
                     .hover(|this| this.bg(theme::hover()))
-                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(dest.clone(), cx)))
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_search_hit(dest.clone(), cx)),
+                    )
                     .h(px(row))
                     .px_3()
                     .flex()

@@ -85,6 +85,8 @@ pub fn start(mut job: Job) -> notify::Result<Watcher> {
         }
     })?;
     watcher.watch(&job.root, RecursiveMode::Recursive)?;
+    // An open: what is known of nested repositories starts again.
+    crate::search::walk::invalidate(&job.root);
 
     thread::Builder::new()
         .name(format!("ubiq-watch-{}", job.project_id))
@@ -97,6 +99,9 @@ pub fn start(mut job: Job) -> notify::Result<Watcher> {
 /// Accumulate until the project goes quiet, then send. Ends when the watcher is dropped.
 fn debounce(job: Job, queue: flume::Receiver<notify::Event>) {
     let ignore = ignore(&job.root, &job.excludes);
+    // Repositories nested in the project, each with its own rules: the root's `.gitignore` very
+    // often lists them, and a change inside one is a project file all the same.
+    let mut nested = Nested::load(&job);
     let mut changed: HashSet<String> = HashSet::new();
     let mut repository = false;
     // When the oldest change still held was noticed. `None` means there is nothing to send.
@@ -111,8 +116,22 @@ fn debounce(job: Job, queue: flume::Receiver<notify::Event>) {
         };
         match queue.recv_timeout(wait) {
             Ok(event) => {
+                // A `.git` appearing or going is a repository nested or un-nested: the list is
+                // renewed. Plumbing moving inside one is not, and costs no rescan.
+                if matches!(
+                    event.kind,
+                    notify::EventKind::Create(_) | notify::EventKind::Remove(_)
+                ) && event
+                    .paths
+                    .iter()
+                    .any(|path| path.file_name().is_some_and(|name| name == ".git"))
+                {
+                    crate::search::walk::invalidate(&job.root);
+                    nested = Nested::load(&job);
+                }
                 for path in &event.paths {
-                    match classify(&job.root, path, ignore.as_ref()) {
+                    let rules = nested.rules_for(path).unwrap_or(ignore.as_ref());
+                    match classify(&job.root, path, rules) {
                         Some(Change::Repository) => repository = true,
                         Some(Change::File(rel)) => {
                             changed.insert(rel);
@@ -152,6 +171,35 @@ fn debounce(job: Job, queue: flume::Receiver<notify::Event>) {
             }
             Err(flume::RecvTimeoutError::Disconnected) => return,
         }
+    }
+}
+
+/// The nested repositories of one watched project and the ignore rules each one keeps.
+struct Nested {
+    repos: Vec<(PathBuf, Option<ignore::gitignore::Gitignore>)>,
+}
+
+impl Nested {
+    fn load(job: &Job) -> Self {
+        let repos = crate::search::walk::nested_repos(&job.root, &job.excludes)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|repo| {
+                let rules = ignore(&repo, &job.excludes);
+                (repo, rules)
+            })
+            .collect();
+        Nested { repos }
+    }
+
+    /// The rules of the innermost nested repository holding `path`; `None` when it is in none, so
+    /// the project's own apply.
+    fn rules_for(&self, path: &Path) -> Option<Option<&ignore::gitignore::Gitignore>> {
+        self.repos
+            .iter()
+            .filter(|(repo, _)| path.starts_with(repo))
+            .max_by_key(|(repo, _)| repo.as_os_str().len())
+            .map(|(_, rules)| rules.as_ref())
     }
 }
 

@@ -220,7 +220,7 @@ the same worker.
 **Add a search filter option.** `search::Filter` already carries `patterns` (gitignore-term globs
 against the project-relative path) and `subdir` (validated through `files::path::resolve`, the same
 boundary the file family uses). A new option goes on `Filter`, is applied in **two** places —
-`search::walk::builder` for the walk and `worker::candidates` / `worker::allowed` for the index
+`search::walk::walks` for the walk (one `builder` per project and nested repository) and `worker::candidates` / `worker::allowed` for the index
 path — or the two disagree the moment a project is indexed. `Query`'s four options are deliberately
 closed ("there is no fifth") and are shared with find-in-file, so adding one there is a bigger
 decision than adding one to `Filter`.
