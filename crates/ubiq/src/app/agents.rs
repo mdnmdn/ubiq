@@ -413,6 +413,38 @@ impl AppState {
         }
     }
 
+    /// Make every composer field show the draft of the conversation its slot now addresses.
+    ///
+    /// The draft is the conversation's (`Conversation::draft`), not the field's: when a slot
+    /// starts addressing another agent — a chat tab re-aimed, a column re-filled, the same chat
+    /// reopened in another mode — the field takes that agent's own draft. Typing mirrors back
+    /// through the field's change subscription, so the two never diverge.
+    pub(super) fn sync_composer_drafts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for slot in 0..self.composer_bound.len() {
+            let now = self.agent_for_slot(slot, cx);
+            let rebound = self.composer_bound[slot] != now;
+            self.composer_bound[slot] = now;
+            let Some(input) = self.column_inputs.get(slot).cloned() else {
+                continue;
+            };
+            // The same agent in another slot may have edited the draft since this field was
+            // filled; an unfocused field is refreshed, the focused one is the writer.
+            if !rebound && input.read(cx).focus_handle(cx).is_focused(window) {
+                continue;
+            }
+            let draft = now
+                .and_then(|agent| self.teams_conversation(agent, cx))
+                .map(|conversation| conversation.draft.clone())
+                .unwrap_or_default();
+            if input.read(cx).value() != draft.as_str() {
+                input.update(cx, |state, cx| state.set_value(&draft, window, cx));
+                if let Some(agents) = self.agents_mut(cx) {
+                    agents.set_draft(slot, draft);
+                }
+            }
+        }
+    }
+
     /// What one composer sends, to the agent its slot is addressed at.
     ///
     /// Nothing is appended here, for the reason [`Self::send_to_agent`] appends nothing: the line
@@ -720,6 +752,7 @@ impl AppState {
         if let Some(agents) = self.agents_mut(cx) {
             agents.set_draft(slot, text.clone());
         }
+        self.remember_conversation_draft(agent_id, text.clone(), cx);
         let Some(input) = self.column_inputs.get(slot).cloned() else {
             return;
         };

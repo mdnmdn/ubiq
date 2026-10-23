@@ -1411,6 +1411,7 @@ impl AppState {
     /// keeps the furniture its own blob already carries, which is what stops a project being
     /// written down wearing whatever the user happened to be looking at.
     pub(super) fn remember(&mut self, project: ProjectId, cx: &App) {
+        let borrowed = self.teams_chat_restore.clone();
         // The file set is the project's own whether or not anyone is looking at it, so it is read
         // back from the project every time. Tab keys rather than paths, because a file and its diff
         // are two tabs and a path names both.
@@ -1475,7 +1476,12 @@ impl AppState {
                 let mut chats = Vec::new();
                 let mut restorable = Vec::new();
                 for tab in &open.chats {
-                    let Some(agent) = tab.attached else { continue };
+                    // A tab the all-projects Teams screen borrowed is written as it was before.
+                    let shown = borrowed
+                        .iter()
+                        .find(|(_, chat, _, set)| *chat == tab.id && tab.attached == Some(*set))
+                        .map_or(tab.attached, |(_, _, before, _)| *before);
+                    let Some(agent) = shown else { continue };
                     let key = agent.to_string();
                     let (keep, auto) = match open.work.agent(agent) {
                         Some(record) => (

@@ -58,6 +58,24 @@ impl AppState {
         let Some(id) = reuse_or_mint_chat(open) else {
             return;
         };
+        // The window-wide screen borrows the project's tab; remember what it showed so leaving the
+        // screen puts the project's own layout back rather than leaving another project's chat in it.
+        if self.teams_span() == TeamsSpan::Window {
+            if let Some(entry) = self
+                .teams_chat_restore
+                .iter_mut()
+                .find(|(_, chat, _, _)| *chat == id)
+            {
+                entry.3 = agent;
+            } else {
+                let before = self
+                    .projects
+                    .get(&project)
+                    .and_then(|open| open.chats.iter().find(|tab| tab.id == id))
+                    .and_then(|tab| tab.attached);
+                self.teams_chat_restore.push((project, id, before, agent));
+            }
+        }
         if let Some(open) = self.projects.get_mut(&project)
             && let Some(tab) = open.chats.iter_mut().find(|tab| tab.id == id)
         {
@@ -66,6 +84,19 @@ impl AppState {
         self.pending_panels
             .push(PanelEdit::Reveal(PanelKind::Chat(id)));
         cx.notify();
+    }
+
+    /// Put back every chat tab the window-wide Teams screen re-aimed, on leaving that screen.
+    pub(super) fn restore_teams_chats(&mut self, cx: &mut Context<Self>) {
+        for (project, id, before, set) in std::mem::take(&mut self.teams_chat_restore) {
+            if let Some(open) = self.projects.get_mut(&project)
+                && let Some(tab) = open.chats.iter_mut().find(|tab| tab.id == id)
+                && tab.attached == Some(set)
+            {
+                tab.attached = before;
+                self.remember(project, cx);
+            }
+        }
     }
 
     /// The right dock's `+`: put a chat panel in front of the reader with nothing attached yet,

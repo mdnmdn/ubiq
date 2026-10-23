@@ -788,6 +788,12 @@ pub struct AppState {
     /// consumed when the answer arrives, so a start from anywhere else — the agents screen's own
     /// `+` — never attaches to a stale tab.
     pub pending_chat_attach: Option<ChatId>,
+    /// What a chat tab was attached to before the window-wide Teams screen re-aimed it, so
+    /// leaving that screen puts the project's own layout back as it was left. One entry per tab;
+    /// the first re-aim fixes the pre-Teams attachment, later ones update the agent Teams set. Restored
+    /// only while the tab still shows that agent (a deliberate attach since wins), and never
+    /// persisted: `remember` writes the pre-Teams attachment for a borrowed tab.
+    pub teams_chat_restore: Vec<(ProjectId, ChatId, Option<AgentId>, AgentId)>,
     /// The same wait, from the chat strip's `+`, where **no tab exists yet**: the panel is opened
     /// when the conversation actually arrives. A tab opened at the moment the form was raised is
     /// a tab a dismissed form leaves behind, empty and unasked for — so the strip writes down that
@@ -929,6 +935,9 @@ pub struct AppState {
     /// first frame, and a column borrows the slot it is given. `AgentsView::drafts` is the other
     /// half, indexed the same way.
     pub column_inputs: Vec<Entity<TextareaState>>,
+    /// Which agent each composer slot's field was last filled for, so a slot that starts
+    /// addressing another conversation takes that conversation's own draft (`sync_composer_drafts`).
+    pub composer_bound: Vec<Option<AgentId>>,
     /// One transcript scroll state per composer slot, indexed exactly as `column_inputs` is.
     ///
     /// [`TranscriptScroll`] owns every between-frames decision the transcript makes — where the

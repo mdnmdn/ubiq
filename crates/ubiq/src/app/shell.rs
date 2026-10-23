@@ -762,6 +762,9 @@ impl AppState {
         // The window is leaving one mode and entering another, so the outgoing mode's arrangement
         // is written down first — the rest of this function is about the incoming one.
         self.remember_view(cx);
+        if self.workbench.rail_mode == RailMode::TEAMS_ALL {
+            self.restore_teams_chats(cx);
+        }
         self.workbench.rail_mode = mode;
         self.workbench.open_menu = None;
         // Search, the log and — unless it is following the reader — help are the window's
@@ -1834,6 +1837,11 @@ impl Render for AppState {
         self.take_editor_focus(window, cx);
         self.fill_task_form(window, cx);
         self.fill_columns(window, cx);
+        // Whatever way the window left the all-projects Teams screen, the tabs it borrowed go back.
+        if self.workbench.rail_mode != RailMode::TEAMS_ALL && !self.teams_chat_restore.is_empty() {
+            self.restore_teams_chats(cx);
+        }
+        self.sync_composer_drafts(window, cx);
         self.fill_project_form(window, cx);
         self.fill_ask_fields(window, cx);
         // Kept in step with the sources while the dialog holding them is up; a settings row for a

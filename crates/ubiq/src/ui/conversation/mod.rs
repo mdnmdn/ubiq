@@ -1448,6 +1448,14 @@ fn transcript(
                 .map(|row| (row.key, row.sig))
                 .collect::<Vec<_>>(),
         ));
+        // A message whose stream has ended — a block following it, or the turn ending — gets one
+        // full reflow: every row of this transcript is laid out again when next drawn. Neither
+        // moves per delta, and switching transcripts is not a completion (the mark is per one).
+        scroll.note_completion(
+            (id, conversation.viewing_subagent().map(str::to_string)),
+            hashed((visible.len(), conversation.run as u64)),
+            rows.iter().map(|row| row.key),
+        );
         // Somewhere to be taken to, asked for by the strip that named the prompt. Resolved here
         // rather than where it was asked for, because only the frame that planned the rows knows
         // which row a block ended up as.

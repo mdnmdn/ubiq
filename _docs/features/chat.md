@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-16
-verified: 2026-10-16
+updated: 2026-10-23
+verified: 2026-10-23
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -156,7 +156,10 @@ evicted the frame after it is not drawn), because a streamed append — and any 
 While a body's committed parse trails its text (`body_settling`) the row's height is stored as provisional
 (`measured_unsettled`) and measured again; the parse's commit redraws the window, and that frame settles it.
 A row already settled at its signature keeps its height while it re-parses after scrolling back into view,
-rather than collapsing to the empty parse. The plan also records which block each row stands for, so the
+rather than collapsing to the empty parse. **A completed message reflows the transcript once**
+(`note_completion`): when a block follows the last one or the turn ends, that transcript's cached row heights
+are made stale — kept as the hint, re-measured the next time each row is drawn. Never per delta; the mark
+is kept per transcript, so a slot switching between chats is not a completion. The plan also records which block each row stands for, so the
 strip above can resolve a block to a row. **Every row is `w_full`** (`build_row`): the list lays a row out as a
 root of its own, and a root with no width is as wide as its content's min-content — for markdown, the longest
 line unwrapped — so a message ran past the panel's edge and left a blank band where its box and its wrapping
@@ -370,8 +373,11 @@ a second composer. An edit brings the paths back as text.
 **The typed text follows the same rule through `Conversation::draft`.** Every keystroke mirrors into the
 addressed agent's `draft` (`AppState::remember_conversation_draft`), because the slot's own copy is dropped
 when the slot is freed. Reattaching (the chat header's *Attach running*, a bench pick into a column)
-restores it (`AppState::restore_composer_draft`), only into an empty field. A slot that keeps showing one
-agent through a mode switch or a hidden region touches neither copy; the pooled `Entity<TextareaState>` is
+restores it (`AppState::restore_composer_draft`), only into an empty field. Every frame
+`AppState::sync_composer_drafts` also compares each slot's addressed agent with `composer_bound`; a slot that
+now addresses another agent takes that agent's draft (or empties), so the draft follows the chat into any mode
+or screen; a slot already bound to the agent is refreshed too when its field is not focused and the
+conversation's draft differs (the same agent in two slots). A slot that keeps showing one agent touches neither copy; the pooled `Entity<TextareaState>` is
 untouched by dock placement.
 
 **Pasting into the composer attaches when the board carries a file.** `⌘V`/`Ctrl+V` with the field focused
@@ -535,6 +541,12 @@ its own: it opens an ordinary chat tab (`AppState::open_teams_agent_panel`). **T
 project's; the attachment need not be**: under `TeamsSpan::Window` a card may belong to any project, but the
 tab must be the one on screen's or `sync_chat_panels` gives it no panel. `agent_for_slot` answers the
 foreign agent and the send resolves its project through `project_of_agent` (`AppState::steer_column`).
+**Under `TeamsSpan::Window` the borrowed tab is put back.** The first re-aim of a tab records its previous
+attachment in `AppState::teams_chat_restore`. Whenever the window is no longer on `RailMode::TEAMS_ALL` by any
+route (mode switch, project switch), the render loop calls `restore_teams_chats`, but only for a tab still
+showing the agent Teams set, so a deliberate attach made meanwhile wins. `remember` writes the pre-Teams
+attachment for a borrowed tab, so the borrow is never persisted. The tab is still the project's own; a
+Teams-owned panel is the cleaner design and is not built.
 
 **Lifecycle** (`crates/ubiq/src/app/chat.rs`). `open_chat_tab` mints a tab and slot; `open_chat_tab_now`
 also docks it, only when there is a conversation to put in it, via `PanelEdit::Reveal` (not `Open`), since

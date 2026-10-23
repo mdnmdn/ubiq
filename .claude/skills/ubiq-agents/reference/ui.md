@@ -254,7 +254,8 @@ beside Stop — or *Steer*, which sends at once, for a harness whose `AgentTypeI
 first frame**, because the subscription mirroring what is typed has to be held for the window's
 life. Columns allocate from the low range, chat tabs from the range above it. What was typed at
 one surface never turns up in another's field, and closing one clears its slot's draft before the
-slot is handed on. Also here: `COMPOSER_ROWS_MIN/MAX`, `COMPOSER_ROWS_MAX_DEFAULT`,
+slot is handed on. The draft itself is the conversation's (`Conversation::draft`): `sync_composer_drafts`
+(render) refills a slot whenever `AppState::composer_bound` says it now addresses another agent. Also here: `COMPOSER_ROWS_MIN/MAX`, `COMPOSER_ROWS_MAX_DEFAULT`,
 `COMPOSER_ROW_HEIGHT`, and `COLUMN_MIN_WIDTH = 360.0`.
 
 ## The chat panel

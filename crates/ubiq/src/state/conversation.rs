@@ -1668,6 +1668,10 @@ pub struct TranscriptScroll {
     /// The frame counter [`Self::bodies`] is evicted against: a body not drawn in the previous
     /// frame is dropped, the life a `TextView`'s own keyed state has.
     frame: Cell<u64>,
+    /// The completion mark [`Self::note_completion`] last saw, per transcript — which of its
+    /// messages are finished. A move is a message completing, and re-measures that transcript's
+    /// rows once. Per transcript, so a slot switching between two chats is not a completion.
+    completed: RefCell<HashMap<TranscriptKey, u64>>,
 }
 
 /// One agent body's markdown state, and the text last handed to it.
@@ -1683,6 +1687,10 @@ struct Body {
 /// What a provisional measurement's signature is stored under: a row measured while its body's
 /// parse was still in flight is measured again, whatever its content signature says.
 const UNSETTLED: u64 = 0x9e37_79b9_7f4a_7c15;
+
+/// The signature every cached height is moved to when a message completes: no row carries it, so
+/// each row is measured again the next time it is drawn, its old height kept as the hint.
+const STALE: u64 = u64::MAX;
 
 impl Default for TranscriptScroll {
     fn default() -> Self {
@@ -1703,6 +1711,7 @@ impl Default for TranscriptScroll {
             dirty: Cell::default(),
             bodies: RefCell::default(),
             frame: Cell::default(),
+            completed: RefCell::default(),
         }
     }
 }
@@ -1864,6 +1873,31 @@ impl TranscriptScroll {
     /// the row measures it again. The frame after the parse lands is the one that settles it.
     pub fn measured_unsettled(&self, key: u64, sig: u64, height: Pixels) -> bool {
         self.measured(key, sig ^ UNSETTLED, height)
+    }
+
+    /// Record which messages of `transcript` are complete; a mark that moved since that
+    /// transcript was last drawn is a message whose stream has ended — a block following it, or
+    /// the turn ending — and the cached height of each of its `rows` is made stale, so the row is
+    /// laid out again the next time it is drawn. The one full reflow per completed message, never
+    /// one per delta; a transcript seen for the first time has nothing to reflow. `true` when it
+    /// fired.
+    pub fn note_completion(
+        &self,
+        transcript: TranscriptKey,
+        mark: u64,
+        rows: impl IntoIterator<Item = u64>,
+    ) -> bool {
+        match self.completed.borrow_mut().insert(transcript, mark) {
+            Some(last) if last != mark => {}
+            _ => return false,
+        }
+        let mut heights = self.heights.borrow_mut();
+        for key in rows {
+            if let Some((sig, _)) = heights.get_mut(&key) {
+                *sig = STALE;
+            }
+        }
+        true
     }
 
     /// Start a frame's use of [`Self::bodies`]: drop every body the previous frame did not draw.
