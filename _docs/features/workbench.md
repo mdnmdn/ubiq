@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-10-23
+updated: 2026-10-24
 verified: 2026-10-23
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/search.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/updates.rs, crates/ubiq/src/app/updates.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs, crates/ubiq/src/state/about.rs, crates/ubiq/src/app/about.rs, crates/ubiq/src/ui/about.rs]
 depends_on: [tech-ui]
@@ -734,14 +734,16 @@ the pair reads as one split button rather than two: it opens the **agents to att
 live agent the *current rail mode* draws nowhere, so attaching it is what makes it visible
 (`T-266`, `T-275`). **Read against the agent model, not the pane model**: an agent is not
 necessarily a pane with a dock panel — one an agents-column tab or a chat tab draws is drawn by
-that surface, never by the dock — so the candidate set is `AppState::attach_rows`'s own live
-agents (`work.agents` narrowed to `AgentsView::live`). **"Shown" is mode-relative, not a global
-union**: the columns are the centre only in `RailMode::AGENTS` (`ui/rail.rs`), so a column tab
-counts as shown only while the window is in Agents mode; a chat tab's own `attached` is drawn in
-every mode except Agents, Control and the sink (`state::dock::PanelKind::Chat`), so it counts as
-shown in all of those and nowhere else. An agent sitting in an agents column while the window is
-in IDE mode is thus listed — nothing IDE mode renders shows it — even though a switch to Agents
-mode would. With nothing to attach the menu says so in one disabled row, "No agents to attach".
+that surface, never by the dock. **The list is `AppState::hidden_agents`, the very list *Attach
+existing agent* offers** — one function, no second filter: the project's live agents
+(`work.agents` narrowed to `AgentsView::live`) minus `AppState::shown_agents`, what the *current*
+rail mode has a panel open for. **Shown is per mode, never a union**: every mode draws its own
+0..N agent panels out of the one pool — in Agents mode the column tabs (the centre), in Control
+nothing, in the sink its bench's own conversation (`AppState::sink_agent`), and in every other mode the attachments of the chat tabs the dock's tree holds
+right now (a tab in a put-away region still counts). A tab open only in another mode's arrangement
+is not in this tree, so with A1–A3 running and A2 docked in IDE, A3 in Tasks, IDE lists A1 and A3
+and Tasks lists A1 and A2 (`state::chat::hidden_agents`). With nothing to attach the menu says so
+in one disabled row, "No agents to attach".
 Picking a row *reveals* the agent through `AppState::reveal_agent_for_mode` — in `RailMode::AGENTS`
 exactly `reveal_agent`, front of its column or a column of its own; everywhere else a chat panel in
 the dock, reusing a tab already attached to the agent or one attached to nothing before minting a

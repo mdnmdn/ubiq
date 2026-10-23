@@ -57,6 +57,59 @@ pub fn dot_grid(spacing: f32, offset: Point<f32>) -> impl IntoElement {
     )
 }
 
+/// The dotted ground of a pannable, zoomable board: drawn from the frame's own bounds, the pan and
+/// the zoom, so it fills the whole frame at any transform and never runs out.
+///
+/// `pitch` is the grid's spacing at 100% zoom; it is scaled by `zoom` here and **doubled while the
+/// result is under [`GRID_MIN_PITCH`]**, so zooming out thins the dots instead of turning them to
+/// a haze. Dots sit on multiples of that pitch from the canvas origin, so they move with the
+/// cards. `frame` is told the frame's top-left in window coordinates on every paint — the
+/// screen-to-canvas conversion reads it.
+pub fn pan_grid(
+    pitch: f32,
+    zoom: f32,
+    pan: (f32, f32),
+    frame: std::rc::Rc<std::cell::Cell<(f32, f32, f32, f32)>>,
+) -> impl IntoElement {
+    let colour = theme::fade(theme::text_faint(), 0.35);
+    let mut step = (pitch * zoom).max(1.0);
+    for _ in 0..16 {
+        if step >= GRID_MIN_PITCH {
+            break;
+        }
+        step *= 2.0;
+    }
+
+    layer().child(
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+                frame.set((f32::from(bounds.origin.x), f32::from(bounds.origin.y), w, h));
+                let mut y = pan.1.rem_euclid(step);
+                while y < h {
+                    let mut x = pan.0.rem_euclid(step);
+                    while x < w {
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                bounds.origin + point(px(x), px(y)),
+                                size(px(1.5), px(1.5)),
+                            ),
+                            colour,
+                        ));
+                        x += step;
+                    }
+                    y += step;
+                }
+            },
+        )
+        .size_full(),
+    )
+}
+
+/// The closest two grid dots may sit before [`pan_grid`] drops every other one.
+pub const GRID_MIN_PITCH: f32 = 14.0;
+
 /// One curve between two points, in the colour of whatever it connects.
 pub struct Link {
     pub from: Point<f32>,

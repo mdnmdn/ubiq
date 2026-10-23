@@ -67,13 +67,12 @@ pub struct AttachChoices {
 /// conversation with no harness at the other end, the same reason the agents screen already
 /// refuses to draw a column on one.
 ///
-/// **Exclusivity is per surface, not per conversation.** `shown` is what the *other* panels of the
-/// asking surface are looking at — the other chat tabs for the IDE, the other columns for the
-/// agents screen — and those rows are disabled. The two surfaces may show the same conversation at
-/// the same time, and the host does not care, because a view was never the workspace.
+/// `shown` rows are drawn disabled rather than dropped. The window's own attach lists (the `+`
+/// menu's second stage and the chat header's chevron) pass [`hidden_agents`] as `live` and nothing
+/// as `shown`, so they offer exactly what the titlebar chevron does; `mine` is still selected.
 ///
-/// One builder for every surface that offers to attach: the `+` menus, the chat header's chevron
-/// and the agents screen alike, so what "already taken" means is answered once.
+/// The label is [`AgentLabel::of`] with no task title; [`attach_choices_with`] takes the window's
+/// own resolver (`AppState::agent_label`) so a row reads as the titlebar chevron's does.
 pub fn attach_choices(
     agents: &[WorkAgent],
     live: &[AgentId],
@@ -81,13 +80,27 @@ pub fn attach_choices(
     mine: Option<AgentId>,
     query: &str,
 ) -> AttachChoices {
+    attach_choices_with(agents, live, shown, mine, query, |agent| {
+        AgentLabel::of(agent, None)
+    })
+}
+
+/// [`attach_choices`], labelling each row with `label`.
+pub fn attach_choices_with(
+    agents: &[WorkAgent],
+    live: &[AgentId],
+    shown: &[AgentId],
+    mine: Option<AgentId>,
+    query: &str,
+    label: impl Fn(&WorkAgent) -> AgentLabel,
+) -> AttachChoices {
     let query = query.trim().to_lowercase();
     // Title then identity, and matched on title, identity and handle alike (T-283's B7): a search
     // for the definition or the handle finds the agent as surely as one for its title.
     let items: Vec<(AgentId, String, String)> = agents
         .iter()
         .filter(|agent| live.contains(&agent.id))
-        .map(|agent| (agent.id, AgentLabel::of(agent, None)))
+        .map(|agent| (agent.id, label(agent)))
         .filter(|(_, label)| query.is_empty() || label.matches(&query))
         .map(|(id, label)| (id, label.title.to_string(), label.identity.to_string()))
         .collect();
@@ -106,6 +119,25 @@ pub fn attach_choices(
         disabled,
         selected,
     }
+}
+
+/// The live agents one rail mode does not show, in the host's own order — the whole of the
+/// hidden-agents rule, behind both the titlebar chevron and *Attach existing agent*.
+///
+/// **Shown is per mode.** Every rail mode draws its own 0..N agent panels out of the one pool of
+/// running agents — a chat panel in its dock, or the columns in Agents mode — so `shown` is what
+/// *the current* mode draws and nothing else: an agent open in another mode's dock is hidden here.
+/// `AppState::shown_agents` is what reads it off the window.
+pub fn hidden_agents(
+    agents: &[WorkAgent],
+    live: &[AgentId],
+    shown: &std::collections::HashSet<AgentId>,
+) -> Vec<AgentId> {
+    agents
+        .iter()
+        .map(|agent| agent.id)
+        .filter(|id| live.contains(id) && !shown.contains(id))
+        .collect()
 }
 
 /// What one row of the chat header's control does when it is clicked.
@@ -273,6 +305,26 @@ mod tests {
         let attach = attach_choices(&agents, &[id], &[], None, "");
         assert_eq!(attach.items[0].1, "Fix tab truncation");
         assert_eq!(attach.items[0].2, "Reviewer \u{00b7} Claude Code");
+    }
+
+    /// A1, A2, A3 run in the project. IDE shows A2 in its dock, Tasks shows A3: each mode hides
+    /// the rest, and what another mode shows is not shown here. A non-live record is never a row.
+    #[test]
+    fn hidden_is_per_mode() {
+        let [a1, a2, a3, ghost] = std::array::from_fn(|_| AgentId::generate());
+        let agents = vec![
+            agent(a1, "A1"),
+            agent(a2, "A2"),
+            agent(a3, "A3"),
+            agent(ghost, "ghost"),
+        ];
+        let live = [a1, a2, a3];
+
+        let ide = std::collections::HashSet::from([a2]);
+        assert_eq!(hidden_agents(&agents, &live, &ide), vec![a1, a3]);
+
+        let tasks = std::collections::HashSet::from([a3]);
+        assert_eq!(hidden_agents(&agents, &live, &tasks), vec![a1, a2]);
     }
 
     fn agent(id: AgentId, name: &str) -> WorkAgent {

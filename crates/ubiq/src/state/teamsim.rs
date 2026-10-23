@@ -17,7 +17,7 @@
 //! **Hand positions round-trip.** A scenario may carry the places a human dragged things to, and
 //! loading one restores them rather than tidying them away: the layout is seeded from the map and
 //! `place_new` fills in only what the map does not name. `Tidy` is the one thing that throws them
-//! away, and an arrival never does — which is what leaves `Algo::Adaptive` something to work from.
+//! away, and an arrival never does — which is what leaves `the arrangement` something to work from.
 //!
 //! **The geometry is computed here, not while drawing.** [`Sim::drawing`] answers every rectangle
 //! and every connector endpoint the page draws, so `ui/sink/teamsim.rs` positions blocks and never
@@ -1284,7 +1284,7 @@ mod tests {
         }
 
         // And the positions a drag wrote come back with it.
-        let mut sim = Sim::new(every_preset().pop().expect("a preset"), Algo::Flow);
+        let mut sim = Sim::new(every_preset().pop().expect("a preset"), Algo::Radial);
         let card = sim.scenario.agents[0].id.clone();
         sim.move_agent(&card, (640.0, 480.0));
         let json = sim.to_json();
@@ -1294,7 +1294,7 @@ mod tests {
             "the dragged card's offset was written: {:?}",
             back.positions
         );
-        let restored = Sim::new(back, Algo::Flow);
+        let restored = Sim::new(back, Algo::Radial);
         assert_eq!(
             restored.card_at(0),
             sim.card_at(0),
@@ -1317,7 +1317,7 @@ mod tests {
     fn a_projection_counts_the_delegates() {
         for scenario in every_preset() {
             let name = scenario.name.clone();
-            let sim = Sim::new(scenario, Algo::Flow);
+            let sim = Sim::new(scenario, Algo::Radial);
             let projection = sim.projection();
             assert_eq!(
                 projection.agents.len(),
@@ -1414,7 +1414,7 @@ mod tests {
     fn an_arrival_places_only_itself() {
         let mut sim = Sim::new(
             Scenario::parse(PRESETS[0].source).expect("the first preset"),
-            Algo::Flow,
+            Algo::Radial,
         );
         let card = sim.scenario.agents[0].id.clone();
         let was = sim.card_at(0).expect("placed");
@@ -1444,7 +1444,7 @@ mod tests {
     fn the_editor_keeps_the_scenario_true() {
         let mut sim = Sim::new(
             Scenario::parse(PRESETS[0].source).expect("the first preset"),
-            Algo::Flow,
+            Algo::Radial,
         );
         let session = sim.scenario.sessions[0].id.clone();
         let tasks = sim.scenario.tasks.len();
@@ -1481,7 +1481,7 @@ mod tests {
     fn the_metrics_measure_against_the_viewport() {
         let sim = Sim::new(
             Scenario::parse(PRESETS[0].source).expect("the first preset"),
-            Algo::Flow,
+            Algo::Radial,
         );
         let drawing = sim.drawing();
         let metrics = sim.metrics(drawing.bbox);

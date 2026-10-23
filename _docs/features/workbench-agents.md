@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-10-15
+updated: 2026-10-24
 verified: 2026-10-15
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
@@ -70,14 +70,15 @@ says so.
 
 **One `+` menu, three surfaces.** The agents screen's control, the IDE chat strip's `+` and the
 kitchen sink's bench all raise it, and `WorkbenchState::new_agent_menu` carries which of them
-asked — so what a pick *does* differs while what it *offers* does not. A conversation picked on
-the agents screen is revealed in a column, one picked on the chat strip opens a tab attached to
-it, one picked on the bench becomes what the bench reads. What "already taken" means is the
-asking surface's own business and nothing else's: `state::chat::attach_choices` is the one builder
-behind every attach list in the window, and it disables the conversations the *other* panels of
-that surface are showing — never dropping them, because a row that vanishes reads as a
-conversation that ended rather than one already open. The two surfaces may show the same
-conversation at once, and the host is never told.
+asked. A conversation picked on the agents screen or the chat strip goes through
+`AppState::reveal_agent_for_mode`, the titlebar chevron's own pick — a column in Agents mode,
+elsewhere the chat tab already on it, else an empty one, else a new one — and one picked on the
+bench becomes what the bench reads. **On the agents screen and the chat
+strip the list is `AppState::hidden_agents`** — the titlebar chevron's own list, so the two never
+disagree: the project's live agents the *current* rail mode has no panel open for (the column tabs
+in Agents mode, the chat tabs in the dock's tree elsewhere). An agent open only in another mode's
+dock is listed. The bench offers every live agent, its own attachment selected. The surfaces may
+show the same conversation at once, and the host is never told.
 
 **On the chat surface, the same `+` gains a third part: *New mission* and a searchable *Missions*
 list (§6.3).** A separator, then *New mission* (`AppState::open_new_mission`, the toolbar's own

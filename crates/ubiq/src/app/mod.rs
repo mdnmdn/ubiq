@@ -29,7 +29,8 @@ use crate::state::agents::{
 };
 use crate::state::board::{BoardState, Field};
 use crate::state::chat::{
-    AttachChoices, ChatPick, ChatPicks, attach_choices, chat_picks, free_chat_slot,
+    AttachChoices, ChatPick, ChatPicks, attach_choices, attach_choices_with, chat_picks,
+    free_chat_slot,
 };
 use crate::state::conversation::{Conversation, Run, TranscriptScroll};
 use crate::state::diagrams::{self, DiagramAnswer, DiagramImage, DiagramPalette};
@@ -1315,8 +1316,6 @@ pub struct AppState {
     pub explorer_scroll: ScrollHandle,
     /// The knowledge base explorer's rows, so a reveal can bring one into view.
     pub kb_scroll: ScrollHandle,
-    /// The Teams canvas, so a destination can name where on it the user was.
-    pub teams_scroll: ScrollHandle,
     /// The kitchen sink's teamsim canvas. Its own, because it is a bench and not the Teams screen:
     /// scrolling one must not move the other.
     pub teamsim_scroll: ScrollHandle,

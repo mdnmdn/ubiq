@@ -712,7 +712,7 @@ fn each_span_keeps_its_own_arrangement(cx: &mut TestAppContext) {
 
     fixture.state.update(cx, |state, cx| {
         let teams = state.teams_mut(cx).expect("the project span's view");
-        teams.algo = Algo::Columns;
+        teams.algo = Algo::Hex;
         teams.zoom = 0.5;
     });
 
@@ -731,7 +731,7 @@ fn each_span_keeps_its_own_arrangement(cx: &mut TestAppContext) {
     fixture.state.update(cx, |state, cx| {
         state.workbench.rail_mode = RailMode::TEAMS;
         let teams = state.teams(cx).expect("the project span's view, again");
-        assert_eq!(teams.algo, Algo::Columns);
+        assert_eq!(teams.algo, Algo::Hex);
         assert_eq!(
             teams.zoom, 0.5,
             "the project's layout survived the round trip"

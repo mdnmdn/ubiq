@@ -9,10 +9,9 @@
 //!
 //! **"Shown" is mode-relative, not global.** The columns are the centre only in `RailMode::AGENTS`
 //! (`ui/rail.rs`), so a live agent sitting in one is shown while the window is on that screen and
-//! hidden — "to attach" — everywhere else, IDE mode included. A chat tab's own attachment is drawn
-//! in every mode except Agents, Control and the sink (`state::dock::PanelKind::Chat`), so it counts
-//! as shown there and nowhere else. Hidden is live minus whichever of those two the current mode
-//! actually draws.
+//! hidden — "to attach" — everywhere else, IDE mode included. A chat tab's attachment counts as
+//! shown only in a mode whose dock tree holds that tab (`AppState::shown_agents`). Hidden is live
+//! minus what the current mode shows — `AppState::hidden_agents`, also *Attach existing agent*'s.
 
 use std::cell::RefCell;
 use std::rc::Rc;

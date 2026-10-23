@@ -223,8 +223,8 @@ pub fn new_agent_menu(app: &AppState, window: &Window, cx: &mut Context<AppState
                     .iter()
                     .map(|(_, _, identity)| Some(identity.clone())),
             )
-            // Already shown by another panel of this surface: drawn, not dropped — a row that
-            // vanishes reads as a conversation that ended rather than one taken.
+            // Empty in practice: the rows are `AppState::hidden_agents`, so what this mode already
+            // shows is never offered at all.
             .disabled(rows.disabled.clone())
             .open(true)
             .search(&app.picker_search, search_focused)

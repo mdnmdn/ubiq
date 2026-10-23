@@ -1636,11 +1636,9 @@ impl AppState {
         self.open_new_agent(Default::default(), window, cx);
     }
 
-    /// What the `+` menu's second stage offers: every conversation in this project that no other
-    /// panel of the asking surface already shows.
-    ///
-    /// The one builder every attach list in the window goes through, so "already taken" means the
-    /// same thing here as it does in the chat header's own control.
+    /// What the `+` menu's second stage offers: [`Self::hidden_agents`] — every live agent of this
+    /// project the current rail mode has no panel open for, the titlebar chevron's own list. The
+    /// sink's bench is the exception: it offers every live agent, its own attachment selected.
     ///
     /// The stage draws a filter field — it is a `kit::Picker`, the window's one searchable-list
     /// mechanism — so what was typed narrows the rows here, once, for both the frame that draws
@@ -1659,31 +1657,75 @@ impl AppState {
             .work(cx)
             .map(|work| work.agents.as_slice())
             .unwrap_or(&[]);
+        match surface {
+            // The agents screen and the chat strip offer exactly what the titlebar chevron does:
+            // [`Self::hidden_agents`], passed as the candidate set so nothing is left to disable.
+            NewAgentSurface::Agents | NewAgentSurface::Chat => attach_choices_with(
+                agents,
+                &self.hidden_agents(cx),
+                &[],
+                None,
+                &query,
+                |agent| self.agent_label(agent),
+            ),
+            NewAgentSurface::Sink => {
+                let live = self
+                    .agents(cx)
+                    .map(|view| view.live.as_slice())
+                    .unwrap_or(&[]);
+                attach_choices(agents, live, &[], self.sink_agent(), &query)
+            }
+        }
+    }
+
+    /// The project's live agents whose panel the current rail mode does not have open — the one
+    /// list behind the titlebar's hidden-agents chevron and *Attach existing agent* alike, so the
+    /// two can never disagree. The rule itself is [`crate::state::chat::hidden_agents`]; what
+    /// "open in this mode" means is [`Self::shown_agents`]. No project, no rows.
+    pub fn hidden_agents(&self, cx: &App) -> Vec<AgentId> {
+        let Some(work) = self.work(cx) else {
+            return Vec::new();
+        };
         let live = self
             .agents(cx)
             .map(|view| view.live.as_slice())
             .unwrap_or(&[]);
-        let (shown, mine): (Vec<AgentId>, Option<AgentId>) = match surface {
-            NewAgentSurface::Agents => (
-                self.agents(cx)
-                    .map(|view| {
-                        view.columns
-                            .iter()
-                            .flat_map(|column| column.tabs.iter().copied())
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                None,
-            ),
-            NewAgentSurface::Chat => (
-                self.open_project(cx)
-                    .map(|open| open.chats.iter().filter_map(|tab| tab.attached).collect())
-                    .unwrap_or_default(),
-                None,
-            ),
-            NewAgentSurface::Sink => (Vec::new(), self.sink_agent()),
-        };
-        attach_choices(agents, live, &shown, mine, &query)
+        crate::state::chat::hidden_agents(&work.agents, live, &self.shown_agents(cx))
+    }
+
+    /// The agents the current rail mode has a panel open for. **Per mode, never the union**: an
+    /// agent open only in another mode's arrangement is not shown here.
+    ///
+    /// - `RailMode::AGENTS`: every agent a column holds — the centre is that mode's agent area.
+    /// - Control: none — it draws no chat panel (`PanelKind::Chat`'s `is_drawn`).
+    /// - The sink: the one conversation its bench reads (`Self::sink_agent`).
+    /// - Every other mode: the attachments of the chat tabs whose panel is in the dock's tree right
+    ///   now. The tree on screen *is* this mode's arrangement — a tab another mode's blob names is
+    ///   kept off it by `settle_layout` — so a tab in a put-away region still counts as open.
+    pub fn shown_agents(&self, cx: &App) -> HashSet<AgentId> {
+        match self.workbench.rail_mode {
+            RailMode::AGENTS => self
+                .agents(cx)
+                .map(|view| {
+                    view.columns
+                        .iter()
+                        .flat_map(|column| column.tabs.iter().copied())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            RailMode::CONTROL => HashSet::new(),
+            RailMode::SINK => self.sink_agent().into_iter().collect(),
+            _ => self
+                .open_project(cx)
+                .map(|open| {
+                    open.chats
+                        .iter()
+                        .filter(|tab| self.holds_kind(&PanelKind::Chat(tab.id), cx))
+                        .filter_map(|tab| tab.attached)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
     }
 
     /// One row of the `+` menu, clicked.
@@ -1820,13 +1862,11 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         match surface {
-            NewAgentSurface::Agents => self.reveal_agent(agent, cx),
-            // No room left in the slot band is not a reason to show nothing — the same fallback
-            // `Message::ConversationStarted`'s own chat arm takes (`T-275`).
-            NewAgentSurface::Chat => match self.open_chat_tab_now(cx) {
-                Some(id) => self.attach_chat(id, Some(agent), cx),
-                None => self.reveal_agent_for_mode(agent, cx),
-            },
+            // The titlebar chevron's own pick, so the two lists behave alike: reuse a tab already
+            // on the agent, else fill an empty one, else mint one — never a duplicate.
+            NewAgentSurface::Agents | NewAgentSurface::Chat => {
+                self.reveal_agent_for_mode(agent, cx)
+            }
             NewAgentSurface::Sink => self.set_sink_conversation(agent, cx),
         }
     }

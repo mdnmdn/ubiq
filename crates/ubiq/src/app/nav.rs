@@ -163,11 +163,11 @@ impl AppState {
                 .cursor_line_column(cx)
                 .map(|(line, _)| Locus::Line { line }),
             View::Teams { .. } => {
-                let offset = self.teams_scroll.offset();
+                let teams = self.teams(cx)?;
                 Some(Locus::Viewport {
-                    x: f32::from(offset.x),
-                    y: f32::from(offset.y),
-                    scale: self.teams(cx)?.zoom,
+                    x: teams.pan.0,
+                    y: teams.pan.1,
+                    scale: teams.zoom,
                 })
             }
             _ => None,
@@ -244,14 +244,12 @@ impl AppState {
     ) {
         if let Some(teams) = self.teams_mut(cx) {
             teams.tab = tab;
-            if let Some(Locus::Viewport { scale, .. }) = locus {
+            if let Some(Locus::Viewport { x, y, scale }) = locus {
                 teams.zoom = *scale;
+                teams.pan = (*x, *y);
             }
         }
         self.select_in_teams(selection, cx);
-        if let Some(Locus::Viewport { x, y, .. }) = locus {
-            self.teams_scroll.set_offset(point(px(*x), px(*y)));
-        }
         cx.notify();
     }
 }

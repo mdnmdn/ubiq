@@ -164,7 +164,42 @@ impl AppState {
 
     pub fn zoom_teams(&mut self, delta: f32, cx: &mut Context<Self>) {
         if let Some(graph) = self.teams_mut(cx) {
-            graph.zoom_by(delta);
+            let before = graph.zoom;
+            let centre = graph.frame_centre();
+            graph.zoom_at(((before + delta).clamp(crate::state::teams::ZOOM_MIN, crate::state::teams::ZOOM_MAX)) / before, centre);
+        }
+        cx.notify();
+    }
+
+    /// The wheel or a trackpad's two-finger scroll over the canvas. Pans on both axes with no
+    /// bound; shift turns a vertical-only wheel horizontal; Cmd/Ctrl zooms round the pointer
+    /// instead (scroll up zooms in).
+    pub fn wheel_teams(
+        &mut self,
+        event: &gpui::ScrollWheelEvent,
+        line_height: gpui::Pixels,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = event.delta.pixel_delta(line_height);
+        let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
+        if let Some(graph) = self.teams_mut(cx) {
+            if event.modifiers.secondary() || event.modifiers.control {
+                let at = graph.in_frame((f32::from(event.position.x), f32::from(event.position.y)));
+                graph.zoom_at((dy * 0.01).exp(), at);
+            } else if event.modifiers.shift && dx == 0.0 {
+                graph.pan_by((dy, 0.0));
+            } else {
+                graph.pan_by((dx, dy));
+            }
+        }
+        cx.notify();
+    }
+
+    /// A trackpad pinch over the canvas: zoom round the pinch's centre.
+    pub fn pinch_teams(&mut self, event: &gpui::PinchEvent, cx: &mut Context<Self>) {
+        if let Some(graph) = self.teams_mut(cx) {
+            let at = graph.in_frame((f32::from(event.position.x), f32::from(event.position.y)));
+            graph.zoom_at(event.delta.exp(), at);
         }
         cx.notify();
     }

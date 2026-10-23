@@ -255,7 +255,7 @@ fn toolbar(app: &AppState, cx: &mut Context<AppState>) -> impl IntoElement {
         .child(
             Picker::new("teams-layout", graph.algo.label())
                 .icon(IconName::LayoutDashboard)
-                // A row carries the arrangement's hint as well as its name: "Packed" and "Tree"
+                // A row carries the arrangement's hint as well as its name: "Hex" and "Spider"
                 // say nothing about what a pick would do to the canvas, and the trigger goes on
                 // reading as the bare name because that is what the control is reporting.
                 .items(Algo::ALL.map(|a| format!("{} \u{2014} {}", a.label(), a.hint())))

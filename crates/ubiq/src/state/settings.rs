@@ -242,7 +242,7 @@ pub struct UiSettings {
     #[serde(default)]
     pub last_connection: Option<String>,
     /// The arrangement a fresh Teams graph opens in — every project this window takes on, from
-    /// here on. `Algo::Flow` by default, the same arrangement the toolbar itself opens on. A
+    /// here on. `Algo::Radial` by default, the same arrangement the toolbar itself opens on. A
     /// session already on screen keeps whatever it was set to: this seeds the field once, when a
     /// project is entered ([`crate::app::AppState::sync_projects`]), not on every relayout — so
     /// changing the default in settings does not silently pull the rug from under a canvas the

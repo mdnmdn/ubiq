@@ -1,8 +1,8 @@
 //! The arrangements that grow a graph rather than stack it.
 //!
-//! [`layout.rs`](super::layout) holds the four arrangements that predate the layout spike and the
-//! packers they share. These are the five on top of them: five ways to arrange one container's
-//! cards, and one way to pack containers that never assumes there is a root.
+//! [`layout.rs`](super::layout) holds Radial and the packers they share. These are the four on top
+//! of it: four ways to arrange one container's cards, and one way to pack containers that never
+//! assumes there is a root.
 //!
 //! Every one of them grows **downwards**. A connector leaves the bottom of a card and arrives at
 //! the top of the next one, so an arrangement that seats a child above its parent draws a line
@@ -11,7 +11,6 @@
 //!
 //! | Arrangement | One container's cards | A card's delegates |
 //! |---|---|---|
-//! | Organic | children fanned under their parent, bowed and jittered, then pushed apart | a jittered fan |
 //! | Multiradial | every parent is its own hub: children on a downward semicircle round it | a fan arc |
 //! | Spider | one hub per container, cards on concentric downward arcs, spokes to the parent | a fan arc |
 //! | Hex | cards on a honeycomb lattice, a row per hand-off depth, rows half a cell apart | a staggered grid |
@@ -42,13 +41,6 @@ pub const FAN_SEATS: usize = 7;
 /// The most arcs a fan ring opens before it gives up and crowds the last one.
 pub const FAN_ARCS: usize = 4;
 
-/// How far an organic slot is nudged off its regular seat, as a fraction of the step to the next.
-/// Enough to read as grown rather than drawn; not enough to make two of them touch.
-pub const ORGANIC_JITTER: f32 = 0.3;
-/// How much lower the ends of an organic brood hang than its middle, as a fraction of
-/// [`CARD_GAP_Y`]. This is the bow that makes a row of children read as a spray rather than a row.
-pub const ORGANIC_BOW: f32 = 1.4;
-
 /// A honeycomb's long row. Rows alternate `HEX_COLS` and `HEX_COLS - 1`, offset half a cell. Two,
 /// because a delegate is a full [`SUB_WIDTH`] wide: three of them across is 816pt of ring under a
 /// 264pt card, which costs more sideways scrolling than the stagger is worth.
@@ -75,24 +67,6 @@ type Spots = Vec<(AgentId, (f32, f32))>;
 
 /// The `brood_of` half of [`grown`]: where one parent puts its children.
 type BroodFn = fn((f32, f32), (f32, f32), &[AgentId], &Boxes, &mut Spots, f32);
-
-/// A repeatable number in `[-1, 1)` for a name. The jitter has to survive a re-render.
-///
-/// FNV-1a rather than a cryptographic digest: nothing here needs the hash to be hard to invert,
-/// only to be the same number every time the same key is asked for within a build. It is not a
-/// wire format and no stored position depends on it, so the constants may change freely.
-pub fn seeded(key: &str, salt: u64) -> f32 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in key
-        .bytes()
-        .chain(std::iter::once(b'/'))
-        .chain(salt.to_le_bytes())
-    {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    (hash >> 32) as f32 / (1u32 << 31) as f32 - 1.0
-}
 
 /// Where a card has been put, or the origin for one nothing has placed.
 fn spot_of(spots: &Spots, agent: AgentId) -> (f32, f32) {
@@ -348,51 +322,6 @@ pub fn ring_fan(count: usize) -> Vec<(f32, f32)> {
         .collect()
 }
 
-/// The fan's own seats, nudged by `scale`.
-///
-/// At `scale = 0` it *is* [`ring_fan`], which is the whole point: [`fan_room`] proved those seats
-/// are far enough apart, so the backing-off in [`ring_organic`] terminates.
-fn organic_slots(count: usize, scale: f32) -> Vec<(f32, f32)> {
-    let mut slots: Vec<(f32, f32)> = Vec::new();
-    for (depth, seats) in fan_arcs(count).into_iter().enumerate() {
-        let (lo, hi) = (180.0 - FAN_SPREAD, 180.0 + FAN_SPREAD);
-        let step = (hi - lo) / (seats.saturating_sub(1)).max(1) as f32;
-        for ix in 0..seats {
-            let base = if seats > 1 {
-                lo + ix as f32 * step
-            } else {
-                180.0
-            };
-            let turn =
-                base + seeded(&format!("turn/{depth}"), ix as u64) * step * ORGANIC_JITTER * scale;
-            let at = radial_slot(turn, depth);
-            slots.push((
-                at.0,
-                at.1 + seeded(&format!("drop/{depth}"), ix as u64) * SUB_GAP * scale,
-            ));
-        }
-    }
-    slots
-}
-
-/// The fan, off its regular seats — a spray rather than an arc.
-///
-/// The nudge is seeded off the slot, so a re-render draws the same picture: an arrangement that
-/// moves every time it is looked at cannot be judged against the one before it. And it is backed
-/// off until nothing touches, because a crowded arc is what the jitter is *for* — two delegates
-/// drawn one over the other is not organic, it is broken, and an eye reads it as one card with a
-/// shadow.
-pub fn ring_organic(count: usize) -> Vec<(f32, f32)> {
-    let mut slots = Vec::new();
-    for scale in [1.0f32, 0.7, 0.45, 0.25, 0.0] {
-        slots = organic_slots(count, scale);
-        if apart_enough(&slots) {
-            return slots;
-        }
-    }
-    slots
-}
-
 /// A honeycomb's rows: [`HEX_COLS`], then one fewer, then [`HEX_COLS`] again.
 fn hex_rows(count: usize) -> Vec<usize> {
     let mut out: Vec<usize> = Vec::new();
@@ -437,73 +366,6 @@ pub fn ring_hex(count: usize) -> Vec<(f32, f32)> {
 }
 
 // ── the insides: what one container's cards do ────────────────────────────────
-
-/// A brood too wide for the screen, folded into several bows instead of one long spray.
-///
-/// Nine children on one fan is a 3400pt row: the shape is lovely and the canvas scrolls sideways
-/// for two screens to show it. [`break_to`] is the same judgement the grid ring makes, at the
-/// cards.
-fn bows(brood: &[AgentId], held: &Boxes, target: f32) -> Vec<Vec<AgentId>> {
-    let widest = brood
-        .iter()
-        .map(|c| held.box_of(*c).0)
-        .fold(0.0f32, f32::max);
-    let tallest = brood
-        .iter()
-        .map(|c| held.box_of(*c).1)
-        .fold(0.0f32, f32::max);
-    let per = break_to(brood.len(), (widest, tallest), target);
-    brood.chunks(per.max(1)).map(|row| row.to_vec()).collect()
-}
-
-/// One parent's children, fanned under it, bowed at the ends and nudged off their seats.
-fn brood_organic(
-    at: (f32, f32),
-    held_box: (f32, f32),
-    brood: &[AgentId],
-    held: &Boxes,
-    spots: &mut Spots,
-    target: f32,
-) {
-    if brood.is_empty() {
-        return;
-    }
-    let widest = brood
-        .iter()
-        .map(|c| held.box_of(*c).0)
-        .fold(0.0f32, f32::max);
-    let step = widest + CARD_GAP_X;
-    let mut y = at.1 + held_box.1 + CARD_GAP_Y;
-    for bow_row in bows(brood, held, target) {
-        let middle = (bow_row.len() - 1) as f32 / 2.0;
-        for (ix, child) in bow_row.iter().enumerate() {
-            let off = (ix as f32 - middle) * step;
-            let bow = if middle > 0.0 {
-                (ix as f32 - middle).abs() / middle
-            } else {
-                0.0
-            } * CARD_GAP_Y
-                * ORGANIC_BOW;
-            let name = child.to_string();
-            put(
-                spots,
-                *child,
-                (
-                    at.0 + held_box.0 / 2.0 - held.box_of(*child).0 / 2.0
-                        + off
-                        + seeded(&name, 1) * step * ORGANIC_JITTER,
-                    y + bow + seeded(&name, 2).abs() * CARD_GAP_Y * ORGANIC_JITTER,
-                ),
-            );
-        }
-        y += bow_row
-            .iter()
-            .map(|c| held.box_of(*c).1)
-            .fold(0.0f32, f32::max)
-            + CARD_GAP_Y
-            + CARD_GAP_Y * ORGANIC_BOW;
-    }
-}
 
 /// One parent's children on downward arcs round it — the hub of a multiradial.
 ///
@@ -568,8 +430,8 @@ fn brood_radial(
 
 /// Every root grown into its own frame by `brood_of`, the frames packed as islands.
 ///
-/// The two shapes that grow a tree outward — Organic and Multiradial — differ only in where a
-/// parent puts its children, so that is the one thing they hand in.
+/// The shape that grows a tree outward — Multiradial — is parameterised by where a parent puts
+/// its children, so that is the one thing it hands in.
 fn grown(members: &[&WorkAgent], held: &Boxes, brood_of: BroodFn, target: f32) -> Spots {
     let (roots, kids) = family(members);
     let mut blocks: Vec<Spots> = Vec::with_capacity(roots.len());
@@ -593,21 +455,6 @@ fn grown(members: &[&WorkAgent], held: &Boxes, brood_of: BroodFn, target: f32) -
         blocks.push(spots);
     }
     as_islands(&blocks, held, target, CARD_GAP_X * 2.0)
-}
-
-/// Children sprayed under their parent, bowed at the ends, then pushed apart until they fit.
-pub fn inside_organic(
-    members: &[&WorkAgent],
-    rings: &Rings,
-    ring: RingFn,
-    target: f32,
-    card: (f32, f32),
-) -> Contents {
-    if members.is_empty() {
-        return Contents::empty();
-    }
-    let held = Boxes::of(members, rings, ring, card);
-    contents_of(&grown(members, &held, brood_organic, target), &held)
 }
 
 /// Every parent its own hub, its children on the downward half of a circle round it.

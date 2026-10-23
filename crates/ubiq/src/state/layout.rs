@@ -54,9 +54,6 @@ pub const CARD_GAP_Y: f32 = 44.0;
 pub const TASK_GAP: f32 = 56.0;
 pub const LAYOUT_MARGIN: f32 = 24.0;
 
-/// How wide a row of containers may get before the next one wraps onto a new row.
-pub const LAYOUT_WIDTH: f32 = 1_320.0;
-
 /// The delegate ring: the fence a card with subagents wears, and the small cards inside it.
 ///
 /// **A subagent is not a [`WorkAgent`], but it is a card.** The host writes `parent: None` on every
@@ -111,10 +108,6 @@ pub const RADIAL_SEATS: usize = 10;
 /// viewport down here is `G310`: no caller of [`Layout::auto`] has one to hand.
 pub const VIEW_ASPECT: f32 = 1.6;
 
-/// How much wider than the bare area sum a viewport-aware shelf's first guess runs, for the ragged
-/// end of every row. It is only a candidate — [`pack_view_shelf`] scores it against the others.
-pub const SHELF_SLACK: f32 = 1.15;
-
 /// Where the `ix`-th delegate starts, as an offset from its parent card's top-left. One to a row,
 /// squared up under the card, so a fence round the default arrangement is never wider than the
 /// card plus its padding.
@@ -159,11 +152,6 @@ pub fn fence(at: (f32, f32), subs: &[(f32, f32)]) -> Option<(f32, f32, f32, f32)
         (x1 - x0) + RING_PAD * 2.0,
         (y1 - y0) + RING_PAD * 2.0,
     ))
-}
-
-/// The ring every arrangement that predates the layout spike wears: one delegate to a row.
-pub fn ring_rows(count: usize) -> Vec<(f32, f32)> {
-    (0..count).map(sub_slot).collect()
 }
 
 /// How many columns a grid ring takes: one, until one would run past [`GRID_ROWS`] rows.
@@ -411,54 +399,35 @@ pub const EPS: f32 = 0.01;
 /// arrangement wins: a canvas that fits on screen and a canvas that shows who spawned whom are
 /// different pictures of the same records. The choice is the user's, and it is remembered nowhere
 /// here — it arrives as an argument to every tidy.
+///
+/// **A name this build does not know is [`Algo::Radial`]**, not an error: a settings file written
+/// when there were more arrangements still loads, and lands on the default.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Algo {
-    #[default]
-    Flow,
-    Packed,
-    Tree,
-    Columns,
-    Adaptive,
-    Multiline,
-    Radial,
-    Organic,
     Multiradial,
     Spider,
     Hex,
     Islands,
+    /// Last, because `serde(other)` has to be.
+    #[default]
+    #[serde(other)]
+    Radial,
 }
 
 impl Algo {
-    pub const ALL: [Algo; 12] = [
-        Algo::Flow,
-        Algo::Packed,
-        Algo::Tree,
-        Algo::Columns,
-        Algo::Adaptive,
-        Algo::Multiline,
+    pub const ALL: [Algo; 5] = [
         Algo::Radial,
-        Algo::Organic,
         Algo::Multiradial,
         Algo::Spider,
         Algo::Hex,
         Algo::Islands,
     ];
 
-    /// The four that predate the layout spike, and the arithmetic none of the rest may disturb.
-    pub const ORIGINAL: [Algo; 4] = [Algo::Flow, Algo::Packed, Algo::Tree, Algo::Columns];
-
     /// The name the menu row carries.
     pub fn label(self) -> &'static str {
         match self {
-            Algo::Flow => "Flow",
-            Algo::Packed => "Packed",
-            Algo::Tree => "Tree",
-            Algo::Columns => "Columns",
-            Algo::Adaptive => "Adaptive",
-            Algo::Multiline => "Multiline",
             Algo::Radial => "Radial",
-            Algo::Organic => "Organic",
             Algo::Multiradial => "Multiradial",
             Algo::Spider => "Spider",
             Algo::Hex => "Hex",
@@ -469,14 +438,7 @@ impl Algo {
     /// One line saying what it does, for the row's second line / a tooltip.
     pub fn hint(self) -> &'static str {
         match self {
-            Algo::Flow => "containers in record order, wrapping across the canvas",
-            Algo::Packed => "the tightest fit, for when the whitespace bothers you",
-            Algo::Tree => "containers hang under whoever spawned them",
-            Algo::Columns => "one card per row, for a narrow window",
-            Algo::Adaptive => "delegates in a grid, containers in record order",
-            Algo::Multiline => "delegates in a grid under their card, folded to the screen's shape",
             Algo::Radial => "delegates round their card, packed against the screen's rectangle",
-            Algo::Organic => "children sprayed under their parent, bowed and nudged off the grid",
             Algo::Multiradial => "every parent a hub, its children on arcs below it",
             Algo::Spider => "one hub per container, cards on arcs, spokes to the parent",
             Algo::Hex => "cards on a honeycomb, a row per hand-off, rows half a cell over",
@@ -487,37 +449,21 @@ impl Algo {
     /// Where this arrangement puts a card's delegates inside its own fence.
     pub fn ring(self) -> RingFn {
         match self {
-            Algo::Flow | Algo::Packed | Algo::Tree | Algo::Columns => ring_rows,
-            Algo::Adaptive | Algo::Multiline | Algo::Islands => ring_grid,
+            Algo::Islands => ring_grid,
             Algo::Radial => ring_radial,
-            Algo::Organic => shapes::ring_organic,
             Algo::Multiradial | Algo::Spider => shapes::ring_fan,
             Algo::Hex => shapes::ring_hex,
         }
     }
 
-    /// The shape this arrangement is aiming its folds and its packing at.
-    ///
-    /// `1.0` is the square the four original arrangements have always asked for, and keeping them
-    /// on it is what makes every one of their positions unchanged by this file's other additions.
+    /// The shape this arrangement is aiming its folds and its packing at: the screen's.
     fn target(self) -> f32 {
-        match self {
-            Algo::Flow | Algo::Packed | Algo::Tree | Algo::Columns => 1.0,
-            _ => VIEW_ASPECT,
-        }
+        VIEW_ASPECT
     }
 
     /// Whether the session-level packer is handed which container hangs under which.
     fn forest(self) -> bool {
-        matches!(
-            self,
-            Algo::Tree
-                | Algo::Organic
-                | Algo::Multiradial
-                | Algo::Spider
-                | Algo::Hex
-                | Algo::Islands
-        )
+        !matches!(self, Algo::Radial)
     }
 
     /// Arrange one container's cards. The inner arrangement fixes the group's box, which is what
@@ -532,12 +478,7 @@ impl Algo {
         let members: Vec<&WorkAgent> = agents.iter().filter(|a| a.task == Some(task)).collect();
         let (ring, target) = (self.ring(), self.target());
         match self {
-            // Tree wants the connectors to run straight down, which is what the plain stack draws.
-            Algo::Flow | Algo::Tree | Algo::Adaptive => stack(&members, rings, ring, card),
-            Algo::Packed => stack_wrapped(&members, rings, ring, card),
-            Algo::Columns => column(&members, rings, ring, card),
-            Algo::Multiline | Algo::Radial => stack_aspect(&members, rings, ring, target, card),
-            Algo::Organic => shapes::inside_organic(&members, rings, ring, target, card),
+            Algo::Radial => stack_aspect(&members, rings, ring, target, card),
             Algo::Multiradial => shapes::inside_multiradial(&members, rings, ring, target, card),
             Algo::Spider => shapes::inside_spider(&members, rings, ring, target, card),
             Algo::Hex => shapes::inside_hex(&members, rings, ring, target, card),
@@ -699,17 +640,11 @@ impl Layout {
         // hangs off — but it wears the arrangement's own ring, so a delegate up here is the shape
         // the packers below reserved for.
         //
-        // The four original arrangements stack this row raw — `stack`, one row per hand-off depth,
-        // however wide that row runs — because that arithmetic is the one `Algo::ORIGINAL` may not
-        // disturb. Every arrangement past it folds the row to its own `target` instead, the same
-        // fold a container's own cards get from `stack_aspect`: left unfolded, a session with
-        // several top-level coordinators drew one unbroken row that only grew rightward, off the
-        // screen the containers below it were already wrapping to.
-        let Contents { cards, height, .. } = if Algo::ORIGINAL.contains(&algo) {
-            stack(&loose, rings, algo.ring(), card)
-        } else {
-            stack_aspect(&loose, rings, algo.ring(), algo.target(), card)
-        };
+        // The row is folded to the arrangement's own `target`, the same fold a container's own
+        // cards get from `stack_aspect`: left unfolded, a session with several top-level
+        // coordinators drew one unbroken row that only grew rightward.
+        let Contents { cards, height, .. } =
+            stack_aspect(&loose, rings, algo.ring(), algo.target(), card);
         if !cards.is_empty() {
             for (agent, offset) in cards {
                 self.agents
@@ -752,18 +687,8 @@ impl Layout {
         let target = algo.target();
 
         let (at, extent) = match algo {
-            // The shelf keeps record order, which is what makes Flow the calm one to read.
-            Algo::Flow | Algo::Columns | Algo::Adaptive => {
-                pack_shelf(&sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP)
-            }
-            Algo::Packed => without_empties(&sizes, |kept| pack_best(kept, TASK_GAP, 1.0, false)),
-            Algo::Tree => without_empties(&sizes, |kept| {
-                let kept_parents = remap(&sizes, &parents);
-                pack_tree(kept, &kept_parents, TASK_GAP)
-            }),
-            Algo::Multiline => pack_view_shelf(&sizes, target),
             Algo::Radial => without_empties(&sizes, |kept| pack_best(kept, TASK_GAP, target, true)),
-            Algo::Organic | Algo::Multiradial | Algo::Spider | Algo::Hex | Algo::Islands => {
+            Algo::Multiradial | Algo::Spider | Algo::Hex | Algo::Islands => {
                 shapes::pack_islands(&sizes, &parents, target)
             }
         };
@@ -807,26 +732,6 @@ impl Contents {
             height: 0.0,
         }
     }
-}
-
-/// Stack one set of cards by how far each is from whoever started the work.
-///
-/// Cards are stacked by how far they are from whoever started the work — roots on the top row,
-/// their children on the next — which draws the three task shapes without knowing about any of
-/// them. One agent is one card. A chain is a column, because each link answers to the last. A
-/// coordinated task is a coordinator over a row of workers.
-///
-/// Shared by a container and by the row of agents that have no task, because the second one holds a
-/// spawn tree too: the agent coordinating a project parents each session's master, and drawing it
-/// beside its own child rather than above it would send the connector sideways.
-fn stack(members: &[&WorkAgent], rings: &Rings, ring: RingFn, card: (f32, f32)) -> Contents {
-    let rows = rows_by_depth(members);
-    if rows.is_empty() {
-        return Contents::empty();
-    }
-    let held = Boxes::of(members, rings, ring, card);
-    let width = rows.iter().map(|row| held.span(row)).fold(0.0f32, f32::max);
-    held.lay(&rows, width)
 }
 
 /// Every card's reserved box and where the card sits inside it, for one container's members.
@@ -902,11 +807,6 @@ impl Boxes {
         }
     }
 
-    /// One card per line, in the order given.
-    pub fn one_each(rows: &[Vec<AgentId>]) -> Vec<Vec<AgentId>> {
-        rows.iter().flatten().map(|a| vec![*a]).collect()
-    }
-
     /// The rows folded so each block it makes reads at `target`, and laid out.
     ///
     /// **The one place a row is folded to the screen's shape.** Both the wrapped stacks here and
@@ -932,31 +832,6 @@ impl Boxes {
             .fold(0.0f32, f32::max);
         self.lay(&chunks, width)
     }
-}
-
-/// The same depth rows, each folded into a near-square block instead of one long line.
-///
-/// **A wide row is what makes a canvas wide.** Eight workers on one task drag every other container
-/// out past them, and the whitespace that leaves is the thing Packed exists to remove — so a row of
-/// `n` breaks at about `ceil(sqrt(n))` cards, which is the squarest break there is.
-fn stack_wrapped(
-    members: &[&WorkAgent],
-    rings: &Rings,
-    ring: RingFn,
-    card: (f32, f32),
-) -> Contents {
-    let rows = rows_by_depth(members);
-    if rows.is_empty() {
-        return Contents::empty();
-    }
-    let held = Boxes::of(members, rings, ring, card);
-    let per_line: Vec<usize> = rows.iter().map(|row| break_at(row.len())).collect();
-    let chunks = chunked(&rows, &per_line);
-    let width = chunks
-        .iter()
-        .map(|chunk| held.span(chunk))
-        .fold(0.0f32, f32::max);
-    held.lay(&chunks, width)
 }
 
 /// The same depth rows, folded to the shape of the screen rather than to a square.
@@ -986,20 +861,6 @@ pub fn chunked(rows: &[Vec<AgentId>], per_line: &[usize]) -> Vec<Vec<AgentId>> {
         }
     }
     out
-}
-
-/// One card per row, in spawn order. The tall, narrow container a small window has room for.
-fn column(members: &[&WorkAgent], rings: &Rings, ring: RingFn, card: (f32, f32)) -> Contents {
-    let rows = rows_by_depth(members);
-    if rows.is_empty() {
-        return Contents::empty();
-    }
-    let held = Boxes::of(members, rings, ring, card);
-    let width = members
-        .iter()
-        .map(|m| held.box_of(m.id).0)
-        .fold(CARD_WIDTH, f32::max);
-    held.lay(&Boxes::one_each(&rows), width)
 }
 
 /// How many cards a row takes before it folds, so the block it makes reads at `target`.
@@ -1054,12 +915,6 @@ pub fn rows_by_depth(members: &[&WorkAgent]) -> Vec<Vec<AgentId>> {
     rows
 }
 
-/// How many cards a wrapped row takes before it folds: the side of the smallest square that holds
-/// them all.
-fn break_at(cards: usize) -> usize {
-    (cards as f32).sqrt().ceil().max(1.0) as usize
-}
-
 /// How many hand-offs deep an agent is inside its own container. The walk is bounded by the number
 /// of edges, so a parent chain that loops stops rather than spinning.
 fn depth_of(agent: AgentId, parents: &HashMap<AgentId, AgentId>) -> usize {
@@ -1073,35 +928,6 @@ fn depth_of(agent: AgentId, parents: &HashMap<AgentId, AgentId>) -> usize {
         }
     }
     depth
-}
-
-/// Position boxes in the order given, wrapping onto a new shelf when the next one would pass
-/// `width`, and answer the extent the lot takes.
-///
-/// **A box with no size takes the cursor and no room.** A container with nothing in it is not
-/// drawn, so it must not push the next one along — but it still needs a frame, and the frame it
-/// gets is where the next container would have started.
-fn pack_shelf(sizes: &[(f32, f32)], width: f32, gap: f32) -> Packing {
-    let mut at = Vec::with_capacity(sizes.len());
-    let (mut x, mut y, mut row_h) = (0.0f32, 0.0f32, 0.0f32);
-    let mut extent = (0.0f32, 0.0f32);
-    for &(w, h) in sizes {
-        if w <= 0.0 && h <= 0.0 {
-            at.push((x, y));
-            continue;
-        }
-        if x > 0.0 && x + w > width {
-            x = 0.0;
-            y += row_h + gap;
-            row_h = 0.0;
-        }
-        at.push((x, y));
-        x += w + gap;
-        row_h = row_h.max(h);
-        extent.0 = extent.0.max(x - gap);
-        extent.1 = extent.1.max(y + row_h);
-    }
-    (at, extent)
 }
 
 /// Best-fit skyline packing into a container `width`.
@@ -1261,153 +1087,6 @@ pub fn pack_best(sizes: &[(f32, f32)], gap: f32, target: f32, commit: bool) -> P
         .unwrap_or((Vec::new(), (0.0, 0.0)))
 }
 
-/// How wide a shelf has to be for what it holds to come out at `target`.
-///
-/// The side of the `target`-shaped rectangle of the same area, loosened by [`SHELF_SLACK`] because
-/// a shelf wastes the ragged end of every row, and never narrower than the widest box on it.
-fn shelf_width(sizes: &[(f32, f32)], target: f32) -> f32 {
-    let content: f32 = sizes.iter().map(|(w, h)| w * h).sum();
-    let widest = sizes.iter().map(|s| s.0).fold(0.0f32, f32::max);
-    ((content * target).sqrt() * SHELF_SLACK).max(widest)
-}
-
-/// A shelf as wide as the screen wants, which keeps record order and still fills a rectangle.
-///
-/// The widths worth trying are the ones that actually change where the rows break — the running
-/// total of the boxes in record order — plus [`shelf_width`]'s area-derived guess. Scoring them
-/// against the target is the same judgement [`pack_best`] makes, and saves inventing a slack
-/// constant that would be right for one graph and wrong for the next.
-pub fn pack_view_shelf(sizes: &[(f32, f32)], target: f32) -> Packing {
-    let kept: Vec<(f32, f32)> = sizes
-        .iter()
-        .copied()
-        .filter(|s| s.0 > 0.0 || s.1 > 0.0)
-        .collect();
-    if kept.is_empty() {
-        return pack_shelf(sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP);
-    }
-    let content: f32 = kept.iter().map(|(w, h)| w * h).sum();
-    let widest = kept.iter().map(|s| s.0).fold(0.0f32, f32::max);
-
-    let mut widths = vec![widest, shelf_width(&kept, target)];
-    let mut run = -TASK_GAP;
-    for (w, _) in &kept {
-        run += w + TASK_GAP;
-        widths.push(run.max(widest));
-    }
-    widths.sort_by(f32::total_cmp);
-
-    let mut best: Option<(Packing, f32)> = None;
-    for width in widths {
-        let packed = pack_shelf(sizes, width, TASK_GAP);
-        let marked = score(packed.1, content, target);
-        if best.as_ref().is_none_or(|(_, was)| marked < *was) {
-            best = Some((packed, marked));
-        }
-    }
-    best.map(|(packed, _)| packed)
-        .unwrap_or_else(|| pack_shelf(sizes, widest, TASK_GAP))
-}
-
-/// Lay a forest of boxes out tidy-tree style: a parent centred over the span of its children.
-///
-/// The boxes are different sizes, so a subtree is as wide as the wider of its own box and the row
-/// of children under it, and that width is what siblings are laid out against. Depth advances by
-/// the tallest box on the row above, so a deep row never rides up into a short one.
-fn pack_tree(sizes: &[(f32, f32)], parents: &[Option<usize>], gap: f32) -> Packing {
-    let n = sizes.len();
-    if n == 0 {
-        return (Vec::new(), (0.0, 0.0));
-    }
-
-    // A parent relation read off records can close a loop, which is not a tree and must not be a
-    // hang: the edge that closes one is dropped and its node becomes a root.
-    let mut parent = parents.to_vec();
-    for node in 0..n {
-        let mut at = node;
-        let mut steps = 0;
-        while let Some(up) = parent[at] {
-            if up == node || steps > n {
-                parent[node] = None;
-                break;
-            }
-            at = up;
-            steps += 1;
-        }
-        if parent[node] == Some(node) {
-            parent[node] = None;
-        }
-    }
-
-    let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (node, up) in parent.iter().enumerate() {
-        if let Some(up) = up {
-            children[*up].push(node);
-        }
-    }
-
-    let mut depth = vec![0usize; n];
-    for (node, deep) in depth.iter_mut().enumerate() {
-        let mut at = parent[node];
-        while let Some(up) = at {
-            *deep += 1;
-            at = parent[up];
-        }
-    }
-
-    // Rows are as tall as their tallest box, so the whole depth reads as one band.
-    let deepest = depth.iter().copied().max().unwrap_or(0);
-    let mut row_h = vec![0.0f32; deepest + 1];
-    for (size, &row) in sizes.iter().zip(&depth) {
-        row_h[row] = row_h[row].max(size.1);
-    }
-    let mut row_y = vec![0.0f32; deepest + 1];
-    for row in 1..=deepest {
-        row_y[row] = row_y[row - 1] + row_h[row - 1] + gap;
-    }
-
-    // Deepest first, so a subtree's width is known before its parent asks for it.
-    let mut span: Vec<f32> = sizes.iter().map(|s| s.0).collect();
-    let mut deep_first: Vec<usize> = (0..n).collect();
-    deep_first.sort_by_key(|&node| std::cmp::Reverse(depth[node]));
-    for &node in &deep_first {
-        if !children[node].is_empty() {
-            span[node] = span[node].max(brood(&children[node], &span, gap));
-        }
-    }
-
-    let mut at = vec![(0.0f32, 0.0f32); n];
-    let mut cursor = 0.0f32;
-    let mut extent = (0.0f32, 0.0f32);
-    let mut pending: Vec<(usize, f32)> = Vec::new();
-    for node in (0..n).filter(|&node| parent[node].is_none()) {
-        pending.push((node, cursor));
-        cursor += span[node] + gap;
-    }
-    while let Some((node, left)) = pending.pop() {
-        let x = left + (span[node] - sizes[node].0) / 2.0;
-        let y = row_y[depth[node]];
-        at[node] = (x, y);
-        extent.0 = extent.0.max(x + sizes[node].0);
-        extent.1 = extent.1.max(y + sizes[node].1);
-
-        let mut under = left + (span[node] - brood(&children[node], &span, gap)) / 2.0;
-        for &child in &children[node] {
-            pending.push((child, under));
-            under += span[child] + gap;
-        }
-    }
-    (at, extent)
-}
-
-/// How wide a row of children is, gaps included.
-fn brood(children: &[usize], span: &[f32], gap: f32) -> f32 {
-    if children.is_empty() {
-        return 0.0;
-    }
-    children.iter().map(|&c| span[c]).sum::<f32>() + gap * (children.len() - 1) as f32
-}
-
 /// Pack only the containers that are actually drawn, and answer positions for all of them.
 ///
 /// An empty container has no box, so a packer that reasons about area would be packing nothing and
@@ -1547,12 +1226,6 @@ mod tests {
         }
     }
 
-    /// How wide a row of plain cards is. The arrangement works in [`Boxes`] now, which is a ring's
-    /// box rather than a card's, so this is only what a test with no delegates in it expects.
-    fn row_width(cards: usize) -> f32 {
-        cards as f32 * CARD_WIDTH + cards.saturating_sub(1) as f32 * CARD_GAP_X
-    }
-
     /// A spread of boxes wide, tall and square, which is what a real session looks like.
     fn spread() -> Vec<(f32, f32)> {
         vec![
@@ -1586,15 +1259,6 @@ mod tests {
     }
 
     #[test]
-    fn a_shelf_keeps_its_boxes_apart_and_wraps() {
-        let sizes = spread();
-        let (at, extent) = pack_shelf(&sizes, 900.0, TASK_GAP);
-        clear(&at, &sizes, TASK_GAP);
-        assert!(extent.0 <= 900.0, "nothing spills past the shelf's width");
-        assert!(at.iter().any(|p| p.1 > 0.0), "and a second row was needed");
-    }
-
-    #[test]
     fn a_skyline_keeps_its_boxes_apart() {
         let sizes = spread();
         let (at, extent) = pack_skyline_in(&sizes, 800.0, TASK_GAP, false);
@@ -1605,130 +1269,17 @@ mod tests {
         }
     }
 
-    /// Packed is only worth having if it beats the shelf it replaces, and only readable if the
-    /// result still fits on a screen rather than trailing off one edge.
+    /// The packer must keep its boxes apart and read as a block, not a ribbon.
     #[test]
-    fn packing_beats_the_shelf_and_stays_squarish() {
+    fn packing_keeps_boxes_apart_and_stays_squarish() {
         let sizes = spread();
         let (packed, tight) = pack_best(&sizes, TASK_GAP, 1.0, false);
         clear(&packed, &sizes, TASK_GAP);
-
-        let (_, shelf) = pack_shelf(&sizes, LAYOUT_WIDTH - LAYOUT_MARGIN, TASK_GAP);
-        assert!(
-            tight.0 * tight.1 <= shelf.0 * shelf.1 + EPS,
-            "packed {tight:?} is no larger than the shelf's {shelf:?}"
-        );
         let aspect = (tight.0 / tight.1).max(tight.1 / tight.0);
         assert!(
             aspect <= 2.5,
             "and reads as a block, not a ribbon: {aspect}"
         );
-    }
-
-    #[test]
-    fn a_tree_centres_a_parent_over_its_children() {
-        // One root with three children under it, all the same size.
-        let sizes = vec![(200.0, 100.0); 4];
-        let parents = vec![None, Some(0), Some(0), Some(0)];
-        let (at, extent) = pack_tree(&sizes, &parents, TASK_GAP);
-        clear(&at, &sizes, TASK_GAP);
-
-        let middle = |ix: usize| at[ix].0 + sizes[ix].0 / 2.0;
-        let span = (middle(1) + middle(3)) / 2.0;
-        assert!(
-            (middle(0) - span).abs() < EPS,
-            "the parent's middle {} is over its children's {span}",
-            middle(0)
-        );
-        assert!(
-            (middle(0) - middle(2)).abs() < EPS,
-            "which is over the middle child"
-        );
-        assert!(at[1].1 - at[0].1 >= sizes[0].1, "and a row below it");
-        assert!(extent.1 >= sizes[0].1 + sizes[1].1);
-    }
-
-    /// A parent relation that loops is a record nobody can draw, and the packer must answer rather
-    /// than spin.
-    #[test]
-    fn a_tree_survives_a_loop() {
-        let sizes = vec![(200.0, 100.0); 3];
-        let parents = vec![Some(2), Some(0), Some(1)];
-        let (at, _) = pack_tree(&sizes, &parents, TASK_GAP);
-        assert_eq!(at.len(), 3);
-        clear(&at, &sizes, TASK_GAP);
-    }
-
-    #[test]
-    fn columns_put_every_card_in_one_column() {
-        let session = SessionId::generate();
-        let job = TaskId::generate();
-        let lead = agent(session, Some(job), None);
-        let members = vec![
-            lead.clone(),
-            agent(session, Some(job), Some(lead.id)),
-            agent(session, Some(job), Some(lead.id)),
-        ];
-        let contents =
-            Algo::Columns.inside(job, &members, &Rings::new(), (CARD_WIDTH, CARD_HEIGHT));
-        assert_eq!(contents.cards.len(), 3);
-        assert!(contents.cards.iter().all(|(_, at)| at.0 == 0.0));
-        assert_eq!(contents.width, CARD_WIDTH);
-        for pair in contents.cards.windows(2) {
-            assert_eq!(pair[1].1.1 - pair[0].1.1, CARD_HEIGHT + CARD_GAP_Y);
-        }
-    }
-
-    /// A wide row folds instead of dragging the canvas out after it, and the fold is square.
-    #[test]
-    fn packed_folds_a_wide_row() {
-        let session = SessionId::generate();
-        let job = TaskId::generate();
-        let lead = agent(session, Some(job), None);
-        let mut members = vec![lead.clone()];
-        members.extend((0..8).map(|_| agent(session, Some(job), Some(lead.id))));
-
-        let wide = Algo::Flow.inside(job, &members, &Rings::new(), (CARD_WIDTH, CARD_HEIGHT));
-        let folded = Algo::Packed.inside(job, &members, &Rings::new(), (CARD_WIDTH, CARD_HEIGHT));
-        assert_eq!(wide.width, row_width(8));
-        assert_eq!(folded.width, row_width(3), "eight workers break three wide");
-        assert!(folded.height > wide.height, "which costs rows");
-        assert_eq!(folded.cards.len(), 9);
-    }
-
-    /// **Flow is the arrangement nothing may quietly change.** The numbers are written out rather
-    /// than derived, so an "improvement" to the shared packers has to admit to moving them.
-    #[test]
-    fn flow_is_unchanged() {
-        let session = SessionId::generate();
-        let first = TaskId::generate();
-        let second = TaskId::generate();
-        let one = agent(session, Some(first), None);
-        let two = agent(session, Some(first), None);
-        let three = agent(session, Some(second), Some(one.id));
-        let agents = vec![one.clone(), two.clone(), three.clone()];
-        let tasks = vec![task(first, session), task(second, session)];
-
-        let layout = Layout::auto(
-            &agents,
-            &tasks,
-            Algo::Flow,
-            &Rings::new(),
-            (CARD_WIDTH, CARD_HEIGHT),
-        );
-
-        // The first container starts at the margin, inside its own padding and under its label.
-        assert_eq!(layout.task_origin(first), (46.0, 72.0));
-        // Two cards side by side, so the box is 2 * 264 + 32 + 2 * 22 = 604 wide, and the next
-        // container starts a TASK_GAP past it.
-        assert_eq!(layout.task_origin(second), (46.0 + 604.0 + 56.0, 72.0));
-
-        assert_eq!(layout.offset(one.id), (0.0, 0.0));
-        assert_eq!(layout.offset(two.id), (CARD_WIDTH + CARD_GAP_X, 0.0));
-        // The third card's parent is in another container, so it is a root of its own and centred
-        // alone.
-        assert_eq!(layout.offset(three.id), (0.0, 0.0));
-        assert_eq!(layout.at(&three), (706.0, 72.0));
     }
 
     /// The loose block is the frame a session hangs off, whichever arrangement is chosen: it stays
@@ -1798,9 +1349,9 @@ mod tests {
         }
     }
 
-    /// Tree hangs a container under the one holding whoever spawned its cards.
+    /// The forest hangs a container under the one holding whoever spawned its cards.
     #[test]
-    fn a_tree_hangs_a_container_under_its_spawner() {
+    fn a_forest_hangs_a_container_under_its_spawner() {
         let session = SessionId::generate();
         let up = TaskId::generate();
         let down = TaskId::generate();
@@ -1811,21 +1362,15 @@ mod tests {
 
         let parents = task_forest(&tasks.iter().collect::<Vec<_>>(), &agents);
         assert_eq!(parents, vec![None, Some(0)]);
+    }
 
-        let layout = Layout::auto(
-            &agents,
-            &tasks,
-            Algo::Tree,
-            &Rings::new(),
-            (CARD_WIDTH, CARD_HEIGHT),
-        );
-        let above = layout.at(&lead);
-        let below = layout.at(&worker);
-        assert!(below.1 > above.1, "the child container is a row down");
-        assert!(
-            (above.0 - below.0).abs() < EPS,
-            "and centred under it: {above:?} over {below:?}"
-        );
+    /// A settings file naming an arrangement this build removed still loads, on Radial.
+    #[test]
+    fn a_removed_arrangement_falls_back_to_radial() {
+        let old: Algo = serde_json::from_str("\"columns\"").expect("loads");
+        assert_eq!(old, Algo::Radial);
+        let kept: Algo = serde_json::from_str("\"hex\"").expect("loads");
+        assert_eq!(kept, Algo::Hex);
     }
 
     #[test]
@@ -1864,9 +1409,9 @@ mod tests {
         // internal test that has to pass Teams' own card size — [`ring_drop`]'s expectation is
         // measured off it.
         let card = (CARD_WIDTH, TEAMS_CARD_HEIGHT);
-        let bare = Algo::Flow.inside(job, &members, &Rings::new(), card);
+        let bare = Algo::Islands.inside(job, &members, &Rings::new(), card);
         let rings: Rings = [(lead.id, 3usize)].into_iter().collect();
-        let ringed = Algo::Flow.inside(job, &members, &rings, card);
+        let ringed = Algo::Islands.inside(job, &members, &rings, card);
 
         let row_of = |contents: &Contents, id: AgentId| {
             contents

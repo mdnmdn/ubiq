@@ -22,7 +22,9 @@
 //! canvas, which nothing outside this window has an opinion about; which task that card *serves* is
 //! written down, so a drop answers the pair and the caller sends `AssignAgent`.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ubiq_proto::ids::{ProjectId, SessionId, TaskId};
@@ -260,6 +262,12 @@ pub struct TeamsView {
     /// find.
     pub hide_done: bool,
     pub zoom: f32,
+    /// Where the canvas origin sits in the frame, in screen pixels. Unbounded: panning has no
+    /// edge, so this is any point on the plane.
+    pub pan: (f32, f32),
+    /// The frame's `(x, y, w, h)` in window coordinates, as the last paint saw it. Written by the
+    /// view's grid layer, read by [`Self::to_canvas`] — the one screen-to-canvas conversion.
+    pub frame: Rc<Cell<(f32, f32, f32, f32)>>,
     pub selection: Option<TeamsSelection>,
     pub tab: TeamsInspectorTab,
     pub tasks_open: bool,
@@ -291,6 +299,8 @@ impl Default for TeamsView {
             buckets: Bucket::all().to_vec(),
             hide_done: false,
             zoom: 0.8,
+            pan: (0.0, 0.0),
+            frame: Rc::new(Cell::new((0.0, 0.0, 0.0, 0.0))),
             // Nothing is selected until there is something to select; the window points the
             // selection at the first agent the moment the work arrives.
             selection: None,
@@ -304,8 +314,8 @@ impl Default for TeamsView {
 }
 
 /// The zoom range and the step the toolbar's `−` and `+` move in.
-pub const ZOOM_MIN: f32 = 0.5;
-pub const ZOOM_MAX: f32 = 1.6;
+pub const ZOOM_MIN: f32 = 0.25;
+pub const ZOOM_MAX: f32 = 4.0;
 pub const ZOOM_STEP: f32 = 0.1;
 
 impl TeamsView {
@@ -632,6 +642,44 @@ impl TeamsView {
 
     pub fn zoom_by(&mut self, delta: f32) {
         self.zoom = (self.zoom + delta).clamp(ZOOM_MIN, ZOOM_MAX);
+    }
+
+    /// **The one screen-to-canvas conversion.** A point in the frame (window position minus the
+    /// frame's origin, see [`Self::in_frame`]) to a point on the canvas at 100% zoom. Hit tests,
+    /// drags and drops all go through here; nothing else divides by the zoom or subtracts the pan.
+    pub fn to_canvas(&self, in_frame: (f32, f32)) -> (f32, f32) {
+        (
+            (in_frame.0 - self.pan.0) / self.zoom,
+            (in_frame.1 - self.pan.1) / self.zoom,
+        )
+    }
+
+    /// A window position as a point in the frame.
+    pub fn in_frame(&self, window: (f32, f32)) -> (f32, f32) {
+        let origin = self.frame.get();
+        (window.0 - origin.0, window.1 - origin.1)
+    }
+
+    /// The frame's centre, as a point in the frame.
+    pub fn frame_centre(&self) -> (f32, f32) {
+        let frame = self.frame.get();
+        (frame.2 / 2.0, frame.3 / 2.0)
+    }
+
+    /// Slide the canvas by a screen-pixel delta. No bounds.
+    pub fn pan_by(&mut self, delta: (f32, f32)) {
+        self.pan = (self.pan.0 + delta.0, self.pan.1 + delta.1);
+    }
+
+    /// Multiply the zoom by `factor`, clamped, keeping the canvas point under `anchor` (a point in
+    /// the frame) where it is.
+    pub fn zoom_at(&mut self, factor: f32, anchor: (f32, f32)) {
+        let under = self.to_canvas(anchor);
+        self.zoom = (self.zoom * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+        self.pan = (
+            anchor.0 - under.0 * self.zoom,
+            anchor.1 - under.1 * self.zoom,
+        );
     }
 
     pub fn zoom_pct(&self) -> u32 {

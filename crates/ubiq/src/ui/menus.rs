@@ -23,7 +23,6 @@
 //! Every builder here is `pub`, so a block that wants the base's rows minus one writes
 //! `ubiq::ui::menus::overflow(app, cx)` and filters what comes back.
 
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{AnyElement, App, Context, ElementId, Entity, IntoElement, SharedString, Window};
@@ -31,11 +30,9 @@ use gpui::{point, px};
 use gpui_component::{Icon, IconName};
 use ubiq_proto::ids::PaneId;
 use ubiq_proto::messages::AgentPicks;
-use ubiq_proto::work::AgentId;
 
 use crate::app::AppState;
 use crate::ext::{SlotId, ids};
-use crate::state::RailMode;
 use crate::ui::kit;
 
 /// What one row does when it is picked. The same shape `ui::handler` bridges, so an entry's
@@ -332,21 +329,10 @@ pub const NO_HIDDEN_AGENTS_ROW: &str = "No agents to attach";
 /// The chevron beside New agent: every live agent the current mode does not draw, so attaching it
 /// is what makes it visible (`T-266`, `T-275`).
 ///
-/// **Hidden is read against the agent model, not the pane model**, because an agent is not
-/// necessarily a pane with a dock panel: one drawn in an agents-column tab or a chat tab is drawn
-/// by that surface, never by the dock, so `AppState::offscreen_panes` alone missed it entirely —
-/// the bug this rule replaces. The candidate set is `AppState::attach_rows`'s own — `work.agents`
-/// narrowed to [`AgentsView::live`](crate::state::agents::AgentsView::live).
-///
-/// **"Shown" is read against the surfaces the *current rail mode* actually draws, not against
-/// every surface that could ever draw one** — an agent sitting in an agents-column tab while the
-/// window is in IDE mode is not shown by anything IDE mode renders, so it is exactly what "to
-/// attach" means, even though a switch to Agents mode would show it. This mirrors
-/// `state::dock::PanelKind::is_drawn`'s own rule for the two surfaces: the columns are the centre
-/// only in `RailMode::AGENTS` (`ui/rail.rs`'s spec for that mode), and a chat tab is drawn in every
-/// mode except `AGENTS`, `CONTROL` and `SINK`. So a chat tab that is open and attached in the
-/// current mode still counts as shown, and the columns count only while Agents mode is the one on
-/// screen. Hidden is live minus whichever of those applies.
+/// **The list is `AppState::hidden_agents`**, the same one *Attach existing agent* offers — the
+/// project's live agents minus the ones the *current* rail mode has a panel open for (its chat
+/// tabs in the dock's tree, or the columns in Agents mode). An agent open only in another mode's
+/// dock is hidden here.
 ///
 /// Picking a row **reveals** the agent — `AppState::reveal_agent_for_mode` brings it to the front
 /// of its column in `RailMode::AGENTS`, or onto a chat panel in the dock everywhere else; nothing
@@ -365,44 +351,10 @@ pub fn hidden_agents(app: &AppState, cx: &App) -> Vec<MenuEntry> {
     let mut rows: Vec<MenuEntry> = Vec::new();
 
     if let Some(work) = app.work(cx) {
-        let live: &[AgentId] = app
-            .agents(cx)
-            .map(|view| view.live.as_slice())
-            .unwrap_or(&[]);
-        let rail_mode = app.workbench.rail_mode;
-        // The columns are the centre only in Agents mode (`ui/rail.rs`) — everywhere else, a
-        // column tab draws nothing, so it counts as shown only there.
-        let shown_in_columns: HashSet<AgentId> = if rail_mode == RailMode::AGENTS {
-            app.agents(cx)
-                .map(|view| {
-                    view.columns
-                        .iter()
-                        .flat_map(|column| column.tabs.iter().copied())
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            HashSet::new()
-        };
-        // A chat tab is drawn in every mode except Agents, Control and the sink
-        // (`state::dock::PanelKind::Chat`'s own rule) — everywhere it is not drawn, its
-        // attachment is not on screen either.
-        let shown_in_chats: HashSet<AgentId> = if matches!(
-            rail_mode,
-            RailMode::AGENTS | RailMode::CONTROL | RailMode::SINK
-        ) {
-            HashSet::new()
-        } else {
-            app.open_project(cx)
-                .map(|open| open.chats.iter().filter_map(|tab| tab.attached).collect())
-                .unwrap_or_default()
-        };
-
-        for agent in work.agents.iter().filter(|agent| live.contains(&agent.id)) {
-            if shown_in_columns.contains(&agent.id) || shown_in_chats.contains(&agent.id) {
+        for id in app.hidden_agents(cx) {
+            let Some(agent) = work.agent(id) else {
                 continue;
-            }
-            let id = agent.id;
+            };
             let label = app.agent_label(agent);
             rows.push(
                 with_identity(MenuEntry::new(label.title.clone()), &label.identity)

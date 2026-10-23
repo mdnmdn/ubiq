@@ -282,16 +282,22 @@ impl AppState {
             .work(cx)
             .map(|work| work.agents.as_slice())
             .unwrap_or(&[]);
-        let live = self
-            .agents(cx)
-            .map(|view| view.live.as_slice())
-            .unwrap_or(&[]);
         let mine = chats
             .iter()
             .find(|tab| tab.id == id)
             .and_then(|tab| tab.attached);
-        let shown: Vec<AgentId> = chats.iter().filter_map(|tab| tab.attached).collect();
-        chat_picks(&attach_choices(agents, live, &shown, mine, &query))
+        // The titlebar chevron's own list (`Self::hidden_agents`), plus this tab's attachment so
+        // it stays the selected row.
+        let mut offered = self.hidden_agents(cx);
+        offered.extend(mine);
+        chat_picks(&attach_choices_with(
+            agents,
+            &offered,
+            &[],
+            mine,
+            &query,
+            |agent| self.agent_label(agent),
+        ))
     }
 
     /// Which agent a chat tab is looking at, if any.

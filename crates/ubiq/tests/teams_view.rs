@@ -368,11 +368,13 @@ fn clearing_the_filters_draws_everything_and_knows_when_it_is_needed() {
 fn the_graph_lays_itself_out_from_the_definitions_alone() {
     let f = seeded();
 
-    // Two cards on one task, neither answering to the other, so they sit side by side.
+    // Two cards on one task, neither answering to the other: Radial folds them to the screen's
+    // shape, so they sit either side by side or one over the other, a gap apart.
     let one = f.view.at_id(&f.work, f.writer).unwrap();
     let two = f.view.at_id(&f.work, f.waiter).unwrap();
-    assert_eq!(one.1, two.1, "same row");
-    assert_eq!(two.0 - one.0, CARD_WIDTH + CARD_GAP_X);
+    let beside = one.1 == two.1 && two.0 - one.0 == CARD_WIDTH + CARD_GAP_X;
+    let below = one.0 == two.0 && two.1 - one.1 == TEAMS_CARD_HEIGHT + CARD_GAP_Y;
+    assert!(beside || below, "a gap apart: {one:?} {two:?}");
 
     // A hand-off is a column: a card that answers to another in the same container goes under it.
     let session_id = SessionId::generate();
@@ -783,7 +785,7 @@ fn zoom_is_clamped_at_both_ends() {
     assert_eq!(f.view.zoom, ZOOM_MAX);
 }
 
-// ── The four arrangements ───────────────────────────────────────────
+// ── The arrangements ───────────────────────────────────────────
 
 /// Whichever arrangement is chosen, the same three things stay true: two containers in one
 /// session never overlap, a card sits inside its own container's box, and a task with no cards
@@ -854,14 +856,14 @@ fn every_arrangement_keeps_the_geometry_sound() {
 #[test]
 fn choosing_an_arrangement_lays_out_and_brings_a_dragged_card_home() {
     let mut f = seeded();
-    f.view.set_algo(Algo::Columns, &f.work);
-    assert_eq!(f.view.algo, Algo::Columns);
+    f.view.set_algo(Algo::Hex, &f.work);
+    assert_eq!(f.view.algo, Algo::Hex);
     let home = f.view.at_id(&f.work, f.writer).unwrap();
 
     f.view.place(&f.work, f.writer, (2_000.0, 2_000.0));
     assert_eq!(f.view.at_id(&f.work, f.writer), Some((2_000.0, 2_000.0)));
 
-    f.view.set_algo(Algo::Columns, &f.work);
+    f.view.set_algo(Algo::Hex, &f.work);
     assert_eq!(f.view.at_id(&f.work, f.writer), Some(home));
 }
 
@@ -869,84 +871,35 @@ fn choosing_an_arrangement_lays_out_and_brings_a_dragged_card_home() {
 #[test]
 fn switching_the_arrangement_actually_moves_a_card() {
     let mut f = seeded();
-    let under_flow = f.view.at_id(&f.work, f.waiter).unwrap();
+    let under_radial = f.view.at_id(&f.work, f.waiter).unwrap();
 
-    f.view.set_algo(Algo::Columns, &f.work);
-    let under_columns = f.view.at_id(&f.work, f.waiter).unwrap();
+    f.view.set_algo(Algo::Hex, &f.work);
+    let under_hex = f.view.at_id(&f.work, f.waiter).unwrap();
 
     assert_ne!(
-        under_flow, under_columns,
-        "waiter sits somewhere different under Columns than under Flow"
+        under_radial, under_hex,
+        "waiter sits somewhere different under Hex than under Radial"
     );
 }
 
-/// Columns is one card per row: every card of a container shares one x.
+/// Pan has no bound, and a zoom keeps the canvas point under the pointer where it was.
 #[test]
-fn columns_puts_every_card_of_a_container_at_the_same_x() {
+fn pan_is_unbounded_and_zoom_holds_the_point_under_the_pointer() {
     let mut f = seeded();
-    f.view.set_algo(Algo::Columns, &f.work);
+    f.view.pan_by((-50_000.0, 80_000.0));
+    assert_eq!(f.view.pan, (-50_000.0, 80_000.0));
 
-    let xs: Vec<f32> = f
-        .work
-        .agents
-        .iter()
-        .filter(|a| a.task == Some(f.barracks))
-        .map(|a| f.view.at(a).0)
-        .collect();
-    assert_eq!(xs.len(), 4, "the fixture's whole barracks");
-    assert!(
-        xs.windows(2).all(|w| w[0] == w[1]),
-        "every card in one container shares one x under Columns: {xs:?}"
-    );
-}
+    f.view.pan = (30.0, -20.0);
+    f.view.zoom = 1.0;
+    let anchor = (200.0, 150.0);
+    let before = f.view.to_canvas(anchor);
+    f.view.zoom_at(1.5, anchor);
+    let after = f.view.to_canvas(anchor);
+    assert!((before.0 - after.0).abs() < 1e-3 && (before.1 - after.1).abs() < 1e-3);
+    assert!((f.view.zoom - 1.5).abs() < 1e-6);
 
-/// Tree hangs a container under the one holding whoever its cards answer to: `wing`'s only card
-/// answers to `chief`, who sits in `hq`, so `wing`'s box falls below `hq`'s.
-#[test]
-fn tree_hangs_a_container_under_the_one_holding_its_parent() {
-    let mut f = seeded();
-    f.view.set_algo(Algo::Tree, &f.work);
-
-    let (_, hq_y, _, hq_h) = f.view.bounds_of(&f.work, f.hq).unwrap();
-    let (_, wing_y, _, _) = f.view.bounds_of(&f.work, f.wing).unwrap();
-
-    assert!(
-        wing_y >= hq_y + hq_h,
-        "wing's box starts below hq's: {wing_y} vs {}",
-        hq_y + hq_h
-    );
-}
-
-/// Packed exists to remove the whitespace a wide row like `barracks` drags every other container
-/// out past — `camp` has four containers of different shapes for exactly that reason. The claim
-/// tested here is the one `pack_best`'s own docs and `layout.rs`'s
-/// `packing_beats_the_shelf_and_stays_squarish` make of it: packed is no larger, by area, than
-/// the shelf it replaces — not narrower on any one axis, which the docs never promise.
-#[test]
-fn packed_is_no_larger_than_flow_for_a_session_with_several_tasks() {
-    let mut f = seeded();
-    let camp_tasks = [f.hq, f.wing, f.barracks, f.depot];
-
-    let extent = |f: &Fixture| -> (f32, f32) {
-        let boxes: Vec<(f32, f32, f32, f32)> = camp_tasks
-            .iter()
-            .map(|&t| f.view.bounds_of(&f.work, t).unwrap())
-            .collect();
-        (
-            boxes.iter().map(|b| b.0 + b.2).fold(0.0f32, f32::max),
-            boxes.iter().map(|b| b.1 + b.3).fold(0.0f32, f32::max),
-        )
-    };
-
-    f.view.set_algo(Algo::Flow, &f.work);
-    let flow = extent(&f);
-    f.view.set_algo(Algo::Packed, &f.work);
-    let packed = extent(&f);
-
-    let flow_area = flow.0 * flow.1;
-    let packed_area = packed.0 * packed.1;
-    assert!(
-        packed_area <= flow_area + 1.0,
-        "packed {packed:?} ({packed_area}) is no larger than flow's {flow:?} ({flow_area})"
-    );
+    f.view.zoom_at(1_000.0, anchor);
+    assert_eq!(f.view.zoom, ZOOM_MAX);
+    f.view.zoom_at(1.0e-6, anchor);
+    assert_eq!(f.view.zoom, ZOOM_MIN);
 }

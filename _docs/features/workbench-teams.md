@@ -141,9 +141,8 @@ delegate through the existing `AppState::view_conversation_agent`, the same call
 click already made; picking one up to drag it does the same. A delegate's card is draggable and
 carried the same way an agent's is, but a drop under it is never a hand-over — `end_carry` answers
 only for an agent card, and no container lights up under a carried delegate. The canvas extent folds
-in every delegate card and every fence alongside the agent cards and task boxes it already measured,
-and is never smaller than `window.viewport_size()`, so a delegate dragged out past the edge of an
-otherwise small graph always has somewhere left to scroll to.
+in every delegate card and every fence alongside the agent cards and task boxes it already measured;
+the canvas itself is unbounded, so a delegate dragged anywhere stays reachable by panning.
 
 **A delegate's card is drawn like an agent's, at its own size, in the same four rows.** The
 hexagonal status mark and the delegate's name lead; the harness icon and its model (through
@@ -187,28 +186,14 @@ sinking any of them a level.
 **The arrangement is computed bottom-up, and it is one of twelve (`Algo::ALL`).** The cards inside a
 container are packed first, which is what fixes the container's size; those fixed boxes are then
 packed against each other. A fence is therefore always tight round its own cards, and no arrangement
-reserves canvas it does not fill. Four of the twelve are `Algo::ORIGINAL`, the ones the arithmetic
-below predates the rest for; the other eight came later, each pairing its own `ring` (delegate
-placement inside a fence) with the fold rule stated two paragraphs down.
-
-**The four original arrangements (`Algo::ORIGINAL`) differ only in how each half packs:**
-
-| Arrangement | What it does |
-|---|---|
-| **Flow** | Containers flow left to right and wrap; inside one, cards stack by how far they are from whoever started the work. This draws the three task shapes without naming them — one agent is one card, a chain is a column, a coordinated task is a coordinator over a row of workers |
-| **Packed** | The compact one. A wide row of workers wraps toward a square block, and the containers are placed by best fit against several candidate widths, keeping the one that scores best on area, aspect ratio and wasted space |
-| **Tree** | The hierarchy one. A container hangs under whatever holds the parent of its own root cards, centred over the span of its children, so a hand-off reads as a connector straight down |
-| **Columns** | The calm one. Every card in a container sits in a single column, and the containers flow left to right — a narrow window and many small tasks |
-
-**The eight added later are not `Algo::ORIGINAL`** and, per the fold rule below, each folds its own
-loose top row through `stack_aspect` rather than leaving it raw:
+reserves canvas it does not fill. **Five arrangements remain** (`Algo::ALL`), each pairing its own
+`ring` (delegate placement inside a fence) with the fold rule below. A name a settings file holds
+for an arrangement since removed (Flow, Packed, Tree, Columns, Adaptive, Multiline, Organic) loads
+as **Radial**, the default (`#[serde(other)]` on `Algo`).
 
 | Arrangement | What it does |
 |---|---|
-| **Adaptive** | Delegates sit in a grid under their card; containers keep record order |
-| **Multiline** | Delegates in a grid under their card, the grid itself folded to the screen's shape |
 | **Radial** | Delegates ring their card, packed against the screen's rectangle |
-| **Organic** | Children sprayed under their parent, bowed and nudged off the grid |
 | **Multiradial** | Every parent is a hub, its children set out on arcs below it |
 | **Spider** | One hub per container, cards on arcs, spokes drawn back to the parent |
 | **Hex** | Cards laid on a honeycomb, a row per hand-off depth, rows offset half a cell |
@@ -236,20 +221,25 @@ sync. The toolbar also carries a **Rearrange** button beside **Fit** — the too
 through, now reachable on demand: hiding the done delegates or the finished cards leaves gaps a
 fresh tidy closes.
 
-**Every arrangement past the four original ones folds the loose block to the screen's shape, the
+**Every arrangement folds the loose block to the screen's shape, the
 same fold a container's own cards get.** The row of agents with no task — a session's coordinators,
 or the window span's masters — used to be stacked raw, one row per hand-off depth however wide it
-ran, whichever arrangement was on; past `Algo::ORIGINAL` it now takes the arrangement's own
+ran, whichever arrangement was on; it now takes the arrangement's own
 `target` through `stack_aspect`, exactly as `Algo::inside` already folds a container's. Left
 unfolded, a session with several top-level agents drew that row running off the right of the
 canvas while the containers under it wrapped correctly — the top-level counterpart of the ring fold
 [`wip-teams-layout-spike`](../wip/teams-layout-spike.md) describes.
 
-**The canvas scrolls on both axes**, through the same `ui::kit::blocks::scroller` every teams-like
-canvas draws with (`overflow_scroll`, not the vertical-only `overflow_y_scroll`); the graph's own
-flex wrapper carries `min_w(px(0.))` beside its `min_h`, the two-axis form of the usual
-refuses-to-shrink bug — without it the wide content pushed the row out instead of scrolling inside
-it, and a trackpad's horizontal gesture had nothing to act on.
+**The canvas is infinite: pan and zoom, not scroll.** `TeamsView::pan` (screen px, unbounded) and
+`zoom` (`ZOOM_MIN` 0.25 to `ZOOM_MAX` 4.0) are the whole transform; `ui::kit::blocks::pannable` is
+the clipped frame and `Board::free` the board placed at the pan. Wheel and a trackpad's two-finger
+scroll pan on both axes (`AppState::wheel_teams`; shift turns a vertical wheel horizontal);
+Cmd/Ctrl+wheel and a trackpad **pinch** (`gpui::PinchEvent` via `on_pinch`, `AppState::pinch_teams`)
+zoom around the pointer (`TeamsView::zoom_at`). **Screen to canvas happens in one place,
+`TeamsView::to_canvas`** (after `in_frame`, which uses the frame origin the grid layer records each
+paint); drags, the carried card's drop point and the sand all go through it. The grid is
+`canvas::pan_grid`, painted from the frame, pan and zoom so it always fills the viewport, and doubled
+in pitch while closer than `GRID_MIN_PITCH`. The toolbar's `-`/`+` zoom around the viewport centre. The other boards (WBS, the sink's teamsim) still use the bounded `scroller`.
 
 **The toolbar's own `+`, beside Rearrange and Fit, opens the right dock's agent panel with nothing
 attached.** Before any card is picked, `Teams` holds no `Chat` panel in the right dock at all —

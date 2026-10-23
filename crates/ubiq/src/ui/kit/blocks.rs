@@ -303,7 +303,7 @@ impl Board {
     /// was dropped on.
     pub fn content(self, viewport: Size<Pixels>) -> Div {
         let zoom = self.zoom;
-        let mut content = div()
+        let content = div()
             .relative()
             .w(px((self.extent.0 * zoom).max(f32::from(viewport.width))))
             .h(px((self.extent.1 * zoom).max(f32::from(viewport.height))))
@@ -311,6 +311,24 @@ impl Board {
                 theme::graph_dot_pitch() * zoom,
                 point(0.0, 0.0),
             ));
+        self.stack(content)
+    }
+
+    /// The stack for a **pannable** board: the same layers with no ground and no viewport floor,
+    /// placed at `pan` inside a [`pannable`] frame. It is the frame, not this, that draws the grid
+    /// and takes the drop, because this moves with the pan and the frame does not.
+    pub fn free(self, pan: (f32, f32)) -> Div {
+        let zoom = self.zoom;
+        let content = div()
+            .absolute()
+            .left(px(pan.0))
+            .top(px(pan.1))
+            .w(px((self.extent.0 * zoom).max(1.0)))
+            .h(px((self.extent.1 * zoom).max(1.0)));
+        self.stack(content)
+    }
+
+    fn stack(self, mut content: Div) -> Div {
         for fence in self.fences {
             content = content.child(fence);
         }
@@ -326,6 +344,20 @@ impl Board {
         }
         content
     }
+}
+
+/// The frame of an unbounded board: fills its parent, clips what pans out of it, and is what takes
+/// the wheel, the pinch and the drop. Not a scroller — nothing in it scrolls; the board inside is
+/// moved by its pan.
+pub fn pannable(id: impl Into<ElementId>) -> Stateful<Div> {
+    div()
+        .id(id)
+        .relative()
+        .flex_1()
+        .min_w(px(0.))
+        .min_h(px(0.))
+        .overflow_hidden()
+        .bg(theme::app_bg())
 }
 
 /// The frame a board scrolls in. Separate from [`Board::content`] because the content is what takes

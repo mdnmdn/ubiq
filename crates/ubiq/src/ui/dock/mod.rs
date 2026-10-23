@@ -1148,16 +1148,15 @@ fn install(
 
 /// Whether the dock's tree already holds a panel. What stops a file panel restored from a saved
 /// arrangement being added a second time by the queued edit that also asked for it.
-pub fn holds(dock: &Entity<DockArea>, panel: &Entity<WorkbenchPanel>, cx: &mut App) -> bool {
+pub fn holds(dock: &Entity<DockArea>, panel: &Entity<WorkbenchPanel>, cx: &App) -> bool {
     let id = PanelId::from(panel.entity_id());
-    dock.update(cx, |dock, _| {
-        [Region::Centre, Region::Left, Region::Right, Region::Bottom]
-            .into_iter()
-            .any(|region| {
-                dock.layout(placement_of(region))
-                    .is_some_and(|tree| tree.panels().any(|panel| panel == id))
-            })
-    })
+    let dock = dock.read(cx);
+    [Region::Centre, Region::Left, Region::Right, Region::Bottom]
+        .into_iter()
+        .any(|region| {
+            dock.layout(placement_of(region))
+                .is_some_and(|tree| tree.panels().any(|panel| panel == id))
+        })
 }
 
 /// Whether a panel is one the user can actually see right now.

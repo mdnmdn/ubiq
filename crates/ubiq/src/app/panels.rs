@@ -20,7 +20,7 @@ impl AppState {
     /// Whether the arrangement already holds a panel of one kind, wherever it sits and whether or
     /// not the region it sits in is on screen. A kind this window has never built a panel for is
     /// not in the tree by definition.
-    pub(super) fn holds_kind(&self, kind: &PanelKind, cx: &mut App) -> bool {
+    pub(super) fn holds_kind(&self, kind: &PanelKind, cx: &App) -> bool {
         self.panels
             .get(kind)
             .cloned()

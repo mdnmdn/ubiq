@@ -16,6 +16,11 @@
 //! reads as a redraw, and a card that leaves a track reads as something the user is holding. It is
 //! skipped entirely when the system asks for reduced motion.
 //!
+//! **The canvas is unbounded.** There is no scroller: the board is moved by `TeamsView::pan` and
+//! scaled by `TeamsView::zoom`, wheel and trackpad pan it, Cmd/Ctrl+wheel and a pinch zoom it round
+//! the pointer, and the grid is painted from the frame, the pan and the zoom so it always fills the
+//! window. Screen to canvas goes through `TeamsView::to_canvas` and nowhere else.
+//!
 //! Zoom scales positions, card size and type together, so the graph reads the same at every step
 //! rather than turning into large cards on a small map.
 //!
@@ -26,8 +31,8 @@
 
 use gpui::{
     App, AppContext as _, Context, DragMoveEvent, Entity, InteractiveElement, IntoElement,
-    ParentElement, Render, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    point, px,
+    ParentElement, PinchEvent, Render, Rgba, ScrollWheelEvent, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, point, px,
 };
 use gpui_component::{Icon, Sizable as _};
 
@@ -71,8 +76,8 @@ impl Render for Empty {
     }
 }
 
-/// The margin past the outermost thing on the canvas, so something at the edge of the graph can
-/// still be picked up and dropped without fighting the scroll.
+/// The margin the board counts past the outermost thing on it. The canvas has no edge to scroll
+/// to now, so this only sizes the board's own box.
 const GRAPH_MARGIN: f32 = 60.0;
 
 /// A task's outline: the record the box is drawn for, and the rectangle it came out as.
@@ -446,11 +451,26 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         window.request_animation_frame();
     }
 
-    // The whole canvas is the drop target, so anything put down on it lands. Which task a card
+    // The whole frame is the drop target, so anything put down on it lands. Which task a card
     // landed in is worked out from where it is, not from what it was dropped on — a container is
     // an outline round some cards, and the outline is not what takes the drop.
-    let content = board
-        .content(window.viewport_size())
+    //
+    // **Every pointer position goes through `TeamsView::to_canvas`**, the one screen-to-canvas
+    // conversion: pan and zoom are subtracted and divided there and nowhere else, so a drag, a
+    // drop and a hit test cannot disagree about where the pointer is on the canvas.
+    let pan = graph.pan;
+    blocks::pannable("teams-graph")
+        .child(canvas::pan_grid(
+            theme::graph_dot_pitch(),
+            zoom,
+            pan,
+            graph.frame.clone(),
+        ))
+        .child(board.free(pan))
+        .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+            this.wheel_teams(event, window.line_height(), cx)
+        }))
+        .on_pinch(cx.listener(|this, event: &PinchEvent, _, cx| this.pinch_teams(event, cx)))
         .on_drag_move(
             cx.listener(move |this, event: &DragMoveEvent<Carried>, _, cx| {
                 if !event.bounds.contains(&event.event.position) {
@@ -462,22 +482,17 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 let Some(carry) = graph.carry.as_ref() else {
                     return;
                 };
-                let zoom = graph.zoom;
-                let local = event.event.position - event.bounds.origin;
-                let local = (f32::from(local.x), f32::from(local.y));
+                let position = event.event.position;
+                let local = graph.in_frame((f32::from(position.x), f32::from(position.y)));
                 // The grab point is where inside the card — or inside the container's box — the
                 // pointer went down, so taking it off gives the top-left of whatever is held.
-                let at = (
-                    ((local.0 - carry.grab.0) / zoom).max(0.0),
-                    ((local.1 - carry.grab.1) / zoom).max(0.0),
-                );
-                this.move_teams_carry(at, local, cx);
+                let at = graph.to_canvas((local.0 - carry.grab.0, local.1 - carry.grab.1));
+                // The sand is painted in the board's own frame, which is the pan away.
+                let pointer = (local.0 - graph.pan.0, local.1 - graph.pan.1);
+                this.move_teams_carry(at, pointer, cx);
             }),
         )
-        .on_drop(cx.listener(|this, _: &Carried, _, cx| this.end_teams_carry(cx)));
-
-    blocks::scroller("teams-graph", &app.teams_scroll)
-        .child(content)
+        .on_drop(cx.listener(|this, _: &Carried, _, cx| this.end_teams_carry(cx)))
         .into_any_element()
 }
 

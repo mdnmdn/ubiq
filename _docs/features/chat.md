@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-23
+updated: 2026-10-24
 verified: 2026-10-23
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
@@ -44,13 +44,11 @@ so a label would be a third copy.
   `AppState::open_new_agent_direct`, aims at the chat surface in IDE mode and in Tasks (`T-109`: the board's
   `+ New agent` lands in the right dock beside the task), skipping the `+` menu's first stage. An attached
   tab is offered the start too; the conversation it leaves is one click away on the list.
-- **Every other row is a conversation to move to**: the conversations this window holds
-  (`AgentsView::live`), under a hairline drawn only when something is below it. Typing filters; the hairline
-  goes when a query empties the list. The host's projection can be wider than what this window holds, so
-  `state::chat::attach_choices` narrows to the live set before
-  the query does — the chevron and the `+` menu's second stage answer the same way.
-- A conversation attached to a *different* chat tab draws disabled and is never dropped from the list (a
-  vanished row reads as ended). The tab's own attachment stays selectable.
+- **Every other row is a conversation to move to**: `AppState::hidden_agents` — the titlebar chevron's
+  and the `+` menu's own list, live agents with no panel open in the current rail mode — plus this tab's
+  own attachment, selected, under a hairline drawn only when something is below it. Rows carry
+  `AppState::agent_label`, as the chevron's do. Typing filters; the hairline goes when a query empties
+  the list.
 
 **Exclusivity is per chat tab, not per conversation.** The agents workbench may show the same conversation
 in a column, and Teams may point the project's chat tab at it (`AppState::open_teams_agent_panel`) while
@@ -59,7 +57,8 @@ another chat tab is attached to it: three viewers, and the host is never told wh
 **Adding a view is the tab strip's gesture.** A `+` on the dock's tab strip — on any group holding a chat
 *or sitting at the chat home region with none yet* (`AppState::is_chat_region`,
 `ui::dock::skin::NewChat::region`; that clause puts it on Tasks' right region) — opens the two-row menu *New
-agent* / *Attach existing agent*. A chat dragged into the editor region takes the control with it
+agent* / *Attach existing agent*; the latter lists `AppState::hidden_agents`, the titlebar chevron's
+own list — live agents with no panel open in the *current* rail mode. A chat dragged into the editor region takes the control with it
 (`hosts_chats`). **The tab is minted when there is something to put in it**: a pick attaches at once, a
 start form opens the tab from `Message::ConversationStarted`, so a dismissed form leaves no empty tab.
 
@@ -530,7 +529,9 @@ confirm).
 **State** (`crates/ubiq/src/state/chat.rs`). `ChatTab`; `free_chat_slot` (lowest unused slot in the chat
 range); `attach_choices`, the one pure function behind every attach list (chevron, `+` menu second stage,
 agents screen): which conversations pass the filter, which an open panel of the asking surface already shows
-(disabled), and the asking panel's own pick. `chat_picks` builds one list of `ChatPick`s (`New`, `Attach`,
+(disabled), and the asking panel's own pick. `hidden_agents` is the per-mode rule (live minus what the
+current mode shows) that the `+` menu, the tab's chevron and the titlebar chevron all feed it, through
+`attach_choices_with` and `AppState::agent_label`. `chat_picks` builds one list of `ChatPick`s (`New`, `Attach`,
 `Inert`) that the frame draws and the click resolves against, by position as every menu does. `New` raises
 the start form and notes this tab as the target; the tab attaches when `Message::ConversationStarted` lands.
 `Attach` is immediate and `pick_chat_row` follows it with `restore_composer_draft`.
