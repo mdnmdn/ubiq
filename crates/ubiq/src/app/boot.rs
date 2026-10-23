@@ -2013,6 +2013,7 @@ impl AppState {
             sink_project_hex,
             picker_scroll: ScrollHandle::new(),
             explorer_scroll: ScrollHandle::new(),
+            kb_scroll: ScrollHandle::new(),
             teams_scroll: ScrollHandle::new(),
             teamsim_scroll: ScrollHandle::new(),
             mission_scroll: ScrollHandle::new(),

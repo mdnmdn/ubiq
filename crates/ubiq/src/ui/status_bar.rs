@@ -209,9 +209,11 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         None => "no file open".to_string(),
     };
 
+    // The file name and kind belong to the IDE alone; Git, KB and the rest report no file.
+    let is_ide = app.workbench.rail_mode == RailMode::IDE;
     strip
-        .child(mono(where_it_is, theme::text_muted()))
-        .children(viewer_picker(app, window, cx))
+        .children(is_ide.then(|| mono(where_it_is, theme::text_muted())))
+        .children(is_ide.then(|| viewer_picker(app, window, cx)).flatten())
         .child(div().flex_1().min_w(px(0.)))
         .children(git_readout(app, cx))
         .child(vim_chip(app, cx))

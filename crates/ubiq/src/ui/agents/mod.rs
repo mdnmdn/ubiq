@@ -152,7 +152,6 @@ fn close_all(app: &AppState, cx: &mut Context<AppState>) -> Option<AnyElement> {
             "Close all",
             cx.listener(|this, _, _, cx| this.close_all_conversations(cx)),
         )
-        .text_color(theme::danger())
         .into_any_element(),
     )
 }

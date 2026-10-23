@@ -9,8 +9,6 @@
 //! icon for the yellow mark, and clicking it again puts the bundle's own back — a one-gesture way
 //! to tell two running builds apart in the dock. macOS only: nothing else has an icon a running
 //! process may change.
-//!
-//! Git mode draws a second band, red, across its own top-left, reading `experimental`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -30,18 +28,6 @@ pub fn render() -> impl IntoElement {
 
     ribbon(word, RibbonCorner::BottomLeft, band, theme::ribbon_ink())
         .on_click("build-ribbon", |_, _, _| toggle_dock_icon())
-}
-
-/// A red `experimental` band across Git mode's top-left corner. It takes no click: the git
-/// toolbar sits under it. Larger than the build ribbon because the word is longer.
-pub fn experimental() -> impl IntoElement {
-    ribbon(
-        "experimental",
-        RibbonCorner::TopLeft,
-        theme::ribbon_experimental(),
-        theme::ribbon_experimental_ink(),
-    )
-    .size(128.0)
 }
 
 /// The yellow mark, worn by the dock while the swap is on.

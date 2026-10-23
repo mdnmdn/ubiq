@@ -633,12 +633,21 @@ fn line(
     });
 
     let double_path = path.clone();
+    let is_dir = row.is_dir;
     line.on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+        // A folder is toggled by the first click of a double-click; the second does nothing, so
+        // the folder is not shut again under the pointer.
+        if is_dir && event.click_count() > 1 {
+            return;
+        }
         let mods = event.modifiers();
         let permanent = mods.shift || mods.platform;
         this.click_explorer_row(path.clone(), permanent, window, cx);
     }))
     .on_double_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        if is_dir {
+            return;
+        }
         this.double_click_explorer_row(double_path.clone(), cx);
     }))
     .into_any_element()
@@ -651,22 +660,22 @@ fn parent_of(path: &str) -> String {
         .unwrap_or_default()
 }
 
-/// The follow button: a small square that says whether the tree tracks the active editor.
+/// The follow button: a crosshair that says whether the tree tracks the active editor.
 ///
 /// Three states in one control, cycled by clicking it — off, revealed once, and locked — because
 /// the middle one is a verb and the last one is a mode, and a user asking for the first rarely
-/// wants the second. Empty, half-lit, lit.
+/// wants the second. Faint when off, accent when set to reveal once, accent on a tinted ground
+/// when locked.
 fn follow_button(state: Follow, cx: &mut Context<AppState>) -> impl IntoElement {
-    let edge = match state {
+    // The crosshair is faint when off, accent when it reveals once, and accent on a lit ground
+    // when it is locked to the editor.
+    let colour = match state {
         Follow::Off => theme::text_faint(),
         _ => theme::accent(),
     };
-    let mut mark = div().size(px(10.)).border_1().border_color(edge);
-    mark = match state {
-        Follow::Off => mark,
-        Follow::Once => mark.bg(theme::accent_soft()),
-        Follow::Locked => mark.bg(theme::accent()),
-    };
+    let mark = Icon::new(UbiqIcon::ExplorerFollow)
+        .with_size(Size::Small)
+        .text_color(colour);
     div()
         .id("explorer-follow")
         .size(px(30.))
@@ -675,6 +684,7 @@ fn follow_button(state: Follow, cx: &mut Context<AppState>) -> impl IntoElement 
         .items_center()
         .justify_center()
         .cursor_pointer()
+        .when(state == Follow::Locked, |this| this.bg(theme::accent_soft()))
         .hover(|this| this.bg(theme::hover()))
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(state.label()).build(window, cx)

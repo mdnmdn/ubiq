@@ -127,6 +127,53 @@ impl AppState {
         cx.notify();
     }
 
+    /// "Reveal in Explorer" on a knowledge-base tab: the KB rail mode and its explorer come up,
+    /// every folder above the document opens (each one listed on demand), the row is selected and
+    /// scrolled into view.
+    pub fn reveal_kb_doc(&mut self, tab: &str, cx: &mut Context<Self>) {
+        let Some(key) = KbDocKey::from_tab_key(tab) else {
+            return;
+        };
+        let Some(project) = self.project(cx) else {
+            return;
+        };
+        self.set_rail_mode(RailMode::KB, cx);
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::KbExplorer));
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.kb.selected = Some(key.clone());
+            open.kb.reveal = Some(key);
+        }
+        self.continue_kb_reveal(project, cx);
+    }
+
+    /// Take the next step of a reveal in progress: ask for the next unlisted folder on the way
+    /// down, and keep the row in view. A no-op when no reveal is under way.
+    pub(super) fn continue_kb_reveal(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        if open.kb.reveal.is_none() {
+            return;
+        }
+        for (source, rel_path) in open.kb.advance_reveal() {
+            self.bus.send(Message::KbTree {
+                project_id: project,
+                source,
+                rel_path,
+                depth: 1,
+            });
+        }
+        // The scroll handle is the window's, drawn for the project on screen only.
+        let at = open.kb.selected_row_index();
+        if let Some(at) = at
+            && self.project(cx) == Some(project)
+        {
+            self.kb_scroll.scroll_to_item(at);
+        }
+        cx.notify();
+    }
+
     /// Fetch or refresh a source that has to be fetched — a folder needs no such ask, and the host
     /// treats one as a no-op rather than the interface filtering it out here.
     pub fn sync_kb_source(&mut self, source: KbSourceId, cx: &mut Context<Self>) {

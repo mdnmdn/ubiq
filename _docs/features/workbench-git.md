@@ -33,8 +33,7 @@ the region it left open and empty is closed instead, the same rule `D156` gives 
 furniture — Tasks and Agents included — rather than one of Git's own, and the titlebar's side-panel
 switch, the same one the IDE uses for the explorer, is what brings that side's furniture back. The comparison is a panel of its own and comes forward when a changed path is picked. It is the same facts the explorer's badges and the status bar's branch carry, at
 the size they can be read at: the tree answers "is this file changed" and this screen answers
-"what has this repository been doing". A red `experimental` ribbon sits on the screen's top-left
-corner for as long as the rail is on Git.
+"what has this repository been doing".
 
 **The strip over the panels is icon buttons and the HEAD pill.** Every button is an icon with a
 tooltip. `Checkout` checks out whatever the refs panel has selected — faint with nothing selected,
@@ -224,9 +223,7 @@ painted by `ui/shell.rs` above the dock while the rail is on Git; it carries the
 icon buttons — each a `kit::icon_button_tip`, an icon button that names itself in a tooltip and
 draws faint and inert when disabled — checkout / fetch all / pull / push / branch / stash / undo, the
 working-tree count and a refresh. `branch_button()` owns the `Branch` popover (`MenuId::GitNewBranch`):
-a text field and a `Create` button, submitted by `submit_git_branch()`. `ribbon::experimental()` is
-the red `experimental` band in that column's top-left corner — `kit::ribbon` at `TopLeft`, drawn
-by `ui/shell.rs` while the rail is on Git. `AppState::write_git()` sends `WriteProjectGit`
+a text field and a `Create` button, submitted by `submit_git_branch()`. `AppState::write_git()` sends `WriteProjectGit`
 against `git_repo_of()`'s repository; commit, fetch, pull, push, branch, stash, undo, checkout,
 merge, delete-ref, cherry-pick, revert-commit and reset also ask for refs and a fresh log page,
 while discard and restore-file — path-scoped, not history-moving — do not.

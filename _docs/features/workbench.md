@@ -613,8 +613,8 @@ edge makes a row or a column, a divider drags, and a group's zoom control fills 
 whatever it is displaying and gives it back. The window fixes no arrangement — it draws the
 titlebar, the rail, the dock and the status bar, and what is inside the dock is the user's answer.
 
-**The window says which build it is.** A diagonal ribbon — the same `kit::ribbon` Git mode uses
-for `experimental` — lies across the bottom-left corner, over everything, reading `beta` when the
+**The window says which build it is.** A diagonal ribbon — a `kit::ribbon`
+— lies across the bottom-left corner, over everything, reading `beta` when the
 bundle's version is a released one — a `UBIQ_VERSION` starting with `v` — and `alpha` otherwise, a
 bare `cargo build`'s `dev` included. **Clicking the band swaps
 the dock icon** for the yellow mark, and clicking it again puts the bundle's own icon back — which
@@ -766,8 +766,7 @@ agent: such a pane carries no `AgentId`, and `PaneState` names none, so it is ne
 opening empty. Then **New terminal**
 (`IconName::SquareTerminal`) opens the bottom region if it is shut and
 spawns exactly one pane, never two, whether the region was already open or had to be opened onto
-panes still in it. Then the notification bell, feedback, **About** (`UbiqIcon::TitlebarAbout`, the
-Ubiq mark), help, and **Point at something**
+panes still in it. Then the notification bell, feedback, help, and **Point at something**
 (`UbiqIcon::TitlebarPointAt`, the ⇧F1 gesture given a control of its own) — help asks about the
 screen you are standing on, this one waits for you to point at a part of it, so they are neighbours.
 Then **Settings**, and the overflow chevron flush against it as the fifth split button in the row:
@@ -777,7 +776,7 @@ a project), Capture this window (needing a project and captures offered on this 
 — each row left off whole rather than drawn disabled when its condition fails, in that order.
 **Remote hosts is a row rather than a button** for the reason settings is no longer one: the manager
 is consulted when a connection is in question, not every session, and the strip is the scarce thing.
-Finally the theme switch. The overflow chevron lights while its own menu is open, the rule
+Then the theme switch, and last of all **About** (`UbiqIcon::TitlebarAbout`, the Ubiq mark), the strip's right-most control. The overflow chevron lights while its own menu is open, the rule
 every menu-raising control in this strip follows; the bell lights while its list is up, carries a
 badge of what has not been read, and flashes when something arrives —
 [`notifications.md`](./notifications.md) owns all of it.
@@ -1436,8 +1435,8 @@ no language of its own, the plain Editor included, leaves whatever is there. Wha
 long as the tab does and is written nowhere: a viewer forced on for one sitting is a way of looking
 at the file now, not a fact about the file, so a tab closed and reopened starts from
 `ViewerKind::of` again. A project that is not a repository
-prints nothing git-related, and a branch with no upstream draws no `0/0`. The caret and the language
-go with the file, so a window with no file open reports neither rather than a position in nothing.
+prints nothing git-related, and a branch with no upstream draws no `0/0`. The file name, the language chip and the caret
+are the IDE's alone — Git, KB and every other mode show none of them — and an IDE window with no file open reports no caret or language rather than a position in nothing.
 With no project open it says so and stops. On the agents screen there is no file and no caret to
 report, so it counts instead, each count in its state's colour, and a count of zero is drawn as zero
 rather than dropped — "no agent is failing" is a fact, and it is the one the user is checking for.

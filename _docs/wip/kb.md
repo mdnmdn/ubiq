@@ -5,7 +5,7 @@ kind: wip
 status: current
 summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and a document as a dock tab — the same `OpenFile` the IDE's editor uses, with its own Save gated on the source's write access.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or document tabs
-updated: 2026-10-07
+updated: 2026-10-24
 verified: 2026-09-22
 code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/vault.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/kb/password.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
@@ -121,7 +121,7 @@ moves `KbState`, on `KbState::accept`'s own merge, which keeps an already-open s
 rename, drops only what a filter edit invalidates, and closes any tab whose source is gone. A
 `KbSourceChanged` to Ready (sync, unlock, clone) keeps the tree and re-lists the root and every open
 folder (`KbState::source_changed`); a project reopened in KB mode asks for the sources in
-`enter_project`, since it never passes the mode's `on_enter`. `⌘S` (`SaveFile`) in KB mode writes
+`enter_project`, since it never passes the mode's `on_enter`. The answer's `KbSourcesListed` arm asks for every open root never listed (`KbState::take_unlisted_roots`), so a first show is not an expanded row with no children. `⌘S` (`SaveFile`) in KB mode writes
 every dirty document through `save_kb_doc`.
 `KbState::presence(source, path)` is a second, read-only use of that same tree: the task board's
 `kb:{source}:{path}` attachments call it to tell a live document from a dead one without the host
@@ -179,8 +179,8 @@ see `backlog.md`.
 `AppState::savable_kb_doc`, to decide whether **Save** is offered at all — a read-only source's
 document gets the IDE's highlighting and its `ViewLayout` toggle exactly like a writable one, and
 simply has no way to write back (`T-31`; before it, a read-only source's document had no buffer and
-so no highlighting either, which is the gap `T-29` first exposed). The dock's tab menu offers `Save`
-next to `Close` and the pin row for a `PanelKind::Kb`, and `save_kb_doc` is a no-op wherever
+so no highlighting either, which is the gap `T-29` first exposed). The dock's tab menu offers `Reveal in
+Explorer` and `Save` next to `Close` and the pin row for a `PanelKind::Kb`; `Reveal in Explorer` is `reveal_kb_doc()` (`app/kb.rs`), which lights the KB rail mode, re-shows its explorer panel and walks the tree down to the document (`KbState::advance_reveal`, each folder listed as it lands), then selects and scrolls the row. `save_kb_doc` is a no-op wherever
 `savable_kb_doc` says no, so a stray keybinding cannot write through a read-only source. Confirmation
 of a write is the `KbChanged` naming the file's own parent directory that `WriteKbFile`'s own success
 already sends for the explorer's re-list; every document mid-save under that parent is found by it

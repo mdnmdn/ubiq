@@ -255,6 +255,9 @@ categories:
     tab-pin:
       goal: a tab protected from close, drawn before its label
       keywords: [pin, pinned, protect, lock, keep]
+    explorer-follow:
+      goal: the explorer tracks the file in the active editor — a crosshair locating it
+      keywords: [follow, locate, reveal, crosshair, target, sync]
     board-comment:
       goal: how many comments a task has, as a speech balloon
       keywords: [balloon, comment, comments, speech, note]

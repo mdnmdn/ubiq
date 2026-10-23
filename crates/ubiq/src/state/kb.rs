@@ -119,6 +119,8 @@ pub struct KbState {
     menu_epoch: u64,
     /// The password question while one is up (`D206`): unlock, first-use set, or change.
     pub password: Option<KbPasswordDialog>,
+    /// A document the explorer is being walked down to: its folders open as their listings land.
+    pub reveal: Option<KbDocKey>,
 }
 
 /// Which of the three password questions a protected wiki asks.
@@ -528,6 +530,26 @@ impl KbState {
         }
     }
 
+    /// A refusal that named no document on screen: kept on the source's row, and — because it may
+    /// be a listing that failed — the folder it names stops waiting (the root, for an empty path)
+    /// and a reveal walking this source ends rather than waiting for an answer that will not come.
+    pub fn fail(&mut self, source: KbSourceId, path: &str, error: String) {
+        if self.reveal.as_ref().is_some_and(|key| key.source == source) {
+            self.reveal = None;
+        }
+        let Some(view) = self.source_mut(source) else {
+            return;
+        };
+        view.error = Some(error);
+        if path.is_empty() {
+            view.loading = false;
+        } else if let Some(node) = node_mut(cow(&mut view.children), path)
+            && let NodeKind::Dir { loading, .. } = &mut node.kind
+        {
+            *loading = false;
+        }
+    }
+
     /// Take the configuration the host answered with.
     ///
     /// Sources already held keep their tree, so a settings edit that renamed one does not shut
@@ -568,6 +590,87 @@ impl KbState {
             .retain(|doc| doc.kb_source.is_some_and(|id| sources.contains(&id)));
     }
 
+    /// The sources that are drawn open but have never been listed, marked as waiting. A source
+    /// arrives open (`KbSourceView::new`), and nothing else asks for what an open root holds — so
+    /// without this the first show is an expanded row with no children until it is closed and
+    /// opened again. A locked or still-cloning source has nothing to list yet.
+    pub fn take_unlisted_roots(&mut self) -> Vec<KbSourceId> {
+        let mut ask = Vec::new();
+        for view in &mut self.sources {
+            if view.expanded
+                && !view.listed
+                && !view.loading
+                && view.locked().is_none()
+                && view.status.state.is_ready()
+            {
+                view.loading = true;
+                ask.push(view.id());
+            }
+        }
+        ask
+    }
+
+    /// Walk the explorer down to the document in `reveal`: the root and every folder above it are
+    /// opened, and the first one never listed is answered as a path to ask the host for. Called
+    /// again as each listing lands, until the walk has nothing left to ask (or the path is not
+    /// there, which ends it quietly).
+    pub fn advance_reveal(&mut self) -> Vec<(KbSourceId, String)> {
+        let Some(key) = self.reveal.clone() else {
+            return Vec::new();
+        };
+        if !self.loaded {
+            return Vec::new();
+        }
+        let Some(view) = self.source_mut(key.source) else {
+            self.reveal = None;
+            return Vec::new();
+        };
+        if view.locked().is_some() || !view.status.state.is_ready() {
+            self.reveal = None;
+            return Vec::new();
+        }
+        view.expanded = true;
+        if !view.listed {
+            if view.loading {
+                return Vec::new();
+            }
+            view.loading = true;
+            return vec![(key.source, String::new())];
+        }
+        let cuts: Vec<usize> = key.path.match_indices('/').map(|(at, _)| at).collect();
+        for cut in cuts {
+            let Some(node) = node_mut(cow(&mut view.children), &key.path[..cut]) else {
+                self.reveal = None;
+                return Vec::new();
+            };
+            let NodeKind::Dir {
+                expanded,
+                listed,
+                loading,
+                ..
+            } = &mut node.kind
+            else {
+                self.reveal = None;
+                return Vec::new();
+            };
+            *expanded = true;
+            if !*listed {
+                if *loading {
+                    return Vec::new();
+                }
+                *loading = true;
+                return vec![(key.source, key.path[..cut].to_string())];
+            }
+        }
+        self.reveal = None;
+        Vec::new()
+    }
+
+    /// Where the selected document's row sits in [`Self::rows`], for scrolling it into view.
+    pub fn selected_row_index(&self) -> Option<usize> {
+        self.rows().iter().position(|row| row.selected)
+    }
+
     /// One source's state moved on its own — a clone started, got somewhere, finished or failed.
     ///
     /// A source that is ready drops its `listed` marks, keeping the tree: what it held may predate
@@ -586,7 +689,9 @@ impl KbState {
         // the user had open stays open, and merged over by the re-listing — the root and every
         // open folder are named for the caller to ask for again.
         view.listed = false;
-        view.loading = false;
+        // The root is about to be asked for, so it is waiting; take_unlisted_roots and a reveal
+        // must not ask a second time.
+        view.loading = true;
         let mut paths = vec![String::new()];
         open_dirs(&view.children, &mut paths);
         paths
@@ -1202,6 +1307,48 @@ mod tests {
                 .collect(),
             truncated: false,
         }
+    }
+
+    fn one_source() -> (KbState, KbSourceId) {
+        let mut kb = KbState::default();
+        let status = status("wiki");
+        let id = status.source.id;
+        kb.accept(vec![status]);
+        (kb, id)
+    }
+
+    #[test]
+    fn an_open_unlisted_root_is_asked_for_once() {
+        let (mut kb, id) = one_source();
+        assert_eq!(kb.take_unlisted_roots(), vec![id]);
+        assert!(kb.take_unlisted_roots().is_empty());
+    }
+
+    #[test]
+    fn a_reveal_walks_down_one_listing_at_a_time() {
+        let (mut kb, id) = one_source();
+        kb.reveal = Some(KbDocKey::new(id, "a/b/c.md"));
+        assert_eq!(kb.advance_reveal(), vec![(id, String::new())]);
+        // Waiting on the root: nothing is asked twice.
+        assert!(kb.advance_reveal().is_empty());
+        kb.merge(id, listing("", &[("a", EntryKind::Dir)]));
+        assert_eq!(kb.advance_reveal(), vec![(id, "a".to_string())]);
+        kb.merge(id, listing("a", &[("b", EntryKind::Dir)]));
+        assert_eq!(kb.advance_reveal(), vec![(id, "a/b".to_string())]);
+        kb.merge(id, listing("a/b", &[("c.md", EntryKind::File)]));
+        assert!(kb.advance_reveal().is_empty());
+        assert!(kb.reveal.is_none());
+    }
+
+    #[test]
+    fn a_failed_listing_ends_the_reveal_and_stops_the_wait() {
+        let (mut kb, id) = one_source();
+        kb.reveal = Some(KbDocKey::new(id, "a/c.md"));
+        assert_eq!(kb.advance_reveal().len(), 1);
+        kb.fail(id, "", "gone".into());
+        assert!(kb.reveal.is_none());
+        // No longer loading, so the root can be asked for again.
+        assert_eq!(kb.take_unlisted_roots(), vec![id]);
     }
 
     #[test]

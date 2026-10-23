@@ -47,13 +47,14 @@ const KEY_PREDICATE: &str = "MdFind > Input";
 /// The find keys, for `app::install_key_bindings` to register after the library's own.
 pub fn key_bindings() -> Vec<KeyBinding> {
     vec![
-        KeyBinding::new("cmd-f", MdFindOpen, Some("MdView")),
+        // `secondary` is Cmd on macOS and Ctrl elsewhere.
+        KeyBinding::new("secondary-f", MdFindOpen, Some("MdView")),
         KeyBinding::new("ctrl-f", MdFindOpen, Some("MdView")),
-        KeyBinding::new("cmd-g", MdFindNext, Some("MdView")),
-        KeyBinding::new("cmd-shift-g", MdFindPrev, Some("MdView")),
+        KeyBinding::new("secondary-g", MdFindNext, Some("MdView")),
+        KeyBinding::new("secondary-shift-g", MdFindPrev, Some("MdView")),
         KeyBinding::new("f3", MdFindNext, Some("MdView")),
         KeyBinding::new("shift-f3", MdFindPrev, Some("MdView")),
-        KeyBinding::new("cmd-f", MdFindOpen, Some(KEY_PREDICATE)),
+        KeyBinding::new("secondary-f", MdFindOpen, Some(KEY_PREDICATE)),
         KeyBinding::new("enter", MdFindNext, Some(KEY_PREDICATE)),
         KeyBinding::new("shift-enter", MdFindPrev, Some(KEY_PREDICATE)),
         KeyBinding::new("escape", MdFindClose, Some(KEY_PREDICATE)),

@@ -81,6 +81,7 @@ pub fn render(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .flex_1()
             .min_h(px(0.))
             .overflow_y_scroll()
+            .track_scroll(&app.kb_scroll)
             .children(rows),
     );
 

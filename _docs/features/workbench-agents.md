@@ -53,7 +53,7 @@ drop would group into lights up, and the strip at the end of the row lights only
 would do something: a target that promises a change it will not make is worse than one that stays
 dark. The strip over the columns counts them — how many there are, how many agents they hold and how
 many of them are grouped — and names both gestures, because neither leaves a mark on the interface
-to be discovered from. Its controls are `Close all` and `New agent`. `Close all` benches every agent
+to be discovered from. Its controls are `Close all` and `New agent`, both in the default ghost-button colour. `Close all` benches every agent
 on screen — `bench_agent` for every tab in every column, the same thing a tab's own close already
 does, not `EndConversation` — and is shown only when there is something on screen to bench; a row
 with no columns gets no button rather than one that would silently do nothing.

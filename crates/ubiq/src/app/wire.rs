@@ -1529,6 +1529,15 @@ impl AppState {
             } => {
                 let open = self.projects.get_mut(&project_id)?;
                 open.kb.accept(sources);
+                for source in open.kb.take_unlisted_roots() {
+                    self.bus.send(Message::KbTree {
+                        project_id,
+                        source,
+                        rel_path: String::new(),
+                        depth: 1,
+                    });
+                }
+                self.continue_kb_reveal(project_id, cx);
                 cx.notify();
             }
 
@@ -1574,6 +1583,7 @@ impl AppState {
                 for listing in listings {
                     open.kb.merge(source, listing);
                 }
+                self.continue_kb_reveal(project_id, cx);
                 cx.notify();
             }
 
@@ -1623,7 +1633,7 @@ impl AppState {
                 } else if let Some(doc) = open.kb.doc_mut(&tab) {
                     doc.set_failed(reason);
                 } else {
-                    open.kb.set_error(source, Some(reason));
+                    open.kb.fail(source, &key.path, reason);
                 }
                 cx.notify();
             }

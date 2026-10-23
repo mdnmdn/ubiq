@@ -32,6 +32,8 @@ pub enum UbiqIcon {
     BoardComment,
     /// photograph this window into an editable tab — the picture, not just a frame
     CaptureWindow,
+    /// the explorer tracks the file in the active editor — a crosshair locating it
+    ExplorerFollow,
     /// a notification from a connector
     FamilyConnectors,
     /// a notification from the application itself
@@ -184,6 +186,7 @@ impl IconNamed for UbiqIcon {
             Self::AnnotateText => "icons/annotate-text.svg",
             Self::BoardComment => "icons/board-comment.svg",
             Self::CaptureWindow => "icons/capture-window.svg",
+            Self::ExplorerFollow => "icons/explorer-follow.svg",
             Self::FamilyConnectors => "icons/family-connectors.svg",
             Self::FamilyUbiq => "icons/family-ubiq.svg",
             Self::GitAdded => "icons/git-added.svg",
@@ -268,6 +271,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::AnnotateText,
     UbiqIcon::BoardComment,
     UbiqIcon::CaptureWindow,
+    UbiqIcon::ExplorerFollow,
     UbiqIcon::FamilyConnectors,
     UbiqIcon::FamilyUbiq,
     UbiqIcon::GitAdded,
@@ -362,6 +366,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/annotate-text.svg" => ours!("annotate-text"),
         "icons/board-comment.svg" => ours!("board-comment"),
         "icons/capture-window.svg" => ours!("capture-window"),
+        "icons/explorer-follow.svg" => ours!("explorer-follow"),
         "icons/family-connectors.svg" => ours!("family-connectors"),
         "icons/family-ubiq.svg" => ours!("family-ubiq"),
         "icons/git-added.svg" => ours!("git-added"),

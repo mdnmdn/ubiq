@@ -1313,6 +1313,8 @@ pub struct AppState {
     pub picker_scroll: ScrollHandle,
     /// The explorer's rows, for the same reason.
     pub explorer_scroll: ScrollHandle,
+    /// The knowledge base explorer's rows, so a reveal can bring one into view.
+    pub kb_scroll: ScrollHandle,
     /// The Teams canvas, so a destination can name where on it the user was.
     pub teams_scroll: ScrollHandle,
     /// The kitchen sink's teamsim canvas. Its own, because it is a bench and not the Teams screen:

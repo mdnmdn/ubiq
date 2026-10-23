@@ -84,7 +84,7 @@ pub fn rows(kind: &PanelKind, pinned: bool, restartable: bool) -> Vec<&'static s
             if !pinned {
                 rows.push("Close");
             }
-            rows.extend(["Save"]);
+            rows.extend(["Reveal in Explorer", "Save"]);
             rows.push(pin_row);
             rows
         }

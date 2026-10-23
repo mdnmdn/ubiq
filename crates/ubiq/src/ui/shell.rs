@@ -169,10 +169,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                             (app.workbench.rail_mode == RailMode::GIT && app.project(cx).is_some())
                                 .then(|| git::toolbar(app, cx)),
                         )
-                        .child(app.dock().clone())
-                        .children(
-                            (app.workbench.rail_mode == RailMode::GIT).then(ribbon::experimental),
-                        ),
+                        .child(app.dock().clone()),
                 ),
         )
         .child(status_bar::render(app, window, cx))

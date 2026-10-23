@@ -220,6 +220,9 @@ impl AppState {
     /// Point the tree at a path: the folders above it open, the cursor moves and the row scrolls
     /// into view — all of which [`Self::reveal_active_file`] already does for the selection.
     fn reveal_explorer(&mut self, path: String, cx: &mut Context<Self>) {
+        // The explorer comes out if it was put away.
+        self.pending_panels
+            .push(PanelEdit::Reveal(PanelKind::Explorer));
         if let Some(open) = self.open_project_mut(cx) {
             open.explorer.selected = Some(path);
         }

@@ -1059,6 +1059,7 @@ impl AppState {
                 match row {
                     "Close" => self.close_kb_doc(&key, cx),
                     "Save" => self.save_kb_doc(&key, cx),
+                    "Reveal in Explorer" => self.reveal_kb_doc(&key, cx),
                     "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
                     _ => {}
                 }

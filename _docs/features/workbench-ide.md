@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
-updated: 2026-10-23
+updated: 2026-10-24
 verified: 2026-10-23
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/search.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
 depends_on: [feat-workbench, tech-ui]
@@ -99,11 +99,11 @@ focus where the next arrow key is useful; a permanent open — double-click, Shi
 takes the keyboard to the editor, because the file is where the user is now going.
 
 **A three-state follow button sits in the panel header.** Off, revealed once, locked, cycled by
-clicking it. *Once* reveals the active editor's file in the tree and stops there; *locked* reveals
+clicking it, drawn with the `explorer-follow` icon: faint when off, accent when once, accent on a soft ground when locked. *Once* reveals the active editor's file in the tree and stops there; *locked* reveals
 every file that becomes the active editor, however it became active — a tab brought forward, a file
 opened from the tree, the picker or a search. **Revealing opens the folders above the file and
 scrolls the row into view**: it runs through the same `wanted` list a restore uses, so a folder the
-host has never listed is asked for and opened when the answer lands. Nothing is collapsed — a
+host has never listed is asked for and opened when the answer lands. A reveal also brings the explorer panel back if it was put away. Nothing is collapsed — a
 reveal opens the way to one file, it does not tidy the rest of the tree away. It is never written
 down, so a window opens with it off.
 
@@ -582,7 +582,7 @@ selection. Front matter and raw HTML do not select. A selection never spans two 
 the view while it is dragged past the viewport, and does not quote into a new annotation thread
 (`G420`, `G421`, `G406`).
 
-**A Markdown view has a find bar.** Cmd+F opens it over the view; Cmd+G and F3 step to the next match,
+**A Markdown view has a find bar.** Cmd+F opens it over the view (Ctrl+F elsewhere, and Ctrl+F on every platform); Cmd+G (Ctrl+G elsewhere) and F3 step to the next match,
 with Shift the previous one, and Enter and Shift+Enter do the same from inside the field. Esc closes
 it. Match case and whole word are toggles on the bar, which reads `n of m`. The match list follows the
 document the view draws, so a reparse re-finds the matches (`ui/mdview/search.rs`).
