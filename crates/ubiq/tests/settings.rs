@@ -2124,8 +2124,8 @@ fn picking_the_harness_the_form_holds_leaves_every_other_answer_alone(cx: &mut T
             "a model belongs to the harness that offered it"
         );
         assert_eq!(
-            form.prompt, "",
-            "and the form is a fresh answer to every other question"
+            form.prompt, "Review the diff.",
+            "while the agent prompt is not the harness's, so it stays"
         );
     });
 }
