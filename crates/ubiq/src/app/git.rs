@@ -505,7 +505,40 @@ impl AppState {
             git.range_files.clear();
             git.range_inflight = false;
         }
+        self.ask_git_commit_files(cx);
         cx.notify();
+    }
+
+    /// Ask the host for the files the single selected commit changed: its first parent against it,
+    /// or the empty tree for a root commit. Rides the range comparison's own request and reply, so
+    /// a file picked from the list diffs the same way a compared one does. Nothing is sent for the
+    /// uncommitted row or while two commits are being compared.
+    fn ask_git_commit_files(&mut self, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project(cx) else {
+            return;
+        };
+        let (from, to) = {
+            let Some(git) = self.git_view_mut(cx) else {
+                return;
+            };
+            let Some(commit) = git.selected_commit().filter(|_| git.compare_commit.is_none())
+            else {
+                return;
+            };
+            let ends = (commit.parents.first().cloned(), commit.id.clone());
+            git.range_from = ends.0.clone();
+            git.range_to = Some(ends.1.clone());
+            git.range_files.clear();
+            git.range_inflight = true;
+            ends
+        };
+        let repo = self.git_repo_of(project_id);
+        self.bus.send(Message::ProjectGitChanged {
+            project_id,
+            repo,
+            from,
+            to,
+        });
     }
 
     /// The uncommitted row was clicked: select the working tree and bring the Changes panel
@@ -547,6 +580,7 @@ impl AppState {
                 None
             }
         };
+        self.ask_git_commit_files(cx);
         if let Some((from, to)) = request {
             let repo = self.git_repo_of(project_id);
             self.bus.send(Message::ProjectGitChanged {

@@ -76,7 +76,7 @@ before — its selection, its diff, its history cursor — is dropped. The choic
 for the life of the window and is not saved.
 
 **The uncommitted row is the top row of the history, and it is there only while something is
-uncommitted.** With no changes the row is not drawn; otherwise it reads `Uncommitted changes (N)`.
+uncommitted.** With no changes the row is not drawn; otherwise it reads `Uncommitted changes (N)`, N being the changed files a commit would take (ignored paths left out, a file both staged and modified counted once).
 It is selected the same way a commit is and is what the screen opens on, and a click on it reveals
 the Changes panel — opening its region if that is shut, adding the panel and focusing its tab.
 Picking a commit points the panel beside it at that commit instead. The panel says what the log said and no more — a commit's own file list
@@ -105,6 +105,8 @@ history draws the hunks `DiffProjectFile` answers with, through the same rendere
 A staged row is compared against the index and an unstaged or conflicted row against HEAD, because
 the file family offers those two and no index-against-HEAD. The pane shuts rather than the history
 shrinking, and switches between unified and side by side.
+
+**A selected commit's panel lists the files it changed** (its first parent against it, asked with `ProjectGitChanged` and answered into the same list a comparison uses) under its summary.
 
 **Cmd/ctrl-click a second commit to compare it against the first.** The panel beside the history
 lists the paths that differ between the two — oldest to newest, no `+` / `-`, because a range is a

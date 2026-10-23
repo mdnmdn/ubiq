@@ -60,7 +60,7 @@ a copied config root — is never an error: the explorer prompts for it, and ans
 column`, one request per first expansion, and a filter bar over it that narrows what is *loaded* by
 name, case-insensitive, keeping each match's ancestors, and never fetches. A connection row says
 where it stands — `connecting`, `failed` with a retry, a lock and `read-only` — and a table row
-carries its approximate row count, right-aligned (`~12.3k`). Double-click on a table or view opens
+carries its approximate row count, right-aligned (`~12.3k`); a synonym's own name is never truncated — its `-> target` label shrinks instead, with the full `db.schema.object` in its tooltip. Double-click on a table or view opens
 its tab. The right-click menu is per row: a connection offers Connect or Disconnect (with New SQL
 editor and Refresh when connected), Edit connection… and Remove; a database or schema, New SQL
 editor and Refresh counts; a table or view, Open data, Open in SQL editor (its `SELECT`

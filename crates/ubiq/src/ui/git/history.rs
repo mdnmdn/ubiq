@@ -248,7 +248,7 @@ fn uncommitted_row(app: &AppState, lanes: usize, cx: &mut Context<AppState>) -> 
         .unwrap_or(false);
     let changed = app
         .git_entries(cx)
-        .map(|entries| entries.len())
+        .map(crate::state::git::changed_file_count)
         .unwrap_or(0);
     if changed == 0 {
         return None;

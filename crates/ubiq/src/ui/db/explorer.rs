@@ -351,13 +351,16 @@ fn line(
         }
         _ => (theme::text(), node.label.clone()),
     };
-    line = line.child(elided_with(
-        ("db-name", ix),
-        node.label.clone(),
-        tooltip,
-        text,
-        px(font),
-    ));
+    // A synonym's own name is never the part that gives: it keeps its width, and the target
+    // beside it takes what is left and truncates, with the full `db.schema.object` as its tooltip.
+    let alias = matches!(&node.kind, NodeKind::Object(obj) if obj.kind == ObjectKind::Synonym)
+        && node.detail.starts_with("-> ");
+    let tooltip = match (alias, &failed) {
+        (true, None) => format!("{} {}", node.label, node.detail),
+        _ => tooltip,
+    };
+    let name = elided_with(("db-name", ix), node.label.clone(), tooltip, text, px(font));
+    line = line.child(if alias { name.flex_none() } else { name });
 
     let meta = theme::font(Family::Content, Role::Meta);
     if node.load == Load::Loading {
@@ -369,7 +372,16 @@ fn line(
                 .child("\u{2026}"),
         );
     }
-    if !node.detail.is_empty() {
+    if alias {
+        let target = node.detail.clone();
+        line = line.child(elided_with(
+            ("db-target", ix),
+            target.clone(),
+            target.trim_start_matches("-> ").to_string(),
+            theme::text_faint(),
+            meta,
+        ));
+    } else if !node.detail.is_empty() {
         line = line.child(
             div()
                 .flex_none()

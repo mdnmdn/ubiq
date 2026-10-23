@@ -60,8 +60,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> An
     let menu = git.menu.clone();
 
     let body = match (git.selected_commit, git.compare_commit) {
-        (Some(_), Some(_)) => range_files(app, window, cx),
-        (Some(index), None) => commit(app, index, cx),
+        (Some(_), Some(_)) => range_files(app, window, None, cx),
+        (Some(index), None) => commit(app, index, window, cx),
         (None, _) => working_tree(app, window, cx),
     };
 
@@ -219,7 +219,10 @@ fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
     panel()
         .child(panel_header(
             "Uncommitted changes",
-            mono(format!("{} paths", entries.len()), theme::text_faint())
+            mono(
+                format!("{} paths", crate::state::git::changed_file_count(entries)),
+                theme::text_faint(),
+            )
                 .text_size(theme::font(Family::Chrome, Role::Meta)),
         ))
         .child(change_search_row(app, window, cx))
@@ -251,7 +254,15 @@ fn change_search_row(app: &AppState, window: &Window, cx: &Context<AppState>) ->
 }
 
 /// The paths that differ between the two selected commits. No `+` / `-`: a range is a read.
-fn range_files(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
+///
+/// With `commit` set it is the single selected commit's panel instead: that commit's details on
+/// top of the files it changed.
+fn range_files(
+    app: &AppState,
+    window: &Window,
+    commit: Option<&crate::state::git::CommitRow>,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(git) = app.git_view(cx) else {
         return div().into_any_element();
     };
@@ -265,12 +276,21 @@ fn range_files(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> A
     let count = files.len();
     let view = cx.entity();
 
-    panel()
-        .child(panel_header(
+    let header = match commit {
+        Some(commit) => panel_header(
+            "Commit",
+            mono(commit.short_id.clone(), theme::text_faint())
+                .text_size(theme::font(Family::Chrome, Role::Meta)),
+        ),
+        None => panel_header(
             "Comparing",
             mono(format!("{count} paths"), theme::text_faint())
                 .text_size(theme::font(Family::Chrome, Role::Meta)),
-        ))
+        ),
+    };
+    panel()
+        .child(header)
+        .children(commit.map(commit_details))
         .child(change_search_row(app, window, cx))
         .child(
             div().flex().flex_col().flex_1().min_h(px(0.)).child(
@@ -294,48 +314,40 @@ fn range_files(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> A
         .into_any_element()
 }
 
-/// What the log said about the selected commit.
-fn commit(app: &AppState, index: usize, cx: &mut Context<AppState>) -> AnyElement {
+/// The selected commit: what the log said about it, over the files it changed.
+fn commit(
+    app: &AppState,
+    index: usize,
+    window: &Window,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let Some(commit) = app.git_view(cx).and_then(|git| git.commits.get(index)) else {
         return div().into_any_element();
     };
+    range_files(app, window, Some(commit), cx)
+}
 
-    panel()
-        .child(panel_header(
-            "Commit",
-            mono(commit.short_id.clone(), theme::text_faint())
-                .text_size(theme::font(Family::Chrome, Role::Meta)),
-        ))
+fn commit_details(commit: &crate::state::git::CommitRow) -> impl IntoElement {
+    div()
+        .px_3()
+        .py_2()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap_2()
         .child(
             div()
-                .px_3()
-                .py_2()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .text_size(theme::font(Family::Chrome, Role::Body))
-                        .text_color(theme::text())
-                        .child(commit.summary.clone()),
-                )
-                .child(mono(
-                    format!("{} \u{b7} {}", commit.author, commit.when),
-                    theme::text_muted(),
-                ))
-                .children(
-                    (!commit.refs.is_empty())
-                        .then(|| mono(commit.refs.join(" \u{b7} "), theme::accent())),
-                )
-                .child(
-                    mono(
-                        "The files a commit touched need the log the git family does not carry yet",
-                        theme::text_faint(),
-                    )
-                    .text_size(theme::font(Family::Chrome, Role::Meta)),
-                ),
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .text_color(theme::text())
+                .child(commit.summary.clone()),
         )
-        .into_any_element()
+        .child(mono(
+            format!("{} \u{b7} {}", commit.author, commit.when),
+            theme::text_muted(),
+        ))
+        .children(
+            (!commit.refs.is_empty()).then(|| mono(commit.refs.join(" \u{b7} "), theme::accent())),
+        )
 }
 
 /// One list's heading. Staged carries a right-justified `-` (unstage all), Unstaged a `+`

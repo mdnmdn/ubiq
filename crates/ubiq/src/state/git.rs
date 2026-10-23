@@ -932,6 +932,17 @@ pub struct ChangeGroups {
     pub unstaged: Vec<usize>,
 }
 
+/// How many files a commit of the working tree would take in: every non-ignored path with a change
+/// in the index or the worktree, or a conflict, once — a file staged and also modified is one.
+pub fn changed_file_count(entries: &[GitEntry]) -> usize {
+    let mut seen = HashSet::new();
+    entries
+        .iter()
+        .filter(|e| !e.ignored && (e.conflicted || e.index.is_some() || e.worktree.is_some()))
+        .filter(|e| seen.insert(e.rel_path.as_str()))
+        .count()
+}
+
 pub fn group_changes(entries: &[GitEntry]) -> ChangeGroups {
     let mut groups = ChangeGroups {
         conflicted: Vec::new(),
@@ -1053,7 +1064,8 @@ pub struct GitView {
     pub log_inflight: Option<Option<String>>,
 
     /// The two revs a range comparison asked for, and the paths that differ between them.
-    /// `range_from` absent with `range_to` set is a commit against the empty tree.
+    /// `range_from` absent with `range_to` set is a root commit against the empty tree. A single
+    /// selected commit asks the same way, its first parent as `range_from`.
     pub range_from: Option<String>,
     pub range_to: Option<String>,
     pub range_files: Vec<GitChangedPath>,
@@ -1447,7 +1459,7 @@ impl GitView {
             return false;
         }
         self.selected_path = Some((side, path.to_string()));
-        self.base = if self.range_from.is_some() {
+        self.base = if self.range_to.is_some() {
             DiffBase::Commits
         } else {
             side.base()
@@ -1469,7 +1481,7 @@ impl GitView {
             return;
         };
         let path = path.clone();
-        let keep = if self.range_from.is_some() {
+        let keep = if self.range_to.is_some() {
             self.range_files.iter().any(|file| file.rel_path == path)
         } else {
             entries.iter().any(|entry| entry.rel_path == path)
