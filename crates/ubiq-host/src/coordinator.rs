@@ -1010,6 +1010,9 @@ impl Coordinator {
                 &host.agent_commands,
                 &acp_voice,
             );
+            if !host.acp_agents.is_empty() {
+                crate::acp::refresh_in_background(&root.path, &acp_voice);
+            }
             if let Some(serving) = &mcp {
                 agents.set_mcp(serving.base_url(), mcp_agents.clone());
             }
@@ -1904,7 +1907,10 @@ impl Coordinator {
                 self.check_agent_command_job(client, agent_type, command);
             }
             Message::CheckAcpRegistry => self.acp_registry_job(client, None),
-            Message::InstallAcpAdapter { id } => self.acp_registry_job(client, Some(id)),
+            Message::InstallAcpAdapter {
+                id,
+                allow_unverified,
+            } => self.acp_registry_job(client, Some((id, allow_unverified))),
             Message::ListHarnessCatalogue {
                 agent_type,
                 account,
@@ -6496,7 +6502,7 @@ impl Coordinator {
     /// Answered only to the asker. The added agents are re-offered afterwards on the coordinator,
     /// through the host's voice, from the settings as they stand then — never from a copy taken
     /// here, which a settings write during the check would make stale.
-    fn acp_registry_job(&self, client: ClientId, install: Option<String>) {
+    fn acp_registry_job(&self, client: ClientId, install: Option<(String, bool)>) {
         let mailbox = self.host.mailbox(To::Client(client));
         let voice = self.host.voice();
         let root = self.root.path.clone();
@@ -6504,13 +6510,25 @@ impl Coordinator {
         thread::Builder::new()
             .name("acp-registry".to_string())
             .spawn(move || {
+                // The local copy answers at once; a stale one is refreshed afterwards, and the
+                // answer is sent again when the fetched copy landed.
                 let replies = match install {
-                    Some(id) => crate::acp::install(&root, &id, &commands),
+                    Some((id, allow)) => crate::acp::install(&root, &id, allow, &commands),
                     None => vec![crate::acp::check(&root, &commands)],
                 };
                 voice.say(Message::ListAgentTypes);
                 for reply in replies {
                     mailbox.send(reply);
+                }
+                match crate::acp::refresh_if_stale(&root) {
+                    crate::acp::Refresh::NotDue => {}
+                    crate::acp::Refresh::Landed => {
+                        voice.say(Message::ListAgentTypes);
+                        mailbox.send(crate::acp::check(&root, &commands));
+                    }
+                    crate::acp::Refresh::Failed => {
+                        mailbox.send(crate::acp::check_refresh_failed(&root, &commands));
+                    }
                 }
             })
             .ok();

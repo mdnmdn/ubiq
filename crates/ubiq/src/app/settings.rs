@@ -593,12 +593,52 @@ impl AppState {
     }
 
     /// Ask the host to install registry agent `id`'s adapter package.
-    pub fn install_acp_adapter(&mut self, id: String, cx: &mut Context<Self>) {
+    ///
+    /// `allow_unverified` is true only from the confirm that names the missing checksum.
+    pub fn install_acp_adapter(
+        &mut self,
+        id: String,
+        allow_unverified: bool,
+        cx: &mut Context<Self>,
+    ) {
         let view = &mut self.workbench.settings.acp_registry;
         view.installed.remove(&id);
         view.installing.insert(id.clone());
-        self.bus.send(Message::InstallAcpAdapter { id });
+        self.bus.send(Message::InstallAcpAdapter {
+            id,
+            allow_unverified,
+        });
         cx.notify();
+    }
+
+    /// List, or fold away again, the registry rows with nothing usable on this machine yet.
+    pub fn toggle_acp_show_more(&mut self, cx: &mut Context<Self>) {
+        let view = &mut self.workbench.settings.acp_registry;
+        view.show_more = !view.show_more;
+        cx.notify();
+    }
+
+    /// Ask before downloading a binary whose archive has no published checksum.
+    pub fn open_download_unverified(
+        &mut self,
+        id: String,
+        name: String,
+        url: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.workbench.settings.dialog = Some(AccountDialog::DownloadUnverified { id, name, url });
+        self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    /// Download the binary the confirmation was raised over.
+    pub fn confirm_download_unverified(&mut self, cx: &mut Context<Self>) {
+        let Some(AccountDialog::DownloadUnverified { id, .. }) =
+            self.workbench.settings.dialog.take()
+        else {
+            return;
+        };
+        self.install_acp_adapter(id, true, cx);
     }
 
     /// Add registry agent `id` as a harness, or remove it. Rides the host settings whole;
@@ -1268,10 +1308,54 @@ impl AppState {
             command_check: None,
         });
         if let Some(agent_type) = agent_type {
+            // A registry agent that was not found is not in `agent_types` yet: it is what this
+            // command is meant to make findable, so the field is open from the start.
+            let unknown = !self
+                .workbench
+                .agent_types
+                .iter()
+                .any(|it| it.id == agent_type);
             self.pick_login_harness(agent_type, window, cx);
+            if unknown && let Some(login) = &mut self.workbench.settings.login {
+                login.command_open = true;
+            }
         }
         self.workbench.settings.error = None;
         cx.notify();
+    }
+
+    /// Ask the operating system which file the command is, and put its path in the field.
+    /// Typing a path always works; this is only the chooser.
+    pub fn browse_harness_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let chosen = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Choose".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let answer = match chosen.await {
+                Ok(answer) => answer,
+                Err(_) => return,
+            };
+            this.update_in(cx, |this, window, cx| match answer {
+                Ok(Some(paths)) => {
+                    if let Some(path) = paths.into_iter().next() {
+                        let path = path.to_string_lossy().into_owned();
+                        this.login_command_input
+                            .update(cx, |state, cx| state.set_value(path, window, cx));
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    this.workbench.settings.error =
+                        Some(format!("could not open a chooser: {error}"));
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Write the picked harness's command and close the editor.
@@ -1371,16 +1455,39 @@ impl AppState {
         };
         let command = self.login_command_input.read(cx).value().trim().to_string();
         let now = (!command.is_empty()).then(|| command.clone());
+        // A command for a registry agent is also what adds it as a harness: a path the user
+        // pointed at is worth nothing if the agent is then not offered.
+        let registry = now.is_some()
+            && self
+                .workbench
+                .settings
+                .acp_registry
+                .agents
+                .as_ref()
+                .is_some_and(|agents| {
+                    agents
+                        .iter()
+                        .any(|it| it.id == agent_type && it.builtin.is_none())
+                });
+        let added = &mut self.workbench.settings.host.acp_agents;
+        let newly_added = registry && !added.contains(&agent_type) && {
+            added.push(agent_type.clone());
+            true
+        };
         let commands = &mut self.workbench.settings.host.agent_commands;
         let before = match &now {
             Some(command) => commands.insert(agent_type, command.clone()),
             None => commands.remove(&agent_type),
         };
-        if before == now {
+        if before == now && !newly_added {
             return;
         }
         self.remember_host_settings();
         self.bus.send(Message::ListAgentTypes);
+        if registry {
+            self.workbench.settings.acp_registry.checking = true;
+            self.bus.send(Message::CheckAcpRegistry);
+        }
     }
 
     /// Start the harness's own login into this account's config home (`D194`). The host answers

@@ -1097,10 +1097,17 @@ harness this machine found is not always the one the user wants run, so a built-
 registry row alike carry it, reading `Custom command` while an override is set
 (`HostSettings::agent_commands` rides the settings the interface already holds, so no new field
 crosses the bus). Settings → Harnesses also carries an **ACP registry** block: a `Check` button
-(`CheckAcpRegistry`), then one row per registry agent this machine has something of — `Add` / `Remove`
-for an installed one, `Install` for one that needs its adapter package, a note when `node` or `uv`
-is missing first; agents with nothing here are counted. Adding writes `HostSettings::acp_agents`
-(`D213`).
+(`CheckAcpRegistry`) and the host's origin note (fresh, cached or bundled copy), then one row per
+registry agent this machine has something of — `Add` / `Remove` for an installed one (with an
+`Update to <version> available` label when the registry is ahead; nothing is ever upgraded on its own),
+`Install` for one that needs its adapter package, a note when `node` or `uv` is missing first. The rest
+sit behind `Show N more`: a `Downloadable` row offers `Download` (`InstallAcpAdapter`; its URL is the
+tooltip, and one with no published checksum is labelled `unverified` and asks a confirm first), a
+`ViaRunner` row says `runs via npx` / `uvx` and offers `Add`. Every not-found row also has `Locate…`,
+which opens the harness command editor on that registry id; its `Browse…` button (local host only —
+the chooser is this machine's) fills the field, and typing a path always works. Saving writes
+`agent_commands[id]`, adds the id to `acp_agents` and asks `CheckAcpRegistry` again; the interface
+never resolves the path itself. Adding writes `HostSettings::acp_agents` (`D213`).
 
 **A harness row carries the same plan readout an identity's row does**, drawn by the same function
 (`ui::settings::harness_quota`) rather than a second presentation of the same facts. A harness runs

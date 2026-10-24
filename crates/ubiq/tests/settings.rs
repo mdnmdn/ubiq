@@ -2204,3 +2204,65 @@ fn add_agent_is_unavailable_where_the_only_harness_cannot_converse(cx: &mut Test
         );
     });
 }
+
+/// A registry agent that was not found is made findable from its own row: `Locate…` opens the
+/// command editor on its id, and saving writes `agent_commands[id]`, adds the id to `acp_agents`
+/// and asks for the registry again — all through the settings messages.
+#[gpui::test]
+fn locating_a_registry_agent_writes_its_command_and_adds_it(cx: &mut TestAppContext) {
+    use ubiq_proto::messages::{AcpRegistryAgent, AcpRegistryStatus};
+
+    let fixture = Fixture::open(cx);
+    fixture.host.send(
+        To::Everyone,
+        Message::AcpRegistryChecked {
+            agents: vec![AcpRegistryAgent {
+                id: "gemini".to_string(),
+                name: "Gemini".to_string(),
+                version: "1.0.0".to_string(),
+                description: String::new(),
+                status: AcpRegistryStatus::NotInstalled,
+                detail: String::new(),
+                builtin: None,
+                verified: false,
+                update: None,
+                runner: None,
+            }],
+            note: None,
+        },
+    );
+    cx.run_until_parked();
+    let _ = fixture.said();
+
+    fixture.with(cx, |state, window, cx| {
+        state.open_harness_command(Some("gemini".to_string()), window, cx);
+        state
+            .login_command_input
+            .update(cx, |field, cx| field.set_value("/opt/gemini-acp", window, cx));
+        state.save_harness_command(cx);
+    });
+
+    let said = fixture.said();
+    let written = said
+        .iter()
+        .rev()
+        .find_map(|message| match message {
+            Message::SetSettings {
+                layer: SettingsLayer::Host,
+                value,
+            } => Some(value.clone()),
+            _ => None,
+        })
+        .expect("the save wrote the host layer");
+    let sent: HostSettings = serde_json::from_str(&written).expect("a readable blob");
+    assert_eq!(
+        sent.agent_commands.get("gemini").map(String::as_str),
+        Some("/opt/gemini-acp")
+    );
+    assert!(sent.acp_agents.iter().any(|id| id == "gemini"));
+    assert!(
+        said.iter()
+            .any(|message| matches!(message, Message::CheckAcpRegistry)),
+        "the registry is asked again so the row reflects the new command"
+    );
+}

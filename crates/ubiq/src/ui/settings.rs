@@ -2105,9 +2105,10 @@ fn acp_switches(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
         .collect()
 }
 
-/// The ACP registry: a `Check` button, then one row per registry agent this machine has
-/// something of — installed (`Add` / `Remove` as a harness), needing an adapter (`Install`), or
-/// needing node / uv first. Agents with nothing here are counted, not listed.
+/// The ACP registry: a `Check` button and the origin note, then one row per registry agent this
+/// machine has something of — installed (`Add` / `Remove`, with an update label), needing an
+/// adapter (`Install`), or needing node / uv first. Agents not found, downloadable or runnable via
+/// `npx` / `uvx` are counted behind `Show N more` and listed when it is on, each with `Locate…`.
 fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let view = &app.workbench.settings.acp_registry;
     let added = &app.workbench.settings.host.acp_agents;
@@ -2144,7 +2145,7 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
             .children(view.note.clone().map(|note| {
                 div()
                     .text_size(small)
-                    .text_color(theme::warning())
+                    .text_color(theme::text_muted())
                     .child(note)
             })),
     );
@@ -2152,7 +2153,6 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return col.into_any_element();
     };
 
-    let mut absent = 0;
     for agent in agents {
         let id = agent.id.clone();
         let action: AnyElement = if let Some(builtin) = &agent.builtin {
@@ -2162,20 +2162,156 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .child(format!("Built in as {builtin}"))
                 .into_any_element()
         } else {
+            let locate = |id: String, cx: &mut Context<AppState>| {
+                ghost_button(
+                    ElementId::Name(format!("app-settings-acp-{id}-locate").into()),
+                    None,
+                    "Locate\u{2026}",
+                    cx.listener(move |this, _, window, cx| {
+                        this.open_harness_command(Some(id.clone()), window, cx)
+                    }),
+                )
+                .tooltip(|window, cx| {
+                    gpui_component::tooltip::Tooltip::new(
+                        "Tell Ubiq where this agent's command is on this machine",
+                    )
+                    .build(window, cx)
+                })
+            };
             match agent.status {
-                AcpRegistryStatus::NotInstalled => {
-                    absent += 1;
+                AcpRegistryStatus::NotInstalled
+                | AcpRegistryStatus::Downloadable
+                | AcpRegistryStatus::ViaRunner
+                    if !view.show_more =>
+                {
                     continue;
+                }
+                AcpRegistryStatus::NotInstalled => {
+                    locate(id, cx).into_any_element()
+                }
+                AcpRegistryStatus::Downloadable if view.installing.contains(&agent.id) => div()
+                    .text_size(small)
+                    .text_color(theme::text_faint())
+                    .child("Downloading\u{2026}")
+                    .into_any_element(),
+                AcpRegistryStatus::Downloadable => {
+                    let (name, url, verified) =
+                        (agent.name.clone(), agent.detail.clone(), agent.verified);
+                    let tip = SharedString::from(agent.detail.clone());
+                    let download_id = id.clone();
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .when(!verified, |row| {
+                            row.child(
+                                div()
+                                    .text_size(small)
+                                    .text_color(theme::warning())
+                                    .child("unverified"),
+                            )
+                        })
+                        .child(
+                            ghost_button(
+                                ElementId::Name(
+                                    format!("app-settings-acp-{}-download", agent.id).into(),
+                                ),
+                                Some(IconName::ArrowDown),
+                                "Download",
+                                cx.listener(move |this, _, _, cx| {
+                                    if verified {
+                                        this.install_acp_adapter(download_id.clone(), false, cx)
+                                    } else {
+                                        this.open_download_unverified(
+                                            download_id.clone(),
+                                            name.clone(),
+                                            url.clone(),
+                                            cx,
+                                        )
+                                    }
+                                }),
+                            )
+                            .tooltip(move |window, cx| {
+                                gpui_component::tooltip::Tooltip::new(tip.clone())
+                                    .build(window, cx)
+                            }),
+                        )
+                        .child(locate(id, cx))
+                        .into_any_element()
+                }
+                AcpRegistryStatus::ViaRunner => {
+                    let runner = agent.runner.clone().unwrap_or_else(|| "npx".to_string());
+                    let on = added.contains(&agent.id);
+                    let add_id = id.clone();
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_size(small)
+                                .text_color(theme::text_faint())
+                                .child(format!("runs via {runner}")),
+                        )
+                        .child(ghost_button(
+                            ElementId::Name(format!("app-settings-acp-{}-add", agent.id).into()),
+                            Some(if on { IconName::Minus } else { IconName::Plus }),
+                            if on { "Remove" } else { "Add" },
+                            cx.listener(move |this, _, _, cx| {
+                                this.toggle_acp_agent(add_id.clone(), cx)
+                            }),
+                        ))
+                        .child(locate(id, cx))
+                        .into_any_element()
                 }
                 AcpRegistryStatus::Installed => {
                     let on = added.contains(&agent.id);
-                    ghost_button(
-                        ElementId::Name(format!("app-settings-acp-{}-add", agent.id).into()),
-                        Some(if on { IconName::Minus } else { IconName::Plus }),
-                        if on { "Remove" } else { "Add" },
-                        cx.listener(move |this, _, _, cx| this.toggle_acp_agent(id.clone(), cx)),
-                    )
-                    .into_any_element()
+                    let updating = view.installing.contains(&agent.id);
+                    let (name, verified) = (agent.name.clone(), agent.verified);
+                    let update_id = id.clone();
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .children(agent.update.as_ref().map(|version| {
+                            if updating {
+                                return div()
+                                    .text_size(small)
+                                    .text_color(theme::text_faint())
+                                    .child("Updating\u{2026}")
+                                    .into_any_element();
+                            }
+                            let version = version.clone();
+                            ghost_button(
+                                ElementId::Name(
+                                    format!("app-settings-acp-{}-update", agent.id).into(),
+                                ),
+                                Some(IconName::ArrowDown),
+                                format!("Update to {version}"),
+                                cx.listener(move |this, _, _, cx| {
+                                    if verified {
+                                        this.install_acp_adapter(update_id.clone(), false, cx)
+                                    } else {
+                                        this.open_download_unverified(
+                                            update_id.clone(),
+                                            name.clone(),
+                                            String::new(),
+                                            cx,
+                                        )
+                                    }
+                                }),
+                            )
+                            .into_any_element()
+                        }))
+                        .child(ghost_button(
+                            ElementId::Name(format!("app-settings-acp-{}-add", agent.id).into()),
+                            Some(if on { IconName::Minus } else { IconName::Plus }),
+                            if on { "Remove" } else { "Add" },
+                            cx.listener(move |this, _, _, cx| {
+                                this.toggle_acp_agent(id.clone(), cx)
+                            }),
+                        ))
+                        .into_any_element()
                 }
                 AcpRegistryStatus::NeedsAdapter if view.installing.contains(&agent.id) => div()
                     .text_size(small)
@@ -2188,7 +2324,7 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         ElementId::Name(format!("app-settings-acp-{}-install", agent.id).into()),
                         Some(IconName::ArrowDown),
                         "Install",
-                        cx.listener(move |this, _, _, cx| this.install_acp_adapter(id.clone(), cx)),
+                        cx.listener(move |this, _, _, cx| this.install_acp_adapter(id.clone(), false, cx)),
                     )
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new(command.clone()).build(window, cx)
@@ -2269,15 +2405,40 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 })),
         );
     }
-    if absent > 0 {
+    let more = agents
+        .iter()
+        .filter(|it| {
+            it.builtin.is_none()
+                && matches!(
+                    it.status,
+                    AcpRegistryStatus::NotInstalled
+                        | AcpRegistryStatus::Downloadable
+                        | AcpRegistryStatus::ViaRunner
+                )
+        })
+        .count();
+    if more > 0 {
         col = col.child(
             div()
-                .text_size(small)
-                .text_color(theme::text_faint())
-                .child(format!(
-                    "{absent} more registry agent{} not installed on this machine.",
-                    if absent == 1 { " is" } else { "s are" }
-                )),
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(ghost_button(
+                    "app-settings-acp-registry-more",
+                    None,
+                    if view.show_more {
+                        "Show fewer".to_string()
+                    } else {
+                        format!("Show {more} more")
+                    },
+                    cx.listener(|this, _, _, cx| this.toggle_acp_show_more(cx)),
+                ))
+                .child(
+                    div()
+                        .text_size(small)
+                        .text_color(theme::text_faint())
+                        .child("Registry agents not installed on this machine."),
+                ),
         );
     }
     col.into_any_element()
@@ -3575,6 +3736,24 @@ pub fn account_dialog(
                 window,
             )
         }
+        Some(AccountDialog::DownloadUnverified { name, url, .. }) => confirm_modal(
+            "app-settings-acp-download-unverified",
+            "Download unverified binary",
+            &format!(
+                "{name} publishes no checksum for this download, so Ubiq cannot check it is the \
+                 file the registry meant.{} Download it anyway?",
+                if url.is_empty() {
+                    String::new()
+                } else {
+                    format!(" It comes from {url}.")
+                }
+            ),
+            "Download",
+            true,
+            crate::ui::handler(&view, |this, _, cx| this.confirm_download_unverified(cx)),
+            crate::ui::handler(&view, |this, _, cx| this.close_account_dialog(cx)),
+            window,
+        ),
         Some(AccountDialog::DeleteDefinition { id, project }) => confirm_modal(
             "definition-delete",
             "Delete agent",
@@ -3922,7 +4101,30 @@ fn choosing(
                                     )
                                     .when(!agent_type.available, |pill| pill.opacity(0.55))
                                 }),
-                        ),
+                        )
+                        // A registry agent that was not found is in no list yet; its pill is the
+                        // one thing that says what this command is for.
+                        .children(chosen.filter(|id| {
+                            command_only && !app.workbench.agent_types.iter().any(|it| it.id == *id)
+                        }).map(|id| {
+                            let name = app
+                                .workbench
+                                .settings
+                                .acp_registry
+                                .agents
+                                .iter()
+                                .flatten()
+                                .find(|it| it.id == id)
+                                .map_or(id, |it| it.name.as_str());
+                            choice_pill(
+                                ElementId::Name(
+                                    format!("app-settings-login-harness-{id}").into(),
+                                ),
+                                name,
+                                true,
+                                |_, _, _| {},
+                            )
+                        })),
                 ),
         )
         .when(chosen.is_some(), |body| {
@@ -3990,6 +4192,18 @@ fn login_command(app: &AppState, window: &mut Window, cx: &mut Context<AppState>
                             .px_2()
                             .child(Input::new(&app.login_command_input).appearance(false)),
                     )
+                    // A chooser opens on the machine the window runs on, so it is only offered
+                    // when that is the host the path is for.
+                    .when(matches!(app.active_host(), HostRef::Local), |row| {
+                        row.child(ghost_button(
+                            "app-settings-login-command-browse",
+                            None,
+                            "Browse\u{2026}",
+                            cx.listener(|this, _, window, cx| {
+                                this.browse_harness_command(window, cx)
+                            }),
+                        ))
+                    })
                     .child(ghost_button(
                         "app-settings-login-command-check",
                         None,

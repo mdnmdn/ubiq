@@ -294,10 +294,15 @@ pub enum Message {
         note: Option<String>,
     },
     /// Install the adapter package registry agent `id` needs (`npm install -g` / `uv tool
-    /// install`). Answered with [`Message::AcpAdapterInstalled`], then a fresh
+    /// install`), or download a [`AcpRegistryStatus::Downloadable`] agent's binary. Answered with [`Message::AcpAdapterInstalled`], then a fresh
     /// [`Message::AcpRegistryChecked`].
+    ///
+    /// `allow_unverified` is the user's confirmation of a download whose archive has no published
+    /// checksum; the host re-reads the entry at install time and refuses such a download without it.
     InstallAcpAdapter {
         id: String,
+        #[serde(default)]
+        allow_unverified: bool,
     },
     /// What the install did: whether it succeeded, and the tail of its output.
     AcpAdapterInstalled {
@@ -3966,6 +3971,17 @@ pub struct AcpRegistryAgent {
     /// The built-in harness this registry agent already is (`copilot`, `grok`, `opencode`), when
     /// it is one. Such an agent is never added as a second harness.
     pub builtin: Option<String>,
+    /// A [`AcpRegistryStatus::Downloadable`] agent's archive has a published checksum, which the
+    /// install checks. An unverified one is labelled, and confirmed before it is downloaded.
+    #[serde(default)]
+    pub verified: bool,
+    /// The registry's version, when it is newer than the installed one. Shown only: nothing is
+    /// ever upgraded on its own.
+    #[serde(default)]
+    pub update: Option<String>,
+    /// `npx` or `uvx` for a [`AcpRegistryStatus::ViaRunner`] row; absent otherwise.
+    #[serde(default)]
+    pub runner: Option<String>,
 }
 
 /// What this machine can do about one registry agent.
@@ -3978,6 +3994,12 @@ pub enum AcpRegistryStatus {
     NeedsAdapter,
     /// As `NeedsAdapter`, but the installer (`node`, `uv`) is missing too.
     NeedsInstaller,
+    /// Not found, but a prebuilt binary for this platform can be downloaded into Ubiq's own
+    /// install directory; [`Message::InstallAcpAdapter`] does it. `detail` is the archive URL.
+    Downloadable,
+    /// Not installed, but its version-pinned package runs through `npx` / `uvx`, which is here;
+    /// it can be added as a harness as it is. `detail` is the package.
+    ViaRunner,
     /// Nothing usable found.
     NotInstalled,
 }

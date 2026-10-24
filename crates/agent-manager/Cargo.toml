@@ -27,7 +27,8 @@ cli = ["dep:clap", "dep:tracing-subscriber", "pty", "keyring-store", "remote"]
 # Network clients of the catalog: the MCP registry search (`registry::mcp_registry`) and
 # HTTP-index skill sources. Off for lib mode, so the core builds without an HTTP stack;
 # git skill sources need no feature (they shell out to the `git` CLI).
-remote = ["dep:ureq"]
+# Also the ACP registry's binary installs (`acp_registry::install_binary`), checked with `sha2`.
+remote = ["dep:ureq", "dep:sha2"]
 tui = ["dep:ratatui", "dep:crossterm"]
 # The passthrough runner: spawn the real harness in a PTY, forward the tty,
 # resize on SIGWINCH, and propagate its exit code. Pulled in by `cli`; kept
@@ -88,6 +89,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 
 # Sync HTTP client for the `remote` feature (MCP registry search, HTTP-index skill sources).
 ureq = { version = "3", default-features = false, features = ["rustls", "json"], optional = true }
+# Checksum of a downloaded ACP agent archive (`remote` feature).
+sha2 = { version = "0.10", optional = true }
 
 # In-process MCP loopback HTTP server (optional — `inproc-mcp` feature).
 # Sync, no tokio — matches the crate's other optional runtime deps.

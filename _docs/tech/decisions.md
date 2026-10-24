@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-12
+updated: 2026-10-24
 verified: 2026-10-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5443,6 +5443,58 @@ when the app closes.
 **Cost:** no agent decides mid-run to spawn another, split a task or re-plan. The user does that
 through Replan, guidance and the task board. A restart loses the live workers, and the runner starts
 nothing on its own afterwards.
+
+### D218 — A registry agent's binary is downloaded into Ubiq's own directory; an unverified one only over https, and only confirmed
+
+An agent whose registry entry is a binary archive is `Downloadable`; `InstallAcpAdapter` runs
+`acp_registry::install_binary` on a worker thread, into `<config root>/acp-agents/<id>/<version>/`.
+The archive must be an `https` URL, at most 512 MiB; a published `sha256` is checked before anything
+is unpacked, and an entry with none is still installable but is labelled **unverified**
+(`AcpRegistryAgent::verified`) and confirmed in the UI before the download. The `cmd` is reduced to a
+path inside the directory and must be the agent's own executable, never a shell or interpreter.
+
+**Why:** most registry agents ship only a binary, and the registry's checksum is optional; refusing
+every unverified one would hide agents the user asked for, and accepting them silently would run
+unchecked code.
+
+**Cost:** an unverified download rests on TLS and the registry alone. A directory Ubiq owns means
+removing an agent is deleting a folder (no uninstall action yet).
+
+### D219 — A pinned `npx` / `uvx` package runs without an install
+
+An agent with no binary for this platform and a **version-pinned** `npx` or `uvx` package (`pinned_package`)
+is `ViaRunner` when the runner is on `PATH`; `RegistryHarness` launches it as `npx --yes -- <pkg>` /
+`uvx <pkg>` over ACP, so adding it needs no install step. An unpinned package is never run this way;
+it keeps the `npm install -g` / `uv tool install` route of `D213`.
+
+**Why:** a pin is the registry vouching for one version; a floating one would run whatever was
+published last.
+
+**Cost:** the first launch downloads the package, and an offline start fails until it is cached.
+
+### D220 — The registry is refreshed at most once a day, and a bundled snapshot answers before any fetch
+
+`acp_registry::load` returns the cache, else the snapshot bundled at build time
+(`acp_registry_snapshot.json`), and never fails; the host fetches only when the cache is missing or
+older than `TTL` (24 hours), on a thread of its own, at boot (when an agent is added) and on every
+`CheckAcpRegistry`. The reply is sent from the local copy first, and again when a fetched one lands;
+its `note` says which copy it shows.
+
+**Why:** the registry changes slowly, a first offline run must still show a list, and the coordinator
+must never wait for a network.
+
+**Cost:** a new registry entry can take up to a day to appear unless the user checks after the TTL, and
+a stale snapshot ships with each build.
+
+### D221 — Nothing is upgraded on its own
+
+An agent installed by Ubiq whose registry version is newer reports it in `AcpRegistryAgent::update`;
+the UI shows it, and only the user's `InstallAcpAdapter` installs it, beside the old version.
+
+**Why:** an agent is code with the user's credentials and file access, and a registry bump is not the
+user choosing it.
+
+**Cost:** an outdated agent stays outdated until the user acts.
 
 ## Related docs
 

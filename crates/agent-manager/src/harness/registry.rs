@@ -1,8 +1,10 @@
 //! Harnesses built at runtime from the ACP agent registry ([`crate::acp_registry`]).
 //!
 //! One generic [`Harness`] impl, [`RegistryHarness`], stands for any registry agent this machine
-//! can run: it launches the resolved executable with the registry's ACP arguments and drives it
-//! through the generic [`crate::io::AcpBridge`]. The embedder decides which agents are offered and
+//! can run: it launches the resolved executable — or `npx` / `uvx` with the pinned package — with
+//! the registry's ACP arguments and drives it through the generic [`crate::io::AcpBridge`]. A plain
+//! terminal runs the agent's own interface ([`RegistryHarness::tui`]), never the ACP program, and
+//! is refused when there is none. The embedder decides which agents are offered and
 //! installs them with [`set_registry_harnesses`]; from then on [`super::all`] and
 //! [`super::resolve`] answer them like any built-in harness.
 //!
@@ -14,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use crate::Result;
-use crate::acp_registry::{AcpAgentStatus, AcpStatus};
+use crate::acp_registry::{AcpAgentStatus, AcpStatus, Installer};
 use crate::spec::{HarnessId, IoModes, RunSpec};
 
 use super::{Harness, IoSupport, Launch, ModelInfo};
@@ -28,56 +30,92 @@ pub struct RegistryHarness {
     pub name: String,
     /// Registry version, used as the catalogue cache key instead of spawning `--version`.
     pub version: String,
-    /// The executable's file name — what a conversation is named after.
+    /// The executable's file name — what a conversation is named after; the id for a runner.
     pub command: String,
-    /// The resolved executable.
+    /// The resolved executable: the agent, or `npx` / `uvx` for a runner.
     pub program: PathBuf,
+    /// Arguments before the ACP ones: `--yes -- <package>` for `npx`, `<package>` for `uvx`.
+    pub prefix: Vec<String>,
     /// Arguments that start it in ACP mode.
     pub args: Vec<String>,
     /// Environment the registry says it wants.
     pub env: Vec<(String, String)>,
+    /// What a plain terminal runs; `None` refuses one — an ACP adapter has no interface.
+    pub tui: Option<PathBuf>,
+    /// The version directory a downloaded binary was installed into; read-only to a confined run.
+    pub install_root: Option<PathBuf>,
+    /// The runner, when the agent is run through `npx` / `uvx` rather than installed.
+    pub runner: Option<Installer>,
 }
 
 impl RegistryHarness {
-    /// The harness for an [`AcpStatus::Installed`] agent; `None` for any other status, and for an
-    /// agent that is already a built-in harness ([`crate::acp_registry::builtin_of`]) or whose id
-    /// a built-in one already answers to.
+    /// The harness for an [`AcpStatus::Installed`] or [`AcpStatus::ViaRunner`] agent; `None` for
+    /// any other status, and for an agent that is already a built-in harness
+    /// ([`crate::acp_registry::builtin_of`]) or whose id a built-in one already answers to.
     pub fn from_status(status: &AcpAgentStatus) -> Option<Self> {
-        let AcpStatus::Installed { command, args, env } = &status.status else {
-            return None;
-        };
         if builtin_for(&status.id).is_some() {
             return None;
         }
-        let file = command
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| status.id.clone());
-        Some(Self {
+        let base = |command: String, program: &PathBuf, args: &Vec<String>, env: &Vec<_>| Self {
             id: status.id.clone(),
             name: status.name.clone(),
             version: status.version.clone(),
-            command: file,
-            program: command.clone(),
+            command,
+            program: program.clone(),
+            prefix: Vec::new(),
             args: args.clone(),
             env: env.clone(),
-        })
+            tui: None,
+            install_root: None,
+            runner: None,
+        };
+        match &status.status {
+            AcpStatus::Installed { command, args, env, tui, install_root } => {
+                let file = command
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| status.id.clone());
+                Some(Self {
+                    tui: tui.clone(),
+                    install_root: install_root.clone(),
+                    ..base(file, command, args, env)
+                })
+            }
+            AcpStatus::ViaRunner { runner, installer, package, args, env } => {
+                let prefix = match installer {
+                    Installer::Npm => vec!["--yes".to_string(), "--".to_string(), package.clone()],
+                    Installer::Uv => vec![package.clone()],
+                };
+                Some(Self {
+                    prefix,
+                    runner: Some(*installer),
+                    ..base(status.id.clone(), runner, args, env)
+                })
+            }
+            _ => None,
+        }
     }
 
-    fn launch(&self, spec: &RunSpec) -> Launch {
-        let mut args = if spec.io == IoModes::Structured {
-            self.args.clone()
+    /// A structured run launches the ACP program; a plain terminal launches [`Self::tui`], and
+    /// is refused without one.
+    fn launch(&self, spec: &RunSpec) -> Result<Launch> {
+        let (program, mut args, env) = if spec.io == IoModes::Structured {
+            let args = self.prefix.iter().chain(&self.args).cloned().collect();
+            (&self.program, args, self.env.clone())
         } else {
-            Vec::new()
+            let Some(tui) = &self.tui else {
+                anyhow::bail!("{} has no terminal interface: it runs over ACP only", self.name);
+            };
+            (tui, Vec::new(), Vec::new())
         };
         args.extend(spec.passthrough_args.iter().cloned());
-        Launch {
-            program: self.program.to_string_lossy().into_owned(),
+        Ok(Launch {
+            program: program.to_string_lossy().into_owned(),
             args,
-            env: self.env.clone(),
+            env,
             env_remove: Vec::new(),
             env_clear: false,
-        }
+        })
     }
 }
 
@@ -167,7 +205,7 @@ impl Harness for RegistryHarness {
 
     fn io_support(&self) -> IoSupport {
         IoSupport {
-            passthrough: true,
+            passthrough: self.tui.is_some(),
             structured: true,
             multi_turn: true,
             acp: true,
@@ -178,22 +216,44 @@ impl Harness for RegistryHarness {
 
     /// Read-write: the agent's known config homes ([`crate::acp_registry::config_homes`]) and
     /// nothing guessed — a guess from a command name could reach `~/.ssh`. Read-only: where the
-    /// executable is installed ([`install_prefixes`]).
+    /// executable and its interface are installed ([`install_prefixes`]) and the version
+    /// directory of a downloaded binary. A runner's package cache (`~/.npm`, `~/.cache/uv`) is
+    /// read-write too: it fetches the package there on every launch.
     fn run_grants(&self) -> (Vec<PathBuf>, Vec<PathBuf>) {
-        let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()) else {
-            return (Vec::new(), install_prefixes(&self.program, None));
+        let home = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+        let mut ro = install_prefixes(&self.program, home.as_deref());
+        if let Some(tui) = &self.tui {
+            for dir in install_prefixes(tui, home.as_deref()) {
+                if !ro.contains(&dir) {
+                    ro.push(dir);
+                }
+            }
+        }
+        if let Some(root) = &self.install_root
+            && !ro.contains(root)
+        {
+            ro.push(root.clone());
+        }
+        let Some(home) = home else {
+            return (Vec::new(), ro);
         };
-        let rw: Vec<PathBuf> = crate::acp_registry::config_homes(&self.id)
+        let mut rw: Vec<PathBuf> = crate::acp_registry::config_homes(&self.id)
             .iter()
             .map(|rel| home.join(rel))
             .collect();
-        (rw, install_prefixes(&self.program, Some(&home)))
+        match self.runner {
+            Some(Installer::Npm) => rw.push(home.join(".npm")),
+            Some(Installer::Uv) => rw.push(home.join(".cache/uv")),
+            None => {}
+        }
+        (rw, ro)
     }
 
     /// Nothing to write: the registry describes no config home, so the run uses the user's own.
     fn provision(&self, spec: &RunSpec, dir: &Path) -> Result<Launch> {
+        let launch = self.launch(spec)?;
         std::fs::create_dir_all(dir)?;
-        Ok(self.launch(spec))
+        Ok(launch)
     }
 
     /// The models come over ACP once a session is open; there is nothing to probe beforehand.
@@ -231,6 +291,7 @@ mod tests {
             version: "1".into(),
             description: String::new(),
             status: s,
+            update: None,
         }
     }
 
@@ -239,6 +300,69 @@ mod tests {
             command: PathBuf::from("/opt/bin/gemini"),
             args: vec!["--acp".into()],
             env: vec![],
+            tui: Some(PathBuf::from("/opt/bin/gemini")),
+            install_root: None,
+        }
+    }
+
+    fn adapter() -> AcpStatus {
+        AcpStatus::Installed {
+            command: PathBuf::from("/opt/x/vibe-acp"),
+            args: vec![],
+            env: vec![("K".into(), "v".into())],
+            tui: None,
+            install_root: Some(PathBuf::from("/cfg/acp-agents/mistral-vibe/3.0.1")),
+        }
+    }
+
+    #[test]
+    fn a_plain_terminal_runs_the_tui_and_is_refused_without_one() {
+        let mut spec = RunSpec::new("mistral-vibe".to_string(), PathBuf::from("."));
+        spec.io = IoModes::Passthrough;
+        let h = RegistryHarness::from_status(&status("mistral-vibe", adapter())).unwrap();
+        assert!(!h.io_support().passthrough);
+        assert!(h.launch(&spec).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        assert!(h.provision(&spec, &dir.path().join("run")).is_err());
+        spec.io = IoModes::Structured;
+        assert_eq!(h.launch(&spec).unwrap().program, "/opt/x/vibe-acp");
+        let (_, ro) = h.run_grants();
+        assert!(ro.contains(&PathBuf::from("/cfg/acp-agents/mistral-vibe/3.0.1")));
+
+        let mut with_tui = adapter();
+        if let AcpStatus::Installed { tui, .. } = &mut with_tui {
+            *tui = Some(PathBuf::from("/opt/x/vibe"));
+        }
+        let h = RegistryHarness::from_status(&status("mistral-vibe", with_tui)).unwrap();
+        spec.io = IoModes::Passthrough;
+        let l = h.launch(&spec).unwrap();
+        assert_eq!(l.program, "/opt/x/vibe");
+        assert!(l.args.is_empty() && l.env.is_empty());
+    }
+
+    #[test]
+    fn a_runner_launches_the_pinned_package() {
+        let s = |installer, package: &str| AcpStatus::ViaRunner {
+            runner: PathBuf::from("/usr/bin/runner"),
+            installer,
+            package: package.into(),
+            args: vec!["--acp".into()],
+            env: vec![],
+        };
+        let mut spec = RunSpec::new("autohand".to_string(), PathBuf::from("."));
+        spec.io = IoModes::Structured;
+        let h = RegistryHarness::from_status(&status("autohand", s(Installer::Npm, "a@1.0.0"))).unwrap();
+        let l = h.launch(&spec).unwrap();
+        assert_eq!(l.program, "/usr/bin/runner");
+        assert_eq!(l.args, vec!["--yes", "--", "a@1.0.0", "--acp"]);
+        assert_eq!(h.command, "autohand");
+        spec.io = IoModes::Passthrough;
+        assert!(h.launch(&spec).is_err());
+        let h = RegistryHarness::from_status(&status("m", s(Installer::Uv, "m==1"))).unwrap();
+        spec.io = IoModes::Structured;
+        assert_eq!(h.launch(&spec).unwrap().args, vec!["m==1", "--acp"]);
+        if let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()) {
+            assert!(h.run_grants().0.contains(&home.join(".cache/uv")));
         }
     }
 
@@ -256,11 +380,11 @@ mod tests {
         let h = RegistryHarness::from_status(&status("gemini", installed())).unwrap();
         let mut spec = RunSpec::new("gemini".to_string(), PathBuf::from("."));
         spec.io = IoModes::Structured;
-        let l = h.launch(&spec);
+        let l = h.launch(&spec).unwrap();
         assert_eq!(l.program, "/opt/bin/gemini");
         assert_eq!(l.args, vec!["--acp"]);
         spec.io = IoModes::Passthrough;
-        assert!(h.launch(&spec).args.is_empty());
+        assert!(h.launch(&spec).unwrap().args.is_empty());
     }
 
     #[test]

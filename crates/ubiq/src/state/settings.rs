@@ -388,6 +388,9 @@ pub struct AcpRegistryView {
     pub installing: HashSet<String>,
     /// The last install's outcome per agent: whether it worked, and its output's tail.
     pub installed: HashMap<String, (bool, String)>,
+    /// The rows with nothing usable here (not found, downloadable, via a runner) are listed, not
+    /// only counted.
+    pub show_more: bool,
 }
 
 /// The login modal: which account is signing which harness's home in (`D194`), and how far it
@@ -435,6 +438,13 @@ pub enum AccountDialog {
     DeleteDefinition {
         id: String,
         project: Option<ProjectId>,
+    },
+    /// Downloads a registry agent's binary whose archive has no published checksum. Confirming
+    /// sends `InstallAcpAdapter`.
+    DownloadUnverified {
+        id: String,
+        name: String,
+        url: String,
     },
 }
 
