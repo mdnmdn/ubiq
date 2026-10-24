@@ -181,24 +181,73 @@ fn roundness_is_a_yes_or_no() {
 // Paint order
 // --------------------------------------------------------------------------------------------
 
-/// **Order is by type, not by the file's own order or its `index`.** Frames sit under everything,
-/// then shapes, then connectors, then text — so a scene drawn by walking the vec has its labels on
-/// top whatever order the file listed them in.
+fn ids(scene: &Scene) -> Vec<&str> {
+    scene.elements.iter().map(|e| e.id.as_str()).collect()
+}
+
+/// **The array is the stack, as in Excalidraw.** A type moves nothing: a text the file wrote first
+/// is under the rectangle it wrote after.
 #[test]
-fn the_stack_is_ordered_by_type_and_not_by_the_file() {
+fn the_stack_is_the_files_order_and_not_the_type() {
     let scene = scene(&format!(
-        "{},{},{},{}",
+        "{},{},{}",
         element("text", r#","text":"label""#),
         element("arrow", ""),
         element("rectangle", ""),
-        element("frame", ""),
     ));
 
-    let types: Vec<&str> = scene.elements.iter().map(|e| e.id.as_str()).collect();
-    assert_eq!(types, ["frame", "rectangle", "arrow", "text"]);
+    assert_eq!(ids(&scene), ["text", "arrow", "rectangle"]);
 }
 
-/// Equal ranks keep the order the file wrote them in, which is the only thing left deciding which
+/// **A group is one run at its first (lowest) member's position, nested groups runs inside it** —
+/// Excalidraw's `defragmentGroups`. `groupIds` is innermost first: `a1` and `a2` share inner group
+/// `in` inside outer `out`, `b` is only in `out`, and the loose `mid` and `loose` written between
+/// them end up above the whole group, because the group's slot is `a1`'s.
+#[test]
+fn nested_groups_stay_contiguous_at_their_first_member() {
+    let scene = scene(
+        r#"{"id":"a1","type":"rectangle","groupIds":["in","out"]},
+           {"id":"mid","type":"ellipse"},
+           {"id":"b","type":"rectangle","groupIds":["out"]},
+           {"id":"loose","type":"diamond"},
+           {"id":"a2","type":"rectangle","groupIds":["in","out"]},
+           {"id":"top","type":"diamond"}"#,
+    );
+
+    // `out` takes `a1`'s slot (index 0), and inside it `in` = [a1, a2] takes a1's, under `b`.
+    assert_eq!(ids(&scene), ["a1", "a2", "b", "mid", "loose", "top"]);
+}
+
+/// A bound label draws right after its container, wherever the file put it, and a frame is the
+/// ground of its children: drawn first in their run.
+#[test]
+fn a_bound_label_follows_its_container_and_a_frame_sits_under_its_children() {
+    let scene = scene(
+        r#"{"id":"label","type":"text","text":"hi","containerId":"box"},
+           {"id":"box","type":"rectangle","frameId":"f"},
+           {"id":"other","type":"ellipse"},
+           {"id":"f","type":"frame"},
+           {"id":"orphan","type":"text","text":"x","containerId":"missing"}"#,
+    );
+
+    // The frame's run takes `box`'s slot, its first member, so it lands under `other`.
+    assert_eq!(ids(&scene), ["f", "box", "label", "other", "orphan"]);
+}
+
+/// A label inside a group stays with its container when the group is gathered at its first member.
+#[test]
+fn a_bound_label_in_a_group_travels_with_it() {
+    let scene = scene(
+        r#"{"id":"box","type":"rectangle","groupIds":["g"]},
+           {"id":"label","type":"text","text":"hi","containerId":"box","groupIds":["g"]},
+           {"id":"loose","type":"ellipse"},
+           {"id":"arrow","type":"arrow","groupIds":["g"]}"#,
+    );
+
+    assert_eq!(ids(&scene), ["box", "label", "arrow", "loose"]);
+}
+
+/// Unbound elements keep the order the file wrote them in, which is the only thing deciding which
 /// of two overlapping boxes is on top.
 #[test]
 fn elements_of_equal_rank_keep_the_files_order() {
@@ -449,12 +498,21 @@ fn the_wireframe_fixture_parses_to_a_scene_worth_drawing() {
     );
     assert!(!scene.bounds.is_empty(), "and an extent to fit");
 
-    // The ordering rule holds over a real file, not just a hand-built one.
-    let ranks: Vec<u8> = scene.elements.iter().map(|e| e.kind.paint_rank()).collect();
-    assert!(
-        ranks.windows(2).all(|w| w[0] <= w[1]),
-        "the stack is ordered"
-    );
+    // The ordering rule holds over a real file, not just a hand-built one: every bound label sits
+    // right after its container (or after a sibling label of it).
+    for pair in scene.elements.windows(2) {
+        let Some(container) = pair[1].binding.container_id.as_deref() else {
+            continue;
+        };
+        if scene.elements.iter().any(|e| e.id == container) {
+            assert!(
+                pair[0].id == container
+                    || pair[0].binding.container_id.as_deref() == Some(container),
+                "label {} is not after {container}",
+                pair[1].id
+            );
+        }
+    }
 
     // And a real file exercises more than one type.
     assert!(

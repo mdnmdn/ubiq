@@ -166,7 +166,12 @@ impl AppState {
         if let Some(graph) = self.teams_mut(cx) {
             let before = graph.zoom;
             let centre = graph.frame_centre();
-            graph.zoom_at(((before + delta).clamp(crate::state::teams::ZOOM_MIN, crate::state::teams::ZOOM_MAX)) / before, centre);
+            graph.zoom_at(
+                ((before + delta)
+                    .clamp(crate::state::teams::ZOOM_MIN, crate::state::teams::ZOOM_MAX))
+                    / before,
+                centre,
+            );
         }
         cx.notify();
     }

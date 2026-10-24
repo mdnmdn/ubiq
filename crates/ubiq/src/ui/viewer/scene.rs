@@ -1,47 +1,42 @@
-//! An Excalidraw scene, painted.
+//! A drawing, painted — Excalidraw and draw.io through one painter.
 //!
-//! Excalidraw is **data with a closed vocabulary**, not a language, so there is nothing here to
-//! delegate to: the file becomes shapes in [`crate::state::scene`], and this module walks them with
-//! `canvas()` and `PathBuilder`. **A scene read from a file is read-only.** It draws and nothing
-//! else. The one scene that is edited is the capture editor's, which Ubiq authored in this session
-//! and which reaches this painter through `live_with_overlay` — the tools live in
+//! Both formats are **data with a closed vocabulary**, not languages, so there is nothing here to
+//! delegate to: `crates/ubiq-draw` turns either file into one format-agnostic
+//! [`ubiq_draw::Drawing`] — a group tree in paint order, shapes with their own ink, text boxes,
+//! connectors — and this module walks it with `canvas()` and `PathBuilder`. **A drawing read from a
+//! file is read-only.** The one scene that is edited is the capture editor's, which Ubiq authored
+//! in this session and which reaches this painter through `live_with_overlay` — the tools live in
 //! `ui/viewer/image_edit.rs`, and nothing here edits anything.
 //!
-//! The scene is fitted to the panel with a margin and its aspect ratio preserved. The wheel zooms
+//! The drawing is fitted to the panel with a margin and its aspect ratio preserved. The wheel zooms
 //! about the pointer, a drag pans, a double-click restores the fit. A scene in a Markdown fence is
 //! drawn at its own size instead, because a fence is a block in a document and not a panel.
 //!
-//! ## The limits, inherited from `_tools/excalidraw.py`
+//! ## The limits
 //!
-//! That tool renders the same subset to SVG for the wireframes under `_docs/design/`, and
-//! `_docs/tech/diagram-format.md` states what it reproduces. This painter inherits the same stated
-//! limits, deliberately, so that a diagram looks the same in Ubiq as in the documentation:
-//!
-//! - **The hand-drawn `roughness` style renders as clean vector.** Nothing is sketched twice, no
-//!   stroke wobbles, and the `hand` font family falls back to the interface's own.
-//! - **Hachure and cross-hatch fills render solid.** `fillStyle` is read as "there is a fill".
-//! - **Text is never rotated**, because a glyph run is painted, not transformed. Every other shape
-//!   honours `angle`.
-//! - **An embedded image paints its bytes at its box**, where the mime type names a format
-//!   the platform decodes. An image with no bytes, or one whose mime type names nothing
-//!   decodable, draws as a placeholder box instead.
-//! - **An element type this painter does not know is skipped and the rest of the scene draws** —
-//!   the parser drops it, and one unknown type is a missing shape rather than a blank panel.
+//! - **Excalidraw's hand-drawn `roughness` renders as clean vector**, and the `hand` font family
+//!   falls back to the interface's own. Hachure and cross-hatch fills render solid.
+//! - **Text is never rotated and never wrapped**, because a glyph run is painted, not transformed
+//!   or flowed: each `\n` line is shaped once and aligned in its box. Every other shape honours
+//!   its rotation.
+//! - **An embedded image paints its bytes at its box**, under the vector layer, where the mime type
+//!   names a format the platform decodes. An image with no bytes, or one rotated, draws as a
+//!   placeholder box instead.
+//! - **A shape the converter could not draw is a dashed placeholder with its label**, never a hole.
 //!
 //! ## Colour
 //!
 //! `_docs/tech/ui-and-design.md` forbids a literal colour outside `theme.rs`, and **this module
-//! breaks no part of it.** A scene's own strokes and fills are read out of the file: they are data,
-//! the way a photograph's pixels are, and passing them to `paint_path` is not a design decision.
-//! Every colour *this module chooses* — the placeholder a missing image draws as, the text of a
-//! failure note — is a theme token, and there is no literal here. The ground behind a scene that names
-//! none is Excalidraw's own white canvas ([`Rgba8::DEFAULT_BACKGROUND`]), which is data from the
-//! format, the way a stroke colour is.
-//!
-//! A missing image's placeholder is a theme token; a present image's pixels are data, the way a
-//! stroke colour is.
+//! breaks no part of it.** A drawing's own strokes and fills are read out of the file: they are
+//! data, the way a photograph's pixels are, and passing them to `paint_path` is not a design
+//! decision. Every colour *this module chooses* — the placeholder a missing image or an
+//! unsupported shape draws as, the text of a failure note — is a theme token. The ground behind a
+//! drawing that names none is the format's own white paper ([`Rgba8::DEFAULT_BACKGROUND`]), which
+//! is data from the format, the way a stroke colour is.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use gpui::{
@@ -49,62 +44,135 @@ use gpui::{
     PathBuilder, Pixels, Point, Rgba, Styled, TextRun, Window, canvas, div, fill, img, point, px,
     size,
 };
+use ubiq_draw::{
+    ArrowHead, Drawing, EmbeddedImage, FontFamily, Geometry, Rect, Shape, StrokeStyle, TextAlign,
+    TextBox, VAlign,
+};
 
 use crate::app::AppState;
-use crate::state::scene::{
-    Element, ElementKind, EmbeddedFile, FontFamily, Rgba8, Scene, SceneError, StrokeStyle,
-    TextAlign,
-};
+use crate::state::scene::{Rgba8, Scene, SceneError};
 use crate::state::viewport::{self, Camera, Content};
 use crate::theme;
-
-/// Excalidraw's own corner radius for a rounded rectangle, matching the reference renderer's `rx`.
-const CORNER: f32 = 12.0;
 
 /// How many segments an ellipse is drawn with. Enough that the seams are invisible at any zoom the
 /// fit produces, and cheap enough that a wireframe full of them costs nothing.
 const ELLIPSE_STEPS: usize = 64;
 
+/// The largest on-screen font size a label is drawn at; past it the camera is zoomed into one
+/// glyph and shaping it would cost more than it shows.
+const MAX_LABEL_PX: f32 = 2000.0;
+
+/// How many converted drawings the window keeps before it starts over.
+const CACHE_SIZE: usize = 32;
+
+/// What a source converted to, kept across frames so a file is parsed once per change.
+#[derive(Clone)]
+enum Converted {
+    Drawing(Arc<Drawing>),
+    Empty,
+    Failed(Option<SceneError>),
+}
+
+thread_local! {
+    /// Converted drawings keyed by format and the source's hash. The window is single-threaded,
+    /// and a frame that changed nothing must not parse again; the map is cleared when it fills,
+    /// which costs one parse per open drawing.
+    static CONVERTED: RefCell<HashMap<(bool, u64), Converted>> = RefCell::new(HashMap::new());
+}
+
+/// `convert(source)` once per distinct source.
+fn converted(drawio: bool, source: &str, convert: impl FnOnce() -> Converted) -> Converted {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let key = (drawio, hasher.finish());
+    if let Some(hit) = CONVERTED.with_borrow(|cache| cache.get(&key).cloned()) {
+        return hit;
+    }
+    let value = convert();
+    CONVERTED.with_borrow_mut(|cache| {
+        if cache.len() >= CACHE_SIZE {
+            cache.clear();
+        }
+        cache.insert(key, value.clone());
+    });
+    value
+}
+
+/// An Excalidraw scene in a Markdown fence.
 pub fn render(source: &str) -> AnyElement {
     match parsed(source) {
-        Ok(scene) => draw_static(scene, source),
+        Ok(drawing) => draw_static(drawing, source),
         Err(note) => note,
     }
 }
 
-/// The same scene, in a panel the user can pan and zoom.
+/// An Excalidraw scene in a panel the user can pan and zoom.
 pub fn live(app: &AppState, key: &str, source: &str, cx: &mut Context<AppState>) -> AnyElement {
     match parsed(source) {
-        Ok(scene) => draw_live(app, key, scene, cx),
+        Ok(drawing) => live_drawing(app, key, drawing, div().into_any_element(), cx),
         Err(note) => note,
     }
 }
 
-fn parsed(source: &str) -> Result<Scene, AnyElement> {
-    match Scene::parse(source.as_bytes()) {
-        Ok(scene) if scene.elements.is_empty() => {
-            Err(super::note("this scene is empty", theme::text_faint()))
+/// A draw.io diagram in a panel — its first page, through the same painter.
+///
+/// A file the converter cannot read at all falls back to the SVG the draw.io editor last exported
+/// ([`super::diagram::exported`]), so a diagram that ever drew keeps drawing.
+pub fn drawio_live(
+    app: &AppState,
+    key: &str,
+    source: &str,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let result = converted(true, source, || {
+        match ubiq_draw::drawio::parse(source.as_bytes()) {
+            Ok(drawing) if drawing.is_empty() => Converted::Empty,
+            Ok(drawing) => Converted::Drawing(Arc::new(drawing)),
+            Err(_) => Converted::Failed(None),
         }
-        Ok(scene) => Ok(scene),
+    });
+    match result {
+        Converted::Empty => super::note("this diagram is empty", theme::text_faint()),
+        Converted::Drawing(drawing) => {
+            live_drawing(app, key, drawing, div().into_any_element(), cx)
+        }
+        Converted::Failed(_) => super::diagram::exported(app, key, source, cx),
+    }
+}
+
+fn parsed(source: &str) -> Result<Arc<Drawing>, AnyElement> {
+    let result = converted(false, source, || match Scene::parse(source.as_bytes()) {
+        Ok(scene) if scene.elements.is_empty() => Converted::Empty,
+        Ok(scene) => Converted::Drawing(Arc::new(scene.to_drawing())),
+        Err(why) => Converted::Failed(Some(why)),
+    });
+    match result {
+        Converted::Drawing(drawing) => Ok(drawing),
+        Converted::Empty => Err(super::note("this scene is empty", theme::text_faint())),
         // Every failure says why in the reader's own words, including the compressed case — which
         // is a scene that exists and cannot be unpacked, not a file that went wrong.
-        Err(why @ SceneError::Compressed) => Err(super::note(why.to_string(), theme::text_muted())),
-        Err(why) => Err(super::note(why.to_string(), theme::danger())),
+        Converted::Failed(Some(why @ SceneError::Compressed)) => {
+            Err(super::note(why.to_string(), theme::text_muted()))
+        }
+        Converted::Failed(why) => Err(super::note(
+            why.map(|why| why.to_string()).unwrap_or_default(),
+            theme::danger(),
+        )),
     }
 }
 
-fn content_of(scene: &Scene) -> Content {
+fn content_of(drawing: &Drawing) -> Content {
     Content {
-        min_x: scene.bounds.min_x,
-        min_y: scene.bounds.min_y,
-        width: scene.bounds.width(),
-        height: scene.bounds.height(),
+        min_x: drawing.bounds.min_x,
+        min_y: drawing.bounds.min_y,
+        width: drawing.bounds.width(),
+        height: drawing.bounds.height(),
     }
 }
 
-/// The file's canvas colour, or Excalidraw's white when it named none.
-fn ground_of(scene: &Scene) -> Rgba {
-    tint(scene.background.unwrap_or(Rgba8::DEFAULT_BACKGROUND), 1.0)
+/// The file's canvas colour, or the format's white paper when it named none.
+fn ground_of(drawing: &Drawing) -> Rgba {
+    tint(drawing.background.unwrap_or(Rgba8::DEFAULT_BACKGROUND), 1.0)
 }
 
 /// A scene in a Markdown fence: drawn at its own size, no camera of its own, because a fence is a
@@ -115,17 +183,16 @@ fn ground_of(scene: &Scene) -> Rgba {
 /// **No zoom button here** (T-185): unlike a Mermaid fence, which resolves to one `Arc<Image>` the
 /// modal and the Copy button can both hand off whole, a scene is vector shapes painted straight
 /// into the panel by [`paint`] — there is no single picture to raise or to copy, only the same
-/// live camera [`draw_live`] already gives the panel view. Reachable only by drawing the zoom
-/// modal's body as a second live scene rather than a picture, which is a card of its own.
-fn draw_static(scene: Scene, key: &str) -> AnyElement {
-    let content = content_of(&scene);
+/// live camera [`live_drawing`] already gives the panel view.
+fn draw_static(drawing: Arc<Drawing>, key: &str) -> AnyElement {
+    let content = content_of(&drawing);
     let natural_w = content.width.max(1.0) + viewport::MARGIN * 2.0;
     let natural_h = content.height.max(1.0) + viewport::MARGIN * 2.0;
     let (panel_w, panel_h) =
         super::diagram::scale_to_measure(natural_w, natural_h, super::diagram::current_measure());
     let camera = viewport::Viewport::default().camera(content, panel_w, panel_h);
-    let ground = ground_of(&scene);
-    let pictures = images_static(&scene, camera);
+    let ground = ground_of(&drawing);
+    let pictures = images_static(&drawing, camera);
 
     let picture = div()
         .flex_none()
@@ -141,8 +208,8 @@ fn draw_static(scene: Scene, key: &str) -> AnyElement {
                 |_, _, _| {},
                 move |bounds, _, window, cx| {
                     let view = View::from_camera(camera, bounds.origin);
-                    for element in &scene.elements {
-                        paint(element, &scene.files, &view, window, cx);
+                    for shape in drawing.shapes() {
+                        paint(shape, &drawing.images, &view, window, cx);
                     }
                 },
             )
@@ -154,13 +221,9 @@ fn draw_static(scene: Scene, key: &str) -> AnyElement {
     super::diagram_frame(key, picture)
 }
 
-fn draw_live(app: &AppState, key: &str, scene: Scene, cx: &mut Context<AppState>) -> AnyElement {
-    live_with_overlay(app, key, &scene, div().into_any_element(), cx)
-}
-
-/// The same scene live on its camera, with one element above the picture: the image editor's
-/// tool layer. The overlay sits over the viewport's own hit layer, so a tool drag lands on the
-/// tool and anything it declines reaches pan and zoom underneath.
+/// The image editor's scene live on its camera, with one element above the picture: its tool
+/// layer. The overlay sits over the viewport's own hit layer, so a tool drag lands on the tool and
+/// anything it declines reaches pan and zoom underneath.
 pub(crate) fn live_with_overlay(
     app: &AppState,
     key: &str,
@@ -168,16 +231,27 @@ pub(crate) fn live_with_overlay(
     overlay: AnyElement,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
-    let content = content_of(scene);
+    // The scene under edit changes between frames, so it is converted each frame — no parse.
+    live_drawing(app, key, Arc::new(scene.to_drawing()), overlay, cx)
+}
+
+fn live_drawing(
+    app: &AppState,
+    key: &str,
+    drawing: Arc<Drawing>,
+    overlay: AnyElement,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let content = content_of(&drawing);
     let camera_at = app.viewport(key);
     // The overlay positions follow the stored panel, as the diagram viewer does; the canvas
     // re-fits to its live bounds each paint, and the two agree once the panel is measured.
     let overlay_cam = camera_at.camera(content, camera_at.panel_w, camera_at.panel_h);
-    let pictures = images_static(scene, overlay_cam);
+    let pictures = images_static(&drawing, overlay_cam);
     super::viewport::surface(
         app,
         key,
-        ground_of(scene),
+        ground_of(&drawing),
         content,
         div()
             .absolute()
@@ -189,7 +263,6 @@ pub(crate) fn live_with_overlay(
             .children(pictures)
             .child(
                 canvas(|_, _, _| {}, {
-                    let scene = scene.clone();
                     move |bounds, _, window, cx| {
                         let camera = camera_at.camera(
                             content,
@@ -197,8 +270,8 @@ pub(crate) fn live_with_overlay(
                             f32::from(bounds.size.height),
                         );
                         let view = View::from_camera(camera, bounds.origin);
-                        for element in &scene.elements {
-                            paint(element, &scene.files, &view, window, cx);
+                        for shape in drawing.shapes() {
+                            paint(shape, &drawing.images, &view, window, cx);
                         }
                     }
                 })
@@ -215,8 +288,8 @@ pub(crate) fn live_with_overlay(
 // The transform
 // ------------------------------------------------------------------------------------------- //
 
-/// Scene coordinates to window coordinates: one uniform scale and one offset, so the aspect ratio
-/// survives and a diagram is never stretched to fit.
+/// Drawing coordinates to window coordinates: one uniform scale and one offset, so the aspect
+/// ratio survives and a diagram is never stretched to fit.
 struct View {
     origin: Point<Pixels>,
     scale: f32,
@@ -242,7 +315,7 @@ impl View {
             )
     }
 
-    /// A scene length in window pixels.
+    /// A drawing length in window pixels.
     fn len(&self, value: f32) -> f32 {
         value * self.scale
     }
@@ -253,28 +326,29 @@ impl View {
     }
 }
 
-/// One point of an element, rotated about the element's own centre and then placed.
-///
-/// `angle` is radians in the file and applies to the shape, not to the scene, which is why it is
-/// resolved here rather than folded into [`View`].
-fn place(element: &Element, view: &View, x: f32, y: f32) -> Point<Pixels> {
-    if element.angle == 0.0 {
+/// One point of a shape, rotated about the centre of its frame and then placed.
+fn place(shape: &Shape, view: &View, x: f32, y: f32) -> Point<Pixels> {
+    if shape.rotation == 0.0 {
         return view.at(x, y);
     }
-    let (cx, cy) = (
-        element.x + element.width / 2.0,
-        element.y + element.height / 2.0,
-    );
-    let (sin, cos) = element.angle.sin_cos();
-    let (dx, dy) = (x - cx, y - cy);
-    view.at(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+    let c = shape.frame.centre();
+    let (sin, cos) = shape.rotation.sin_cos();
+    let (dx, dy) = (x - c.x, y - c.y);
+    view.at(c.x + dx * cos - dy * sin, c.y + dx * sin + dy * cos)
+}
+
+fn placed(shape: &Shape, view: &View, points: &[(f32, f32)]) -> Vec<Point<Pixels>> {
+    points
+        .iter()
+        .map(|&(x, y)| place(shape, view, x, y))
+        .collect()
 }
 
 // ------------------------------------------------------------------------------------------- //
 // Colour and stroke
 // ------------------------------------------------------------------------------------------- //
 
-/// A colour the file named, at the element's opacity. Data from the scene, not a token — see the
+/// A colour the file named, at the shape's opacity. Data from the drawing, not a token — see the
 /// module header.
 fn tint(colour: Rgba8, opacity: f32) -> Rgba {
     Rgba {
@@ -285,13 +359,12 @@ fn tint(colour: Rgba8, opacity: f32) -> Rgba {
     }
 }
 
-/// A stroke builder carrying the element's width and dash pattern, both scaled with the view so a
+/// A stroke builder carrying the shape's width and dash pattern, both scaled with the view so a
 /// dashed line stays dashed at any zoom.
 fn pen(view: &View, width: f32, style: StrokeStyle) -> PathBuilder {
     let builder = PathBuilder::stroke(px(view.stroke_width(width)));
     match style {
         StrokeStyle::Solid => builder,
-        // The reference renderer's own `stroke-dasharray` values.
         StrokeStyle::Dashed => {
             builder.dash_array(&[px(view.len(10.0).max(2.0)), px(view.len(6.0).max(2.0))])
         }
@@ -302,171 +375,165 @@ fn pen(view: &View, width: f32, style: StrokeStyle) -> PathBuilder {
 }
 
 // ------------------------------------------------------------------------------------------- //
-// The elements
+// The shapes
 // ------------------------------------------------------------------------------------------- //
 
 fn paint(
-    element: &Element,
-    files: &HashMap<String, EmbeddedFile>,
+    shape: &Shape,
+    images: &HashMap<String, EmbeddedImage>,
     view: &View,
     window: &mut Window,
     cx: &mut App,
 ) {
-    match &element.kind {
-        ElementKind::Rectangle { rounded } => rectangle(element, *rounded, view, window),
-        ElementKind::Ellipse => outline(element, ellipse_points(element), view, window),
-        ElementKind::Diamond => outline(element, diamond_points(element), view, window),
-        ElementKind::Frame { name } => frame(element, name.as_deref(), view, window, cx),
-        ElementKind::Line {
-            points,
-            start_arrow,
-            end_arrow,
+    match &shape.geometry {
+        Geometry::Rect => rectangle(shape, 0.0, view, window),
+        Geometry::RoundedRect { radius } => rectangle(shape, *radius, view, window),
+        Geometry::Ellipse => outline(shape, ellipse_points(shape.frame), true, view, window),
+        Geometry::Diamond => outline(shape, diamond_points(shape.frame), true, view, window),
+        Geometry::Polyline { points, closed } => {
+            let points: Vec<(f32, f32)> = points.iter().map(|p| (p.x, p.y)).collect();
+            outline(shape, points, *closed, view, window);
         }
-        | ElementKind::Arrow {
-            points,
-            start_arrow,
-            end_arrow,
-        } => connector(element, points, *start_arrow, *end_arrow, view, window),
-        ElementKind::FreeDraw { points } => connector(element, points, false, false, view, window),
-        ElementKind::Text {
-            text,
-            font_size,
-            family,
-            align,
-        } => label(element, text, *font_size, *family, *align, view, window, cx),
-        ElementKind::Image { file_id } => {
+        Geometry::Freehand { points } => {
+            let points: Vec<(f32, f32)> = points.iter().map(|p| (p.x, p.y)).collect();
+            stroke_polygon(shape, &points, false, view, window);
+        }
+        Geometry::Connector(connector) => {
+            let points: Vec<(f32, f32)> = connector.points.iter().map(|p| (p.x, p.y)).collect();
+            line(shape, &points, connector.start, connector.end, view, window);
+        }
+        Geometry::Text => {}
+        Geometry::Image { image } => {
             // A resolvable image paints as an overlay child, not on the canvas; the rest fall
             // through to the placeholder so a missing picture never leaves a hole.
-            if resolved_image(files, file_id, element.angle).is_none() {
-                placeholder(element, view, window);
+            let resolved = image
+                .as_deref()
+                .and_then(|id| resolved_image(images, id, shape.rotation));
+            if resolved.is_none() {
+                placeholder(shape, true, view, window);
             }
         }
+        Geometry::Placeholder => placeholder(shape, false, view, window),
+    }
+    if let Some(text) = &shape.text {
+        label(text, shape.style.opacity, view, window, cx);
     }
 }
 
 /// A rectangle. Unrotated and square-cornered, it is a quad — the cheapest thing GPUI paints, and
 /// what most of a wireframe is made of. Anything else goes through a path.
-fn rectangle(element: &Element, rounded: bool, view: &View, window: &mut Window) {
-    let radius = if rounded {
-        view.len(
-            CORNER
-                .min(element.width.abs() / 2.0)
-                .min(element.height.abs() / 2.0),
-        )
-    } else {
-        0.0
-    };
+fn rectangle(shape: &Shape, radius: f32, view: &View, window: &mut Window) {
+    let r = shape.frame;
+    let radius = radius.min(r.w.abs() / 2.0).min(r.h.abs() / 2.0).max(0.0);
 
-    if element.angle == 0.0 && radius <= 0.5 {
-        if let Some(colour) = element.fill {
-            let top_left = view.at(element.x, element.y);
-            let extent = size(px(view.len(element.width)), px(view.len(element.height)));
+    if shape.rotation == 0.0 && view.len(radius) <= 0.5 {
+        if let Some(colour) = shape.style.fill {
+            let top_left = view.at(r.x, r.y);
+            let extent = size(px(view.len(r.w)), px(view.len(r.h)));
             window.paint_quad(fill(
                 Bounds::new(top_left, extent),
-                tint(colour, element.opacity),
+                tint(colour, shape.style.opacity),
             ));
         }
-        stroke_polygon(element, corner_points(element), true, view, window);
+        stroke_polygon(shape, &corner_points(r), true, view, window);
         return;
     }
 
-    if radius <= 0.5 {
-        outline(element, corner_points(element), view, window);
+    if view.len(radius) <= 0.5 {
+        outline(shape, corner_points(r), true, view, window);
         return;
     }
 
     // Rounded, or rotated, or both: one path either way. The corners are quadratic curves with the
     // sharp corner as their control point, which is what an SVG `rx` draws.
     let round = |builder: &mut PathBuilder| {
-        let (x, y, w, h) = (element.x, element.y, element.width, element.height);
-        let r = CORNER.min(w.abs() / 2.0).min(h.abs() / 2.0);
-        let p = |bx: f32, by: f32| place(element, view, bx, by);
-        builder.move_to(p(x + r, y));
-        builder.line_to(p(x + w - r, y));
-        builder.curve_to(p(x + w, y + r), p(x + w, y));
-        builder.line_to(p(x + w, y + h - r));
-        builder.curve_to(p(x + w - r, y + h), p(x + w, y + h));
-        builder.line_to(p(x + r, y + h));
-        builder.curve_to(p(x, y + h - r), p(x, y + h));
-        builder.line_to(p(x, y + r));
-        builder.curve_to(p(x + r, y), p(x, y));
+        let (x, y, w, h) = (r.x, r.y, r.w, r.h);
+        let p = |bx: f32, by: f32| place(shape, view, bx, by);
+        let rr = radius;
+        builder.move_to(p(x + rr, y));
+        builder.line_to(p(x + w - rr, y));
+        builder.curve_to(p(x + w, y + rr), p(x + w, y));
+        builder.line_to(p(x + w, y + h - rr));
+        builder.curve_to(p(x + w - rr, y + h), p(x + w, y + h));
+        builder.line_to(p(x + rr, y + h));
+        builder.curve_to(p(x, y + h - rr), p(x, y + h));
+        builder.line_to(p(x, y + rr));
+        builder.curve_to(p(x + rr, y), p(x, y));
         builder.close();
     };
 
-    if let Some(colour) = element.fill {
+    if let Some(colour) = shape.style.fill {
         let mut builder = PathBuilder::fill();
         round(&mut builder);
         if let Ok(path) = builder.build() {
-            window.paint_path(path, tint(colour, element.opacity));
+            window.paint_path(path, tint(colour, shape.style.opacity));
         }
     }
-    if let Some(colour) = element.stroke {
-        let mut builder = pen(view, element.stroke_width, element.stroke_style);
+    if let Some(colour) = shape.style.stroke {
+        let mut builder = pen(view, shape.style.stroke_width, shape.style.stroke_style);
         round(&mut builder);
         if let Ok(path) = builder.build() {
-            window.paint_path(path, tint(colour, element.opacity));
+            window.paint_path(path, tint(colour, shape.style.opacity));
         }
     }
 }
 
-/// A closed shape given as scene-space points: filled, then stroked.
-fn outline(element: &Element, points: Vec<(f32, f32)>, view: &View, window: &mut Window) {
-    if let Some(colour) = element.fill {
-        let mapped: Vec<Point<Pixels>> = points
-            .iter()
-            .map(|&(x, y)| place(element, view, x, y))
-            .collect();
+/// A shape given as drawing-space points: filled when closed, then stroked.
+fn outline(shape: &Shape, points: Vec<(f32, f32)>, closed: bool, view: &View, window: &mut Window) {
+    if closed
+        && points.len() > 2
+        && let Some(colour) = shape.style.fill
+    {
         let mut builder = PathBuilder::fill();
-        builder.add_polygon(&mapped, true);
+        builder.add_polygon(&placed(shape, view, &points), true);
         if let Ok(path) = builder.build() {
-            window.paint_path(path, tint(colour, element.opacity));
+            window.paint_path(path, tint(colour, shape.style.opacity));
         }
     }
-    stroke_polygon(element, points, true, view, window);
+    stroke_polygon(shape, &points, closed, view, window);
 }
 
 fn stroke_polygon(
-    element: &Element,
-    points: Vec<(f32, f32)>,
+    shape: &Shape,
+    points: &[(f32, f32)],
     closed: bool,
     view: &View,
     window: &mut Window,
 ) {
-    let Some(colour) = element.stroke else {
+    let Some(colour) = shape.style.stroke else {
         return;
     };
-    let mapped: Vec<Point<Pixels>> = points
-        .iter()
-        .map(|&(x, y)| place(element, view, x, y))
-        .collect();
-    if mapped.len() < 2 {
+    if points.len() < 2 || shape.style.stroke_width <= 0.0 {
         return;
     }
-    let mut builder = pen(view, element.stroke_width, element.stroke_style);
-    builder.add_polygon(&mapped, closed);
+    let mut builder = pen(view, shape.style.stroke_width, shape.style.stroke_style);
+    builder.add_polygon(&placed(shape, view, points), closed);
     if let Ok(path) = builder.build() {
-        window.paint_path(path, tint(colour, element.opacity));
+        window.paint_path(path, tint(colour, shape.style.opacity));
     }
 }
 
-fn corner_points(element: &Element) -> Vec<(f32, f32)> {
-    let (x, y, w, h) = (element.x, element.y, element.width, element.height);
-    vec![(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
-}
-
-fn diamond_points(element: &Element) -> Vec<(f32, f32)> {
-    let (x, y, w, h) = (element.x, element.y, element.width, element.height);
+fn corner_points(r: Rect) -> Vec<(f32, f32)> {
     vec![
-        (x + w / 2.0, y),
-        (x + w, y + h / 2.0),
-        (x + w / 2.0, y + h),
-        (x, y + h / 2.0),
+        (r.x, r.y),
+        (r.x + r.w, r.y),
+        (r.x + r.w, r.y + r.h),
+        (r.x, r.y + r.h),
     ]
 }
 
-fn ellipse_points(element: &Element) -> Vec<(f32, f32)> {
-    let (rx, ry) = (element.width / 2.0, element.height / 2.0);
-    let (cx, cy) = (element.x + rx, element.y + ry);
+fn diamond_points(r: Rect) -> Vec<(f32, f32)> {
+    vec![
+        (r.x + r.w / 2.0, r.y),
+        (r.x + r.w, r.y + r.h / 2.0),
+        (r.x + r.w / 2.0, r.y + r.h),
+        (r.x, r.y + r.h / 2.0),
+    ]
+}
+
+fn ellipse_points(r: Rect) -> Vec<(f32, f32)> {
+    let (rx, ry) = (r.w / 2.0, r.h / 2.0);
+    let (cx, cy) = (r.x + rx, r.y + ry);
     (0..ELLIPSE_STEPS)
         .map(|step| {
             let theta = std::f32::consts::TAU * step as f32 / ELLIPSE_STEPS as f32;
@@ -475,97 +542,67 @@ fn ellipse_points(element: &Element) -> Vec<(f32, f32)> {
         .collect()
 }
 
-/// A frame: a light dashed box with its name above the top-left corner, exactly as the reference
-/// renderer draws one. A frame is a grouping, so it is drawn thinner than whatever is inside it.
-fn frame(element: &Element, name: Option<&str>, view: &View, window: &mut Window, cx: &mut App) {
-    let colour = element.stroke.unwrap_or(Rgba8::DEFAULT_STROKE);
-    let mapped: Vec<Point<Pixels>> = corner_points(element)
-        .into_iter()
-        .map(|(x, y)| place(element, view, x, y))
-        .collect();
-
-    let mut builder = PathBuilder::stroke(px(view.stroke_width(1.0)))
-        .dash_array(&[px(view.len(6.0).max(2.0)), px(view.len(4.0).max(2.0))]);
-    builder.add_polygon(&mapped, true);
-    if let Ok(path) = builder.build() {
-        window.paint_path(path, tint(colour, element.opacity));
-    }
-
-    if let Some(name) = name.filter(|name| !name.is_empty()) {
-        let size = view.len(14.0);
-        if size >= 4.0 {
-            let line = shape(
-                name,
-                size,
-                FontFamily::Normal,
-                tint(colour, element.opacity),
-                window,
-            );
-            let origin = view.at(element.x, element.y) - point(px(0.), px(size * 1.4));
-            let _ = line.paint(
-                origin,
-                px(size * 1.25),
-                gpui::TextAlign::Left,
-                None,
-                window,
-                cx,
-            );
-        }
-    }
-}
-
-/// A connector or a freehand stroke: a polyline through points the file stored relative to the
-/// element's origin, with an arrowhead on either end that asked for one.
-fn connector(
-    element: &Element,
+/// A connector: a polyline through absolute points, with a head on either end that asked for
+/// one.
+fn line(
+    shape: &Shape,
     points: &[(f32, f32)],
-    start_arrow: bool,
-    end_arrow: bool,
+    start: ArrowHead,
+    end: ArrowHead,
     view: &View,
     window: &mut Window,
 ) {
-    let Some(colour) = element.stroke else {
+    let Some(colour) = shape.style.stroke else {
         return;
     };
-    let mapped: Vec<Point<Pixels>> = points
-        .iter()
-        .map(|&(dx, dy)| place(element, view, element.x + dx, element.y + dy))
-        .collect();
+    let mapped = placed(shape, view, points);
     if mapped.len() < 2 {
         return;
     }
-    let paint_colour = tint(colour, element.opacity);
+    let paint_colour = tint(colour, shape.style.opacity);
 
-    let mut builder = pen(view, element.stroke_width, element.stroke_style);
+    let mut builder = pen(view, shape.style.stroke_width, shape.style.stroke_style);
     builder.add_polygon(&mapped, false);
     if let Ok(path) = builder.build() {
         window.paint_path(path, paint_colour);
     }
 
-    // Heads are solid triangles rather than a stroked chevron, so they read at every zoom the fit
-    // produces. Their size follows the stroke, as the reference renderer's marker does.
-    let head = view.len(9.0 + element.stroke_width * 1.5).max(4.0);
-    if end_arrow {
-        arrowhead(
-            mapped[mapped.len() - 1],
-            mapped[mapped.len() - 2],
-            head,
-            paint_colour,
-            window,
-        );
-    }
-    if start_arrow {
-        arrowhead(mapped[0], mapped[1], head, paint_colour, window);
-    }
+    // Heads follow the stroke's width, as the reference renderer's marker does.
+    let head = view.len(9.0 + shape.style.stroke_width * 1.5).max(4.0);
+    let width = view.stroke_width(shape.style.stroke_width);
+    let n = mapped.len();
+    arrowhead(
+        end,
+        mapped[n - 1],
+        mapped[n - 2],
+        head,
+        width,
+        paint_colour,
+        window,
+    );
+    arrowhead(
+        start,
+        mapped[0],
+        mapped[1],
+        head,
+        width,
+        paint_colour,
+        window,
+    );
 }
 
 fn arrowhead(
+    kind: ArrowHead,
     tip: Point<Pixels>,
     from: Point<Pixels>,
     size: f32,
+    width: f32,
     colour: Rgba,
     window: &mut Window,
 ) {
+    if kind == ArrowHead::None {
+        return;
+    }
     let (dx, dy) = (f32::from(tip.x - from.x), f32::from(tip.y - from.y));
     let length = dx.hypot(dy);
     if length < 0.001 {
@@ -575,49 +612,57 @@ fn arrowhead(
     // The two barbs sit back along the line and out to either side of it.
     let back = point(px(-ux * size), px(-uy * size));
     let across = point(px(-uy * size * 0.45), px(ux * size * 0.45));
+    let barbs = [tip + back + across, tip, tip + back - across];
 
-    let mut builder = PathBuilder::fill();
-    builder.add_polygon(&[tip, tip + back + across, tip + back - across], true);
+    let mut builder = match kind {
+        ArrowHead::Open => PathBuilder::stroke(px(width)),
+        _ => PathBuilder::fill(),
+    };
+    builder.add_polygon(&barbs, kind != ArrowHead::Open);
     if let Ok(path) = builder.build() {
         window.paint_path(path, colour);
     }
 }
 
-/// Text, in the element's own colour and at its own size.
-///
-/// Each line is shaped and painted separately — the alignment is resolved against the element's
-/// box by measuring, which is also what makes a centred label sit where Excalidraw put it. Rotation
-/// is not applied; see the module header.
-#[allow(clippy::too_many_arguments)]
-fn label(
-    element: &Element,
-    text: &str,
-    font_size: f32,
-    family: FontFamily,
-    align: TextAlign,
-    view: &View,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let Some(colour) = element.stroke else {
+/// A text box, in its own colour and size: each line shaped and aligned in the box, the block
+/// placed vertically by its `valign`. Never rotated; see the module header.
+fn label(text: &TextBox, opacity: f32, view: &View, window: &mut Window, cx: &mut App) {
+    let Some(colour) = text.colour else {
         return;
     };
-    let size = view.len(font_size);
-    if size < 3.0 || text.is_empty() {
-        // Below a few pixels a glyph is noise. Nothing is drawn rather than a smear.
+    let size = view.len(text.font_size);
+    if !(3.0..=MAX_LABEL_PX).contains(&size) || text.text.is_empty() {
+        // Below a few pixels a glyph is noise, and above a couple of thousand it is one letter
+        // filling the panel. Nothing is drawn rather than a smear or a huge shaping job.
         return;
     }
-    let colour = tint(colour, element.opacity);
+    let colour = tint(colour, opacity);
     let line_height = size * 1.25;
-    let top_left = view.at(element.x, element.y);
-    let width = view.len(element.width);
+    let lines: Vec<&str> = text.text.split('\n').collect();
+    let block = line_height * lines.len() as f32;
+    let (x0, x1) = (
+        text.rect.x.min(text.rect.x + text.rect.w),
+        text.rect.x.max(text.rect.x + text.rect.w),
+    );
+    let (y0, y1) = (
+        text.rect.y.min(text.rect.y + text.rect.h),
+        text.rect.y.max(text.rect.y + text.rect.h),
+    );
+    let width = view.len(x1 - x0);
+    let height = view.len(y1 - y0);
+    let drop = match text.valign {
+        VAlign::Top => 0.0,
+        VAlign::Middle => (height - block) / 2.0,
+        VAlign::Bottom => height - block,
+    };
+    let top_left = view.at(x0, y0) + point(px(0.), px(drop));
 
-    for (row, line) in text.split('\n').enumerate() {
+    for (row, line) in lines.iter().enumerate() {
         if line.is_empty() {
             continue;
         }
-        let shaped = shape(line, size, family, colour, window);
-        let shift = match align {
+        let shaped = shape_line(line, size, text.family, colour, window);
+        let shift = match text.align {
             TextAlign::Left => 0.0,
             TextAlign::Center => (width - f32::from(shaped.width())) / 2.0,
             TextAlign::Right => width - f32::from(shaped.width()),
@@ -634,11 +679,11 @@ fn label(
     }
 }
 
-/// One shaped line, in the interface's own font unless the element asked for the monospaced one.
+/// One shaped line, in the interface's own font unless the text asked for the monospaced one.
 ///
 /// Excalidraw's `hand` family has no equivalent here, and asking for one would be the same mistake
 /// as sketching the strokes: the file's hand-drawn intent renders as clean vector throughout.
-fn shape(
+fn shape_line(
     text: &str,
     size: f32,
     family: FontFamily,
@@ -681,37 +726,38 @@ fn image_format(mime: &str) -> Option<ImageFormat> {
 /// A paintable image: bytes the file carried, in a decodable format, unrotated. Rotation has no
 /// `img` equivalent, so a rotated image keeps its placeholder rather than painting unrotated.
 fn resolved_image<'a>(
-    files: &'a HashMap<String, EmbeddedFile>,
-    file_id: &str,
-    angle: f32,
+    images: &'a HashMap<String, EmbeddedImage>,
+    id: &str,
+    rotation: f32,
 ) -> Option<(ImageFormat, &'a [u8])> {
-    if angle != 0.0 {
+    if rotation != 0.0 {
         return None;
     }
-    let file = files.get(file_id)?;
+    let file = images.get(id)?;
     Some((image_format(&file.mime)?, &file.bytes))
 }
 
 /// One positioned `img` per paintable image, in the camera's coordinates — the same absolute
 /// placement [`super::diagram`] uses for its picture.
-fn images_static(scene: &Scene, camera: Camera) -> Vec<AnyElement> {
-    scene
-        .elements
-        .iter()
-        .filter_map(|element| {
-            let ElementKind::Image { file_id } = &element.kind else {
+fn images_static(drawing: &Drawing, camera: Camera) -> Vec<AnyElement> {
+    drawing
+        .shapes()
+        .into_iter()
+        .filter_map(|shape| {
+            let Geometry::Image { image: Some(id) } = &shape.geometry else {
                 return None;
             };
-            let (format, bytes) = resolved_image(&scene.files, file_id, element.angle)?;
-            let (x, w) = if element.width >= 0.0 {
-                (element.x, element.width)
+            let (format, bytes) = resolved_image(&drawing.images, id, shape.rotation)?;
+            let r = shape.frame;
+            let (x, w) = if r.w >= 0.0 {
+                (r.x, r.w)
             } else {
-                (element.x + element.width, -element.width)
+                (r.x + r.w, -r.w)
             };
-            let (y, h) = if element.height >= 0.0 {
-                (element.y, element.height)
+            let (y, h) = if r.h >= 0.0 {
+                (r.y, r.h)
             } else {
-                (element.y + element.height, -element.height)
+                (r.y + r.h, -r.h)
             };
             let picture = Arc::new(Image::from_bytes(format, bytes.to_vec()));
             Some(
@@ -721,31 +767,30 @@ fn images_static(scene: &Scene, camera: Camera) -> Vec<AnyElement> {
                     .top(px(camera.offset_y + y * camera.scale))
                     .w(px(w * camera.scale))
                     .h(px(h * camera.scale))
-                    .opacity(element.opacity)
+                    .opacity(shape.style.opacity)
                     .into_any_element(),
             )
         })
         .collect()
 }
 
-/// What a missing image draws as. The bytes are not in the scene, or nothing here decodes
-fn placeholder(element: &Element, view: &View, window: &mut Window) {
-    let colour = theme::fade(theme::text_faint(), element.opacity.min(0.7));
-    let mapped: Vec<Point<Pixels>> = corner_points(element)
-        .into_iter()
-        .map(|(x, y)| place(element, view, x, y))
-        .collect();
+/// What a missing image or an unsupported shape draws as: a dashed box in a theme colour, with a
+/// diagonal for a picture that is not there. An unsupported shape's label is drawn by [`paint`].
+fn placeholder(shape: &Shape, cross: bool, view: &View, window: &mut Window) {
+    let colour = theme::fade(theme::text_faint(), shape.style.opacity.min(0.7));
+    let mapped = placed(shape, view, &corner_points(shape.frame));
 
     let mut builder = PathBuilder::stroke(px(view.stroke_width(1.0))).dash_array(&[px(4.), px(3.)]);
     builder.add_polygon(&mapped, true);
     if let Ok(path) = builder.build() {
         window.paint_path(path, colour);
     }
-    // A diagonal, so an empty box reads as a picture that is not there rather than as a shape.
-    let mut cross = PathBuilder::stroke(px(view.stroke_width(1.0)));
-    cross.move_to(mapped[0]);
-    cross.line_to(mapped[2]);
-    if let Ok(path) = cross.build() {
-        window.paint_path(path, colour);
+    if cross {
+        let mut diagonal = PathBuilder::stroke(px(view.stroke_width(1.0)));
+        diagonal.move_to(mapped[0]);
+        diagonal.line_to(mapped[2]);
+        if let Ok(path) = diagonal.build() {
+            window.paint_path(path, colour);
+        }
     }
 }

@@ -2186,9 +2186,7 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 {
                     continue;
                 }
-                AcpRegistryStatus::NotInstalled => {
-                    locate(id, cx).into_any_element()
-                }
+                AcpRegistryStatus::NotInstalled => locate(id, cx).into_any_element(),
                 AcpRegistryStatus::Downloadable if view.installing.contains(&agent.id) => div()
                     .text_size(small)
                     .text_color(theme::text_faint())
@@ -2232,8 +2230,7 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                                 }),
                             )
                             .tooltip(move |window, cx| {
-                                gpui_component::tooltip::Tooltip::new(tip.clone())
-                                    .build(window, cx)
+                                gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
                             }),
                         )
                         .child(locate(id, cx))
@@ -2324,7 +2321,9 @@ fn acp_registry(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                         ElementId::Name(format!("app-settings-acp-{}-install", agent.id).into()),
                         Some(IconName::ArrowDown),
                         "Install",
-                        cx.listener(move |this, _, _, cx| this.install_acp_adapter(id.clone(), false, cx)),
+                        cx.listener(move |this, _, _, cx| {
+                            this.install_acp_adapter(id.clone(), false, cx)
+                        }),
                     )
                     .tooltip(move |window, cx| {
                         gpui_component::tooltip::Tooltip::new(command.clone()).build(window, cx)
@@ -4104,27 +4103,32 @@ fn choosing(
                         )
                         // A registry agent that was not found is in no list yet; its pill is the
                         // one thing that says what this command is for.
-                        .children(chosen.filter(|id| {
-                            command_only && !app.workbench.agent_types.iter().any(|it| it.id == *id)
-                        }).map(|id| {
-                            let name = app
-                                .workbench
-                                .settings
-                                .acp_registry
-                                .agents
-                                .iter()
-                                .flatten()
-                                .find(|it| it.id == id)
-                                .map_or(id, |it| it.name.as_str());
-                            choice_pill(
-                                ElementId::Name(
-                                    format!("app-settings-login-harness-{id}").into(),
-                                ),
-                                name,
-                                true,
-                                |_, _, _| {},
-                            )
-                        })),
+                        .children(
+                            chosen
+                                .filter(|id| {
+                                    command_only
+                                        && !app.workbench.agent_types.iter().any(|it| it.id == *id)
+                                })
+                                .map(|id| {
+                                    let name = app
+                                        .workbench
+                                        .settings
+                                        .acp_registry
+                                        .agents
+                                        .iter()
+                                        .flatten()
+                                        .find(|it| it.id == id)
+                                        .map_or(id, |it| it.name.as_str());
+                                    choice_pill(
+                                        ElementId::Name(
+                                            format!("app-settings-login-harness-{id}").into(),
+                                        ),
+                                        name,
+                                        true,
+                                        |_, _, _| {},
+                                    )
+                                }),
+                        ),
                 ),
         )
         .when(chosen.is_some(), |body| {

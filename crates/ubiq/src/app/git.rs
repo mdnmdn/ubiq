@@ -521,7 +521,9 @@ impl AppState {
             let Some(git) = self.git_view_mut(cx) else {
                 return;
             };
-            let Some(commit) = git.selected_commit().filter(|_| git.compare_commit.is_none())
+            let Some(commit) = git
+                .selected_commit()
+                .filter(|_| git.compare_commit.is_none())
             else {
                 return;
             };

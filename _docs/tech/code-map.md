@@ -676,6 +676,9 @@ the documents in its row.
 | `crates/ubiq-db/src/edit.rs` | [`features/workbench-db.md`](../features/workbench-db.md) |
 | `crates/ubiq-db/src/lib.rs` | [`features/workbench-db.md`](../features/workbench-db.md) |
 | `crates/ubiq-db/src/sql/readonly.rs` | [`features/workbench-db.md`](../features/workbench-db.md) |
+| `crates/ubiq-draw/src/drawio.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
+| `crates/ubiq-draw/src/excalidraw.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
+| `crates/ubiq-draw/src/model.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq-drone/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `crates/ubiq-drone/src/held.rs` | [`features/drone.md`](../features/drone.md) |
 | `crates/ubiq-drone/src/lib.rs` | [`features/drone.md`](../features/drone.md), [`architecture.md`](./architecture.md), [`wip/drone.md`](../wip/drone.md) |

@@ -146,13 +146,6 @@ fn the_scene_fixture_parses_into_every_kind_the_painter_draws() {
     }
     assert_eq!(seen, [true; 6], "{:?}", scene.elements.len());
 
-    // Paint order is by kind, and the fixture is written in a different order on purpose.
-    let ranks: Vec<u8> = scene
-        .elements
-        .iter()
-        .map(|element| element.kind.paint_rank())
-        .collect();
-    assert!(ranks.windows(2).all(|pair| pair[0] <= pair[1]), "{ranks:?}");
     assert!(!scene.bounds.is_empty());
 }
 

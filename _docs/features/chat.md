@@ -404,6 +404,10 @@ warning and `@path` on send.
   tracks outstanding writes; a `ProjectFileError` detaches the tag and raises a notification (a pasted
   picture is in no editor tab, so the save-failed path never sees it).
 
+**A sent turn's prose is markdown**, through the same `TextView` path as an agent body (fences get the same
+code-block treatment). Each single newline outside a fence becomes a hard break (`user_markdown`), so typed
+line breaks stay visible; Copy still copies the raw text.
+
 **A sent turn keeps its chips; clicking one previews the file.** They are drawn inside the turn's accent
 surface under the prose, without `×` (the harness has the file). The echo is one string of `@path` mentions,
 so the conversation carries the list across the send, as it carries a start's preamble.

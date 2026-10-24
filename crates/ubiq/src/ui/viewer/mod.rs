@@ -368,11 +368,11 @@ fn drawn(
             let source = state.read(cx).value().to_string();
             scene::live(app, &key, &source, cx)
         }
-        // draw.io has no native painter: the picture is the panel's own SVG export, kept in the
-        // diagram cache and read back from the workarea. See `app/web_panel.rs`.
+        // draw.io goes through the same painter as Excalidraw, on `ubiq-draw`'s model; only a file
+        // the converter cannot read falls back to the panel's own SVG export.
         ViewerKind::Drawio => {
             let source = state.read(cx).value().to_string();
-            diagram::exported(app, &key, &source, cx)
+            scene::drawio_live(app, &key, &source, cx)
         }
         // `has_preview` names Markdown, Mermaid, Excalidraw and Drawio and nothing else.
         ViewerKind::Editor | ViewerKind::Image | ViewerKind::Contributed(_) => {

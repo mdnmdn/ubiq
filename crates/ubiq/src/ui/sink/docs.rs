@@ -84,8 +84,8 @@ fn body(app: &AppState, doc: &'static SinkDoc, cx: &mut Context<AppState>) -> An
         ViewerKind::Markdown => viewer::markdown::render(app, doc.key, &source, false, cx),
         ViewerKind::Mermaid => viewer::diagram::render(app, doc.key, &source, cx),
         ViewerKind::Excalidraw => viewer::scene::live(app, doc.key, &source, cx),
-        // The sink has no draw.io fixture: the picture only exists once a panel has exported it.
-        ViewerKind::Drawio => viewer::diagram::exported(app, doc.key, &source, cx),
+        // The sink has no draw.io fixture; one would draw through the scene painter.
+        ViewerKind::Drawio => viewer::scene::drawio_live(app, doc.key, &source, cx),
         // The plain buffer has no preview, so this page never asks it for one.
         // A contributed viewer has no fixture here: the sink's documents are the base's own.
         ViewerKind::Editor | ViewerKind::Image | ViewerKind::Contributed(_) => {

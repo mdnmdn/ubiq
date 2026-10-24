@@ -195,6 +195,7 @@ impl ImageEdit {
                     stroke_width: 0.0,
                     stroke_style: StrokeStyle::Solid,
                     opacity: 1.0,
+                    binding: Default::default(),
                 }],
                 background: Some(Rgba8::DEFAULT_BACKGROUND),
                 files,
@@ -235,6 +236,7 @@ impl ImageEdit {
             stroke_width: self.stroke_width,
             stroke_style: StrokeStyle::Solid,
             opacity: 1.0,
+            binding: Default::default(),
         }
     }
 
@@ -555,6 +557,7 @@ impl ImageEdit {
                     stroke_width: 1.5,
                     stroke_style: dashed(),
                     opacity: 1.0,
+                    binding: Default::default(),
                 };
                 match kind {
                     ShapeKind::Crop | ShapeKind::Copy => Some(frame("preview")),

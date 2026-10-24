@@ -11931,6 +11931,7 @@ dependencies = [
  "tree-sitter-typescript",
  "ubiq-archify",
  "ubiq-db",
+ "ubiq-draw",
  "ubiq-md",
  "ubiq-proto",
  "ureq 3.4.2",
@@ -11991,6 +11992,15 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "ubiq-draw"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "roxmltree 0.21.1",
+ "serde_json",
 ]
 
 [[package]]

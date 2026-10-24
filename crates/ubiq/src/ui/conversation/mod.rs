@@ -1239,7 +1239,7 @@ fn one_block(
             text,
             attached: files,
         } => {
-            let turn = user_turn(id, ix, text, files, preview, view, cx);
+            let turn = user_turn(id, ix, text, files, preview, view, root, body_cache, cx);
             copyable(view, ix, text, turn)
         }
         ConvBlock::Agent { body, .. } => {
@@ -1860,8 +1860,17 @@ fn user_turn(
     files: &[Attachment],
     preview: Option<&AttachmentPreview>,
     view: &ConversationView,
+    root: &gpui::Entity<AppState>,
+    body_cache: Option<(&TranscriptScroll, u64)>,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
+    // The same markdown path an agent's body takes; only the text differs, in that a typed line
+    // break stays a line break (see [`user_markdown`]).
+    let source = SharedString::from(user_markdown(text));
+    let markdown = match body_cache {
+        Some((scroll, key)) => TextView::new(&scroll.body(key, &source, cx)),
+        None => TextView::markdown(view.eid(&format!("md-{ix}")), source),
+    };
     let mut said = div()
         .p_2()
         .bg(theme::accent_soft())
@@ -1869,13 +1878,57 @@ fn user_turn(
         .border_color(theme::accent())
         .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
         .text_color(theme::text())
-        .child(SharedString::from(text.to_string()));
+        .child(markdown.on_link_click(crate::ui::on_link(root.clone(), None)));
 
     if !files.is_empty() {
         said = said.child(sent_attachment_tags(agent, ix, files, preview, view, cx));
     }
 
     div().pl_6().flex_none().child(said).into_any_element()
+}
+
+/// A sent turn's text as markdown that keeps the author's line breaks: every single newline outside
+/// a code fence becomes a hard break (two trailing spaces), where markdown would fold it into a
+/// space. Fences are left byte for byte, so pasted code gets the agent's code-block treatment.
+fn user_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut fence: Option<(char, usize)> = None;
+    let lines: Vec<&str> = text.split('\n').collect();
+    for (at, line) in lines.iter().enumerate() {
+        let line = line.trim_end_matches('\r');
+        let trimmed = line.trim_start();
+        let run = trimmed
+            .chars()
+            .take_while(|c| matches!(c, '`' | '~'))
+            .count();
+        // A backtick fence's info string cannot hold a backtick: ```` ```code``` ```` is inline code.
+        let mark = trimmed.chars().next().filter(|c| {
+            run >= 3 && !(fence.is_none() && *c == '`' && trimmed[run..].contains('`'))
+        });
+        match (fence, mark) {
+            (None, Some(c)) => fence = Some((c, run)),
+            (Some((open, len)), Some(c))
+                if c == open && run >= len && trimmed[run..].trim().is_empty() =>
+            {
+                fence = None
+            }
+            _ => {}
+        }
+        out.push_str(line);
+        if at + 1 < lines.len() {
+            let next_blank = lines[at + 1].trim().is_empty();
+            if fence.is_none()
+                && mark.is_none()
+                && !line.trim().is_empty()
+                && !next_blank
+                && !line.ends_with("  ")
+            {
+                out.push_str("  ");
+            }
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// The files one sent turn carried, one tag each, wrapping onto as many lines as they need.
@@ -4192,6 +4245,18 @@ mod tests {
     use super::*;
     use ubiq_proto::conversation::{ConvContent, ConvUpdate, ToolCallPatch};
     use ubiq_proto::work::AgentId;
+
+    /// A typed line break stays one; a fence and a paragraph gap are left alone.
+    #[test]
+    fn user_line_breaks_become_hard_breaks_outside_fences() {
+        assert_eq!(user_markdown("a\nb\n\nc"), "a  \nb\n\nc");
+        assert_eq!(
+            user_markdown("x\n```\na\nb\n```\ny"),
+            "x  \n```\na\nb\n```\ny"
+        );
+        assert_eq!(user_markdown("a\r\nb\r\n\r\nc"), "a  \nb\n\nc");
+        assert_eq!(user_markdown("```code```\na\nb"), "```code```  \na  \nb");
+    }
 
     fn conversation() -> Conversation {
         Conversation::new(

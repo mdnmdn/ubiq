@@ -223,7 +223,7 @@ fn working_tree(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> 
                 format!("{} paths", crate::state::git::changed_file_count(entries)),
                 theme::text_faint(),
             )
-                .text_size(theme::font(Family::Chrome, Role::Meta)),
+            .text_size(theme::font(Family::Chrome, Role::Meta)),
         ))
         .child(change_search_row(app, window, cx))
         .child(body)
@@ -315,12 +315,7 @@ fn range_files(
 }
 
 /// The selected commit: what the log said about it, over the files it changed.
-fn commit(
-    app: &AppState,
-    index: usize,
-    window: &Window,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+fn commit(app: &AppState, index: usize, window: &Window, cx: &mut Context<AppState>) -> AnyElement {
     let Some(commit) = app.git_view(cx).and_then(|git| git.commits.get(index)) else {
         return div().into_any_element();
     };

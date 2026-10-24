@@ -364,7 +364,12 @@ impl MdView {
                 // A press inside the bar is the bar's: nothing under it hears it.
                 .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
                 .text_size(size)
-                .child(div().w(px(200.)).px_1().child(Input::new(&input).appearance(false)))
+                .child(
+                    div()
+                        .w(px(200.))
+                        .px_1()
+                        .child(Input::new(&input).appearance(false)),
+                )
                 .child(
                     div()
                         .min_w(px(64.))
@@ -396,8 +401,18 @@ impl MdView {
                         this.find_changed(cx);
                     }),
                 ))
-                .child(step("md-find-prev", IconName::ChevronUp, "Previous match", false))
-                .child(step("md-find-next", IconName::ChevronDown, "Next match", true))
+                .child(step(
+                    "md-find-prev",
+                    IconName::ChevronUp,
+                    "Previous match",
+                    false,
+                ))
+                .child(step(
+                    "md-find-next",
+                    IconName::ChevronDown,
+                    "Next match",
+                    true,
+                ))
                 .child(crate::ui::kit::icon_button_tip(
                     "md-find-close",
                     Icon::new(IconName::Close).with_size(Size::XSmall),

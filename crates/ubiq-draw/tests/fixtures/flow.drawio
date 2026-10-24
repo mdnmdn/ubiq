@@ -1,0 +1,52 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="p1" name="Flow">
+    <mxGraphModel dx="800" dy="600" grid="1" background="#fafafa">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="start" value="Start" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="box" value="&lt;b&gt;Do&lt;/b&gt; it&lt;br&gt;now &amp;amp; then" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;rotation=90;" vertex="1" parent="1">
+          <mxGeometry x="240" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="choice" value="ok?" style="rhombus;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="240" y="160" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="go" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="start" target="box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=open;startArrow=classic;strokeColor=#ff0000;" edge="1" parent="1" source="box" target="choice">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="130" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="grp" value="" style="group" vertex="1" connectable="0" parent="1">
+          <mxGeometry x="400" y="200" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="inner-a" value="A" style="whiteSpace=wrap;" vertex="1" parent="grp">
+          <mxGeometry x="10" y="10" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="inner-b" value="B" style="shape=cylinder3;whiteSpace=wrap;" vertex="1" parent="grp">
+          <mxGeometry x="100" y="10" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="loose text" style="text;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="100" height="20" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p2" name="Second">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="only" value="page two" style="" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="50" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -5496,6 +5496,27 @@ user choosing it.
 
 **Cost:** an outdated agent stays outdated until the user acts.
 
+### D222 — Drawings are one model, painted by one native painter
+
+Excalidraw and draw.io files are converted onto one format-agnostic model in the leaf crate
+`crates/ubiq-draw` (`model.rs`: a `Group` tree that is the paint order, `Shape`s with a `Geometry`
+— rect, rounded rect, ellipse, diamond, polyline, connector with heads and bindings, freehand,
+text, image, placeholder — plus `Style`, an optional `TextBox`, rotation, and the drawing's
+bounds), and `crates/ubiq/src/ui/viewer/scene.rs` paints only that model. Excalidraw stacks by
+its own rule (the array is the stack, a group or frame is one run at its first member, as
+Excalidraw's `defragmentGroups` in `packages/element/src/sortElements.ts` places it, a bound
+label follows its container). Both converters bound what a file can make them do: a compressed
+page inflates to at most 32 MB, a repeated id is dropped, nesting is capped, and a non-finite or
+huge number is clamped. A draw.io Preview is drawn natively; the editor's exported SVG is
+only the fallback for a file the converter cannot read.
+
+**Why:** a second format must not mean a second painter, the Preview must not depend on the editor
+having been opened once, and a pure crate lets every format rule be tested without a window.
+
+**Cost:** each format is a subset — draw.io stencils and uncommon shapes draw as labelled
+placeholders, labels never wrap, and edges are routed by a simple elbow rather than draw.io's own
+router — so a native Preview can differ from what the draw.io editor shows.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

@@ -1578,8 +1578,15 @@ fn a_row_is_its_measurement_until_its_content_moves_and_then_its_last_one() {
 fn a_row_measured_mid_parse_is_measured_again_until_a_settled_measurement() {
     let scroll = TranscriptScroll::default();
 
-    assert!(scroll.measured_unsettled(7, 1, px(60.)), "first sight is news");
-    assert_eq!(scroll.row_height(7, px(40.)), px(60.), "the provisional height is used");
+    assert!(
+        scroll.measured_unsettled(7, 1, px(60.)),
+        "first sight is news"
+    );
+    assert_eq!(
+        scroll.row_height(7, px(40.)),
+        px(60.),
+        "the provisional height is used"
+    );
     assert!(
         scroll.needs_measure(7, 1),
         "and the same content still asks to be measured"

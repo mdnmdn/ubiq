@@ -3394,7 +3394,9 @@ mod tests {
         c.apply(3, user("the question"));
 
         assert_eq!(c.run, Run::Idle, "the late echo left the turn ended");
-        assert!(matches!(&c.blocks[..], [_, ConvBlock::User { text, .. }] if text == "the question"));
+        assert!(
+            matches!(&c.blocks[..], [_, ConvBlock::User { text, .. }] if text == "the question")
+        );
 
         c.expect_turn();
         c.apply(4, user("the next question"));

@@ -905,8 +905,8 @@ pub struct AppState {
     /// built.
     diagram_asks: RefCell<Vec<(String, DiagramPalette)>>,
     /// The same, for a picture a web panel exported rather than one this window can draw: the
-    /// document and the palette it was asked for. The ask only ever reads the disk tier — nothing
-    /// here renders a `.drawio` file.
+    /// document and the palette it was asked for. The ask only ever reads the disk tier; it is the
+    /// fallback for a `.drawio` file the native converter cannot read.
     exported_asks: RefCell<Vec<(String, DiagramPalette)>>,
 
     /// The camera on each diagram and scene this window is showing, keyed by the tab (or the

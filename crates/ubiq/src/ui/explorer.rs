@@ -684,7 +684,9 @@ fn follow_button(state: Follow, cx: &mut Context<AppState>) -> impl IntoElement 
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .when(state == Follow::Locked, |this| this.bg(theme::accent_soft()))
+        .when(state == Follow::Locked, |this| {
+            this.bg(theme::accent_soft())
+        })
         .hover(|this| this.bg(theme::hover()))
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(state.label()).build(window, cx)

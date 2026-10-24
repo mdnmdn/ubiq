@@ -587,10 +587,11 @@ impl AppState {
     }
 }
 
-/// The Preview position of a format the interface has no renderer for.
+/// The fallback Preview of a `.drawio` file the native converter (`ubiq_draw::drawio`, drawn by
+/// `ui/viewer/scene.rs`) cannot read.
 ///
-/// **Nothing here renders anything.** A `.drawio` file becomes a picture exactly once: inside the
-/// panel, which exports an SVG as it edits. This is the two tiers around that — the window's
+/// **Nothing here renders anything.** The panel exports an SVG as it edits, and this is the two
+/// tiers around that — the window's
 /// memory cache, shared with the diagrams because it is the same kind of picture in the same
 /// directory, and the disk tier in the project's workarea, which is what makes a preview survive
 /// a restart without ever opening the panel again.

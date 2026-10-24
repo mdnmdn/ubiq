@@ -30,10 +30,10 @@ pub fn render(app: &AppState, key: &str, source: &str, cx: &mut Context<AppState
     }
 }
 
-/// The Preview position of a document only a web panel can draw — a `.drawio` file. Same picture,
-/// same camera; the difference is where it came from, and what a miss means. **Nothing is
-/// rendered here or anywhere else in the interface**: a miss is a document the panel has not
-/// exported yet, and the way to fill it in is to open the editor once.
+/// The fallback Preview of a `.drawio` file the native painter (`scene::drawio_live`) could not
+/// read: the SVG the web panel last exported. Same picture, same camera; the difference is where
+/// it came from, and what a miss means — a document the panel has not exported yet, and the way to
+/// fill it in is to open the editor once.
 pub fn exported(app: &AppState, key: &str, source: &str, cx: &mut Context<AppState>) -> AnyElement {
     match app.exported_preview(source) {
         DiagramEntry::Pending => super::note("\u{2026}", theme::text_faint()),

@@ -7,7 +7,7 @@ summary: The rail's IDE mode — the project's file explorer and its right-click
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
 updated: 2026-10-24
 verified: 2026-10-23
-code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/search.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
+code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/search.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq-draw/src/model.rs, crates/ubiq-draw/src/excalidraw.rs, crates/ubiq-draw/src/drawio.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
 ---
@@ -351,8 +351,8 @@ is that pair rather than the path alone.
 
 **A viewer is a pure function of bytes and a kind.** What draws a file is chosen once from its
 extension when the tab opens, and nothing about it looks at a path again: `.md` gets the Markdown
-view, `.mmd` and `.mermaid` the diagram, `.excalidraw` the scene, the image extensions the picture
-itself, and everything else the highlighted buffer — which is the general case rather than a
+view, `.mmd` and `.mermaid` the diagram, `.excalidraw` the scene, `.drawio` and `.dio` the draw.io
+viewer, the image extensions the picture itself (a `.drawio.svg` included), and everything else the highlighted buffer — which is the general case rather than a
 fallback. A comparison against version control is not a viewer kind: it is what the tab is *looking
 at*, so a diff opens beside the file rather than inside it. The extension's answer is a default and
 not a verdict: the status bar's file-kind chip overrides it for as long as the tab is open, and
@@ -587,6 +587,11 @@ with Shift the previous one, and Enter and Shift+Enter do the same from inside t
 it. Match case and whole word are toggles on the bar, which reads `n of m`. The match list follows the
 document the view draws, so a reparse re-finds the matches (`ui/mdview/search.rs`).
 
+**A scene stacks the way Excalidraw stacks it.** The file's element order is the paint order; a
+group — and a frame with its children — is drawn as one run where its first member is, nested
+groups inside it, a frame under its own children, and a label bound to a shape is drawn right
+after that shape.
+
 **An Excalidraw scene sits on Excalidraw's own white canvas.** A file that names a canvas colour
 keeps it; a file that names none — `transparent`, an absent key — gets the format's default white
 rather than the window's ground, so a diagram drawn on paper stays on paper in a dark window. The
@@ -608,10 +613,14 @@ file changes.
 **A `.drawio` file opens the same way, on the mirrored draw.io webapp instead of a mounted
 component.** Its Editor position holds no native painter: the webview frames the mirror's own
 `index.html` rather than importing it as a module, and edits still land in the buffer exactly as
-Excalidraw's do — same dirty dot, same `⌘S`, no second save path. Preview has nothing of its own to
-draw from, so it shows the SVG the editor last exported, cached beside the Mermaid pictures in the
-same workarea directory and surviving a restart; a document never opened in the editor reads "Open
-the editor once to draw this." instead of a picture.
+Excalidraw's do — same dirty dot, same `⌘S`, no second save path. Preview draws the first page
+natively, through the same painter as an Excalidraw scene, compressed pages included: boxes,
+rounded boxes, ellipses, rhombuses, triangles, hexagons, text, images carried inline, groups and
+containers, edges with their arrowheads, waypoints and orthogonal elbows, labels with their HTML
+stripped, colours, dashes, opacity and rotation. A shape outside that set draws as a dashed box
+with its label. Only a file the converter cannot read at all falls back to the SVG the editor last
+exported, cached beside the Mermaid pictures in the same workarea directory; one never opened in
+the editor then reads "Open the editor once to draw this."
 
 **A fenced diagram in a Markdown document goes through the same renderer.** A ```` ```mermaid ````
 fence is drawn by the diagram viewer and a ```` ```excalidraw ```` one by the scene viewer — one
@@ -911,7 +920,12 @@ text the view's block parser sees.
 A diagram or a scene in a panel is wrapped by `viewer/viewport.rs`, which is the hits and the
 wheel; `state/viewport.rs` is the camera they share — fit, zoom about a point, pan, reset — and
 is what `tests/viewport.rs` asserts, because none of it needs a frame. A fence still draws
-through `diagram.rs` and `scene.rs` directly, at the picture's own size. None of them reaches a
+through `diagram.rs` and `scene.rs` directly, at the picture's own size. `scene.rs` paints only
+`ubiq_draw::Drawing` (`crates/ubiq-draw/src/model.rs`, `D222`): `live()` and `render()` take an
+Excalidraw file through `ubiq_draw::excalidraw::Scene::to_drawing()` — the parser and
+`stacking_order()` live there, and `state/scene.rs` re-exports them — and `drawio_live()` takes a
+draw.io file through `ubiq_draw::drawio::parse()`, falling back to `diagram::exported()` on an
+error. `crates/ubiq-draw/tests/` holds the converter fixtures. None of them reaches a
 path or a handle; the camera is keyed by the tab and lives on the window.
 
 The capture is four modules over that machinery and one dependency line. `app/capture.rs` is the
@@ -961,8 +975,8 @@ on the background executor. `AppState::diagram()` answers what the window holds 
 does not, `drain_diagram_asks()` hands the queue to `cx.background_spawn` once the frame is built —
 never from inside one — and `diagram_drawn()` takes each answer back by its key and notifies.
 
-The same module holds a second, read-only tier under `key_for(EXPORTED, …)` for a format the
-interface has no renderer for — draw.io's `.drawio` scenes: `resolve_exported()` only ever reads the
+The same module holds a second, read-only tier under `key_for(EXPORTED, …)` for the draw.io
+fallback — a `.drawio` file the native converter cannot read: `resolve_exported()` only ever reads the
 disk tier, answering "not exported yet" on a miss rather than rendering anything, and `keep_exported()`
 is the one writer, filing the SVG a web panel exported and rejecting markup with no `viewBox`.
 `AppState::exported_preview()`, `drain_exported_asks()` and `keep_exported()` in `app/web_panel.rs`

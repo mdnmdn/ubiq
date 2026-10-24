@@ -2236,9 +2236,9 @@ fn locating_a_registry_agent_writes_its_command_and_adds_it(cx: &mut TestAppCont
 
     fixture.with(cx, |state, window, cx| {
         state.open_harness_command(Some("gemini".to_string()), window, cx);
-        state
-            .login_command_input
-            .update(cx, |field, cx| field.set_value("/opt/gemini-acp", window, cx));
+        state.login_command_input.update(cx, |field, cx| {
+            field.set_value("/opt/gemini-acp", window, cx)
+        });
         state.save_harness_command(cx);
     });
 

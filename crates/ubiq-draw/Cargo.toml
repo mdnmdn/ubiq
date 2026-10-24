@@ -1,0 +1,13 @@
+[package]
+name = "ubiq-draw"
+version = "0.1.0"
+edition = "2024"
+description = "The drawing engine: one format-agnostic 2-D diagram model, and the Excalidraw and draw.io converters onto it. A leaf — no Ubiq crate, no GPUI."
+publish = false
+
+[dependencies]
+serde_json = "1"
+# draw.io's mxGraph XML. Read-only DOM, already in the lock through the interface's tree.
+roxmltree = "0.21"
+# A compressed draw.io page is raw deflate; the same crate the host and the interface inflate with.
+flate2 = "1"

@@ -232,7 +232,9 @@ impl ViewerKind {
             "md" | "markdown" => ViewerKind::Markdown,
             "mmd" | "mermaid" => ViewerKind::Mermaid,
             "excalidraw" => ViewerKind::Excalidraw,
-            "drawio" => ViewerKind::Drawio,
+            // `.dio` is the same mxGraph XML under draw.io's short extension. A `.drawio.svg`
+            // stays an image: it is a real SVG, and the editor would save bare XML over it.
+            "drawio" | "dio" => ViewerKind::Drawio,
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "tif" | "tiff" | "ico" => {
                 ViewerKind::Image
             }
@@ -1502,6 +1504,8 @@ mod tests {
     #[test]
     fn drawio_is_wired_like_excalidraw() {
         assert_eq!(ViewerKind::of("diagram.drawio"), ViewerKind::Drawio);
+        assert_eq!(ViewerKind::of("diagram.dio"), ViewerKind::Drawio);
+        assert_eq!(ViewerKind::of("diagram.drawio.svg"), ViewerKind::Image);
         assert!(ViewerKind::Drawio.has_preview());
         assert_eq!(
             ViewerKind::Drawio.shows_buffer(ViewLayout::Preview),
