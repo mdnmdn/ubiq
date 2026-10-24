@@ -432,6 +432,9 @@ const KNOWN: &[Known] = &[
     Known { id: "codebuddy-code", cli: "codebuddy", acp_bin: None },
     Known { id: "factory-droid", cli: "droid", acp_bin: None },
     Known { id: "qoder", cli: "qodercli", acp_bin: None },
+    Known { id: "goose", cli: "goose", acp_bin: None },
+    Known { id: "kimi", cli: "kimi", acp_bin: None },
+    Known { id: "amp-acp", cli: "amp", acp_bin: Some("amp-acp") },
     Known { id: "mistral-vibe", cli: "vibe", acp_bin: Some("vibe-acp") },
     // The base names here are generic words; only the adapter's own bin ever makes them
     // `Installed`, the base name only gates offering the install.
@@ -554,9 +557,10 @@ fn package_name(spec: &str) -> &str {
     &unscoped[..end]
 }
 
-/// The CLI to probe for and its separate ACP binary. A known id answers from the table. An
-/// unknown one is probed by its full id as the ACP executable; an id ending in `-acp` also names
-/// its base CLI (the id without the suffix), which only ever gates offering the adapter install.
+/// The CLI and its separate ACP binary. A known id answers from the table. For an unknown one —
+/// never probed on `PATH`, only used to spot a native agent and an interface beside an installed
+/// binary — the id is the ACP executable, and an id ending in `-acp` also names its base CLI (the
+/// id without the suffix).
 fn probe_of(a: &RegistryAgent) -> (String, Option<String>) {
     match KNOWN.iter().find(|k| k.id == a.id) {
         Some(k) => (k.cli.to_string(), k.acp_bin.map(str::to_string)),
@@ -568,14 +572,17 @@ fn probe_of(a: &RegistryAgent) -> (String, Option<String>) {
 }
 
 /// Whether `name` — a registry binary's `cmd` reduced to its basename — may be run for agent `a`:
-/// it must be the agent's id, its known CLI name or its known ACP binary, and never a shell or an
-/// interpreter.
+/// it must be a [`KNOWN`] agent's CLI name or ACP binary, and never a shell or an interpreter. An
+/// unknown id is never matched on `PATH`: whatever program happens to share its `cmd` (`git`) is
+/// not the agent.
 fn binary_allowed(a: &RegistryAgent, name: &str) -> bool {
     let stem = name.strip_suffix(".exe").unwrap_or(name);
-    let known = KNOWN.iter().find(|k| k.id == a.id);
     !never_run(stem)
-        && (stem == a.id
-            || known.is_some_and(|k| stem == k.cli || Some(stem) == k.acp_bin))
+        && known(a).is_some_and(|k| stem == k.cli || Some(stem) == k.acp_bin)
+}
+
+fn known(a: &RegistryAgent) -> Option<&'static Known> {
+    KNOWN.iter().find(|k| k.id == a.id)
 }
 
 /// What the registry may not set for `npx` / `uvx` either: the runner's own configuration, which
@@ -740,7 +747,11 @@ fn classify(
     }
 
     let mut fallback = AcpStatus::NotInstalled;
-    if let Some((p, installer)) = pkg {
+    // Only a known agent's package is looked for on `PATH`; an unknown one is reached through the
+    // override, the install dir or a runner.
+    if let Some((p, installer)) = pkg
+        && known(a).is_some()
+    {
         let (args, env) = (p.args.clone(), env_pairs(&p.env));
         let probe = |name: &str| (!never_run(name)).then(|| which_in(name, path)).flatten();
         // The base CLI is run only when it serves ACP itself; behind an adapter it only gates
@@ -1548,25 +1559,32 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_acp_id_needs_its_own_bin_and_the_base_only_offers_the_install() {
+    fn an_unknown_id_is_never_found_on_path() {
         let dir = tempfile::tempdir().unwrap();
         let agent = r#"{"id":"foo-acp","distribution":{"npx":{"package":"foo-acp@1"}}}"#;
-        let base = exe(dir.path(), "foo");
+        exe(dir.path(), "foo");
         exe(dir.path(), "npm");
-        assert_eq!(
-            one(agent, dir.path()),
-            AcpStatus::NeedsAdapter {
-                base_cli: base.clone(),
-                installer: Installer::Npm,
-                package: "foo-acp@1".into()
-            }
-        );
-        let own = exe(dir.path(), "foo-acp");
-        assert_eq!(one(agent, dir.path()), inst(own, &[], vec![], Some(base)));
+        exe(dir.path(), "foo-acp");
+        assert_eq!(one(agent, dir.path()), AcpStatus::NotInstalled);
+        // Its pinned package still runs through the runner.
+        exe(dir.path(), "npx");
+        assert!(matches!(one(agent, dir.path()), AcpStatus::ViaRunner { .. }));
+        // A program that merely shares the registry's `cmd` is not the agent.
+        exe(dir.path(), "git");
+        let git = r#"{"id":"gitagent","distribution":{"binary":{"linux-x86_64":{"cmd":"./git","args":["acp"]}}}}"#;
+        assert_eq!(one(git, dir.path()), AcpStatus::NotInstalled);
+        let git_id = r#"{"id":"git","distribution":{"binary":{"linux-x86_64":{"cmd":"./git"}}}}"#;
+        assert_eq!(one(git_id, dir.path()), AcpStatus::NotInstalled);
+        // The user's own override still reaches any id.
+        let custom = exe(dir.path(), "my-foo");
+        let reg = parse(&format!(r#"{{"agents":[{agent}]}}"#)).unwrap();
+        let over = HashMap::from([("foo-acp".to_string(), custom.clone())]);
+        let s = detect_in(&reg, &over, None, dir.path().as_os_str(), "linux-x86_64").remove(0);
+        assert!(matches!(s.status, AcpStatus::Installed { command, .. } if command == custom));
         // A generic word is never probed as an agent.
         exe(dir.path(), "kilo");
         let kilo = r#"{"id":"kilo","distribution":{"npx":{"package":"kilo@1"}}}"#;
-        assert_eq!(one(kilo, dir.path()), AcpStatus::NotInstalled);
+        assert!(!matches!(one(kilo, dir.path()), AcpStatus::Installed { .. }));
     }
 
     #[test]
@@ -1620,11 +1638,14 @@ mod tests {
     }
 
     #[test]
-    fn uvx_fallback_probe_and_install_command() {
+    fn an_unknown_uvx_agent_runs_only_through_uvx() {
         let dir = tempfile::tempdir().unwrap();
-        let f = exe(dir.path(), "fast-agent");
+        exe(dir.path(), "fast-agent");
         let m = run(dir.path(), "linux-x86_64");
-        assert_eq!(m["fast-agent"].status, inst(f.clone(), &["-x"], vec![], Some(f)));
+        assert_eq!(m["fast-agent"].status, AcpStatus::NotInstalled);
+        let uvx = exe(dir.path(), "uvx");
+        let m = run(dir.path(), "linux-x86_64");
+        assert!(matches!(&m["fast-agent"].status, AcpStatus::ViaRunner { runner, .. } if *runner == uvx));
     }
 
     #[test]

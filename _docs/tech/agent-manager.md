@@ -317,7 +317,9 @@ native sibling and only swapping `structured_bridge` for `AcpBridge` over `claud
 refreshes only past a 24-hour `TTL`, `D220`), and `detect` classifies each agent as installed
 (including a binary Ubiq downloaded under `<config root>/acp-agents/`, `D218`), downloadable, runnable
 through a pinned `npx`/`uvx` (`D219`), needing its adapter package, needing `node`/`uv` first, or absent,
-against the `PATH` the embedder passes (`ubiq-host`'s login-shell probe). A newer registry version of an
+against the `PATH` the embedder passes (`ubiq-host`'s login-shell probe). A `PATH` hit counts only
+for an id in `KNOWN`, matched by its CLI or ACP binary name; the user's override and the install dir
+work for any id. A newer registry version of an
 installed binary is reported, never installed (`D221`). The registry is untrusted: a `cmd` is reduced to a
 basename and looked up, never executed from the document; `claude-acp`, `codex-acp` and any CLI
 named `claude` or `codex` are dropped. `install_command` only names the command — `npm install -g --`
