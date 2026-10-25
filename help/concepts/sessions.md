@@ -1,27 +1,34 @@
 ---
 id: sessions
-title: Sessions and workspaces
-summary: A session is a named piece of work with a home folder; a workspace is one running agent inside it.
-keywords: [session, workspace, attach, detach]
-order: 20
+title: Workspace sessions
+summary: A workspace session is Ubiq's named grouping of agents — where you see one, and how it differs from a conversation.
+keywords: [session, group, running agents]
+order: 30
 status: current
-related: [panes, projects]
+related: [panes, projects, concepts-conversations]
 ---
 
-## A session is a place to put your agents
+## What it is
 
-A developer running several agents at once needs somewhere to put them. A **session** is that
-place — a named piece of work with a home folder, holding the agents serving it. You attach to a
-session to see and drive its workspaces, and detach without ending anything: the agents keep running
-whether or not you are looking at them.
+A *workspace session* is Ubiq's named grouping of agents. When you start an agent, Ubiq puts it in
+the workspace session of its [project](projects), named after the project. You do not create or
+close one yourself.
 
-## A workspace is one agent
+You meet workspace sessions in two places. The [sidebar of Agents mode](agents-columns) lists agents
+under one row per workspace session, with a bar showing the most urgent state under it. The first
+picker on [the Teams screen](teams-overview) lists them too, so you can draw or follow one at a time.
+A workspace session with no agents is not listed.
 
-A **workspace** is one running instance of one agent inside a session: which harness, which working
-directory, how big its terminal is, and whether the process is still alive. A session holds many
-workspaces; each owns exactly one pseudo-terminal and one child process, drawn as one [pane](panes).
+## Not a conversation
 
-## Why the distinction matters
+The word *session* also appears in harnesses' own vocabulary, where it means a resumable exchange.
+Ubiq calls that a *conversation*, and keeps the two apart: a workspace session holds agents, a
+conversation is what one agent has said with you. See [Conversations](concepts-conversations).
 
-Closing the window does not lose the arrangement, and reopening Ubiq does not mean respawning every
-agent by hand — the session remembers what was running, and you pick up where you left off.
+## Why it works this way
+
+Grouping agents lets the sidebar and the Teams screen show which agents serve one piece of work,
+whatever tabs are on screen.
+
+A workspace session lasts while Ubiq is running. What comes back after a restart is a conversation you
+marked persistent, not the grouping around it.

@@ -287,12 +287,11 @@ the Tasks board and the two graph screens.
 | `graph.tasks`, `graph.tasks.task`, `graph.tasks.step` | area, instance-kind | The tasks drawer under the graph | `ui/orchestration/tasks.rs`, `render`, `list` |
 | `teams.screen`, `teams.toolbar`, `teams.toolbar.hide-done` | area, element | The Teams screen | `ui/teams/mod.rs`, `render`, `toolbar`, `hide_done_check` |
 | `teams.canvas`, `.canvas.card`, `.canvas.subagent-card`, `.canvas.task-box` | area, instance-kind | The board, an agent, a delegate inside its parent's fence, a task's fence | `ui/teams/graph.rs`, `render`, `agent_card`, `subagent_card` |
-| `teams.inspector`, `.header`, `.tabs` | area, element | The selection's panel and its chat/tasks strip | `ui/teams/inspector.rs`, `render`, `header_bar`, `agent_view` |
 | `teams.tasks`, `teams.tasks.task`, `teams.tasks.step` | area, instance-kind | Its tasks drawer | `ui/teams/tasks.rs`, `render`, `list` |
 | `tools.panel`, `tools.row`, `tools.editor` | area, instance-kind | The runnable-tools list and its form | `ui/tools.rs`, `panel`, `tool_row`, `editor_form` |
 
 **One view, three hosts, drawn once each per frame.** `ui/conversation/mod.rs`'s `render` is embedded
-by the agents column, the chat tab and the Teams inspector — `tech/components.md` names the three.
+by the agents column, the chat tab and the Teams card's conversation in the right dock — `tech/components.md` names the three.
 Every `conversation.*` name therefore describes a kind of place that can be on screen several times
 at once, one per open conversation, and never one per host. `acp-capabilities.panel` is the same
 shape at a smaller scale. That is not a defect in the naming: it is `G313` again, and it says the

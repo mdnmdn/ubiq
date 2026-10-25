@@ -367,8 +367,8 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         RAIL,
         TargetInfo {
             label: "Activity rail",
-            blurb: "The column of destinations down the window's left edge; exactly one mode is \
-                    active, and the badges under it switch project.",
+            blurb: "The column down the window's left edge: pick a mode to change what the \
+                    window shows, or a badge under it to switch project.",
         },
     ),
     (
@@ -423,8 +423,8 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         RAIL_MODE_AGENTS,
         TargetInfo {
             label: "Agents",
-            blurb: "Every conversation in this project side by side, one column each, with the \
-                    composer under whichever is being read.",
+            blurb: "Every agent's conversation in this project side by side, one column each, \
+                    with a box to write to whichever one you are reading.",
         },
     ),
     (
@@ -439,8 +439,8 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         RAIL_MODE_TEAMS_ALL,
         TargetInfo {
             label: "All Teams",
-            blurb: "The same canvas over every open project at once, so agents from all of them \
-                    are arranged and compared side by side.",
+            blurb: "The same view as Teams, across every open project at once, so agents from \
+                    all of them sit side by side.",
         },
     ),
     (
@@ -471,16 +471,15 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         RAIL_MODE_SINK,
         TargetInfo {
             label: "Kitchen sink",
-            blurb: "The developer's reference screen: every control, colour and primitive the \
-                    interface is built from.",
+            blurb: "A reference screen showing every control and colour the interface uses.",
         },
     ),
     (
         RAIL_MODE_EXT_DEMO,
         TargetInfo {
             label: "Extensions demo",
-            blurb: "A rail mode contributed the same way a second edition's own would be — on \
-                    only while its settings switch is.",
+            blurb: "A demonstration mode added by an extension; it appears only while its \
+                    switch in Settings is on.",
         },
     ),
     (
@@ -502,7 +501,7 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
     (
         TITLEBAR_NEW_PROJECT,
         TargetInfo {
-            label: "Add project",
+            label: "Add a project",
             blurb: "Open a folder already on this machine as a project in this window.",
         },
     ),
@@ -548,38 +547,37 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         TITLEBAR_REGION_LEFT,
         TargetInfo {
             label: "Left panels",
-            blurb: "Show or hide everything docked down the window's left side.",
+            blurb: "Show or hide the panels on the window's left side.",
         },
     ),
     (
         TITLEBAR_REGION_BOTTOM,
         TargetInfo {
             label: "Bottom panels",
-            blurb: "Show or hide the strip under the workspace — terminals, logs and the rest.",
+            blurb: "Show or hide the panels along the bottom — terminals, logs and the rest.",
         },
     ),
     (
         TITLEBAR_REGION_RIGHT,
         TargetInfo {
             label: "Right panels",
-            blurb: "Show or hide everything docked down the window's right side.",
+            blurb: "Show or hide the panels on the window's right side.",
         },
     ),
     (
         TITLEBAR_NEW_AGENT,
         TargetInfo {
             label: "New agent",
-            blurb: "Start a conversation: pick the harness, the identity, the model and the \
-                    permission level in one question.",
+            blurb: "Start an agent: pick the harness, the account, the model and the \
+                    permission mode in one step.",
         },
     ),
     (
         TITLEBAR_HIDDEN_AGENTS,
         TargetInfo {
             label: "Hidden agents",
-            blurb: "The agents whose tab was hidden rather than closed: still running, nothing \
-                    drawing them. Picking one brings its panel back over the screen it never \
-                    stopped writing to.",
+            blurb: "The agents whose tab you hid rather than closed; they are still running. \
+                    Pick one to bring its tab back.",
         },
     ),
     (
@@ -644,22 +642,22 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         TITLEBAR_SETTINGS,
         TargetInfo {
             label: "Settings",
-            blurb: "Accounts, agents, connections and everything else this application keeps.",
+            blurb: "Accounts, agent definitions, connectors and the rest of Ubiq's settings.",
         },
     ),
     (
         TITLEBAR_OVERFLOW,
         TargetInfo {
             label: "More",
-            blurb: "The commands that are wanted occasionally rather than every session — \
-                    remote hosts, connect, export, capture and help.",
+            blurb: "The commands you need only now and then — remote hosts, connect, export, \
+                    capture and help.",
         },
     ),
     (
         TITLEBAR_THEME,
         TargetInfo {
             label: "Light and dark",
-            blurb: "Switch the whole application between the light and the dark palette.",
+            blurb: "Switch the whole window between the light and the dark colours.",
         },
     ),
 ];

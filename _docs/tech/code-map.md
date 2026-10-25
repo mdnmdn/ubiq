@@ -234,7 +234,6 @@ crates/ubiq-host/src/
 │   ├── apply.rs
 │   ├── feed.rs
 │   └── mod.rs
-├── .DS_Store
 └── acp.rs
 
 crates/ubiq/src/
@@ -587,19 +586,19 @@ crates/ubiq/src/
 │   │   └── table.rs
 │   ├── unix_connect.rs
 │   ├── about.rs
-│   └── updates.rs
+│   ├── updates.rs
+│   └── help_images.rs
 ├── version.rs
-├── ext/
-│   ├── id.rs
-│   ├── ids.rs
-│   ├── mod.rs
-│   ├── registry.rs
-│   ├── settings.rs
-│   ├── rail.rs
-│   ├── menu.rs
-│   ├── runner.rs
-│   └── viewer.rs
-└── .DS_Store
+└── ext/
+    ├── id.rs
+    ├── ids.rs
+    ├── mod.rs
+    ├── registry.rs
+    ├── settings.rs
+    ├── rail.rs
+    ├── menu.rs
+    ├── runner.rs
+    └── viewer.rs
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -632,9 +631,9 @@ the documents in its row.
 | `_tools/docs.py` | [`operations.md`](./operations.md) |
 | `_tools/drone.py` | [`features/drone.md`](../features/drone.md), [`operations.md`](./operations.md) |
 | `_tools/dump.py` | [`operations.md`](./operations.md) |
-| `_tools/helpbundle.py` | [`operations.md`](./operations.md), [`wip/help.md`](../wip/help.md) |
+| `_tools/helpbundle.py` | [`help/coverage.md`](../help/coverage.md), [`help/images.md`](../help/images.md), [`help/structure.md`](../help/structure.md), [`help/style.md`](../help/style.md), [`operations.md`](./operations.md), [`wip/help.md`](../wip/help.md) |
 | `_tools/icns.py` | [`operations.md`](./operations.md), [`project-structure.md`](./project-structure.md) |
-| `_tools/icons.py` | [`ui-and-design.md`](./ui-and-design.md) |
+| `_tools/icons.py` | [`help/images.md`](../help/images.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `_tools/licenses.py` | [`operations.md`](./operations.md) |
 | `_tools/teamsim/FORMAT.md` | [`features/workbench-sink.md`](../features/workbench-sink.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
 | `_tools/teamsim/algos.py` | [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
@@ -858,6 +857,7 @@ the documents in its row.
 | `crates/ubiq/src/app/feedback.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/src/app/git.rs` | [`features/workbench-git.md`](../features/workbench-git.md), [`version-control.md`](./version-control.md) |
 | `crates/ubiq/src/app/help.rs` | [`wip/help.md`](../wip/help.md) |
+| `crates/ubiq/src/app/help_images.rs` | [`wip/help.md`](../wip/help.md) |
 | `crates/ubiq/src/app/host_browse.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
 | `crates/ubiq/src/app/hosts.rs` | [`features/drone.md`](../features/drone.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/image_edit.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
@@ -958,7 +958,7 @@ the documents in its row.
 | `crates/ubiq/src/state/tasksrc.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md), [`inbox/task-sources-proposal.md`](../inbox/task-sources-proposal.md) |
 | `crates/ubiq/src/state/teams.rs` | [`features/workbench-teams.md`](../features/workbench-teams.md), [`inbox/subagent-status-dictionaries-and-hexagon.md`](../inbox/subagent-status-dictionaries-and-hexagon.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/src/state/teamsim.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md), [`features/workbench-teams.md`](../features/workbench-teams.md), [`wip/teams-layout-spike.md`](../wip/teams-layout-spike.md) |
-| `crates/ubiq/src/state/ui_id.rs` | [`wip/in-place-help.md`](../wip/in-place-help.md) |
+| `crates/ubiq/src/state/ui_id.rs` | [`help/coverage.md`](../help/coverage.md), [`wip/in-place-help.md`](../wip/in-place-help.md) |
 | `crates/ubiq/src/state/updates.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/viewport.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/src/state/vim/mod.rs` | [`features/workbench.md`](../features/workbench.md) |
@@ -1145,6 +1145,7 @@ the documents in its row.
 | `crates/ubiq/tests/viewer_kind.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/tests/viewport.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/tests/vim.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `help/manifest.toml` | [`help/coverage.md`](../help/coverage.md), [`help/images.md`](../help/images.md), [`help/structure.md`](../help/structure.md), [`help/style.md`](../help/style.md) |
 | `vendor/gpui-terminal/Cargo.toml` | [`project-structure.md`](./project-structure.md) |
 | `vendor/gpui-terminal/src/clipboard.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `vendor/gpui-terminal/src/event.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |

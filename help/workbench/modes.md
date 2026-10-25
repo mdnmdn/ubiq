@@ -1,42 +1,54 @@
 ---
 id: workbench-modes
 title: Rail modes
-summary: What the rail's IDE, Tasks and Control destinations fill the centre of the window with.
-keywords: [rail, mode, ide, control, tasks, stats]
-context: [rail.ide, rail.control, rail.tasks]
+summary: What each destination on the rail fills the window with, from IDE and Git to Agents, Tasks and Control.
+keywords: [rail, mode, ide, control, tasks, stats, destination]
+context: [rail.ide]
 targets: [ui.rail.mode.ide, ui.rail.mode.tasks, ui.rail.mode.control]
 order: 10
 status: current
-related: [workbench-panels, workbench-rail, git-overview, kb-overview, db-overview, agents-starting]
+related: [workbench-rail, workbench-panels, workbench-control, git-overview, kb-overview, db-overview, agents-starting, tasks-overview, teams-overview]
 ---
 
-## The rail selects what the centre is for
+A mode is a destination on the [rail](workbench-rail). Picking one changes what fills the centre of
+the window and which panels open beside it. Your arrangement in each mode is remembered, so coming
+back to a mode finds it as you left it.
 
-The rail on the left switches between destinations, grouped in two: application-level modes
-(**Control**, and the kitchen sink used to test Ubiq against itself) and project modes (**IDE**,
-**Git**, **Agents**, Teams, the knowledge base and **Tasks**, plus **DB** once a project turns it
-on). Exactly one is active at a time, and a project mode with no folder open simply says so.
+## The parts
 
-## IDE
+| Mode | What it shows |
+|---|---|
+| **IDE** | The project's files: the [explorer](workbench-explorer) on the left and every open file as a tab in the [editor](workbench-editor) |
+| **DB** | The project's [databases](db-overview): connections on the left, table data in the centre, SQL editors below. Off until you switch it on |
+| **Git** | The project's [repository](git-overview): branches on the left, history and diffs in the centre, changes on the right |
+| **Agents** | Every agent in the project, one [column](agents-columns) each |
+| **Teams** | How the project's agents are arranged, and which task each serves; see [Teams](teams-overview) |
+| **KB** | The project's [documents](kb-overview), read from wherever they live |
+| **Tasks** | A board of cards, one column per status; see [Tasks](tasks-overview) |
+| **Control** | What Ubiq is doing and what your agents have spent, across every project; see [The Control screen](workbench-control) |
+| **All Teams** | Every open project's agents on one canvas, with the same screen as **Teams** |
 
-**IDE** is the default: it fills the centre with the files you have open, one panel per file, and
-steps aside entirely while any is open. The [explorer](workbench-explorer) and the
-[editor](workbench-editor) both belong to it.
+**IDE** is the mode a project opens in. While a file is open it fills the centre; with none open, the
+centre says so and the explorer is where you start. The status bar under it shows the open file and
+its kind, and the project's git state.
 
-## DB
+**Tasks** opens its right region on the selected task, so a card's report or form sits beside the
+board. Its status bar counts cards per column, finished sub-tasks and blocked cards.
 
-**DB** is the one mode a project has to switch on (project settings > General > Modes). It puts the
-project's [databases](db-overview) in an explorer on the left, table data in the centre and SQL
-editors along the bottom.
+**Control** and **All Teams** work with no project open. The others need one, and show a page saying
+so until you open a folder.
 
-## Tasks
+## What you can do here
 
-**Tasks** fills the centre with a board — the columns and cards a project's outstanding work is
-tracked as, independent of any one agent's run.
+- Jump to a mode with **⌃1** / **Ctrl+1** to **⌃9** / **Ctrl+9**, counting the project modes from **IDE**; the rail lists them.
+- Switch **DB** on, or hide a mode: [Project settings](settings-project).
+- Start an agent from any project mode: [The new agent dialog](agents-new-agent).
+- Move or split the panels a mode opens: [Split and move panes](how-to-split-and-move-panes).
 
-## Control
+## When something goes wrong
 
-**Control** is application-level rather than project-scoped: it fills the centre with the stats
-screen — how much memory the host holds, how long it has been up, how many agents are alive now
-against how many have run since launch, and what those agents have spent in tokens. It is the one
-place that answers "how much is all of this costing," across every project open in the window.
+- **DB** is not on the rail: switch it on in project settings, under **General**, then **Modes**.
+- A mode shows that no project is open: use **Add a project** in the [title bar](workbench-titlebar).
+- A panel you expect has vanished: closing a panel's tab removes it, and the title bar's region
+  buttons bring the region back with that mode's own panel in it. [Panels and the dock](workbench-panels)
+  has the details.

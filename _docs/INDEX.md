@@ -37,6 +37,7 @@ sits beside a `current` one rather than in a separate folder.
 | `tech/` | Cross-cutting models, rules, conventions and procedures |
 | `references/` | Specifications of protocols Ubiq speaks but does not own. External material, kept verbatim |
 | `design/` | Wireframes, prototypes and captured artifacts. Assets, not documents |
+| `help/` | How the user manual is written: structure, voice, images |
 | `wip/` | The current task's working notes. Deleted when the task closes |
 | `inbox/` | Raw unprocessed input, waiting to be filed |
 | `_meta/` | How this library works. The underscore means *not project knowledge* |
@@ -70,8 +71,9 @@ states the boundary once.
 
 | Document | What it is | Verified |
 |---|---|---|
+| [Ubiq features](./product/features.md) | What a person can do with Ubiq, grouped by area — agents and chat, panes and layout, projects, the IDE, Git, knowledge base, database, tasks and missions, teams, remote hosts, connectors, notifications and settings — each pointing at the document that owns it. | 2026-10-09 |
 | [Glossary](./product/glossary.md) | Plain definitions of the recurring terms — harness, agent type, session, workspace, panel, pane, dock, coordinator, bus, catalog — for anyone reading the rest of this documentation. | 2026-09-01 |
-| [Product overview](./product/overview.md) | What Ubiq is, who runs it, why an agent harness needs a real terminal rather than a chat box, and what the product deliberately refuses to be. | 2026-08-31 |
+| [Product overview](./product/overview.md) | What Ubiq is, who runs it, why an agent harness needs a real terminal rather than a chat box, and what the product deliberately refuses to be. | 2026-10-25 |
 
 ### Features
 
@@ -87,7 +89,7 @@ states the boundary once.
 | [Stats](./features/stats.md) | The Control screen — five readings of the running host on one page, and the usage meter on the other, whose tables exist and whose producer does not. | 2026-09-27 |
 | [Agents mode — the columns](./features/workbench-agents.md) | The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise. | 2026-10-15 |
 | [DB mode — connections, tables and SQL](./features/workbench-db.md) | The rail's opt-in DB mode — the project's saved database connections (PostgreSQL, MySQL/MariaDB, SQLite, SQL Server) and the Databases section that edits them, the explorer tree, table tabs that page, filter and edit rows, SQL tabs with a timer, Stop, Explain and a read-only guard enforced in three layers by the host, the DBML export, where `db.toml` and the sealed passwords live, and the `ubiq-db` engine and host sessions behind it. | 2026-10-04 |
-| [Git mode — refs, history and changes](./features/workbench-git.md) | The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules with the repositories a project holds above them, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip of icon actions and the HEAD pill. | 2026-10-05 |
+| [Git mode — refs, history and changes](./features/workbench-git.md) | The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules with the repositories a project holds above them, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip of icon actions and the HEAD pill. | 2026-10-25 |
 | [IDE mode — the explorer and the editor](./features/workbench-ide.md) | The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved. | 2026-10-23 |
 | [Sink mode — the kitchen sink](./features/workbench-sink.md) | The rail's Sink mode — the application's own test bench, twelve pages of fixtures with nothing behind them — a buffer, one page per special viewer, the style reference, the file picker in each shape a screen can ask for, the two settings layouts, a live conversation beside its bus traffic, the A2UI surface, the script scratchpad and the teamsim testbed. | 2026-09-26 |
 | [Tasks mode — the board](./features/workbench-tasks.md) | The rail's Tasks mode — a column per status, a card per task, what a drag means, the labels and the filter that narrow it, missions — a parent task worked by a deterministic runner — and the children they spawn, the task panel that reports one task whole and edits it a field at a time, and the plan surface a mission raises over the window. | 2026-10-12 |
@@ -128,6 +130,15 @@ states the boundary once.
 | [Proposal ledger](./_meta/feedback.md) | Append-only ledger of documentation changes the bookkeeper may not make unilaterally, and the resolutions they received. | 2026-09-17 |
 | [Librarian rulebook](./_meta/librarian.md) | How `_docs/` is organized, why it is organized that way, and how a bookkeeper agent keeps it that way. | 2026-08-31 |
 | [Review log](./_meta/review-log.md) | Append-only record of what each documentation maintenance pass checked, fixed and left alone. | 2026-09-16 |
+
+### Help authoring
+
+| Document | What it is | Verified |
+|---|---|---|
+| [Help coverage](./help/coverage.md) | The living table of every interface area, the help page that covers it, its context key and its state. | 2026-10-25 |
+| [Help images](./help/images.md) | How inline button icons and screenshots for help pages are made, named, sized, themed and referenced. | 2026-10-09 |
+| [Help structure](./help/structure.md) | The information architecture of the user manual — its sections in reading order and nav order, the five page types with a skeleton and an exemplar each, page ids and order, when a page splits, how context keys and element targets are allotted, and what the index page does. | 2026-10-09 |
+| [Help style](./help/style.md) | Voice, tone, terminology, formatting conventions, length limits and the list of what never appears in a help page. | 2026-10-09 |
 
 ### Work in progress
 

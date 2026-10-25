@@ -2,69 +2,56 @@
 id: workbench-titlebar
 title: The title bar
 summary: The window's top row — the project cluster, the command field, and every action in the right-hand cluster.
-keywords: [titlebar, title bar, command field, new agent, new terminal, search, notifications, feedback, help, point at something, settings, remote hosts, theme]
+keywords: [titlebar, title bar, command field, navigator, new agent, new terminal, search, notifications, feedback, help, point at something, settings, remote hosts, theme, back, forward, run tool]
 targets: [ui.titlebar, ui.titlebar.project, ui.titlebar.new-project, ui.titlebar.new-project-menu, ui.titlebar.nav-back, ui.titlebar.nav-forward, ui.titlebar.command, ui.titlebar.actions, ui.titlebar.region-left, ui.titlebar.region-bottom, ui.titlebar.region-right, ui.titlebar.new-agent, ui.titlebar.hidden-agents, ui.titlebar.new-terminal, ui.titlebar.new-terminal-menu, ui.titlebar.search, ui.titlebar.notifications, ui.titlebar.feedback, ui.titlebar.help, ui.titlebar.point-at, ui.titlebar.settings, ui.titlebar.overflow, ui.titlebar.theme]
 order: 15
 status: current
-related: [workbench-rail, workbench-modes, workbench-panels, getting-started]
+related: [workbench-rail, workbench-modes, workbench-panels, workbench-notifications, workbench-tools, getting-started]
 ---
 
-## Three clusters
+The title bar is the window's top row, in three clusters from left to right: the project, the
+command field and the actions. Buttons with a split edge are pairs: the main button does the common
+thing, and its narrow chevron lists the alternatives.
 
-The title bar is the window's top row, and it is always three clusters left to right: **project**,
-**command**, and **actions**.
+## The parts
 
-## Project, on the left
+| Part | What it does |
+|---|---|
+| Project name | Shows the open project, with the window's letter when you have several windows; click to switch project, add or clone one, or pick **Others…** for [All projects](workbench-all-projects) |
+| **Project settings** | The three-dot button beside the name; on a temporary project it is **Keep this project** |
+| **Open** `<address>` ![Open](../img/ui/titlebar-browser.png) | Opens the project's repository page in your browser; shown only when the project has a remote with a page |
+| Play button and **Run a tool** | Runs the project's first tool, and its chevron lists the rest; see [Runnable tools](workbench-tools) |
+| **Add a project** | Adds a folder on this machine; its chevron, **Open a project**, adds **Clone a project…** and **Open remote project…**, which names the host once one is saved |
+| Back, Forward | Step through where this window has been, across projects; **⌃-** / **Ctrl+-** and **⌃⇧-** / **Ctrl+Shift+-**. Their tooltips name the place |
+| Command field | Marked **⌘K**: type to jump to a file, a task, an agent or a recent place, or to search |
+| Region buttons | Three buttons ![Left panels](../img/ui/titlebar-panel-left.png) ![Bottom panels](../img/ui/titlebar-panel-bottom.png) ![Right panels](../img/ui/titlebar-panel-right.png) that show or hide the left, bottom and right regions |
+| **New agent** | Starts an agent; its chevron, **Agents not on screen**, brings back agents still running without a tab |
+| **New terminal** | Opens a shell in the project's folder; its chevron, **Run in a new pane**, lists other shells, **Detached** panes and **Logs** |
+| Search ![Search](../img/ui/titlebar-search.png) | Opens the [Search panel](workbench-search); **⌘⇧F** |
+| **Notifications** ![Notifications](../img/ui/titlebar-notifications.png) | The bell, with the unread count; see [Notifications](workbench-notifications) |
+| **Send feedback** ![Send feedback](../img/ui/board-comment.png) | Opens the [feedback dialog](feedback) |
+| **Help** ![Help](../img/ui/titlebar-help.png) | Opens the manual on this screen's page; **F1** |
+| **Point at something (⇧F1)** ![Point at something](../img/ui/titlebar-point-at.png) | Describes whichever control you point at; see [the help panel](workbench-help) |
+| **Settings** ![Settings](../img/ui/titlebar-settings.png) | Accounts, agents, connections and the rest; its chevron, **More**, holds **Remote hosts**, **Connect to a remote host**, **Explore the project in browser**, **Capture this window**, **Help** and **Point at something…** |
+| Theme ![Light](../img/ui/titlebar-theme-light.png) ![Dark](../img/ui/titlebar-theme-dark.png) | Switches between the light and dark palettes |
+| **About Ubiq** ![About Ubiq](../img/ui/titlebar-about.png) | The version, updates and licences |
 
-- **Project** shows the window's letter and the open project's name; click it to switch project or
-  to open one that is not here yet.
-- **Add project** opens a folder already on this machine as a project in the window. The chevron
-  beside it is **More ways to add** — clone a repository, or open a project on a remote host —
-  rather than a second copy of the same action.
-- **Back** and **Forward** step through this window's own navigation history — the mode, the tab and
-  the place in it — with **⌃-** and **⌃⇧-**. This history is the window's, independent of the help
-  panel's own back and forward.
+**New agent** and **New terminal** need an open project. The command field is one habit for three
+jobs: with nothing typed it offers where you were, and typed text offers matches. **⌘Enter** searches the
+project for what you typed. Press **⌘K** from anywhere to reach it, and **⌘P** / **Ctrl+P** to filter
+the explorer instead.
 
-## Command, in the middle
+## What you can do here
 
-**The command field** is one field doing three jobs: find a file, search the project, and run a
-command. **⌘P** jumps to it to go to a file; **⌘⏎** searches instead of jumping. It is worth learning
-as a single habit rather than three separate shortcuts, because which of the three it does depends
-only on what you type into it.
+- Jump to a file, a task or a project by typing: [Use the navigator](how-to-use-the-navigator).
+- Start an agent: [The new agent dialog](agents-new-agent).
+- Hide, show or rearrange regions: [Panels and the dock](workbench-panels).
+- Switch to light or dark, or change size: [Change the theme and interface size](how-to-change-theme-and-size).
 
-## Actions, on the right
+## When something goes wrong
 
-The right-hand cluster is what the window can start, show and put away. Three region toggles —
-**left panels**, **bottom panels**, **right panels** — show or hide everything docked to that side
-without closing any one panel in it; closing a panel and hiding a region are different actions with
-different memories, and a hidden region remembers what was in it.
-
-Starting things:
-
-- **New agent** starts a conversation — harness, identity, model and permission level in one
-  question. See [Starting an agent](agents-starting). The narrow chevron beside it, **Agents not on
-  screen**, lists the agents that are still running with nothing drawing them, and picking one
-  brings it back.
-- **New terminal** opens a shell in the project's folder in a pane of its own; the chevron beside it,
-  **More terminals**, offers the other shells and harnesses this machine has rather than the default
-  one.
-- **Search** (**⌘⇧F**) searches the whole project and shows the results in their own panel, distinct
-  from the command field's quick search.
-
-Watching things:
-
-- **Notifications** — the bell — lists everything that happened while you were elsewhere, newest
-  first.
-- **Theme** switches the window's palette.
-
-Getting help, and getting heard:
-
-- **Help** (**F1**) opens the manual on the page for wherever you are standing right now.
-- **Point at something** (**⇧F1**) is the same question the other way round: it waits for you to
-  point at a control and tells you about that control, rather than the screen around it.
-- **Send feedback** attaches a picture of the window to whatever you type, so a report always shows
-  what you were looking at.
-- **Settings** opens accounts, agents, connections and everything else the application keeps. Its
-  chevron, **More**, holds the commands wanted occasionally rather than every session — **Remote
-  hosts** and **Connect to a remote host**, **Explore the project in browser**, **Capture this
-  window** and **Help**.
+- **New agent** and **New terminal** are missing: open a project first with **Add a project**.
+- **Back** or **Forward** looks faint: there is nowhere to go in that direction.
+- **Capture this window** is missing from **More**: it is switched off under **Settings**.
+- A bell that flashes goes straight to its place when clicked; to open the list, wait for it to stop.
+- The title bar shows no repository button: the project has no remote Ubiq can link to.

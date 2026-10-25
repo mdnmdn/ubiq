@@ -1,31 +1,39 @@
 ---
 id: index
 title: Welcome to Ubiq
-summary: What Ubiq is, and where to go next — starting an agent, watching git, or reading a project's documents.
-keywords: [start, home, welcome, overview]
+summary: What Ubiq is, a map of this manual by section, and how to reach the page for the screen or control in front of you.
+keywords: [start, home, welcome, overview, contents, manual, map]
 order: 0
 status: current
+related: [getting-started, philosophy-why-ubiq, workbench-help, glossary]
 ---
 
-## What Ubiq is
+Ubiq is one window that runs several AI coding agents side by side, each in its own real terminal, beside your project's files, history and documents. It hosts the harnesses you already use — Claude Code, Codex, Gemini CLI, opencode and GitHub Copilot CLI — and leaves the choice of harness and model to you; [Why Ubiq](philosophy-why-ubiq) says more.
 
-Ubiq is an agentic workspace it hosts several interactive AI coding agents side by side, each in
-its own real terminal pane, under one window. Think of it as tmux with the panes specialised for
-agent harnesses — Claude Code, Codex, Gemini CLI, opencode, GitHub Copilot CLI — rather than plain
-shells.
+## Where to start
 
-You open a session for a piece of work, start an agent in it, watch it work in a real terminal, and
-keep the arrangement when you come back tomorrow.
+New to Ubiq? Read [Getting started](getting-started): it takes you from the first launch to one agent working in one project.
 
-## Where to go
+![The Ubiq window with a project open: the rail on the left, the project's files in the explorer and the editor beside it](img/start/index-1.png)
 
-- [Getting started](getting-started) — open your first project and start an agent
-- [Starting an agent](agents-starting) — what a session and a workspace are
-- [The Git screen](git-overview) — reviewing changes, history and refs without leaving the window
-- [The knowledge base](kb-overview) — a project's documents, read from wherever they live
-- [Databases](db-overview) — browse, edit and query a project's databases
+## The manual, section by section
 
-## If something looks unbuilt
+- **Start** — [Getting started](getting-started): the first launch, a first project and a first agent.
+- **Philosophy** — [Why Ubiq](philosophy-why-ubiq): what Ubiq believes, and [What Ubiq is not](philosophy-what-ubiq-is-not).
+- **Concepts** — [Projects](projects), [Panes and panels](panes) and the [Glossary](glossary): the words the rest of the manual uses.
+- **Guides** — [Your first project and your first agent](guides-first-project-and-agent): real tasks walked through end to end.
+- **How-to** — [Switch a harness's permission mode](how-to-switch-permission-mode) and the pages after it: one task per page.
+- **Reference** — one page per area of the window, the page **F1** opens:
+  - [Agents mode](agents-starting): your agents, their conversations, accounts and agent definitions.
+  - [The rail](workbench-rail) and [The title bar](workbench-titlebar): the window itself, its panels, the editor and search.
+  - [The Git screen](git-overview), [The knowledge base](kb-overview) and [Databases](db-overview): a project's repository, documents and databases.
+  - [The Tasks board](tasks-overview) and [The Teams screen](teams-overview): planning work and watching agents do it.
+  - [Remote hosts](remote-overview) and [Settings](settings): other machines, and every setting.
+- **FAQ** — [Agent questions](faq-agents), [Workbench questions](faq-workbench), [Account questions](faq-accounts) and [Troubleshooting questions](faq-troubleshooting): short answers to what people ask most.
+- **Troubleshooting** — [Troubleshooting](troubleshooting): a symptom, its cause and the way out.
 
-A page that says "not written yet" is expected here and there — the manual grows with the product.
-See [Troubleshooting](troubleshooting) if a whole panel or the `?` button itself does not answer.
+## Help from where you are
+
+Press **F1** on any screen and the [help panel](workbench-help) opens on the page for that screen. When F1 brings you here instead, the screen you were on has no page of its own; pick its area from the list above or from **Contents** in the panel.
+
+Press **⇧F1** or **Point at something** ![Point at something](img/ui/titlebar-point-at.png) in the title bar, then move the pointer over a control: a balloon names it and says what it does. Clicks do nothing in this mode. Press **Esc** to leave it.

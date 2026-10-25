@@ -1,36 +1,46 @@
 ---
 id: panes
-title: Panes and terminals
-summary: A pane is a real terminal running one agent — how it is named, how focus and resize work.
-keywords: [terminal, tab, focus, resize, alternate screen]
-order: 10
+title: Panes and panels
+summary: What a panel is, what a pane is, and why every agent gets a real terminal.
+keywords: [terminal, tab, focus, dock, split, resize, shell]
+order: 20
 status: current
-related: [sessions, workbench-panels]
+related: [workbench-panels, how-to-hide-or-close-a-tab, how-to-split-and-move-panes, glossary]
 ---
 
-## A pane is a terminal, not a text buffer
+## What it is
 
-Every harness Ubiq hosts is a full-screen terminal program: it takes over the alternate screen,
-addresses the cursor absolutely, and expects raw keystrokes back — arrows, Ctrl and Alt chords,
-pasted text. A pane is where you watch that happen: a real terminal emulator with a tab naming which
-agent is running and whether its harness is still alive.
+Everything in the window with a tab is a *panel*: a file, the explorer, the logs, this help, a chat. You
+drag a panel's tab to move it, split it beside another, or group it with one. Ubiq fixes no arrangement,
+and [Panels and the dock](workbench-panels) shows where each kind of panel may sit.
 
-## Focus
+A *pane* is the panel that holds one terminal. Each agent you start in a terminal, and each shell, runs
+in its own pane. The tab shows the agent's name and a dot that says whether its harness is still
+running. Right-click the tab and pick **Rename…** to type over the title.
 
-Exactly one pane holds focus at a time and receives your keystrokes; every other pane keeps drawing
-regardless. Click a pane, or use the keyboard shortcuts listed in the titlebar's overflow menu, to
-move focus between the agents you are running side by side.
+Exactly one panel has *focus* and receives your keystrokes. Panes that do not have it keep drawing, so
+an agent you are not typing into stays visible. Press **⇧Esc** / **Shift+Esc** to hand the keyboard back to the
+window without closing anything; click the pane to take it again.
 
-## Resize
+## Starting and ending a pane
 
-Dragging a pane's border resizes the terminal and tells the harness underneath it, so the program
-redraws at the new size rather than believing it is still the old one. A pane that resizes visually
-without the harness knowing is the classic way a terminal multiplexer corrupts its own screen — Ubiq
-propagates every resize through.
+The **+** at the end of a pane's tab strip opens your default shell in the current project. The
+chevron beside it lists the panes you hid, under **Detached**, then every shell on your machine, then
+**Logs**. An agent starts from the [new agent dialog](agents-new-agent) instead. A pane always starts
+in its project's folder, so with no project open there is nothing to start.
 
-## Closing
+Typing `exit` or pressing **Ctrl+D** inside a pane ends its harness and closes its tab.
 
-Typing `exit` or sending Ctrl+D inside a pane ends its harness and closes the pane's tab with it. The
-tab's **×** either hides the pane (the harness keeps running, and reopening the panel reattaches to
-it) or closes it outright after a confirmation — which one depends on the kind of pane, and the
-tab's right-click menu always offers both.
+A tab's **×** does what your **Closing a tab** setting says. **Hide** takes the tab away and
+leaves the harness running; reopening it from the chevron's **Detached** group brings the same screen
+back mid-sentence. **Close** ends the harness after a confirmation. The tab's right-click menu
+always offers both — see [Hide or close a tab](how-to-hide-or-close-a-tab).
+
+## Why it works this way
+
+Harnesses draw the whole screen, move the cursor around and read every key, so they only look and
+behave as intended in a real terminal. That is why an agent gets a pane rather than a chat box
+([Real terminals](philosophy-real-terminals) says more).
+
+Moving a pane never restarts its harness, and resizing one tells the harness, which redraws at the
+new size. Switching to another project leaves that project's panes running behind the scenes.

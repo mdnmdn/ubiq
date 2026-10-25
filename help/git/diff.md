@@ -1,18 +1,48 @@
 ---
 id: git-diff
-title: Reading a diff
-summary: How the diff under the history reads a comparison, and what its line colours mean.
-keywords: [diff, hunk, comparison, side by side]
+title: The Diff panel
+summary: How the diff beside the history compares a path or a commit, and the split and unified views.
+keywords: [diff, hunk, comparison, side by side, unified, split]
+context: [panel.ubiq.git.diff]
 order: 50
-status: draft
-related: [git-changes, git-history]
+status: current
+related: [git-changes, git-history, git-compare-commits]
 ---
+
+The Diff panel is a tab beside **History** in [Git mode](git-overview) and shows what a changed path
+changed. It comes forward when you pick a path in [Changes](git-changes) or in a commit's file list.
+Its header names the path and holds the view controls.
+
+## The parts
+
+| Part | What it does |
+|---|---|
+| The path | Which file the comparison is about |
+| **split** | Draws the old and new text side by side |
+| **unified** | Draws one column, removed lines then added lines |
+| The chevron at the right | Folds the comparison away, leaving only the header, or opens it again |
+| The body | Added, removed and unchanged lines, with line numbers |
 
 ## What is compared
 
-Selecting a path in [Changes](git-changes) or a commit in [History](git-history) fills the diff
-region below with that comparison: added lines, removed lines, and the unchanged context between
-them, with the widest line in the comparison setting how far it can scroll horizontally.
+What the panel shows depends on the list the path is in:
 
-This page is a draft — word-level highlighting inside a changed line and the keyboard shortcuts for
-moving hunk to hunk are not written up yet.
+- A path under **Staged** shows what the next commit would carry.
+- A path under **Unstaged** shows what is not staged yet.
+- A path under **Conflicted** shows its difference from the last commit.
+- A path picked after selecting two commits shows what differs between them; see
+  [Comparing two commits](git-compare-commits).
+
+## What you can do here
+
+- Choose the view that reads best for the change: **split** for edits to a line, **unified** for
+  added or removed blocks.
+- Scroll sideways to reach a long line; lines are not wrapped.
+- Decide what to keep: [Review and commit](guides-review-and-commit).
+
+## When something goes wrong
+
+- **Pick a changed path to compare it** — nothing is selected yet; click a row in Changes.
+- **Reading…** stays while Ubiq waits for the comparison.
+- **The panel asks for another path** when the one you were reading has no changes left, for
+  instance after you discard it.

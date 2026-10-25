@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Git mode — the refs explorer of branches, remotes, tags, stashes and submodules with the repositories a project holds above them, the paged commit history with its painted lanes, the conflicted, staged and unstaged change lists with the commit box, the diff under them, and the strip of icon actions and the HEAD pill.
 read_when: you are changing the Git screen — its refs, history, change lists, commit box or diff — or the strip above it
-updated: 2026-10-05
-verified: 2026-10-05
+updated: 2026-10-25
+verified: 2026-10-25
 code_anchors: [crates/ubiq/src/state/git.rs, crates/ubiq/src/app/git.rs, crates/ubiq/src/ui/git/mod.rs, crates/ubiq/src/ui/git/refs.rs, crates/ubiq/src/ui/git/history.rs, crates/ubiq/src/ui/git/changes.rs, crates/ubiq/src/ui/git/diff.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/tests/git.rs]
 depends_on: [feat-workbench, tech-ui, tech-version-control]
 review_cycle: monthly
@@ -65,7 +65,8 @@ sends `force: true`. Any other failure of that checkout — an unresolvable rev,
 screen's error, so a forced checkout is never offered over a failure that was not about
 overwriting work.
 
-**A project holding more than one repository shows one at a time.** The refs panel opens with a
+**A project holding more than one repository shows one at a time.** The refs panel (its tab reads
+**Branches**) opens with a
 Repositories section listing the project's own repository and each nested one it manages; a project
 with a single repository has no such section. Each row carries a dot when the repository has pending
 changes, a `!` when it has conflicts, and the current branch's `↑ahead ↓behind`. Picking a row makes
@@ -101,8 +102,9 @@ changed paths is one idea wherever the panel is showing them.
 
 **Picking a changed path compares it, and the comparison is the host's.** The pane under the
 history draws the hunks `DiffProjectFile` answers with, through the same renderer a diff tab uses.
-A staged row is compared against the index and an unstaged or conflicted row against HEAD, because
-the file family offers those two and no index-against-HEAD. The pane shuts rather than the history
+A staged row is compared as the index against HEAD (`DiffBase::Staged`, what a commit would carry),
+an unstaged row as the working tree against the index (`DiffBase::Index`, what is not staged yet)
+and a conflicted row as the working tree against HEAD. The pane shuts rather than the history
 shrinking, and switches between unified and side by side.
 
 **A selected commit's panel lists the files it changed** (its first parent against it, asked with `ProjectGitChanged` and answered into the same list a comparison uses) under its summary.

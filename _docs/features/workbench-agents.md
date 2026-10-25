@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-10-24
+updated: 2026-10-25
 verified: 2026-10-15
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
@@ -273,11 +273,12 @@ The preamble is taken rather than read — it belongs to exactly one turn — an
 or not it matched, so a harness that reformats its echo cannot leave it armed to cut the front off
 a message the user really did write.
 
-**The persistence checkbox is disabled and always false.** A conversation that survives a restart is
-built (`D97`), but it is marked from the conversation's own three-dots menu rather than at the start
-form: the flag lives on a row keyed by the conversation, which does not exist until the start has
-been answered. Wiring the checkbox means carrying the intent through the start and setting the flag
-once the row is written, which is `G223`.
+**The persistence checkbox is live for a start on a harness that keeps its sessions.** A conversation
+that survives a restart is built (`D97`). The flag lives on a row keyed by the conversation, which
+does not exist until the start has been answered, so the form carries the intent through
+`StartConversation` and sends `SetConversationPersistent` right behind it; the three-dots menu's
+*Make persistent* marks a running one. On a harness that does not keep its sessions, and on a
+definition form, the row is drawn faint and takes no click (`ui/new_agent.rs`).
 
 **The initial prompt is sent for the user.** The dialog's optional `Initial prompt` field is held
 until `Message::ConversationStarted` and then sent as the conversation's first user message, the

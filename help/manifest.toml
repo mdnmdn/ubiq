@@ -6,12 +6,20 @@ namespace = "ubiq"
 order = [
     "index.md",
     "getting-started.md",
+    "philosophy/",
     "concepts/",
+    "guides/",
+    "how-to/",
     "agents/",
     "workbench/",
     "git/",
     "kb/",
     "db/",
+    "tasks/",
+    "teams/",
+    "remote/",
+    "settings/",
+    "faq/",
     "troubleshooting.md",
 ]
 
