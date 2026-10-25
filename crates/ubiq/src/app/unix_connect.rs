@@ -7,9 +7,10 @@
 //!
 //! **Never on the GPUI thread.** The connect and the handshake read block;
 //! `AppState::try_connect_remote` and the reconnect loop run this inside `cx.background_spawn`.
+//!
+//! Unix only — the module is `#[cfg(unix)]` in `app/mod.rs`; a non-Unix stub lives there.
 
 use std::io::{Read, Write};
-#[cfg(unix)]
 use std::time::Duration;
 
 use ubiq_proto::bus::Client;
@@ -19,7 +20,6 @@ use super::remote_connect::{ConnectFailure, start_drone_session};
 
 /// How long the far end may take to say hello. A socket file whose owner is not a drone (or is a
 /// wedged one) would otherwise hang the modal on a read nothing answers.
-#[cfg(unix)]
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a successful dial hands back: the `Client` the bus registers and what the drone said
@@ -30,7 +30,6 @@ pub struct UnixDial {
 }
 
 /// Dial a drone listening on a Unix socket at `path`. Blocking.
-#[cfg(unix)]
 pub fn dial_unix(path: &str) -> Result<UnixDial, ConnectFailure> {
     use std::net::Shutdown;
     use std::os::unix::net::UnixStream;
@@ -63,21 +62,9 @@ pub fn dial_unix(path: &str) -> Result<UnixDial, ConnectFailure> {
     }
 }
 
-/// On a platform with no Unix sockets the variant still exists — a settings file travels — but
-/// there is nothing to dial it with.
-#[cfg(not(unix))]
-pub fn dial_unix(path: &str) -> Result<UnixDial, ConnectFailure> {
-    Err(ConnectFailure::Unreachable(format!(
-        "local sockets are not supported on this platform ({path})"
-    )))
-}
-
 /// The handshake and the pump over any reader/writer pair: [`carrier::welcome`], then — only on
 /// success — [`start_drone_session`]. `after_welcome` runs between the two, for a carrier that
 /// has a deadline to lift. On failure the halves are dropped and no session starts.
-///
-/// Unix only: the non-Unix `dial_unix` stub never calls it.
-#[cfg(unix)]
 fn handshake_and_pump<R, W>(
     mut reader: R,
     mut writer: W,
@@ -94,7 +81,7 @@ where
     Ok((start_drone_session(reader, writer, closer), identity))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
