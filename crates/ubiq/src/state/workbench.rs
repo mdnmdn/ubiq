@@ -770,6 +770,16 @@ pub struct WorkbenchState {
     /// The About modal, while it is up. Raised from the titlebar's mark, over anything, like
     /// `feedback`.
     pub about: Option<crate::state::about::AboutState>,
+    /// The onboarding wizard, while a run is open — dialog or highlight. See
+    /// `crate::state::onboarding`.
+    pub onboarding: Option<crate::state::onboarding::OnboardingRun>,
+    /// The onboarding flows finished or skipped, by id. Read from and written to the interface's
+    /// preferences (`InterfacePrefs::onboarding_done`).
+    pub onboarding_done: std::collections::BTreeSet<String>,
+    /// Whether the interface's preferences have been answered — with a blob or with nothing. An
+    /// onboarding flow never starts before this, or a returning user would see the welcome for
+    /// the frames before the host replies.
+    pub prefs_loaded: bool,
     /// Which agent's question is on screen, while the ask dialog is up. Only the view: what has
     /// been filled in lives on the conversation's own record, which is what lets the dialog be
     /// closed and reopened with the drafts intact. See `crate::state::ask`.
@@ -1090,6 +1100,9 @@ impl Default for WorkbenchState {
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
             updates: crate::state::updates::UpdatesState::default(),
             about: None,
+            onboarding: None,
+            onboarding_done: Default::default(),
+            prefs_loaded: false,
             ask: None,
             all_projects: None,
             image_zoom: None,

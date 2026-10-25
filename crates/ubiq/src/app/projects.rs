@@ -1250,14 +1250,23 @@ impl AppState {
         value: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let Some(blob) = value else { return };
+        let Some(blob) = value else {
+            // Nothing stored is an answer too — a first run's — and onboarding waits for one.
+            if matches!(scope, Scope::Interface) {
+                self.workbench.prefs_loaded = true;
+                self.check_onboarding(cx);
+            }
+            return;
+        };
 
         match scope {
             Scope::Interface => {
+                self.workbench.prefs_loaded = true;
                 if let Some((prefs, upgraded)) =
                     prefs::decode_upgraded::<prefs::InterfacePrefs>(&blob)
                 {
                     self.workbench.interface_rest = prefs.rest;
+                    self.workbench.onboarding_done = prefs.onboarding_done;
                     self.workbench.last_start = prefs.last_start;
                     self.workbench.last_start_by_project = prefs.last_start_by_project;
                     self.workbench.size_presets = prefs.size_presets;
@@ -1355,6 +1364,9 @@ impl AppState {
                 }
             }
         }
+        // Either scope can be what makes a flow due: the interface's says which are done, a
+        // project's says which mode the window is in.
+        self.check_onboarding(cx);
         cx.notify();
     }
 

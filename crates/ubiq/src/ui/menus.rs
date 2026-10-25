@@ -446,6 +446,10 @@ pub fn overflow(app: &AppState, cx: &App) -> Vec<MenuEntry> {
         MenuEntry::new("Point at something\u{2026}")
             .icon(kit::UbiqIcon::TitlebarPointAt)
             .on(|this, _, cx| this.open_help_target(cx)),
+        // The welcome and the tour again, whether or not they were finished.
+        MenuEntry::new("Show onboarding")
+            .icon(kit::UbiqIcon::TitlebarHelp)
+            .on(|this, _, cx| this.open_onboarding(crate::state::onboarding::WELCOME, cx)),
     ]
 }
 

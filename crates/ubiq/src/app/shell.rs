@@ -357,6 +357,8 @@ impl AppState {
         // Entering a project moves the reader's context as much as a mode switch does, so follow
         // mode swaps the help page here too — see `Self::sync_help_follow`.
         self.sync_help_follow(cx);
+        // A project arriving can be what makes its mode's onboarding flow due.
+        self.check_onboarding(cx);
         cx.notify();
     }
 
@@ -822,6 +824,8 @@ impl AppState {
             on_enter(self, cx);
         }
         self.sync_help_follow(cx);
+        // The first visit to a mode with a flow of its own starts it.
+        self.check_onboarding(cx);
         cx.notify();
     }
 
@@ -1101,6 +1105,11 @@ impl AppState {
                 self.permission_dialog_target().is_some(),
             ),
             (Layer::Dropdown, dropdown),
+            // Only while the dialog is on screen: a highlight step leaves the window to be used.
+            (
+                Layer::Onboarding,
+                w.onboarding.as_ref().is_some_and(|run| !run.hidden()),
+            ),
             (Layer::HelpTarget, w.help_target.is_some()),
         ]
         .into_iter()
@@ -1142,6 +1151,17 @@ impl AppState {
         // it is up rather than "close what I was doing".
         if self.workbench.help_target.is_some() {
             self.close_help_target(cx);
+            return;
+        }
+        // The onboarding dialog closes only through its own navigation, so Escape is swallowed
+        // while it is up — not handed down to whatever it covers. A highlight step has stepped the
+        // dialog aside, and Escape then means what it means without it.
+        if self
+            .workbench
+            .onboarding
+            .as_ref()
+            .is_some_and(|run| !run.hidden())
+        {
             return;
         }
         // A menu is drawn over whatever raised it, so it is peeled before anything else.

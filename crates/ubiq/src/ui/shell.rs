@@ -18,7 +18,9 @@ use crate::app::{
 };
 use crate::state::RailMode;
 use crate::state::git::GitConfirm;
+use crate::state::ui_id;
 use crate::theme;
+use crate::ui::ident::Identified as _;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{
     catalog, git, handler, kit, new_agent, new_mission, rail, remote_connect, remote_hosts, ribbon,
@@ -169,7 +171,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                             (app.workbench.rail_mode == RailMode::GIT && app.project(cx).is_some())
                                 .then(|| git::toolbar(app, cx)),
                         )
-                        .child(app.dock().clone()),
+                        .child(app.dock().clone())
+                        .ui_id(ui_id::WORKSPACE),
                 ),
         )
         .child(status_bar::render(app, window, cx))
@@ -631,6 +634,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // The bell's list, painted last of the overlays: it is reached from the titlebar, which
         // is above every screen, so it has to be above every dialog a screen raised.
         .child(crate::ui::notifications::render(app, window, cx))
+        // The onboarding wizard: its dialog, or — on a step that points at a place — the outline
+        // and the callout beside it. After every dialog, because it is raised over whatever the
+        // window was showing; under in-place help, which can point at the wizard's own controls.
+        .child(crate::ui::onboarding::render(app, window, cx))
         // In-place help's targeting mode, painted after every other overlay — including the
         // bell's list, which is otherwise the last of them. It is the one layer that is not a
         // dialog: the reader is pointing at the window rather than answering it, and a dialog's
@@ -852,5 +859,7 @@ fn overlaid(app: &AppState) -> bool {
         // A child webview is stacked over the window by the platform, so it would sit on top of
         // the targeting overlay and take the mouse moves it lives on.
         || workbench.help_target.is_some()
+        // The wizard's dialog and its callout alike: a child webview would sit over either.
+        || workbench.onboarding.is_some()
         || app.file_picker.is_some()
 }

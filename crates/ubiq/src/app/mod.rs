@@ -1449,6 +1449,7 @@ mod nav;
 mod new_agent;
 mod new_mission;
 mod notifications;
+mod onboarding;
 mod panels;
 mod picker;
 mod plan;

@@ -157,6 +157,12 @@ pub enum Layer {
     /// Any dropdown a form keeps open on its own state — a picker inside a modal is painted above
     /// every modal, so it is the top rung whatever raised it.
     Dropdown,
+    /// The onboarding wizard's dialog — only while it is on screen. Above every dialog and
+    /// dropdown because it is raised over whatever the window was showing at launch or on a mode
+    /// switch, and closes only through its own navigation: Escape is swallowed here rather than
+    /// handed down. A step that highlights a place on the screen steps the dialog aside, and the
+    /// rung goes with it — the window is meant to be used then.
+    Onboarding,
     /// In-place help's targeting mode, above every other rung in the window.
     ///
     /// **Deliberately the top, and the one layer that is not a dialog.** Everything below is
