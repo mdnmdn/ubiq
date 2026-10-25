@@ -35,8 +35,8 @@ stops anywhere has learnt the most useful thing first.
 |---|---|---|---|---|---|
 | 1 | Start | `index`, `getting-started` | — | The landing page (§7) and the first run: open a project, start one agent, see it work | `inbox/onboarding-proposal.md`, everything below |
 | 2 | Philosophy | `philosophy/` | concept | What Ubiq believes and refuses, written for a user: many agents in one window; a real terminal per agent, and why the chat panel exists anyway; any harness, no model chosen for you; your machine, credentials referenced and never held; what Ubiq is not | `product/overview.md`, the root `AGENTS` domain rules |
-| 3 | Concepts | `concepts/` | concept | The nouns: projects, panes and panels, workspace sessions, conversations, accounts and profiles, harnesses, and the glossary | `product/glossary.md`, `features/panes-and-terminals.md`, `features/sessions-and-workspaces.md`, `features/workbench.md` |
-| 4 | Guides | `guides/` | guide | One real task end to end, done in a running build before it is written: first project and agent; two agents on one task; reviewing and committing an agent's work; the knowledge base; accounts and profiles for several clients; the Tasks board; a remote machine; querying a database | the reference pages of every area the guide crosses |
+| 3 | Concepts | `concepts/` | concept | The nouns: projects, panes and panels, workspace sessions, conversations, accounts and agent definitions, harnesses, and the glossary | `product/glossary.md`, `features/panes-and-terminals.md`, `features/sessions-and-workspaces.md`, `features/workbench.md` |
+| 4 | Guides | `guides/` | guide | One real task end to end, done in a running build before it is written: first project and agent; two agents on one task; reviewing and committing an agent's work; the knowledge base; accounts and agent definitions for several clients; the Tasks board; a remote machine; querying a database | the reference pages of every area the guide crosses |
 | 5 | How-to | `how-to/` | how-to | One task per page, named for the verb, harvested from the reference pages' "What you can do here" and then from the FAQ | the reference page the task lives on |
 | 6 | Reference | `agents/`, `workbench/`, `git/`, `kb/`, `db/`, `tasks/`, `teams/`, `remote/`, `settings/` | reference | One page per area of the interface, bound by `context:` (§5) | the area's `features/` document |
 | 7 | FAQ | `faq/` | FAQ | One file per topic — `faq/agents`, `faq/workbench`, `faq/accounts`, `faq/troubleshooting` — for the questions the rest of the manual answers somewhere a reader does not look | user-visible limits in `backlog.md`, phrased as the user meets them; `troubleshooting`; what guide authors got stuck on |
@@ -55,7 +55,7 @@ The reference folders follow the rail: a project mode is a folder, and what ever
 
 | Folder | Holds a page for |
 |---|---|
-| `agents/` | Agents mode, the chat panel, accounts, profiles, permission modes, connectors |
+| `agents/` | Agents mode, the chat panel, accounts, agent definitions, permission modes, connectors |
 | `workbench/` | The titlebar, the rail, the dock and its panels, the IDE's explorer, editor and search, logs, notifications, stats, the kitchen sink |
 | `git/` | Git mode and each of its panels |
 | `kb/` | The knowledge base mode and its panels |

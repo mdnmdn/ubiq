@@ -1,8 +1,8 @@
 ---
 id: faq-accounts
 title: Account questions
-summary: What people ask about accounts, profiles and sign-ins.
-keywords: [account, profile, login, credentials]
+summary: What people ask about accounts, agent definitions and sign-ins.
+keywords: [account, agent definition, profile, login, credentials]
 order: 30
 status: planned
 related: [agents-accounts, settings-connectors]

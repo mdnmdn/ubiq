@@ -182,7 +182,7 @@ troubleshooting`. The target, in reading order:
 |---|---|---|---|
 | Start | `index`, `getting-started` | existing, rewrite | Landing page with a map of the manual; first run aligned with `onboarding-proposal` |
 | Philosophy | `philosophy/` | **new** | Why Ubiq exists and the beliefs behind it — see §5.1 |
-| Concepts | `concepts/` | existing, extend | Projects, panes, panels, workspace sessions, conversations, accounts and profiles, harnesses, the glossary |
+| Concepts | `concepts/` | existing, extend | Projects, panes, panels, workspace sessions, conversations, accounts and agent definitions, harnesses, the glossary |
 | Guides | `guides/` | **new** | End-to-end walkthroughs — §5.2 |
 | How-to | `how-to/` | **new** | One task per page — §5.3 |
 | Reference | `agents/`, `workbench/`, `git/`, `kb/`, `db/`, plus `tasks/`, `teams/`, `remote/`, `settings/` | existing + new folders | One page per area, bound by `context:` |
@@ -210,7 +210,7 @@ Each verified by doing it in a running build before it is written:
 - Two agents on one task, side by side.
 - Reviewing and committing what an agent changed (Git mode).
 - Giving an agent knowledge: the knowledge base.
-- Several accounts and profiles for several clients.
+- Several accounts and agent definitions for several clients.
 - Planning work on the Tasks board and handing it to agents.
 - Working on a remote machine (drones).
 - Querying a database with an agent beside you (DB mode).

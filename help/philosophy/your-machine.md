@@ -34,5 +34,5 @@ Holding only a reference means switching an agent to another account never moves
 The same care covers your harness settings. Each run gets its own throwaway configuration, so the
 choices you make for one agent in Ubiq never rewrite the settings you rely on outside it.
 
-[Accounts and profiles for several clients](guides-accounts-and-profiles) shows how to keep the
+[Accounts and agent definitions for several clients](guides-accounts-and-definitions) shows how to keep the
 identities of different clients apart.

@@ -75,7 +75,7 @@ page's `keywords:` when a user is likely to type them, never in its prose.
 | **workspace session** | Ubiq's named grouping of agents with a home folder | session, workspace |
 | **conversation** | one harness's exchange with you that can be resumed or forked | session, thread, chat history |
 | **account** | a named identity a harness runs under; it points at credentials and never holds them | login, credentials, user |
-| **profile** | a named base configuration a run starts from | preset, template |
+| **agent definition** | a saved setup — harness, model, skills, tool servers — that starts an agent in one pick; the interface lists them under **Agent definitions** | profile, preset, template |
 | **permission mode** | how much a harness may do without asking, by the harness's own label | permission level, safety mode |
 | **connector** | a signed-in identity at a code host or workspace provider — GitHub, GitLab, Atlassian | integration, MCP server |
 | **MCP server** | a tool provider a harness can call | connector, plugin |

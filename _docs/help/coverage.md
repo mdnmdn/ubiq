@@ -125,7 +125,7 @@ Each row is one area from `_docs/inbox/ui-id-inventory.md` §4, plus the rail mo
 | project-settings.documentation | §4.4 | settings/project | — (rung 1) | planned | — |
 | project-settings.integrations | §4.4 | settings/project | — (rung 1) | planned | — |
 | dialog.login | §4.4 | agents/accounts | — (rung 1) | stub | — |
-| dialog.profile-form | §4.4 | agents/profiles | — (rung 1) | planned | — |
+| dialog.profile-form | §4.4 | agents/definitions | — (rung 1) | planned | — |
 | dialog.account | §4.4 | agents/accounts | — (rung 1) | stub | — |
 | dialog.connect | §4.4 | settings/connectors | — (rung 1) | planned | — |
 | dialog.app-form | §4.4 | settings/connectors | — (rung 1) | planned | — |

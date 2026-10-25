@@ -11,7 +11,7 @@ related: [projects, panes, sessions, concepts-conversations, concepts-harnesses]
 ## Terms
 
 **Account** — a named identity a harness runs under. It points at credentials and never holds them. See
-[Accounts and profiles](concepts-accounts-and-profiles).
+[Accounts and agent definitions](concepts-accounts-and-definitions).
 
 **Agent** — one harness running in a project, doing work for you.
 
@@ -33,7 +33,7 @@ See [Harnesses](concepts-harnesses).
 
 **Permission mode** — how much a harness may do without asking, named as the harness names it.
 
-**Profile** — a named base configuration a run starts from.
+**Agent definition** — a saved setup, listed under **Agent definitions**, that starts an agent in one pick.
 
 **Project** — a folder Ubiq has opened, and everything it remembers about it. See [Projects](projects).
 
