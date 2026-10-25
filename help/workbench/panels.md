@@ -18,7 +18,7 @@ anything with a tab; a [pane](panes) is a panel that holds a terminal.
 | Part | What it does |
 |---|---|
 | Tab | The handle of a panel; click it to bring the panel forward in its group, drag it to move the panel |
-| Tab **×** | Closes the panel, or hides it while its agent keeps running, depending on the panel's kind and your **Closing a tab** settings |
+| Tab **×** | Closes the panel, or hides it while its agent keeps running; for terminal and chat tabs, **Settings**, then **Editor**, then **Closing a tab** decides which |
 | **+** and its chevron | At the right end of a group's tab strip: **+** starts a pane, the chevron lists what else can be opened there |
 | Zoom button | At the strip's far right: fills the region with the group and gives it back |
 | Region buttons | In the [title bar](workbench-titlebar): show or hide the left, bottom and right regions |
@@ -35,15 +35,15 @@ A tab's right-click menu depends on the panel. A file tab offers **Close**, **Cl
 **Close** and **Pin** or **Unpin**, plus **Restart** on a tool that has finished. A pinned tab has no
 **Close** and survives **Close Others** and **Close All**.
 
-Some panels have a page of their own: [Explorer](workbench-explorer), [Search](workbench-search),
-[Outline](workbench-outline), [Logs](workbench-logs) and the [help panel](workbench-help).
+Some panels have a page of their own: [The file explorer](workbench-explorer), [Search](workbench-search),
+[The outline](workbench-outline), [The log console](workbench-logs) and [The help panel](workbench-help).
 
 ## What you can do here
 
 - Split a region or move a panel: [Split and move panes](how-to-split-and-move-panes).
 - Keep a terminal running out of sight, or end it: [Hide or close a tab](how-to-hide-or-close-a-tab).
 - Open the logs beside a terminal: [Find the logs](how-to-find-the-logs).
-- Make the whole window larger or smaller: [Change theme and size](how-to-change-theme-and-size).
+- Make the whole window larger or smaller: [Change the theme and interface size](how-to-change-theme-and-size).
 
 ## When something goes wrong
 
@@ -51,5 +51,5 @@ Some panels have a page of their own: [Explorer](workbench-explorer), [Search](w
   until you reopen it; no mode switch brings it back.
 - A region opens with one panel in it, not the one you had: closing a region's last panel empties it,
   and the button fills it again with that mode's own panel.
-- A panel will not stay where you dropped it: its kind may not sit in that region, so it went home.
+- A panel will not stay where you dropped it: its kind cannot sit in that region, so it went home.
 - A tab has no **×** action you expected: pinned tabs cannot be closed. Pick **Unpin** first.

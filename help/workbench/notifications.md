@@ -43,13 +43,13 @@ bell or reach the desktop.
 
 ## What you can do here
 
-- Start an agent whose turns will notify you: [Starting an agent](agents-starting).
+- Start an agent whose turns will notify you: [The new agent dialog](agents-new-agent).
 - Find the bell and the other title bar actions: [The title bar](workbench-titlebar).
 - Read what Ubiq recorded about a failure: [The log console](workbench-logs).
 
 ## When something goes wrong
 
-- The bell never flashes for an agent: its source may be silenced. Open the list and look under
-  **Silenced**, then press **Turn this back on**.
+- The bell never flashes for an agent: open the list and look for its source under **Silenced**,
+  then press **Turn this back on**.
 - The list says `Nothing has come up.`: nothing is waiting, or **Clear all** removed it.
 - The count stays after you read everything: press **Mark all read**.

@@ -38,8 +38,8 @@ you enter the mode.
 ## What you can do here
 
 - See which modes the rail offers: [Rail modes](workbench-modes).
-- Check one conversation's own usage: [The conversation panel](agents-conversation).
-- Look at what is left of a plan, by account: [Harness settings](settings-harnesses).
+- Check one conversation's own usage: [Inside a conversation](agents-conversation).
+- Look at what is left of a plan, by account: [Harnesses and isolation](settings-harnesses).
 
 ## When something goes wrong
 

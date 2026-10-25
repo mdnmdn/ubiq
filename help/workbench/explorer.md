@@ -38,15 +38,15 @@ Right-click a row for **Open**, **Open with**, **Open diff vs HEAD**, **New file
 also offers **Open in annotation mode**.
 
 With the caret in the tree, the arrow keys move and fold, **Enter** opens, **Tab** jumps to the filter,
-**Delete** or **Backspace** deletes, and **⌘C**, **⌘X** and **⌘V** (**Ctrl+C**, **Ctrl+X**, **Ctrl+V**)
+**Delete** or **Backspace** deletes, and **⌘C** / **Ctrl+C**, **⌘X** / **Ctrl+X** and **⌘V** / **Ctrl+V**
 copy, cut and paste.
 
 ## What you can do here
 
 - Find text inside files, not names: [Search the project](how-to-search-the-project).
-- Create, rename, move and delete, and what each question asks: [File dialogs](workbench-file-dialogs).
+- Create, rename, move and delete, and what each question asks: [File dialogs and the file picker](workbench-file-dialogs).
 - Keep a place you return to often: [Bookmarks](workbench-bookmarks).
-- Hide what the tree and search skip: [Files and search settings](settings-files-and-search).
+- Hide what the tree and search skip: [File explorer, editor and search](settings-files-and-search).
 
 ## When something goes wrong
 
@@ -54,6 +54,6 @@ copy, cut and paste.
   [title bar](workbench-titlebar).
 - The filter shows **Nothing matches**: it matches names, not file contents, and waits for three
   characters before it searches. Use [Search](workbench-search) for contents.
-- A file you expect is missing: it may be hidden. Press the eye to show hidden files.
+- A file you expect is missing: if it is a hidden file, press the eye to show hidden files.
 - The explorer is gone: closing its tab removes it, and the left-region button in the title bar
   brings it back.

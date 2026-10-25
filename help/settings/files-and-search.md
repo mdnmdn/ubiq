@@ -17,13 +17,13 @@ Three sections of [Settings](settings) govern working with files. **File explore
 
 | Setting | What it changes for you |
 |---|---|
-| **Open files in previews** | A single click opens a temporary tab that the next preview replaces; double-click, **Shift**-click and **Shift+Enter** always open permanently |
+| **Open files in previews** | A single click opens a temporary tab that the next preview replaces; double-click, **⇧**-click and **⇧Enter** / **Shift+Enter** always open permanently |
 | **Show hidden files** | Shows dotfiles and dot-folders in the tree, the flat list and the filter; the eye in the explorer's header is the same switch |
 | **Default project folder** | Where a clone lands unless you point the clone dialog elsewhere |
 | **Ephemeral folder** | Where a throwaway clone lands, and the only place Ubiq will delete a project folder from |
 | **Markdown opens in** | **Preview** or **Source** for markdown files you open from now on; source, preview and split stay available on the tab |
 | **Vim mode** | Modal editing in the code editor and in every multi-line box, such as the chat composer and a task description |
-| **Terminal tab**, **Agent terminal tab**, **Agent chat tab** | What the **×** does on each: **Hide** keeps it running, **Close** ends it after a confirm; shells and agent terminals start on **Close**, chat tabs on **Hide** |
+| **Terminal tab**, **Agent terminal tab**, **Agent chat tab** | Under **Closing a tab** in **Editor**, what the **×** does on each: **Hide** keeps it running, **Close** ends it after a confirm; shells and agent terminals start on **Close**, chat tabs on **Hide** |
 | **Restore conversations** | Brings back chats that were open when Ubiq stopped, loading each one's conversation again where the harness can |
 | **Mission term** | The word the board uses for a task that can have children and a plan, such as mission or epic; a project can override it |
 | **Excluded paths** | Comma-separated patterns every project search skips, on top of the project's own ignore rules |

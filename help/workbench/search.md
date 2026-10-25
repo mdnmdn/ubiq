@@ -30,7 +30,7 @@ they are. The panel draws the first 500 hits and says `shown first 500` when the
 `truncated` means the search itself stopped early, so narrow the query.
 
 Open the panel from the title bar's **Search** button ![Search](../img/ui/titlebar-search.png), or
-press **⌘⇧F**. The title bar's command field gets there too: type a term and press **⌘⏎**, or pick the
+press **⌘⇧F**. The title bar's command field gets there too: type a term and press **⌘Enter**, or pick the
 first row of the [navigator](how-to-use-the-navigator), which offers what you typed as a search
 `in project`. Either way Ubiq switches to IDE mode and runs it.
 
@@ -38,7 +38,7 @@ first row of the [navigator](how-to-use-the-navigator), which offers what you ty
 
 - Search step by step, with the options explained: [Search the project](how-to-search-the-project).
 - Find a file by name instead of by contents: [The file explorer](workbench-explorer).
-- Choose what every search skips: [Files and search settings](settings-files-and-search).
+- Choose what every search skips: [File explorer, editor and search](settings-files-and-search).
 - Leave one folder out of search from the tree: right-click it, then **Exclude from search**.
 
 ## When something goes wrong

@@ -47,7 +47,7 @@ and what happens when it ends, with **Edit** and a **×** to remove it. **Add to
 ## What you can do here
 
 - Open the title bar and its other actions: [The title bar](workbench-titlebar).
-- Add a machine-wide tool: [Tools settings](settings-tools).
+- Add a machine-wide tool: [Tools and command line](settings-tools).
 - Add a tool for one project: [Project settings](settings-project).
 - Read a finished tool's output: [Hide or close a tab](how-to-hide-or-close-a-tab).
 
@@ -56,7 +56,7 @@ and what happens when it ends, with **Edit** and a **×** to remove it. **Add to
 - The play button says **No tools for this project**: add one in settings, or add a recipe to a
   `justfile`, `Makefile` or `mise` config the project already has.
 - The picker says `No tool matches`: clear the filter.
-- A tool is missing: its **Platforms** may leave this system out.
+- A tool you defined is missing: its **Platforms** leave this system out.
 - **Run** is refused: the tool is a single instance and its first pane is still open. **Stop** it or
   close that pane.
 - A finished tool's pane vanished: turn on **Wait on exit** in the tool's form to keep its output.

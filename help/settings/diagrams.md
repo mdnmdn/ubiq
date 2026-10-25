@@ -28,7 +28,7 @@ for you, not in any project. **Shell integration** is a separate section that ex
 
 ## When something goes wrong
 
-- **A diagram looks the same after I changed Palette.** The file may set its own look and **Palette**
+- **A diagram looks the same after I changed Palette.** The file sets its own look and **Palette**
   is on **Document**; pick a named palette to override it.
 - **The Shell integration section is not there.** It is shown on Windows only.
 - **It says it has no file-manager menu Ubiq can join.** The machine Ubiq runs on cannot take the

@@ -40,9 +40,9 @@ so until you open a folder.
 
 ## What you can do here
 
-- Jump to a mode with **⌃1** to **⌃9**, counting the project modes from **IDE**; the rail lists them.
+- Jump to a mode with **⌃1** / **Ctrl+1** to **⌃9** / **Ctrl+9**, counting the project modes from **IDE**; the rail lists them.
 - Switch **DB** on, or hide a mode: [Project settings](settings-project).
-- Start an agent from any project mode: [Starting an agent](agents-starting).
+- Start an agent from any project mode: [The new agent dialog](agents-new-agent).
 - Move or split the panels a mode opens: [Split and move panes](how-to-split-and-move-panes).
 
 ## When something goes wrong

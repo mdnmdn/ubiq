@@ -31,14 +31,14 @@ opens a new untitled file, which asks where to save it the first time. **⌘⌥K
 the caret is on; see [Bookmarks](workbench-bookmarks). Pasting a picture outside a text field opens
 it as an untitled image tab.
 
-Vim keys are off until you switch them on in **Settings**; the **VIM** chip in the status bar turns
+Vim keys are off until you switch them on in **Settings**, then **Editor**, then **Vim mode**; the **VIM** chip in the status bar turns
 them on and off as well, and shows the mode you are in.
 
 ## What you can do here
 
 - Find text in the project and land on its line: [Search the project](how-to-search-the-project).
 - Jump to a heading or a function in the open file: [The outline](workbench-outline).
-- Rename, delete or create files, and answer the questions saving raises: [File dialogs](workbench-file-dialogs).
+- Rename, delete or create files, and answer the questions saving raises: [File dialogs and the file picker](workbench-file-dialogs).
 - Review what an agent changed in a file: [Review and commit](guides-review-and-commit).
 
 ## When something goes wrong
@@ -47,4 +47,4 @@ them on and off as well, and shows the mode you are in.
 - **File already exists** appears on save-as: pick **Overwrite** only if you mean to replace that file.
 - **Unsaved changes** appears when you close a tab with edits, or reload a file that has them:
   **Discard** closes the tab without saving, and **Reload** replaces your edits with what is on disk.
-- A file will not open: it may be unreadable or not a file Ubiq can open, and the tab says which.
+- A file will not open: the tab says why, either the file is unreadable or it is not a kind Ubiq opens.

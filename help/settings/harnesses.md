@@ -31,7 +31,7 @@ decides what an agent may reach. Both are sections of [Settings](settings). What
 
 - Add an account and sign a harness in: [Accounts](agents-accounts).
 - Save a harness, account and model as one pick: [Agent definitions](agents-definitions).
-- Choose how much an agent may do without asking: [Switch permission mode](how-to-switch-permission-mode).
+- Choose how much an agent may do without asking: [Switch a harness's permission mode](how-to-switch-permission-mode).
 - Set up accounts for several clients end to end: [Accounts and agent definitions for several clients](guides-accounts-and-definitions).
 
 ## When something goes wrong

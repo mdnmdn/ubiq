@@ -11,15 +11,15 @@ related: [remote-overview, settings-hosts, guides-remote-machine]
 The **Connect to a remote host** dialog attaches this window to another machine. Open it with
 **New connection** in [Remote hosts](remote-overview), or from the **More** chevron beside the
 **Settings** button ![Settings](../img/ui/titlebar-settings.png) with **Connect to a remote host**.
-Pick how you reach the machine at the top: **Ubiq host** for a machine already running Ubiq's
-server, or **Drone over ssh** for any machine you can sign in to with SSH.
+Pick how you reach the machine at the top: **Ubiq host** for a machine where Ubiq is already
+running as a host, or **Drone over ssh** for any machine you can sign in to with SSH.
 
 ## The parts
 
 | Part | What it does |
 |---|---|
 | **Ubiq host** | Reaches a machine that is running `ubiq --serve`, by address and token |
-| **Address** | A host, or `host:port`; pasting the whole connection string the server printed fills the token too |
+| **Address** | A host, or `host:port`; pasting the whole connection string that machine printed fills the token too |
 | **Token** | The token that machine printed |
 | **Protocol** | **http**, or **https** when the host was started with a certificate and key |
 | **Trust certificate** | Skips checking a self-signed certificate; only needed with https, and shown on the saved entry afterwards |
@@ -33,7 +33,7 @@ server, or **Drone over ssh** for any machine you can sign in to with SSH.
 
 - Add the SSH profile the dialog asks for: [Hosts, SSH and drones](settings-hosts).
 - See and manage the hosts you have reached: [Remote hosts](remote-overview).
-- Follow a whole session on another machine: [Work on a remote machine](guides-remote-machine).
+- Work end to end on another machine: [Work on a remote machine](guides-remote-machine).
 
 ## When something goes wrong
 

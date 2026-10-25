@@ -20,7 +20,7 @@ to the same board, so a card an agent creates or moves appears here.
 |---|---|
 | Columns | One per stage: backlog, ready, blocked, in progress, in review, done and abandoned, each with a count; click a column's heading to shut it to a strip |
 | A card | A task's title, with its key, kind, labels and priority; its left edge shows the worst thing happening in it, unless you gave the card a colour |
-| Filter field | Narrows the cards to those matching what you type in their title, description, key, kind, labels or session; `key:` matches only keys and `#` only labels |
+| Filter field | Narrows the cards to those matching what you type in their title, description, key, kind, labels or workspace session; `key:` matches only keys and `#` only labels |
 | **all tags** | Picks labels; a card must carry every one you tick |
 | **all missions** | Shows one mission and its subtasks, or every task; not drawn on a named board |
 | **Ready only** | Hides every task that is waiting on a prerequisite |

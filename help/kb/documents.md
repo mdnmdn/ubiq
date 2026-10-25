@@ -27,15 +27,15 @@ knowledge base cannot be annotated.
 | **Close** | On the tab's right-click menu; closes the tab |
 | **Reveal in Explorer** | On the tab's menu; finds the document in the **Documents** tree |
 | **Save** | On the tab's menu; writes the document back to its source |
-| Pin row | On the tab's menu; pins or unpins the tab |
+| **Pin** / **Unpin** | On the tab's menu; pins or unpins the tab |
 
 ## What you can do here
 
-- Edit a document in a source that allows writing, then save it with **⌘S** in KB mode, which saves
+- Edit a document in a source that allows writing, then save it with **⌘S** / **Ctrl+S** in KB mode, which saves
   every document with unsaved edits, or with **Save** on the tab's menu.
 - Find where an open document lives: **Reveal in Explorer**.
-- Create, rename or delete documents from the tree's right-click menu: [the knowledge base](kb-overview).
-- Arrange tabs beside an agent: [panels](workbench-panels).
+- Create, rename or delete documents from the tree's right-click menu: [The knowledge base](kb-overview).
+- Arrange tabs beside an agent: [Panels and the dock](workbench-panels).
 
 ## When something goes wrong
 

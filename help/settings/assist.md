@@ -29,7 +29,7 @@ says whether this machine can answer at all.
 ## What you can do here
 
 - Turn naming on for conversations you start later: [Conversations](concepts-conversations).
-- See a named conversation in its tab: [The chat panel](agents-chat).
+- See a named conversation in its tab: [The chat tab](agents-chat).
 - Add a hosted provider next to a local one; several providers are ordinary, and the **Name** is what
   tells them apart.
 

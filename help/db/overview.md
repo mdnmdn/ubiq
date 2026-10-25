@@ -20,7 +20,7 @@ a project asks for it: open the project's settings, go to **General**, and light
 | Part | What it does |
 |---|---|
 | **+** (**Add connection**) in the explorer header | Opens the connection form |
-| The gear (**Database settings**) | Opens the project's settings on **Databases**, which lists every connection with **Test**, **Edit** and **Remove** |
+| The gear (**Database settings**) | Opens the project's settings on **Databases**, which lists every connection with **Test**, **Edit** and **Remove**; see [Project databases](settings-project-databases) |
 | The filter above the tree | Narrows what is already loaded, by name |
 | The tree | Connections, then databases, schemas, tables and views, then columns; each level loads when first opened |
 | A table row | Double-click to open; its approximate row count sits at the right |
@@ -42,8 +42,8 @@ table or view; **Copy name** on most rows.
   **New database…**. Tick **Read-only** to make every tab on the connection refuse writes.
 - Edit a table: double-click a cell, or press **Enter** or **F2**; **Backspace** in an empty field makes
   the cell NULL. **Apply** sends all pending changes as one batch and undoes them all if one fails.
-- Run SQL: **Run** (**⌘↵** / **Ctrl+↵**) runs the selection or the statement the cursor is in;
-  **Run all** (**⌘⇧↵** / **Ctrl+Shift+↵**) runs every statement, one result tab each; **Stop**
+- Run SQL: **Run** (**⌘Enter** / **Ctrl+Enter**) runs the selection or the statement the cursor is in;
+  **Run all** (**⌘⇧Enter** / **Ctrl+Shift+Enter**) runs every statement, one result tab each; **Stop**
   (**⌘.** / **Ctrl+.**) cancels. **Analyze** runs the statement for real to measure it, so it asks first.
 - Share the connections: they are saved with the project, and a teammate sees the same list. The
   walk-through is [Query a database](guides-query-a-database).

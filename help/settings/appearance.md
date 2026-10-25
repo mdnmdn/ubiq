@@ -9,8 +9,9 @@ related: [settings, how-to-change-theme-and-size, workbench-status-bar]
 ---
 
 **Appearance** sets how the window looks and which destinations the rail shows; **Size** sets how big
-the window and its text are drawn. Both are sections of [Settings](settings). The **Theme** button
-in the [title bar](workbench-titlebar) flips between dark and light without opening Settings.
+the window and its text are drawn. Both are sections of [Settings](settings). The theme button
+![Light](../img/ui/titlebar-theme-light.png) in the [title bar](workbench-titlebar) flips between
+dark and light without opening Settings.
 
 ## The parts
 

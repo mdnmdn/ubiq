@@ -34,7 +34,7 @@ while HEAD is detached. Stashes and submodules offer only **Copy name**.
 - Switch branch: double-click it, or select it and use **Checkout the selected ref** in the
   [Git strip](git-overview).
 - Create a branch at HEAD with **New branch** in the strip.
-- Find a commit by branch: [Browsing history](git-history).
+- Find a commit by branch: [The History panel](git-history).
 
 ## When something goes wrong
 

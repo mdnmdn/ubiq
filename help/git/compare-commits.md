@@ -8,7 +8,7 @@ status: current
 related: [git-history, git-changes, git-diff]
 ---
 
-Use this to see everything that changed between two points in the history, not just one commit.
+Use this to see everything that changed between two points in the history, not only one commit.
 
 1. Select the first commit in [History](git-history).
 2. Hold **⌘** and click a second commit.

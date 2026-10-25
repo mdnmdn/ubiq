@@ -27,7 +27,7 @@ server there with the same id as an application one takes its place.
 | **From the application** | Project settings only. The application's servers, read-only; one this project replaces is marked as shadowed |
 | **Paste a configuration** | In the form: paste a server's configuration and **Fill from paste** fills the fields; some entries ask for **Needs a value** |
 | **Id** | What a definition or a start ticks the server by: letters, digits, dots, dashes and underscores |
-| **Kind** | **Local** starts a command on the machine where the agent runs; **Remote** connects to a URL, **over** **HTTP** or **SSE** |
+| **Kind** | **Local** starts a command on the machine where the agent runs; **Remote** connects to a URL, over **HTTP** or **SSE** |
 | **Command**, **Arguments**, **Environment** | Local: the program, one argument per line, and one `KEY=VALUE` per line |
 | **URL**, **Headers** | Remote: the endpoint, and one `Name: value` per line, which is where a token goes |
 | **Description** | Optional; shown beside the server in the pickers |

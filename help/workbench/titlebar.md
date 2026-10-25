@@ -17,11 +17,11 @@ thing, and its narrow chevron lists the alternatives.
 
 | Part | What it does |
 |---|---|
-| Project name | Shows the open project, with the window's letter when you have several windows; click to switch project, add or clone one |
+| Project name | Shows the open project, with the window's letter when you have several windows; click to switch project, add or clone one, or pick **Others…** for [All projects](workbench-all-projects) |
 | **Project settings** | The three-dot button beside the name; on a temporary project it is **Keep this project** |
 | **Open** `<address>` ![Open](../img/ui/titlebar-browser.png) | Opens the project's repository page in your browser; shown only when the project has a remote with a page |
 | Play button and **Run a tool** | Runs the project's first tool, and its chevron lists the rest; see [Runnable tools](workbench-tools) |
-| **Add a project** | Adds a folder on this machine; its chevron, **Open a project**, adds **Clone a project…** and **Open a remote project…** |
+| **Add a project** | Adds a folder on this machine; its chevron, **Open a project**, adds **Clone a project…** and **Open remote project…**, which names the host once one is saved |
 | Back, Forward | Step through where this window has been, across projects; **⌃-** / **Ctrl+-** and **⌃⇧-** / **Ctrl+Shift+-**. Their tooltips name the place |
 | Command field | Marked **⌘K**: type to jump to a file, a task, an agent or a recent place, or to search |
 | Region buttons | Three buttons ![Left panels](../img/ui/titlebar-panel-left.png) ![Bottom panels](../img/ui/titlebar-panel-bottom.png) ![Right panels](../img/ui/titlebar-panel-right.png) that show or hide the left, bottom and right regions |
@@ -37,16 +37,16 @@ thing, and its narrow chevron lists the alternatives.
 | **About Ubiq** ![About Ubiq](../img/ui/titlebar-about.png) | The version, updates and licences |
 
 **New agent** and **New terminal** need an open project. The command field is one habit for three
-jobs: with nothing typed it offers where you were, and typed text offers matches. **⌘⏎** searches the
+jobs: with nothing typed it offers where you were, and typed text offers matches. **⌘Enter** searches the
 project for what you typed. Press **⌘K** from anywhere to reach it, and **⌘P** / **Ctrl+P** to filter
 the explorer instead.
 
 ## What you can do here
 
 - Jump to a file, a task or a project by typing: [Use the navigator](how-to-use-the-navigator).
-- Start an agent: [Starting an agent](agents-starting).
+- Start an agent: [The new agent dialog](agents-new-agent).
 - Hide, show or rearrange regions: [Panels and the dock](workbench-panels).
-- Switch to light or dark, or change size: [Change theme and size](how-to-change-theme-and-size).
+- Switch to light or dark, or change size: [Change the theme and interface size](how-to-change-theme-and-size).
 
 ## When something goes wrong
 

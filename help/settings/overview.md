@@ -30,7 +30,7 @@ What belongs to one project, such as its name, colour and task board, is in
 | **Connectors** | Your signed-in identities at GitHub, GitLab and similar; see [Connectors](settings-connectors) |
 | **Hosts**, **SSH profiles**, **Drones** | Other machines, how to sign in to them, and what runs on them; see [Hosts, SSH and drones](settings-hosts) |
 | **Tools**, **Command line** | Commands you can run from the title bar, and the `ubiq` launcher; see [Tools and command line](settings-tools) |
-| **Feedback** | Where a report from the feedback dialog is sent; see [Feedback](feedback) |
+| **Feedback** | Where a report from the feedback dialog is sent; see [Sending feedback](feedback) |
 | **Updates** | The version running, the release channel, and whether Ubiq checks and downloads on its own, with **Check now**; see [Updates](settings-updates) |
 | **Diagrams** | How diagrams are checked and drawn: **Quality profile**, **Palette** and **Motion**; see [Diagrams and shell integration](settings-diagrams) |
 | **Shell integration** | On Windows only: adds *Open in Ubiq* to the file manager's right-click menu; see [Diagrams and shell integration](settings-diagrams) |

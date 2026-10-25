@@ -34,8 +34,8 @@ hosts**.
 
 - Reach a machine for the first time: [Connecting to a host](remote-connect).
 - Work end to end on another machine: [Work on a remote machine](guides-remote-machine).
-- Open a folder on a host as a project: pick **Open a project on** and the host's name from the **More
-  ways to add** chevron beside **Add project**, or **Open remote project…** when none is saved. See
+- Open a folder on a host as a project: pick **Open a project on** and the host's name from the **Open a
+  project** chevron beside **Add a project**, or **Open remote project…** when none is saved. See
   [The title bar](workbench-titlebar).
 - Choose which host new panes and projects go to by default, manage SSH profiles and stop drones
   that outlive a connection: [Hosts, SSH and drones](settings-hosts).

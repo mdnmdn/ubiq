@@ -40,12 +40,12 @@ that move it through its phases: **Confirm**, **Reject…**, **Retry**, **Done**
   **Create**. A description with no title is named for you from its first line.
 - Give a task to an agent, review its result and complete it:
   [Plan work on the Tasks board](guides-tasks-board).
-- Choose the agent and its setup in [Starting an agent](agents-starting).
+- Choose the agent and its setup in [The new agent dialog](agents-new-agent).
 
 ## When something goes wrong
 
 - **Some fields will not edit.** A board bound to another service that only pulls says so at the top
-  of the panel; set the binding to two-way in the project's **Task sync** section to change that.
+  of the panel; set the binding to **Two-way** in [Task sync](settings-project-task-sync) to change that.
 - **The agent buttons and the shape are missing.** A named board has no agents and draws neither.
 - **A prerequisite or parent is refused.** A task cannot wait on itself or on a task that would
   close a loop, and only a mission can be a parent.

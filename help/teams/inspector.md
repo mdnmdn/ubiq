@@ -8,10 +8,9 @@ status: current
 related: [teams-overview, tasks-overview, agents-chat]
 ---
 
-Teams has no inspector panel of its own. Clicking a card, or a delegate inside a card's fence, opens
-that agent's conversation in a chat tab in the right panel, revealing the panel if it was put away.
-Under the canvas, a drawer lists the tasks for what you have selected. Both belong to
-[the Teams screen](teams-overview).
+On [the Teams screen](teams-overview), clicking a card, or a delegate inside a card's fence, opens
+that agent's conversation in a chat tab in the right region, and opens the region if it was hidden.
+Under the canvas, a drawer lists the tasks for what you have selected.
 
 ## The parts
 
@@ -31,7 +30,7 @@ Under the canvas, a drawer lists the tasks for what you have selected. Both belo
 
 ## When something goes wrong
 
-- **The drawer says No task for this selection.** What is selected has no task; select
+- **The drawer says `No task for this selection.`** What is selected has no task; select
   another card or use a picker's arrow.
 - **Nothing opens on the right.** Choosing a workspace session with the arrow opens no
   conversation, since it has none; select a card instead.

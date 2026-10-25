@@ -34,7 +34,7 @@ The picker is a larger dialog that you work in rather than answer. It has a titl
 buttons to switch between a tree and a flat list, a **×** to close it, and a corner handle to resize
 it. The footer shows what to press and the confirm button, **Select** for one choice or **Add** with a
 count for several. Where several can be chosen, each row has a tick box; press **Enter** to tick and
-**⌘⏎** / **Ctrl+Enter** to add. A row with a `…` is still loading, and one with a `+` was cut short.
+**⌘Enter** / **Ctrl+Enter** to add. A row with a `…` is still loading, and one with a `+` was cut short.
 
 The eye in the header shows or hides hidden files. When you browse another machine, an up arrow and
 the folder's path appear beside the filter. Picking a project on a remote host adds a **Keep project**

@@ -18,7 +18,7 @@ every source, with **Add source** under them.
 
 | Row | What it does |
 |---|---|
-| **Name** | What the explorer calls the source; filled in from the folder or repository until you type your own |
+| **Name** | What the **Documents** panel calls the source; filled in from the folder or repository until you type your own |
 | **Kind** | **Folder** is read where it lies, **Git repository** is cloned and refreshed by Ubiq, **Wiki** is Ubiq's own and starts empty |
 | **Folder** | Browse for the folder; it is chosen on the machine the project runs on, not necessarily this one |
 | **Repository URL** and **Check** | Check reaches the repository and reports **Reached** with its branch count |
@@ -30,7 +30,7 @@ every source, with **Add source** under them.
 
 In the list, each source also has a filter field of space-separated patterns such as `*.md *.excalidraw`;
 only matching files are shown, and it applies when you press **Enter** or leave the field. The
-**x** at the end of a row removes the source.
+**×** at the end of a row removes the source.
 
 ## What you can do here
 

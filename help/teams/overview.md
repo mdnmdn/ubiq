@@ -22,7 +22,7 @@ appear; a project with none says **No agent is running in this project.**
 | A card | One agent: its status mark and title, its harness and model, the title of its task, a corner chip with its state, and its token count |
 | Delegates | Subagents the agent started, one card each under it inside a fence; a card that is waiting on you says `need you` |
 | Task outline | A dashed box round the cards serving one task, with the task's shape written on it |
-| First picker | **all sessions** on Teams, **all projects** on All Teams; tick the ones to draw, or use the arrow on a row to look at just that one |
+| First picker | **all sessions** on Teams, **all projects** on All Teams; tick the ones to draw, or use the arrow on a row to look at that one only |
 | **all states** | Ticks which states to draw: running, waiting, ended, error |
 | **Hide done** | Hides delegates that have finished cleanly; failed ones stay |
 | **New agent** | Opens the new agent dialog, asking which project first when more than one is drawn |
@@ -39,7 +39,7 @@ appear; a project with none says **No agent is running in this project.**
   stays where you let go. Drag the empty ground inside an outline to move the whole task.
 - Pan with the wheel or two fingers (**Shift** turns a vertical wheel sideways), and zoom with
   **⌘+scroll** / **Ctrl+scroll** or a pinch.
-- Start an agent for a task: [Starting an agent](agents-starting).
+- Start an agent for a task: [The new agent dialog](agents-new-agent).
 - Choose the arrangement new canvases open in: [Appearance and size](settings-appearance).
 
 ## When something goes wrong
@@ -50,4 +50,4 @@ appear; a project with none says **No agent is running in this project.**
   so other projects' outlines do not light up.
 - **Cards sit in a tangle after hiding or ending agents.** Press **Rearrange**.
 - **The canvas is empty.** Teams draws running agents only; start one, or look in
-  [Agents mode](agents-columns) for the conversations that ended.
+  [The agents columns and sidebar](agents-columns) for the conversations that ended.

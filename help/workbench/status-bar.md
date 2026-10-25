@@ -35,7 +35,7 @@ The size panel sets two things: how big the whole window is drawn, and how big i
 
 ## What you can do here
 
-- Change the size, brightness or palette: [Change theme and size](how-to-change-theme-and-size).
+- Change the size, brightness or palette: [Change the theme and interface size](how-to-change-theme-and-size).
 - Read the open file in another viewer: [The editor](workbench-editor).
 - Read what the git letters mean: [The Changes panel](git-changes).
 - See what each mode is for: [Rail modes](workbench-modes).

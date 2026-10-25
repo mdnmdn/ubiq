@@ -30,7 +30,7 @@ Each mode is one button, an icon over its label. The modes are described in
 Project badges show a project's initial, or the letters its settings give it, in its colour. The
 current project is the filled square, the others are rings, and a badge's tooltip is the project's
 name. Badges appear only when the window holds more than one project, newest last, and only as many
-as fit under the modes. **⌘1** to **⌘9** jump to the nth badge; **⌃1** to **⌃9** jump to the nth
+as fit under the modes. **⌘1** to **⌘9** jump to the nth badge; **⌃1** / **Ctrl+1** to **⌃9** / **Ctrl+9** jump to the nth
 project mode that is switched on, counting from **IDE**. **Control** and **All Teams** have no digit.
 
 ## What you can do here
@@ -49,9 +49,9 @@ for the other project.
   [title bar](workbench-titlebar).
 - **DB** is missing: it is off until you switch it on in project settings, under **General**, then
   **Modes**.
-- A mode you expect is missing: it may be hidden in [project settings](settings-project). The rail
+- A mode you expect is missing: it is switched off in [project settings](settings-project). The rail
   always keeps at least one mode.
 - No badges: the window holds one project, the **Open projects in the rail** setting is off, or the
-  window is too short for them. **Settings** has the switch.
-- **⌃3** lands on the wrong mode: the digits count only the modes that are switched on, so hiding a
+  window is too short for them. The switch is in **Settings**, then **Appearance**.
+- **⌃3** / **Ctrl+3** lands on the wrong mode: the digits count only the modes that are switched on, so hiding a
   mode shifts the ones after it.
