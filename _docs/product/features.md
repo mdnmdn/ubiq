@@ -193,7 +193,6 @@ Owned by [Notifications](../features/notifications.md), [Logs](../features/logs.
 Owned by The workbench.
 
 - **In-app help.** Open help from the titlebar and point at a control to ask about it.
-- **Kitchen sink.** Opt into a test bench of fixtures for viewers, pickers and layouts (see [Sink mode](../features/workbench-sink.md)).
 
 ## Settings and appearance
 
