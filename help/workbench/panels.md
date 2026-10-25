@@ -3,7 +3,6 @@ id: workbench-panels
 title: Panels and the dock
 summary: How panels dock, move and close, and where the logs panel fits among them.
 keywords: [panel, dock, drag, split, logs, console]
-context: [panel.ubiq.logs]
 order: 20
 status: current
 related: [workbench-modes, panes]

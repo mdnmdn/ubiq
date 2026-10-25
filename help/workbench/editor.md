@@ -3,6 +3,7 @@ id: workbench-editor
 title: The editor
 summary: Opening, editing and saving a file's tab in IDE mode's centre.
 keywords: [editor, tab, save, open file]
+context: [panel.ubiq.file]
 order: 50
 status: draft
 related: [workbench-explorer]

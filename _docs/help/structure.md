@@ -184,7 +184,7 @@ pick **Close** from the tab's right-click menu — see [Hide or close a tab](how
 | Field | Rule |
 |---|---|
 | file | `help/<folder>/<name>.md`, `<name>` lowercase and hyphenated: a noun for a concept or reference page, the verb phrase for a how-to or guide (`hide-or-close-a-tab`), the topic for a FAQ file |
-| `id` | `<folder>-<name>` for a page in a folder; the bare name for a single page at the root. An id is forever: links, the context map and the agent's help tools all address it. Ids that predate this rule (`panes`, `sessions`, `projects`, `glossary`) stay as they are |
+| `id` | `<folder>-<name>` for a page in a folder; the bare name for a single page at the root. An id is forever: links, the context map and the agent's help tools all address it. Ids that predate this rule (`panes`, `sessions`, `projects`, `glossary`) stay as they are, and so do the ids a screen asks for by name when F1 is pressed in it (`settings`, `feedback`) |
 | moving a file | keep the id; add the old path to `redirects` |
 | `order` | multiples of 10 within the folder, in the order a reader should meet the pages; a reference folder's overview is `10` |
 | `status` | `planned` for a stub in the nav before its body exists; `draft` for a page whose facts have not been checked against a running build; otherwise `current`, and the field is omitted |

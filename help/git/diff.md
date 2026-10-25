@@ -3,6 +3,7 @@ id: git-diff
 title: Reading a diff
 summary: How the diff under the history reads a comparison, and what its line colours mean.
 keywords: [diff, hunk, comparison, side by side]
+context: [panel.ubiq.git.diff]
 order: 50
 status: draft
 related: [git-changes, git-history]
