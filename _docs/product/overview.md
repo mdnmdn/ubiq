@@ -5,8 +5,8 @@ kind: product
 status: current
 summary: What Ubiq is, who runs it, why an agent harness needs a real terminal rather than a chat box, and what the product deliberately refuses to be.
 read_when: you are deciding whether something is in scope, or you have never seen this project before
-updated: 2026-08-31
-verified: 2026-08-31
+updated: 2026-10-25
+verified: 2026-10-25
 review_cycle: quarterly
 ---
 
@@ -46,8 +46,9 @@ under a genuine pseudo-terminal, and Ubiq's job is to shuttle bytes between the 
 about their content.
 
 This is also what separates Ubiq from a chat frontend. A chat frontend owns the conversation and
-calls a model. Ubiq owns nothing about the conversation: it hosts whichever harness the user
-chose, unchanged, and adds the multiplexing, the configuration, and the window around it.
+calls a model. Ubiq hosts whichever harness the user chose, unchanged, whether as a terminal pane or
+as a chat panel over the harness's own conversation, and adds the multiplexing, the configuration,
+and the window around it.
 
 ## What Ubiq adds on top of running the harnesses yourself
 
@@ -85,8 +86,10 @@ In scope, in the order the product cares about it:
 
 - **Writing a terminal emulator or a VT parser.** Ubiq integrates one. Every hour spent on escape
   sequence handling is an hour not spent on the product.
-- **Being a chat client.** Ubiq does not talk to a model API, does not own a conversation, and does
-  not render messages. It hosts the harness that does.
+- **Being a chat client.** Ubiq's agents are the harnesses, and it hosts them unchanged. It draws a
+  harness's conversation in a chat panel, with a composer and permission prompts, but the harness owns
+  the conversation and talks to its model. The one model call Ubiq makes on its own is Assistance, a
+  helper behind a provider the user configures, never a replacement for a harness.
 - **Replacing the harnesses' own configuration.** Ubiq composes a run and leaves the user's real
   config untouched.
 - **Being a secrets manager.** Accounts carry references to credentials, never the credential

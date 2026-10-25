@@ -5,7 +5,7 @@ kind: wip
 status: current
 summary: A project's knowledge base as it stands — a per-project list of sources persisted as one TOML file, a folder read where it lies, a git repository cloned and refreshed, an internal wiki, a host-side write half (`kb/ops.rs`) behind six new messages, the `ubiq-kb` MCP server that reaches it, the explorer's right-click menu that reaches it from the interface, and a document as a dock tab — the same `OpenFile` the IDE's editor uses, with its own Save gated on the source's write access.
 read_when: you are touching the knowledge base's sources, its git sync worker, its write half, its `ubiq-kb` MCP server, or its explorer panel or document tabs
-updated: 2026-10-24
+updated: 2026-10-25
 verified: 2026-09-22
 code_anchors: [crates/ubiq-proto/src/kb.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/kb/ops.rs, crates/ubiq-host/src/kb/vault.rs, crates/ubiq-host/src/kb/store.rs, crates/ubiq-host/src/kb/sync.rs, crates/ubiq-host/src/mcp/kb.rs, crates/ubiq/src/state/kb.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/app/kb.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/kb/source_form.rs, crates/ubiq/src/ui/kb/password.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq/tests/kb.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions]
@@ -308,11 +308,12 @@ prose names the knowledge base as one of the things it covers.
 `KbStore::Project` breaks that rule on purpose: a `.ubiq/local/kb/<source id>` checkout **inside** the
 project, for a team that wants the checkout shared with everyone who has the project, or committed
 alongside it, rather than living only in one person's config root. This is a real, user-chosen
-exception rather than an oversight, and it needs its own decision row before it is built — what a
-reasonable person could later reverse about writing into a project folder for the first time since
-`D30`, and what it costs, most obviously an entry a project's own `.gitignore` may or may not carry
-for a checkout Ubiq did not ask permission to commit. Nothing in the tree builds `KbStore::Project`
-yet; the gap is `G269`.
+exception rather than an oversight. The store is built: the source form offers it as **Inside the
+project**, and `Kb::base_path` (`crates/ubiq-host/src/kb/mod.rs`) resolves it through
+`ProjectData::in_project`. What is missing is its own decision row — what a reasonable person could
+later reverse about writing into a project folder for the first time since `D30`, and what it costs,
+most obviously an entry a project's own `.gitignore` may or may not carry for a checkout Ubiq did
+not ask permission to commit; the gap is `G269`.
 
 ## Next steps
 

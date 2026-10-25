@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The rail's graph mode — `Teams`, over a project or the whole window, drawing its cards' conversations in the dock — the twelve arrangements the canvas computes for itself, the hexagonal status mark, the filters, the drag model and the tasks drawer.
 read_when: you are changing the Teams screen — its graph, how it arranges itself, a card or a delegate row, the span, the filters or the tasks drawer
-updated: 2026-10-12
+updated: 2026-10-25
 verified: 2026-10-09
 code_anchors: [crates/ubiq/src/app/teams.rs, crates/ubiq/src/app/teams_span.rs, crates/ubiq/src/state/teams.rs, crates/ubiq/src/ui/teams/mod.rs, crates/ubiq/src/ui/teams/graph.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/teams/tasks.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/tests/teams.rs, crates/ubiq/tests/teams_view.rs, crates/ubiq/src/state/layout.rs, crates/ubiq/src/state/shapes.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/state/teamsim.rs]
 depends_on: [feat-workbench, tech-ui]
@@ -33,11 +33,10 @@ intact rather than rewriting the one that was up. The earlier graph screen, `[Te
 (`RailMode::TeamsOld`), is gone (`D205`): a saved preference standing in it opens on `Teams`.
 
 **The `Teams` screen is scoped by a span, and the span is the window's own fact** — like the zoom,
-set from the Teams toolbar, persisted nowhere and sent nowhere. The arrangement is not: see below.
-`state::teams::TeamsSpan` is `Project` or `Window` and starts at `Project`: one rail entry, one
-mode, with the span one more thing the canvas is filtered by beside the session pills and the
-states control. An "All projects" toggle pill sits at the head of the Teams toolbar, drawn only when
-the window holds more than one built project. Under `Project` the canvas is the active project's
+read off the rail, persisted nowhere and sent nowhere. The arrangement is not: see below.
+`state::teams::TeamsSpan` is `Project` or `Window`: the Teams rail entry is `Project` and a second
+rail entry (`RailMode::TeamsAll`) is `Window`. The toolbar has no span control; its first filter is
+the Session picker under the project span and the Projects picker under the window span. Under `Project` the canvas is the active project's
 live work and nothing else. Under `Window` it is every project the window holds, in the window's
 own project order — picker order, which never moves — with each project's live work concatenated
 into one canvas.
@@ -80,9 +79,9 @@ in its place is a `+` and a chevron, the titlebar's own new-terminal pattern reu
 built again (§9). The `+` does what `+ Add agent` always did — New agent, asking which
 project when the canvas spans more than one, by a menu whose rows wear the same project face the
 cards do, and going straight to the form when the window holds one. The chevron opens a second
-menu of exactly two rows, **New agent** and **New mission**, each asking the same project question
-in its own second stage before raising its form — New agent the standard dialog, unchanged; New
-mission the same dialog the board and the sidebar's own `+` raise. It sits past the flexible gap
+menu whose one row is **New agent**, asking the same project question in a second stage before
+raising the standard dialog (`teams_create_overlay()` in `ui/teams/mod.rs`); the chevron's tooltip
+reads "New agent or mission" although no mission row is offered (`G439`). It sits past the flexible gap
 with the view controls rather than among the pills, because an action is not a filter. It is one
 of two ways into the New agent form that names a project — the sidebar's Missions header offers
 New agent too — every other way in starts the agent in the window's active project and has no
