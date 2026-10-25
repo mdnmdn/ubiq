@@ -75,6 +75,9 @@ pub fn dial_unix(path: &str) -> Result<UnixDial, ConnectFailure> {
 /// The handshake and the pump over any reader/writer pair: [`carrier::welcome`], then — only on
 /// success — [`start_drone_session`]. `after_welcome` runs between the two, for a carrier that
 /// has a deadline to lift. On failure the halves are dropped and no session starts.
+///
+/// Unix only: the non-Unix `dial_unix` stub never calls it.
+#[cfg(unix)]
 fn handshake_and_pump<R, W>(
     mut reader: R,
     mut writer: W,
