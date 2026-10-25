@@ -68,6 +68,8 @@ The reference folders follow the rail: a project mode is a folder, and what ever
 The first page of a reference folder, `order: 10`, is the mode's overview and carries its `rail.`
 key; the panels follow it.
 
+Studio's own help pages are written to the same guide, in a namespace of their own.
+
 ## 2. Page types
 
 Every page is exactly one type. The type decides the folder, the skeleton and the question the page

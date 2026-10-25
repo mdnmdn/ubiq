@@ -19,6 +19,8 @@ This document owns the living coverage table: every area from the id inventory, 
 
 Each row is one area from `_docs/inbox/ui-id-inventory.md` §4, plus the rail modes from §4.1 and the areas that gained a page after the inventory was cut (marked `added`). The State column reads `missing` when no help page covers the area, `planned` when a page exists in the nav with its frontmatter and a one-paragraph promise but no body yet (`status: planned` or `draft`), `stub` when a page covers part of it, and `done` when a finished page covers it in full. Dialogs and settings sections reach help through rung 1, a `help_page()` call on the dialog or section, so their Context key column reads `— (rung 1)`; a panel or rail row carries the `context:` key in its page's frontmatter, and `—` means the page declares none. The Screenshot column names the guide page whose images (`help/img/guides/*`) show the area, so a UI change can find the page to re-shoot; `—` means no guide carries one.
 
+This table is also the screenshot-rot index: when an interface area changes, its Screenshot column names the guide whose images to re-shoot.
+
 ## Coverage
 
 | Area | Inventory § | Page | Context key | State | Screenshot |
