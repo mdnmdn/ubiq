@@ -5,10 +5,10 @@ kind: help
 status: draft
 summary: The information architecture of the user manual — its sections in reading order and nav order, the five page types with a skeleton and an exemplar each, page ids and order, when a page splits, how context keys and element targets are allotted, and what the index page does.
 read_when: you are adding, moving or splitting a help page, or choosing its type, section, id or context key
-updated: 2026-10-09
+updated: 2026-10-25
 verified: 2026-10-09
 code_anchors: [help/manifest.toml, _tools/helpbundle.py]
-depends_on: [wip-help, wip-help-content]
+depends_on: [wip-help]
 ---
 
 # Help structure
@@ -275,6 +275,5 @@ first page it links to.
 ## Related docs
 
 - [`wip/help.md`](../wip/help.md) — how the help machinery works
-- [`wip/help-content.md`](../wip/help-content.md) — the programme that writes the manual
 - [`style`](./style.md) — voice, terminology, formatting and length
 - [`coverage`](./coverage.md) — every area, its page and its key

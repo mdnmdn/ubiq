@@ -33,7 +33,7 @@ see [Accounts](agents-accounts).
 
 - Add an identity step by step: [Sign in a connector](how-to-sign-in-a-connector).
 - Use one to fetch a repository: pick **Clone a project…** from the **Open a project** chevron in
-  the [title bar](workbench-titlebar), then pick the connector in the clone dialog.
+  the [title bar](workbench-titlebar), then pick the connector in the clone dialog. [Clone a project](how-to-clone-a-project) has the steps.
 - Sign in to a company's own GitLab or Azure DevOps Server: choose **Paste a token**, or register
   an application there first and use **Open a browser**.
 

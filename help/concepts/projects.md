@@ -16,7 +16,7 @@ you are in. An agent always starts in its project's folder.
 
 Ubiq keeps a list of every project you have opened. The project picker in the titlebar groups it
 three ways: projects open in this window, projects open in another window (with that window's
-letter), and history. You can add a folder, clone a repository, or open a project on a remote
+letter), and history. You can add a folder, clone a repository ([how to](how-to-clone-a-project)), or open a project on a remote
 machine from the picker. Dropping a folder onto the editor opens it at once as a temporary project.
 
 A project is open in one window at a time. Picking one that another window holds moves it, and its

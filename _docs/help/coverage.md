@@ -8,7 +8,7 @@ read_when: you are choosing which help page to write next, or recording that one
 updated: 2026-10-25
 verified: 2026-10-25
 code_anchors: [help/manifest.toml, _tools/helpbundle.py, crates/ubiq/src/state/ui_id.rs]
-depends_on: [wip-help, wip-help-content]
+depends_on: [wip-help]
 ---
 
 # Help coverage
@@ -23,8 +23,8 @@ Each row is one area from `_docs/inbox/ui-id-inventory.md` §4, plus the rail mo
 
 | Area | Inventory § | Page | Context key | State | Screenshot |
 |---|---|---|---|---|---|
-| titlebar | §4.1 (CATALOGUE) | workbench/titlebar | — | done | guides/first-project-and-agent |
-| rail | §4.1 (CATALOGUE) | workbench/rail | — | done | guides/first-project-and-agent |
+| titlebar | §4.1 (CATALOGUE) | workbench/titlebar | — | done | guides/first-project-and-agent, index |
+| rail | §4.1 (CATALOGUE) | workbench/rail | — | done | guides/first-project-and-agent, index |
 | dock | §4.1 | workbench/panels | — | done | — |
 | dock.centre | §4.1 | workbench/panels | — | done | — |
 | dock.left | §4.1 | workbench/panels | — | done | — |
@@ -84,7 +84,7 @@ Each row is one area from `_docs/inbox/ui-id-inventory.md` §4, plus the rail mo
 | conversation.composer | §4.3 | agents/conversation | — | done | — |
 | conversation.footer | §4.3 | agents/conversation | — | done | — |
 | conversation.info | §4.3 | agents/conversation | — | done | — |
-| acp-capabilities.panel | §4.3 | — | — | missing | — |
+| acp-capabilities.panel | §4.3 | agents/conversation | — | done | — |
 | new-agent.modal | §4.3 | agents/new-agent | — (rung 1) | done | guides/first-project-and-agent, guides/tasks-board, guides/accounts-and-definitions |
 | new-agent.naming | §4.3 | agents/new-agent | — (rung 1) | done | — |
 | tasks.screen | §4.3 | tasks/overview | rail.tasks | done | guides/tasks-board |
@@ -144,7 +144,7 @@ Each row is one area from `_docs/inbox/ui-id-inventory.md` §4, plus the rail mo
 | dialog.ssh-form | §4.4 | settings/hosts | — (rung 1) | done | guides/remote-machine |
 | dialog.ssh-remove | §4.4 | settings/hosts | — (rung 1) | done | — |
 | dialog.drone-stop | §4.4 | settings/hosts | — (rung 1) | done | — |
-| dialog.clone | §4.4 | concepts/projects | — (rung 1) | stub | — |
+| dialog.clone | §4.4 | how-to/clone-a-project | — (rung 1) | done | — |
 | dialog.feedback | §4.4 | workbench/feedback | — (rung 1) | done | — |
 | dialog.remote-connect | §4.4 | remote/connect | — (rung 1) | done | guides/remote-machine |
 | dialog.remote-manager | §4.4 | remote/overview | — (rung 1) | done | — |
@@ -165,11 +165,10 @@ Each row is one area from `_docs/inbox/ui-id-inventory.md` §4, plus the rail mo
 | rail.mode.tasks | §4.1 (rail) | tasks/overview | rail.tasks | done | — |
 | rail.mode.control | §4.1 (rail) | workbench/control | rail.control | done | — |
 
-The kitchen sink (Sink mode, its pages and style blocks) is out of scope: it is not user-visible, so it has no help page and no rows here. Teams has no inspector: `teams/inspector` covers selecting a card and the tasks drawer, so the earlier `graph.*` rows (the orchestration screen Teams replaced) are gone and the two inspector rows are named for what the user sees. A page's rows read `done` when the page's frontmatter carries no `status: planned` or `draft` and the page names the area; `dialog.clone` is `stub` because the pages only mention cloning a repository as one way to add a project, and `acp-capabilities.panel` is `missing` because no page names it.
+The kitchen sink (Sink mode, its pages and style blocks) is out of scope: it is not user-visible, so it has no help page and no rows here. Teams has no inspector: `teams/inspector` covers selecting a card and the tasks drawer, so the earlier `graph.*` rows (the orchestration screen Teams replaced) are gone and the two inspector rows are named for what the user sees. A page's rows read `done` when the page's frontmatter carries no `status: planned` or `draft` and the page names the area; The capabilities dialog is a section of `agents/conversation`, and the clone dialog has its own how-to. The `index` screenshot (`help/img/start/index-1.png`) is the one full-window capture outside a guide.
 
-**Count: 1 missing / 0 planned / 1 stub / 139 done** (141 rows).
+**Count: 0 missing / 0 planned / 0 stub / 141 done** (141 rows).
 
 ## Related docs
 
 - [`wip/help.md`](../wip/help.md) — how the help machinery works
-- [`wip/help-content.md`](../wip/help-content.md) — the programme that writes the manual

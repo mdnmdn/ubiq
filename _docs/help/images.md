@@ -5,10 +5,10 @@ kind: help
 status: draft
 summary: How inline button icons and screenshots for help pages are made, named, sized, themed and referenced.
 read_when: you are adding an icon or a screenshot to a help page
-updated: 2026-10-09
+updated: 2026-10-25
 verified: 2026-10-09
 code_anchors: [help/manifest.toml, _tools/helpbundle.py, _tools/icons.py]
-depends_on: [wip-help, wip-help-content]
+depends_on: [wip-help]
 ---
 
 # Help images
@@ -89,7 +89,14 @@ The alt text says what the picture shows, in a sentence a reader who cannot see 
 
 On macOS, run `screencapture -o -l <window-id> out.png`, which captures the window without its shadow. Crop afterwards.
 
-On Linux the app runs headless. Start `Xvfb :99`, set `XDG_RUNTIME_DIR`, run `target/debug/ubiq` with `DISPLAY=:99`, drive it with `xdotool`, and capture with `import -window root out.png`. The full recipe, with the packages it needs, is in [`wip/help-content.md`](../wip/help-content.md) under finding T0.1.
+On Linux the app runs headless under software rendering.
+
+- **Packages.** `mesa-vulkan-drivers` (lavapipe), `libdbus-1-dev`, `xdotool`, `imagemagick`, plus `Xvfb`.
+- **Display.** `Xvfb :99 -screen 0 2880x1800x24`, and `GPUI_X11_SCALE_FACTOR=2` in the app's environment for a true 2× capture. Set `XDG_RUNTIME_DIR` to a writable folder.
+- **Throwaway state.** Point `UBIQ_CONFIG_DIR` and `HOME` at a throwaway folder so the real configuration is untouched, and open a throwaway demo git repository as the project.
+- **Modes.** Hide Sink under **Settings › Appearance › Modes**, so the rail shows only what a user sees.
+- **Run and drive.** Start `target/debug/ubiq` with `DISPLAY=:99`, and drive it with `xdotool`. The window lags several seconds behind under software rendering, so wait before each capture.
+- **Capture.** `import -window root out.png`, then crop with `convert -crop`. Optimise with `convert -colors 128 -strip`.
 
 ### 2.4 Keeping them current
 
@@ -98,4 +105,3 @@ A screenshot goes stale when the screen changes. [`coverage`](./coverage.md) lis
 ## Related docs
 
 - [`wip/help.md`](../wip/help.md) — how the help machinery works
-- [`wip/help-content.md`](../wip/help-content.md) — the programme that writes the manual

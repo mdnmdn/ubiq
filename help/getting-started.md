@@ -24,7 +24,7 @@ Nearly everything in Ubiq works against a [project](projects): a folder on your 
 
 The project opens in this window, with the [rail](workbench-rail) down the left edge and the project's name in the title bar. Ubiq remembers it, so the project picker offers it on every later launch.
 
-To start from a repository instead of a local folder, open the chevron beside **Add a project** and pick **Clone a project…**. **Open remote project…** in the same menu reaches a folder on another machine; [Remote hosts](remote-overview) explains it.
+To start from a repository instead of a local folder, open the chevron beside **Add a project** and pick **Clone a project…**; [Clone a project](how-to-clone-a-project) walks through it. **Open remote project…** in the same menu reaches a folder on another machine; [Remote hosts](remote-overview) explains it.
 
 ## Start your first agent
 

@@ -5,10 +5,10 @@ kind: help
 status: draft
 summary: Voice, tone, terminology, formatting conventions, length limits and the list of what never appears in a help page.
 read_when: you are writing or reviewing the words of a help page, or the one-sentence help of an element
-updated: 2026-10-09
+updated: 2026-10-25
 verified: 2026-10-09
 code_anchors: [help/manifest.toml, _tools/helpbundle.py]
-depends_on: [wip-help, wip-help-content, prod-glossary]
+depends_on: [wip-help, prod-glossary]
 ---
 
 # Help style
@@ -171,5 +171,4 @@ A page is ready when each of these holds; the review pass reads the whole manual
 ## Related docs
 
 - [`wip/help.md`](../wip/help.md) — how the help machinery works
-- [`wip/help-content.md`](../wip/help-content.md) — the programme that writes the manual
 - [`product/glossary.md`](../product/glossary.md) — the terms the terminology list is drawn from

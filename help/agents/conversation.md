@@ -56,6 +56,19 @@ The three-dots menu has three groups. Each item is dimmed, never removed, when i
 
 See [resume or fork a conversation](how-to-resume-or-fork-a-conversation).
 
+## What the harness supports
+
+To see what a harness can do, open **Info** from the three-dots menu and press **Capabilities**. In
+[Settings](settings-harnesses) the same dialog opens from the info button beside a harness in **Installed**.
+
+The dialog is titled with the harness's name and shows who answered and its protocol version, then groups of
+capabilities. A check mark means the harness has it; a dash means it does not. Under **Authentication** the sign-in
+methods it offers are listed, and the default one carries a check mark. The foot reads how long ago Ubiq learned this.
+**Close** dismisses it. It only reports; nothing in it can be changed.
+
+A harness that does not use the Agent Client Protocol has no such list, so its **Capabilities** button is dimmed. Before the
+first agent on a harness connects, the dialog says the answer is discovered then.
+
 ## When something goes wrong
 
 - **The harness failed to start.** The transcript shows the error with a **Retry**, which is the menu's **Resume**.
