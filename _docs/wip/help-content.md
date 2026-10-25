@@ -375,3 +375,16 @@ a pinned dependency, so it is a fork or an upstream change, not a Ubiq edit. Tak
 PNG tint for now; revisit only if it reads badly on the light palettes.
 
 Screenshots from the run are in the session scratchpad, not in the tree.
+
+## 11. Status
+
+Phases 0–4 and T5.2 are done; T5.1 (element `targets:` lookup) is not started.
+
+- `_docs/help/` holds the four documents; `help/` holds the finished manual — every page `current`,
+  every coverage row `done` but those the coverage table names otherwise.
+- Help-panel code changed on the way: page images load from the unpacked bundle, soft line breaks
+  fold, the frontmatter strip is gone (`wip/help.md` §2.4, §6). Soft breaks elsewhere are `G437`.
+- Feature documents the writers found wrong against the code were corrected; product gaps found on
+  the way are `G438`–`G447`.
+- Remaining before this document is deleted (§8): the owner reads the manual end to end in a
+  running build; T5.1 is decided or filed; §9's open questions become backlog rows.
