@@ -1,27 +1,46 @@
 ---
 id: projects
 title: Projects
-summary: A folder Ubiq knows about — the home every rail mode other than Control works against.
-keywords: [project, folder, workspace root, open project]
-order: 30
+summary: A folder Ubiq has opened, and everything it remembers about it.
+keywords: [project, folder, open, forget, locate, clone, temporary]
+order: 10
 status: current
-related: [sessions, workbench-modes]
+related: [panes, sessions, workbench-all-projects, workbench-modes]
 ---
 
-## A project is a folder
+## What it is
 
-Opening a project points Ubiq at a folder on disk. Everything a rail mode other than Control or the
-kitchen sink shows — the file explorer, the Git screen, the knowledge base, the agents you start —
-is scoped to that folder. Ubiq remembers which projects you have opened, and a window can hold more
-than one at a time, switching between them with the badges under the rail.
+A *project* is a folder Ubiq has opened, together with everything Ubiq remembers about it. The
+explorer, the Git screen, the knowledge base and every agent you start all work against the project
+you are in. An agent always starts in its project's folder.
+
+Ubiq keeps a list of every project you have opened. The project picker in the titlebar groups it
+three ways: projects open in this window, projects open in another window (with that window's
+letter), and history. You can add a folder, clone a repository, or open a project on a remote
+machine from the picker. Dropping a folder onto the editor opens it at once as a temporary project.
+
+A project is open in one window at a time. Picking one that another window holds moves it, and its
+agents keep running.
 
 ## What a project remembers
 
-Which files are open, how the panels are arranged in each rail mode, the terminals still running, and
-the pinned files and unsaved buffers you left behind — all kept per project, so returning to one
-restores the window the way you left it rather than a blank slate.
+Which files you had open and how its panels were arranged come back when you return to it. Several
+projects can be open in one window; switching between them swaps the explorer, the open files and the
+panes, and the panes of the projects behind keep running.
 
-## Closing versus forgetting
+## Closing, forgetting and a missing folder
 
-Closing a project's window leaves the project itself in Ubiq's list, ready to reopen. Removing it
-from that list — "forgetting" it — touches nothing on disk; it only stops Ubiq offering it back.
+Closing a project ends its terminals and unloads its conversations, and Ubiq asks first when any are
+open or a file is unsaved. A conversation you marked persistent can be resumed later; see
+[Conversations](concepts-conversations).
+
+**Forget** removes the project from Ubiq's list and everything Ubiq remembers about it. It never
+touches the folder on disk. If a project's folder has moved or been unplugged, its row shows the path
+as a warning and offers **Locate**, which points the project at the new folder and keeps its colour
+and history. Ubiq never removes a project because its folder went missing.
+
+## Why it works this way
+
+A project is the unit that keeps work apart: its files, its agents and its layout stay together, so
+switching between clients or repositories does not mix them up. Forgetting is separate from deleting
+because the folder is yours.

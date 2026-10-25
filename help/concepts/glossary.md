@@ -1,34 +1,54 @@
 ---
 id: glossary
 title: Glossary
-summary: Plain definitions of the recurring terms — harness, pane, session, workspace, panel, dock.
-keywords: [terms, definitions, vocabulary]
-order: 40
+summary: Plain definitions of the words Ubiq uses for its parts — harness, agent, pane, panel, project, conversation and more.
+keywords: [terms, definitions, vocabulary, session, workspace, dock]
+order: 70
 status: current
-related: [panes, sessions, projects]
+related: [projects, panes, sessions, concepts-conversations, concepts-harnesses]
 ---
 
 ## Terms
 
-**Harness** — an interactive AI coding agent that runs as a full-screen terminal program: Claude
-Code, Codex, Gemini CLI, opencode, GitHub Copilot CLI. Ubiq hosts harnesses; it does not implement
-one.
+**Account** — a named identity a harness runs under. It points at credentials and never holds them. See
+[Accounts and profiles](concepts-accounts-and-profiles).
 
-**[Pane](panes)** — the terminal view of one workspace: a terminal emulator on screen, plus its tab
-and status.
+**Agent** — one harness running in a project, doing work for you.
 
-**[Session](sessions)** — a named piece of work with a home folder, holding the agents serving it.
+**Conversation** — one harness's exchange with you, which can be resumed or forked. See
+[Conversations](concepts-conversations).
 
-**Workspace** — one running instance of one agent inside a session.
+**Dock** — everything in the window's four regions, and the arrangement you change by dragging a tab.
 
-**[Project](projects)** — a folder Ubiq knows about, the home every project-scoped rail mode works
-against.
+**Focus** — which panel receives your keystrokes. Exactly one has it.
 
-**Panel** — the movable unit of the window: a tab, a title, a focus handle. A terminal is a panel;
-so are the file explorer, the log console and this help panel.
+**Harness** — the agent program itself: Claude Code, Codex, Gemini CLI, opencode or GitHub Copilot CLI.
+See [Harnesses](concepts-harnesses).
 
-**Dock** — the window's whole arrangement of panels across its four regions, and what you rearrange
-by dragging a tab.
+**MCP server** — a tool provider a harness can call.
 
-**Rail** — the strip on the left that switches which mode fills the centre of the window: IDE, Git,
-Agents, the knowledge base, and the rest — see [Rail modes](workbench-modes).
+**Pane** — the panel a terminal runs in, holding an agent or a shell. See [Panes and panels](panes).
+
+**Panel** — anything in the window with a tab that you can move, split or close.
+
+**Permission mode** — how much a harness may do without asking, named as the harness names it.
+
+**Profile** — a named base configuration a run starts from.
+
+**Project** — a folder Ubiq has opened, and everything it remembers about it. See [Projects](projects).
+
+**Rail** — the column of destinations on the left of the window. Each one, such as **IDE**, **Git**,
+**Agents** or **Tasks**, is a mode that fills the centre. See [Rail modes](workbench-modes).
+
+**Region** — the centre, left, right or bottom of the window.
+
+**Skill** — packaged instructions given to a harness for a run.
+
+**Subagent** — an agent that another agent started.
+
+**Tab** — the handle of a panel.
+
+**Window** — the operating-system window Ubiq draws in.
+
+**Workspace session** — Ubiq's named grouping of agents with a home folder. See
+[Workspace sessions](sessions).
