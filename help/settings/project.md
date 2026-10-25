@@ -25,11 +25,11 @@ opens **General** alone: name the project and create it, and the other sections 
 | **General**: **Keep an index**, **Mission term**, **Search excludes**, **Repositories** | This project's own index level, word for a mission and search skips, each overriding the application's, and the git repositories found inside it |
 | **Tools** | Commands run in this project's folder, on top of the machine-wide ones; see [Tools and command line](settings-tools) |
 | **Agent definitions** | Which saved setups a start in this project is offered, or **Use the global agents** only |
-| **Skills**, **MCP servers** | Skills and tool servers only this project's agents can be given |
+| **Skills**, **MCP servers** | Skills and tool servers only this project's agents can be given; see [Skills](settings-skills) and [MCP servers](settings-mcp-servers) |
 | **Tasks** | **Shown** and **Shut when empty** for each lane of the board, and the **Boards** list with **Shown**, **Delete** and **New board** |
-| **Task sync** | Binds the board to a board kept somewhere else |
+| **Task sync** | Binds the board to a board kept somewhere else; see [Task sync](settings-project-task-sync) |
 | **Remote** | **Runs here** or **On a drone**, with **Reached through** (an SSH profile), **Folder on that machine** and **Lifetime**, then **Save** |
-| **Knowledge base**, **Databases** | The sources documents are read from, and the connections databases are reached by; see [Knowledge base sources](kb-sources) and [Databases](db-overview) |
+| **Knowledge base**, **Databases** | The sources documents are read from, and the connections databases are reached by; see [Knowledge base sources](kb-sources), [Project databases](settings-project-databases) and [Databases](db-overview) |
 
 ## What you can do here
 
