@@ -1,78 +1,62 @@
 ---
 id: db-overview
 title: Databases
-summary: Browse a project's databases, read and edit table data, and run SQL — PostgreSQL, MySQL, SQLite and SQL Server, with a read-only guard.
-keywords: [database, db, sql, postgres, mysql, sqlite, sql server, table, query, connection, password]
+summary: DB mode — browse a project's databases, read and edit table data, and run SQL on PostgreSQL, MySQL, SQLite and SQL Server.
+keywords: [database, db, sql, postgres, mysql, mariadb, sqlite, sql server, table, query, connection, password, read-only]
 context: [rail.db, panel.ubiq.db.explorer, panel.ubiq.db.table, panel.ubiq.db.sql]
 targets: [ui.rail.mode.db]
 order: 10
 status: current
-related: [workbench-modes, workbench-rail, kb-overview]
+related: [guides-query-a-database, workbench-modes, workbench-rail, kb-overview]
 ---
 
-## Turning it on
+**DB** on the rail holds a project's database connections. The **Databases** panel on the left lists
+them and their contents, a table opens in the centre, and SQL editors open beside it. DB is off until
+a project asks for it: open the project's settings, go to **General**, and light the **DB** tile under
+**Modes**. Each project decides for itself, and the mode then appears after IDE.
 
-**DB** is off until a project asks for it. Open the project's settings, go to **General**, and light
-the **DB** tile under Modes; the mode then appears in the rail directly after IDE. Each project
-decides for itself.
+## The parts
 
-## Connections
+| Part | What it does |
+|---|---|
+| **+** (**Add connection**) in the explorer header | Opens the connection form |
+| The gear (**Database settings**) | Opens the project's settings on **Databases**, which lists every connection with **Test**, **Edit** and **Remove** |
+| The filter above the tree | Narrows what is already loaded, by name |
+| The tree | Connections, then databases, schemas, tables and views, then columns; each level loads when first opened |
+| A table row | Double-click to open; its approximate row count sits at the right |
+| **WHERE**, **ORDER BY**, **Filter** | Narrow a table tab; page with the previous and next buttons |
+| Edited cells and the pending count | Edited cells are bold and their rows tinted until you **Apply** or discard |
+| **SQL preview** | The statements **Apply** will run |
+| **Inline**, **Form** | Edit in the grid, or one whole row at a time in a side form |
+| **Run**, **Run all**, **Explain**, **Analyze**, **Stop** | The SQL tab's toolbar |
+| **READ-ONLY** | Marks a tab that cannot write |
 
-A connection is a name and where a database lives: a host, port, database, user and password for
-PostgreSQL, MySQL/MariaDB and SQL Server, or a file for SQLite. Add one with **+** in the explorer's
-header, or from the project settings' **Databases** section, which lists every connection with
-Test, Edit and Remove.
+Right-click a row for its menu: **Connect**, **Disconnect**, **New SQL editor**, **Refresh**,
+**Edit connection…** and **Remove** on a connection; **Open data** and **Open in SQL editor** on a
+table or view; **Copy name** on most rows.
 
-- **Paste a connection string** into the form and press Parse; it fills the fields for you.
-- **Test** connects and reports the server's version, without saving anything.
-- **Read-only** makes every tab on that connection refuse to write.
-- For SQLite, pick a file on the machine the project lives on, or choose **New database…** to
-  create an empty one.
+## What you can do here
 
-The connection list is part of the project: for a project that keeps its data inside its own
-folder, it is committed with it and a teammate sees the same connections. **Passwords are never in
-that list.** A saved password is encrypted, kept on this machine only, and opened only by the host;
-the form never shows it back, only whether one is `saved`. Leave the field empty to keep it, type to
-replace it, or press *Forget password*. If a password is missing — a reset keychain, a copied
-configuration — Ubiq asks for it when you connect; nothing breaks.
+- Add a connection: fill in the form, or paste a connection string and press **Parse**. **Test**
+  connects and reports the server version without saving. For SQLite pick a file, or choose
+  **New database…**. Tick **Read-only** to make every tab on the connection refuse writes.
+- Edit a table: double-click a cell, or press **Enter** or **F2**; **Backspace** in an empty field makes
+  the cell NULL. **Apply** sends all pending changes as one batch and undoes them all if one fails.
+- Run SQL: **Run** (**⌘↵** / **Ctrl+↵**) runs the selection or the statement the cursor is in;
+  **Run all** (**⌘⇧↵** / **Ctrl+Shift+↵**) runs every statement, one result tab each; **Stop**
+  (**⌘.** / **Ctrl+.**) cancels. **Analyze** runs the statement for real to measure it, so it asks first.
+- Share the connections: they are saved with the project, and a teammate sees the same list. The
+  walk-through is [Query a database](guides-query-a-database).
 
-## The explorer
+## When something goes wrong
 
-The explorer lists connections and, under each, its databases, schemas, tables and views, and their
-columns. Each level loads when you first open it. The filter above the tree narrows what is already
-loaded by name. Double-click a table to open it; right-click any row for its menu — connect, new SQL
-editor, open the data, refresh, copy a name, edit or remove a connection.
-
-## A table tab
-
-A table opens in the centre. Type a **WHERE** and an **ORDER BY** to narrow it, page through the
-rows, and read the count (an estimate until the exact one arrives).
-
-- **Edit a cell** by double-clicking it, or press **Enter** or **F2**; or switch to the **Form**
-  layout and edit a whole row at once. Backspace in an empty field makes a cell NULL.
-- Changes stay **pending**: edited cells are bold and their rows tinted. The **SQL preview** shows
-  exactly what Apply will run; Apply sends the batch in one transaction, and rolls it all back if
-  one statement fails. Discard drops it.
-- The lock makes a tab read-only. A view is always read-only.
-
-## SQL tabs
-
-A SQL tab opens along the bottom; open as many as you like, each on its own connection and
-database.
-
-- **Run** (⌘↵ or Ctrl↵) runs the selection, or the statement the cursor is in — the toolbar names
-  it. **Run all** (⌘⇧↵ or Ctrl⇧↵) runs every statement, one result tab each.
-- **Stop** (⌘. or Ctrl.) cancels what is running; a timer shows how long it has taken.
-- **Explain** shows the plan as a tree with the costliest step marked; **Explain analyze** runs the
-  statement for real to measure it, so it asks first.
-- A statement that can change data asks before it runs.
-
-## Read-only means read-only
-
-A read-only connection or tab cannot write, and Ubiq does not take the editor's word for it: the
-host checks every statement before sending it and also tells the database to refuse a write. The
-editor underlines a statement it knows will be refused. A result is cut after a thousand rows and
-says so.
-
-If a tab says a database is **unavailable**, the host you are connected to cannot open database
-connections.
+- **A password is missing.** Passwords are never saved with the project, only on this machine. Ubiq
+  asks when you connect; answer with **Remember on this machine** to keep it. The form shows
+  whether one is `saved`, and **Forget password** clears it.
+- **A connection says `failed`.** Use **Retry** on its row, or **Test** it in the form.
+- **A statement is refused on a read-only tab.** Ubiq checks every statement before sending it, and
+  underlines the one it will refuse.
+- **A statement that can change data asks first**, and **Run anyway** goes ahead.
+- **Results stop at a thousand rows** and say so; narrow the query.
+- **A table with no primary key** carries a badge: edits match on every column.
+- **Edits are pending.** Paging, refresh and filtering wait until you apply or discard them.
