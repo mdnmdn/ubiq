@@ -26,7 +26,7 @@ A project is open and one harness works for you; [Your first project and your fi
 
 4. Read both. A column's header names the agent, its harness and its model, and the footer under the transcript shows what the turn has spent. Colours read the same everywhere: yellow needs you, blue is working, green is idle, grey has stopped. The sidebar on the left lists both agents with the same marks.
 5. To read one answer under the other, drag one tab onto the other column. The two share a column with a tab each, and the strip reads `1 grouped`. Drag a tab past the last column to give it a column of its own again.
-6. When you have chosen, put the other agent away. A column's tab **×** hides the agent and leaves it running, and **Close all** takes every agent off screen without ending any; the sidebar still lists them, and clicking a row brings one back. To end an agent for good, open its three-dots menu and pick **Close**, which asks first and deletes its transcript.
+6. When you have chosen, put the other agent away. A column's tab **×** puts the agent on the bench, off screen and still running, and **Close all** does the same for every agent; the sidebar still lists them, and clicking a row brings one back. [Agents mode](agents-starting) describes the bench. To end an agent for good, open its three-dots menu and pick **Close**, which asks first and deletes its transcript.
 
 ## What next
 

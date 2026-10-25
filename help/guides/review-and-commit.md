@@ -40,4 +40,4 @@ An agent has changed files in a project that is a git repository. [Your first pr
 
 - [The Changes panel](git-changes), for amending a commit and for the right-click menu.
 - [The Git screen](git-overview), for branches, pull and push.
-- [Comparing two commits](git-compare-commits), when you want to see what a whole session of agent work added.
+- [Comparing two commits](git-compare-commits), when you want to see what a whole stretch of agent work added.

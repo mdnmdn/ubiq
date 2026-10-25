@@ -36,9 +36,18 @@ Eight columns fit the row. Grouping into a column that is already open always wo
 - Hide a tab without ending the agent: see [hide or close a tab](how-to-hide-or-close-a-tab).
 - Change how much an agent may do unasked: see [permission modes](agents-permissions).
 
-The same **New agent** menu is on the chat strip in IDE mode and in the kitchen sink, so starting an agent is
-not tied to this screen. Closing a column's tab hides the agent; the agent keeps running and the sidebar still
-lists it. Ending an agent for good is the three-dots menu in [the conversation](agents-conversation).
+The same **New agent** menu is on the chat strip in IDE mode, so starting an agent is not tied to this screen.
+Ending an agent for good is the three-dots menu in [the conversation](agents-conversation).
+
+## The bench
+
+A column tab's **×** says **Put on the bench**. The bench is where an agent waits off screen: it keeps running, and
+the sidebar still lists it with its name in a muted shade. Pick its row in the sidebar, use **+** on a column, or
+use **Attach existing agent** to put it back on screen.
+
+With no column open, the screen reads **No columns**. Under it, **Nothing is running in this project yet.** means
+the project has no agent; **Every agent is on the bench. Pick one in the list to open a column.** means all of them
+are waiting off screen.
 
 ## When something goes wrong
 

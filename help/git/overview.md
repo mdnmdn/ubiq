@@ -12,7 +12,8 @@ related: [git-changes, git-history, git-refs, git-diff, guides-review-and-commit
 
 Pick **Git** on the rail to read a project's repository without leaving the window your agents work
 in. The first visit puts **Branches** on the left, **History** in the centre and **Changes** on the
-right; **Diff** comes forward under the history when you pick a changed path. Every region can be
+right. **Diff** is a tab beside **History** and comes forward when you pick a changed path. Chat tabs
+open in the right region too, so an open chat tab shares its group with **Changes**. Every panel can be
 moved, hidden or resized like any other, as [panels](workbench-panels) explain.
 
 ## The parts

@@ -41,7 +41,8 @@ decides what an agent may reach. Both are sections of [Settings](settings). What
 - **A sign-in has expired.** Open its row under **Identities** and use **Re-authenticate**.
 - **A harness is missing from the start menus.** If it is a registry version of a tool that has a
   native one, turn on its **Enable … ACP** switch.
-- **Confinement is off and says why.** It is available on macOS and Windows only; agents on other
-  systems run unconfined.
+- **The confinement switch is dimmed and does nothing.** A line above it reads **Confinement is macOS
+  and Windows only — agents here run unconfined**; on macOS and Windows it reads **Confinement
+  available on this machine** instead.
 - **A confined agent cannot find its tools.** Its home holds nothing you installed; use **Your
   home**, or add the tool's folder under **Extra grants**.

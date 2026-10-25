@@ -14,7 +14,8 @@ every source, with **Add source** under them.
 
 ## The parts
 
-**Add source** opens a form with these rows. Rows that do not apply to the chosen kind are inert.
+**Add source** opens a form. Until you choose a **Kind**, it shows only **Name**, **Kind** and **Access**, and
+**Access** is dimmed; the other rows below appear once a kind is chosen, for the kinds that need them.
 
 | Row | What it does |
 |---|---|

@@ -22,13 +22,13 @@ A project is open and you have a database to look at: PostgreSQL, MySQL or Maria
 
 ![The Modes row of the project settings, with the DB tile lit beside IDE, Git, Agents, Teams, KB and Tasks](../img/guides/query-a-database-1.png)
 
-2. Pick **DB** on the rail and press **Add connection** in the **Databases** panel; it opens the project's settings on **Databases**, where you press **Add connection** again. Pick the **Engine**. For SQLite, press **Browse…** to choose the file, or **New database…** to make an empty one. To fill the form from an address, paste a connection string into **Connection string** and press **Parse**.
-3. Give the connection a **Name**, such as `shop`, and press **Test**. It connects without saving and reports `Connected` with the server's version. Leave access on **Read-only** for a first look, so every tab on the connection refuses writes. Press **Save**, then **Save changes**.
+2. Pick **DB** on the rail. On the empty screen press **Add connection**; it opens the project's settings on **Databases**, where you press **Add connection** again. (Once a connection exists, the **+** in the **Databases** panel opens the form directly.) Pick the **Engine**. For SQLite, press **Browse…** to choose the file, or **New database…** to make an empty one. To fill the form from an address, paste a connection string into **Connection string** and press **Parse**.
+3. Give the connection a **Name**, such as `shop`, and press **Test**. It connects without saving and reports `Connected` with the server's version. Turn **Read-only** on under **Access** for a first look, so every tab on the connection refuses writes. Press **Save**, then **Save changes**.
 
 ![The Add connection form for SQLite with the name shop, read-only access and the result Connected with a version number](../img/guides/query-a-database-2.png)
 
 4. Back in the **Databases** panel, right-click the connection and pick **Connect**. Open it down through the database to **Tables**, and double-click a table to read its data in the centre. A **Read-only** mark shows on the tab, and a count of rows under the filters.
-5. Right-click the table and pick **Open in SQL editor**. A tab opens with a starting query. Click in it, select the text and write your own, for example `SELECT name, price FROM products WHERE stock < 20 ORDER BY price DESC`. Press **Run**, or **⌘↵** / **Ctrl+↵**, to run the selection or the statement the cursor is in. The rows appear under the editor with their count and the time taken.
+5. Right-click the table and pick **Open in SQL editor**. A tab opens with a starting query. Click in it, select the text and write your own, for example `SELECT name, price FROM products WHERE stock < 20 ORDER BY price DESC`. Press **Run**, or **⌘Enter** / **Ctrl+Enter**, to run the selection or the statement the cursor is in. The rows appear under the editor with their count and the time taken.
 
 ![The SQL editor with a query above and its two result rows below, with Run, Run all, Explain and Analyze across the top](../img/guides/query-a-database-3.png)
 

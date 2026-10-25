@@ -31,15 +31,21 @@ a project asks for it: open the project's settings, go to **General**, and light
 | **Run**, **Run all**, **Explain**, **Analyze**, **Stop** | The SQL tab's toolbar |
 | **READ-ONLY** | Marks a tab that cannot write |
 
-Right-click a row for its menu: **Connect**, **Disconnect**, **New SQL editor**, **Refresh**,
-**Edit connection…** and **Remove** on a connection; **Open data** and **Open in SQL editor** on a
-table or view; **Copy name** on most rows.
+Right-click a row for its menu. A connection that is not connected offers **Connect**, **Edit
+connection…** and **Remove**; once connected it offers **New SQL editor**, **Refresh**,
+**Disconnect**, the DBML rows, **Edit connection…** and **Remove**. A table or view offers **Open
+data**, **Open in SQL editor**, **Copy name**, **Refresh** and the DBML rows; **DBML: Copy to
+clipboard** puts the schema on the clipboard, and **DBML: Open in new file** opens it as a file.
 
 ## What you can do here
 
 - Add a connection: fill in the form, or paste a connection string and press **Parse**. **Test**
   connects and reports the server version without saving. For SQLite pick a file, or choose
-  **New database…**. Tick **Read-only** to make every tab on the connection refuse writes.
+  **New database…**. Tick **Read-only** to make every tab on the connection refuse writes. On the
+  empty screen, **Add connection** opens the project's settings instead, where the same form is.
+- Decide what agents may do with a connection: in the form, **Agents** is **None**, **Read-only** or
+  **Read-write**; **Read-write** is dimmed on a read-only connection. **Default for agents** marks
+  the connection an agent gets when it names none; one per project, and it needs some access.
 - Edit a table: double-click a cell, or press **Enter** or **F2**; **Backspace** in an empty field makes
   the cell NULL. **Apply** sends all pending changes as one batch and undoes them all if one fails.
 - Run SQL: **Run** (**⌘Enter** / **Ctrl+Enter**) runs the selection or the statement the cursor is in;

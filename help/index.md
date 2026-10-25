@@ -14,6 +14,8 @@ Ubiq is one window that runs several AI coding agents side by side, each in its 
 
 New to Ubiq? Read [Getting started](getting-started): it takes you from the first launch to one agent working in one project.
 
+![The Ubiq window with a project open: the rail on the left, the project's files in the explorer and the editor beside it](img/start/index-1.png)
+
 ## The manual, section by section
 
 - **Start** — [Getting started](getting-started): the first launch, a first project and a first agent.

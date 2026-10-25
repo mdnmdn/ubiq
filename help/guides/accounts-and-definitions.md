@@ -24,7 +24,7 @@ The harness you work with is installed. You know the logins you will use, one pe
 ![The Add harness dialog with Claude Code selected and the name client-a typed](../img/guides/accounts-and-definitions-1.png)
 
 3. Repeat for the next client with another name. One name can sign in to several harnesses, and every agent running as that name shares the login. Under each account, a harness row shows its login status with **Check**, **Re-authenticate** and **Sign out**, and a plan readout where the provider states limits.
-4. Open **Agent definitions** in Settings and press **Add agent**. Type a **Name** for the role, such as `reviewer`, pick the **Harness**, and set **Model**, **Thinking effort** and **Mode**. Where you have signed accounts in, the **Harness** row offers the harness under each account, so the definition pins the client as well as the role. Add a **Description** so you remember what it is for.
+4. Open **Agent definitions** in Settings and press **Add agent**. Type a **Name** for the role, such as `reviewer`, pick the **Harness**, and set **Model**, **Thinking effort** and **Mode**. Where an account is signed in, the **Harness** row offers the harness under each account, so the definition pins the client as well as the role. Add a **Description** so you remember what it is for.
 
 ![The agent definition form with the name reviewer, Claude Code as the harness, Plan as the mode and a one-line description](../img/guides/accounts-and-definitions-2.png)
 
