@@ -39,6 +39,8 @@ fn window(cx: &mut TestAppContext) -> (Entity<AppState>, Window) {
         .borrow_mut()
         .take()
         .expect("the window built its state");
+    // No host answers in a test; stand in for the interface preferences having arrived.
+    state.update(cx, |state, _| state.workbench.prefs_loaded = true);
     (state, handle)
 }
 
@@ -170,7 +172,12 @@ fn skip_marks_the_run_done_and_a_manual_open_still_works(cx: &mut TestAppContext
 #[gpui::test]
 fn nothing_starts_before_the_preferences_answer(cx: &mut TestAppContext) {
     let (state, _handle) = window(cx);
-    state.update(cx, |state, cx| state.check_onboarding(cx));
+    state.update(cx, |state, cx| {
+        state.workbench.prefs_loaded = false;
+        state.check_onboarding(cx);
+        // Nor by hand: a run finished now would save a done set missing what is stored.
+        state.open_onboarding(WELCOME, cx);
+    });
     state.read_with(cx, |state, _| assert!(state.workbench.onboarding.is_none()));
 }
 

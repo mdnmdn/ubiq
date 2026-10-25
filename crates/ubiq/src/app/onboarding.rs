@@ -23,8 +23,12 @@ static AUTO_STARTED: AtomicBool = AtomicBool::new(false);
 
 impl AppState {
     /// Start a run at `flow`, done or not — the overflow menu's **Show onboarding**, and the
-    /// automatic starts below.
+    /// automatic starts below. Nothing before the interface's preferences have answered: a run
+    /// finished then would save a done set missing what is stored.
     pub fn open_onboarding(&mut self, flow: FlowId, cx: &mut Context<Self>) {
+        if !self.workbench.prefs_loaded {
+            return;
+        }
         let registry = crate::ui::onboarding::flows::all(self, cx);
         let Some(run) = OnboardingRun::chain(flow, &registry) else {
             return;

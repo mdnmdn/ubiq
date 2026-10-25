@@ -78,9 +78,20 @@ fn dialog(
 fn palette_form(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
     let current = app.workbench.theme_id;
     let pills = theme::ThemeId::all().map(|id| {
+        // A family names both grounds alike ("Navy"); the pill must still tell them apart.
+        let name = id.name();
+        let label: gpui::SharedString = if name.contains("Dark") || name.contains("Light") {
+            name
+        } else {
+            let ground = match id.mode() {
+                theme::Mode::Dark => "Dark",
+                theme::Mode::Light => "Light",
+            };
+            format!("{name} {ground}").into()
+        };
         choice_pill(
             ElementId::Name(format!("onboarding-palette-{}", id.slug()).into()),
-            id.name(),
+            label,
             id == current,
             cx.listener(move |this, _, _, cx| this.set_palette(id, cx)),
         )
