@@ -234,7 +234,6 @@ crates/ubiq-host/src/
 │   ├── apply.rs
 │   ├── feed.rs
 │   └── mod.rs
-├── .DS_Store
 └── acp.rs
 
 crates/ubiq/src/
@@ -587,19 +586,19 @@ crates/ubiq/src/
 │   │   └── table.rs
 │   ├── unix_connect.rs
 │   ├── about.rs
-│   └── updates.rs
+│   ├── updates.rs
+│   └── help_images.rs
 ├── version.rs
-├── ext/
-│   ├── id.rs
-│   ├── ids.rs
-│   ├── mod.rs
-│   ├── registry.rs
-│   ├── settings.rs
-│   ├── rail.rs
-│   ├── menu.rs
-│   ├── runner.rs
-│   └── viewer.rs
-└── .DS_Store
+└── ext/
+    ├── id.rs
+    ├── ids.rs
+    ├── mod.rs
+    ├── registry.rs
+    ├── settings.rs
+    ├── rail.rs
+    ├── menu.rs
+    ├── runner.rs
+    └── viewer.rs
 
 crates/ubiq-app/src/
 ├── main.rs            three lines: `run(Boot::default())`
@@ -859,6 +858,7 @@ the documents in its row.
 | `crates/ubiq/src/app/feedback.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
 | `crates/ubiq/src/app/git.rs` | [`features/workbench-git.md`](../features/workbench-git.md), [`version-control.md`](./version-control.md) |
 | `crates/ubiq/src/app/help.rs` | [`wip/help.md`](../wip/help.md) |
+| `crates/ubiq/src/app/help_images.rs` | [`wip/help.md`](../wip/help.md) |
 | `crates/ubiq/src/app/host_browse.rs` | [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
 | `crates/ubiq/src/app/hosts.rs` | [`features/drone.md`](../features/drone.md), [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/app/image_edit.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
