@@ -10,15 +10,15 @@ related: [how-to-switch-permission-mode, agents-new-agent, agents-conversation]
 
 Every harness has its own idea of what it may do without stopping to ask: run a command, write a file, reach
 the network. A permission mode is that setting, and Ubiq shows each harness's own labels for it rather than
-translating them. You choose one when you start an agent; when the agent does need to ask, the question
-appears in its [conversation](agents-conversation).
+translating them. You choose one when you start an agent and can change it at any point; when the agent
+does need to ask, the question appears in its [conversation](agents-conversation).
 
 ## The parts
 
 | Part | What it does |
 |---|---|
-| **Permission mode** row in the [new agent dialog](agents-new-agent) | Picks the mode the agent starts with, in the harness's own words |
-| Mode picker beside **Send** | On an agent that has not launched yet, the same choice, next to the model and thinking pickers |
+| **Mode** row in the [new agent dialog](agents-new-agent) | Picks the mode the agent starts with, in the harness's own words |
+| Mode picker beside **Send** | The same choice, next to the model and thinking pickers; it stays live for the conversation's whole life |
 | Mode in an [agent definition](agents-definitions) | A definition can pin a mode, so every start from it uses the same one |
 | Permission prompt | Sits on the tool call it concerns, with one button per answer the harness offers; a lasting answer is marked as lasting |
 | **NEEDS YOU** strip | Above the footer; **Yes**, **All** and **No** answer the oldest request, each shown only if the harness offered it |
@@ -27,7 +27,8 @@ appears in its [conversation](agents-conversation).
 
 ## What you can do here
 
-- Choose a mode for a new agent in the dialog; see [switch a permission mode](how-to-switch-permission-mode).
+- Choose a mode for a new agent in the dialog, or change a running agent's mode from the picker beside
+  **Send**; see [switch a permission mode](how-to-switch-permission-mode).
 - Answer a prompt with its buttons, or press **⌘⌥Y** to allow and **⌘⌥N** to reject the oldest request of the
   conversation you are reading. They work while the composer has the keyboard.
 - Let one conversation run unattended with **Accept all**; the menu then reads **Stop accepting all**. Turn it

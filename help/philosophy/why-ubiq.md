@@ -18,9 +18,9 @@ You start Claude Code in one pane and Codex in another, watch both, and type int
 you. Exactly one pane has focus and receives your keystrokes; the others keep drawing, so you can
 read one agent while another thinks.
 
-A [workspace session](sessions) gathers the agents for one piece of work under a name and a folder.
-Close the window and come back tomorrow: the arrangement is still there, and you do not start
-every agent again by hand.
+A [project](projects) keeps its arrangement: close the window and come back tomorrow, and its files
+and panels are where you left them. A conversation you mark persistent comes back too, so you do
+not start every agent again by hand.
 
 ## Why it works this way
 
@@ -33,8 +33,8 @@ A terminal and a shell already run agents. Ubiq adds what they leave to you:
 
 - **Several agents at once, with one in focus.** Each tab shows which agent runs there and what
   state it is in, so you know without reading its output.
-- **A unit of work that lasts.** A workspace session keeps its agents and layout between visits,
-  and you can leave one without ending anything.
+- **Work that lasts.** A project keeps its layout between visits, and hiding an agent's tab
+  leaves the agent running.
 - **Runs put together for the task.** You choose the account, skills and MCP servers an agent
   starts with, instead of inheriting whatever is installed on the machine.
 - **One place to set them all up.** Every harness keeps its settings its own way; Ubiq gives you
@@ -42,3 +42,4 @@ A terminal and a shell already run agents. Ubiq adds what they leave to you:
 
 [Getting started](getting-started) takes you from launch to a first agent at work, and
 [Two agents side by side](guides-two-agents-side-by-side) shows the case Ubiq is made for.
+[What Ubiq is not](philosophy-what-ubiq-is-not) says what it leaves to other tools.

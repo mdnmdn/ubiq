@@ -21,4 +21,4 @@ To fork one:
 
 To have a conversation come back after Ubiq restarts, pick **Make persistent** from the menu, or switch on **Restore conversations** under **Settings**, then **Editor**.
 
-**Resume** is dimmed while the agent is running, and **Fork** is dimmed while it is working and for harnesses that keep no history of their own. [The conversation](agents-conversation) lists every item of the menu.
+**Resume** is dimmed while the agent is running, and **Fork** is dimmed while it is working and for harnesses that keep no history of their own. [Inside a conversation](agents-conversation) lists every item of the menu.

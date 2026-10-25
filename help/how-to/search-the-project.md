@@ -18,4 +18,4 @@ Use this when you need to find where something is written in a project. Search n
 
 The status line shows the count, such as `12 files · 40 hits`.
 
-You can also type a term in the title bar's command field and press **⌘⏎**. The panel draws the first 500 hits and says `shown first 500` when there are more, so narrow the query. Search results are not ranked. [The Search panel](workbench-search) lists its messages, and [the explorer](workbench-explorer) finds files by name.
+You can also type a term in the title bar's command field and press **⌘Enter**. The panel draws the first 500 hits and says `shown first 500` when there are more, so narrow the query. Search results are not ranked. [The Search panel](workbench-search) lists its messages, and [the explorer](workbench-explorer) finds files by name.

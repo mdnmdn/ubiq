@@ -12,7 +12,8 @@ An account is a named identity a harness runs under: the login Claude Code or Co
 own service. You can keep several, and choose one per agent in the [new agent dialog](agents-new-agent), so two
 agents of one harness can run side by side as, say, your personal and your work identity. An account points at
 where the harness keeps its own login; Ubiq never holds a password or a token for it. An agent that names no
-account runs as your own home.
+account runs under your own home configuration. [Account questions](faq-accounts) answers the common
+questions.
 
 Accounts live in **Settings**, then **Harnesses**, under **Identities**. **Installed**, above it, lists the
 harnesses this machine has.
@@ -58,4 +59,4 @@ for work like cloning. It is set up in [Settings](settings-connectors); the step
 - **A readout says the harness did not answer.** The sentence is the provider's; press **Refresh** to ask again.
   A harness that states no limit shows no meter, rather than an empty one.
 - **A harness is not in the list.** Only harnesses that run from a config home of their own can hold an account,
-  and the Claude Code and Codex adapter variants appear once switched on in Settings.
+  and the ACP versions of Claude Code and Codex appear once their **Enable … ACP** switch is on in Settings.

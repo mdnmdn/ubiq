@@ -13,7 +13,7 @@ An account is the login a harness such as Claude Code or Codex runs under. A con
 
 ## Does Ubiq store my harness password or token?
 
-No. An account points at where the harness keeps its own login, and Ubiq never holds a password or a token for it. An agent that names no account runs as your own home. See [Accounts](agents-accounts).
+No. An account points at where the harness keeps its own login, and Ubiq never holds a password or a token for it. An agent that names no account runs under your own home configuration. See [Accounts](agents-accounts).
 
 ## How do I run two agents as two different identities?
 

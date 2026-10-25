@@ -19,14 +19,15 @@ in its own pane. The tab shows the agent's name and a dot that says whether its 
 running. Right-click the tab and pick **Rename…** to type over the title.
 
 Exactly one panel has *focus* and receives your keystrokes. Panes that do not have it keep drawing, so
-an agent you are not typing into stays visible. Press **Shift+Esc** to hand the keyboard back to the
+an agent you are not typing into stays visible. Press **⇧Esc** / **Shift+Esc** to hand the keyboard back to the
 window without closing anything; click the pane to take it again.
 
 ## Starting and ending a pane
 
 The **+** at the end of a pane's tab strip opens your default shell in the current project. The
-chevron beside it lists every shell on your machine and every harness you can start. A pane always
-starts in its project's folder, so with no project open there is nothing to start.
+chevron beside it lists the panes you hid, under **Detached**, then every shell on your machine, then
+**Logs**. An agent starts from the [new agent dialog](agents-new-agent) instead. A pane always starts
+in its project's folder, so with no project open there is nothing to start.
 
 Typing `exit` or pressing **Ctrl+D** inside a pane ends its harness and closes its tab.
 

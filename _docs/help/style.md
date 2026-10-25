@@ -70,6 +70,7 @@ page's `keywords:` when a user is likely to type them, never in its prose.
 | **tab** | the handle of a panel | page |
 | **window** | the operating-system window Ubiq draws in | screen, app |
 | **region** | the centre, left, right or bottom of the window | sidebar, drawer, area |
+| **Agents sidebar** · **log console** | the list beside the agent columns in Agents mode · the **Console** panel that shows Ubiq's log — the only places these two words appear | — |
 | **rail** · **rail mode** | the column of destinations on the left · one of them, by its label: **IDE**, **Git**, **Agents**, **Tasks** | activity bar, tab, view |
 | **project** | a folder Ubiq has opened, and everything it remembers about it | repo (unless it is about git), workspace, folder |
 | **workspace session** | Ubiq's named grouping of agents with a home folder | session, workspace |

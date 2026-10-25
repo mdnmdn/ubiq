@@ -26,15 +26,15 @@ Open **Settings**, then **Agent definitions**.
 | **Edit**, **Delete** | Open the form, or remove the definition after a confirm |
 
 The definition form is the new agent dialog with a name and **Save** in place of **Start**, and no tabs: a
-definition is always written against a harness. It asks the target, model, reasoning level, permission mode,
-subagent ceiling, the **MCPs** and **Skills** to add, extra folders, an **Agent prompt** that is given to the
+definition is always written against a harness. It asks the target, **Model**, **Thinking effort**, **Mode**,
+**Max subagents**, the **MCPs** and **Skills** to add, extra folders, an **Agent prompt** that is given to the
 agent as its opening instruction, a description and tags. The form is opened from a project's settings for a
 project definition, and from the application's settings for a global one.
 
 ## What you can do here
 
-- Create a definition from scratch with **Add agent**, or from a start you just configured with **Save agent
-  definition** in the new agent dialog.
+- Create a definition from scratch with **Add agent**, or from a start you configured with **Save agent** in
+  the new agent dialog.
 - Start from one: pick it on the dialog's **Agents** tab, then use **Customize** for a one-off change.
 - Rename a definition by changing its name in the form; the definitions and missions that refer to it follow.
 - Keep a definition per client or per role, each naming its own account: see

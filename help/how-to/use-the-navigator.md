@@ -12,7 +12,7 @@ Use this when you want to get somewhere without clicking through the window. The
 1. Press **⌘K**, or click the command field. With nothing typed, the list offers **Recent** places, then **Bookmarks**.
 2. Type part of a name. The first row, **Search**, is what you typed offered as a project search. Under it come **Files**, **Tasks** and **Agents**, up to eight rows each.
 3. Move with the arrow keys and press **Enter** to go to the row under the cursor.
-4. To search file contents instead, press **Enter** on the **Search** row, or press **⌘⏎** to skip the list.
+4. To search file contents instead, press **Enter** on the **Search** row, or press **⌘Enter** to skip the list.
 5. To close the list and keep what you typed, press **Esc**.
 
 You land on the file, task or agent you picked.

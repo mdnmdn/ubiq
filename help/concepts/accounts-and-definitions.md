@@ -22,8 +22,8 @@ account resolves to nothing, it runs under your own home configuration, and its 
 
 An *agent definition* is a saved setup a run starts from. What you choose for one run, such as
 the model, the reasoning level or the permission mode, is layered on top of it, so a definition saves
-you from answering the same questions each time. The New agent form offers your saved setups and a
-**Customize** button for changing one for a single start; see [Starting an agent](agents-starting).
+you from answering the same questions each time. The [new agent dialog](agents-new-agent) offers your
+saved setups and a **Customize** button for changing one for a single start.
 
 ## Why it works this way
 

@@ -12,7 +12,7 @@ related: [agents-conversation, agents-starting, workbench-panels]
 A harness in a terminal shows what an agent is doing; a chat tab shows what it was asked and what it
 concluded, beside the code. It is available in IDE mode, in Tasks and on the Teams screens. A chat tab is a
 view of an agent's [conversation](agents-conversation), not a conversation of its own: you can open several,
-each pointed at a different agent or at none, and closing one ends nothing.
+each pointed at a different agent or at none, and a tab's **×** hides it without ending the agent.
 
 ## The parts
 

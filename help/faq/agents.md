@@ -13,11 +13,11 @@ A chat tab's **×** hides it, because the conversation belongs to Ubiq, not to t
 
 ## How do I get back an agent whose tab I closed?
 
-Click its row in the sidebar of Agents mode, or pick **Attach existing agent** from **New agent**. The title bar's **Agents not on screen** chevron lists the same agents. See [Starting an agent](agents-starting).
+Click its row in the sidebar of Agents mode, or pick **Attach existing agent** from **New agent**. The title bar's **Agents not on screen** chevron lists the same agents. See [Agents mode](agents-starting).
 
 ## Can I stop an agent asking for permission every time?
 
-Yes. Choose a different mode for the agent, in the harness's own words, or pick **Accept all** from the conversation's three-dots menu to answer every request in that conversation for you. **Accept all** starts off in each conversation and reads **Stop accepting all** while on. See [Switch a permission mode](how-to-switch-permission-mode).
+Yes. Choose a different mode for the agent from the picker beside **Send**, in the harness's own words, or pick **Accept all** from the conversation's three-dots menu to answer every request in that conversation for you. **Accept all** starts off in each conversation and reads **Stop accepting all** while on. See [Switch a harness's permission mode](how-to-switch-permission-mode).
 
 ## Why is Fork dimmed?
 
@@ -29,7 +29,7 @@ Yes. Choose a different mode for the agent, in the harness's own words, or pick 
 
 ## Why did my agent's name change?
 
-After the agent answers its first prompt, it takes a short title of its own if a provider is set up under **Settings**, then **Assistance**. A name you typed yourself is never overwritten. See [The agents columns](agents-columns).
+After the agent answers its first prompt, it takes a short title of its own if a provider is set up under **Settings**, then **Assistance**. A name you typed yourself is never overwritten. See [The agents columns and sidebar](agents-columns).
 
 ## Does Ubiq choose the model for me?
 

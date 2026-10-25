@@ -2,7 +2,7 @@
 id: agents-columns
 title: The agents columns and sidebar
 summary: What a column shows — header, tabs, thread and footer — and the sidebar that lists every conversation in the project.
-keywords: [columns, sidebar, thread, footer, sessions list, missions, bench]
+keywords: [columns, sidebar, thread, footer, sessions list, session, missions, bench]
 context: [panel.ubiq.agents.explorer]
 order: 15
 status: current
@@ -33,7 +33,7 @@ Colours read the same everywhere: yellow needs you, blue is working, green is id
 
 - Bring an agent on screen: click its row in the sidebar. An agent in a column comes to the front; one that is
   off screen gets a column, or joins the focused column when the row is full.
-- Fold a session with its chevron; the header's one control folds or opens every session.
+- Fold a workspace session with its chevron; the header's one control folds or opens every one.
 - Rename an agent from its tab's right-click menu. An agent also names itself once it has answered its first
   prompt, if a provider is set up in [Settings](settings-assist); your own name is never overwritten.
 - Hide or end an agent: see [hide or close a tab](how-to-hide-or-close-a-tab) and the
@@ -47,4 +47,5 @@ Colours read the same everywhere: yellow needs you, blue is working, green is id
 - **A harness that exits stays on screen.** Its transcript stays and it takes no further turn; closing the tab
   takes it off screen.
 - **No ring in the footer.** The harness reported no context window, so none is drawn rather than a guess.
-- **A session with no agents is missing from the sidebar.** Sessions without agents are not listed.
+- **A workspace session with no agents is missing from the sidebar.** Only workspace sessions with agents
+  are listed; see [Workspace sessions](sessions).

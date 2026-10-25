@@ -17,7 +17,7 @@ New to Ubiq? Read [Getting started](getting-started): it takes you from the firs
 ## The manual, section by section
 
 - **Start** — [Getting started](getting-started): the first launch, a first project and a first agent.
-- **Philosophy** — [Why Ubiq](philosophy-why-ubiq): what Ubiq believes, and what it deliberately is not.
+- **Philosophy** — [Why Ubiq](philosophy-why-ubiq): what Ubiq believes, and [What Ubiq is not](philosophy-what-ubiq-is-not).
 - **Concepts** — [Projects](projects), [Panes and panels](panes) and the [Glossary](glossary): the words the rest of the manual uses.
 - **Guides** — [Your first project and your first agent](guides-first-project-and-agent): real tasks walked through end to end.
 - **How-to** — [Switch a harness's permission mode](how-to-switch-permission-mode) and the pages after it: one task per page.
@@ -27,7 +27,7 @@ New to Ubiq? Read [Getting started](getting-started): it takes you from the firs
   - [The Git screen](git-overview), [The knowledge base](kb-overview) and [Databases](db-overview): a project's repository, documents and databases.
   - [The Tasks board](tasks-overview) and [The Teams screen](teams-overview): planning work and watching agents do it.
   - [Remote hosts](remote-overview) and [Settings](settings): other machines, and every setting.
-- **FAQ** — [Agent questions](faq-agents) and the other question pages: short answers to what people ask most.
+- **FAQ** — [Agent questions](faq-agents), [Workbench questions](faq-workbench), [Account questions](faq-accounts) and [Troubleshooting questions](faq-troubleshooting): short answers to what people ask most.
 - **Troubleshooting** — [Troubleshooting](troubleshooting): a symptom, its cause and the way out.
 
 ## Help from where you are

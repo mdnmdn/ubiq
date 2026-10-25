@@ -14,10 +14,10 @@ A *harness* is the agent program itself: Claude Code, Codex, Gemini CLI, opencod
 CLI. Ubiq hosts harnesses and does not replace any of them. An *agent* is one harness running in a
 project, doing work for you, so two Claude Code agents in two projects are two agents of one harness.
 
-You start an agent in one of two ways. The chevron beside **+** on a pane's tab strip lists every
-harness Ubiq can start and runs it in a terminal pane. The **New agent** form starts it as a
-[conversation](concepts-conversations) instead. A harness whose program is not installed on your
-machine is listed greyed out, so you can see that it is missing rather than wonder where it went.
+You start an agent from the [new agent dialog](agents-new-agent), in one of two ways: **Start** runs it as a
+[conversation](concepts-conversations), and **Start in terminal** runs it in a terminal
+[pane](panes). A harness whose program is not installed on your machine is listed greyed out, so you
+can see that it is missing rather than wonder where it went.
 
 An agent runs confined unless your settings say otherwise: it can reach the project's folder and its
 own working area, and the rest of your machine is closed to it. [Harnesses and

@@ -15,8 +15,8 @@ between. You read it as a transcript in a chat tab or in a column of Agents mode
 the composer under it. A harness started in a terminal pane shows the same work as its own screen
 instead; see [Panes and panels](panes).
 
-A conversation is more than its tab. Closing the tab with **×** hides it and the agent keeps going; the
-agents list still shows it, and one click brings it back. To end a conversation, open the three-dots
+A conversation is more than its tab. A chat tab's **×** hides it and the agent keeps going; the
+sidebar of [Agents mode](agents-columns) still lists it, and one click brings it back. To end a conversation, open the three-dots
 menu at the top left of the conversation and pick **Close**, which asks first because it deletes the
 transcript.
 

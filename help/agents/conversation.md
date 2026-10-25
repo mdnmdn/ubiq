@@ -26,11 +26,12 @@ with its footer.
 | Queued messages | Above the composer, oldest first, each with **Send ASAP**, edit and delete |
 | Activity bar | A subagent chip on the left and a todo chip on the right; each appears only when it has something |
 | Composer | The field, with its **+** for attaching files; its button is **Send**, **Stop**, **Enqueue** or **Steer** |
+| Pickers beside **Send** | The model, thinking level and [permission mode](agents-permissions) the conversation runs with, each shown only if the harness offers it; change them at any point in the conversation |
 | Footer | **ctx** (how full the context is now), **tot** (all tokens billed, subagents included) and rings for the account's plan |
 
 ## What you can do here
 
-- Send with **Enter**; **Shift+Enter** adds a line; **⌘Enter** / **Ctrl+Enter** sends too. **Up** on the first
+- Send with **Enter**; **⇧Enter** / **Shift+Enter** adds a line; **⌘Enter** / **Ctrl+Enter** sends too. **Up** on the first
   line walks back through what you sent, **Down** forward.
 - While a turn runs, an empty composer offers **Stop**; with text typed it offers **Enqueue**, and the message goes
   when the turn ends. Native Codex offers **Steer**, which sends into the running turn at once.

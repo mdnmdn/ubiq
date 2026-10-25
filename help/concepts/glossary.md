@@ -15,6 +15,12 @@ related: [projects, panes, sessions, concepts-conversations, concepts-harnesses]
 
 **Agent** — one harness running in a project, doing work for you.
 
+**Agent definition** — a saved setup, listed under **Agent definitions**, that starts an agent in one
+pick. See [Agent definitions](agents-definitions).
+
+**Connector** — you, signed in at a code host or workspace provider such as GitHub, GitLab or
+Atlassian. Not an MCP server. See [Sign in a connector](how-to-sign-in-a-connector).
+
 **Conversation** — one harness's exchange with you, which can be resumed or forked. See
 [Conversations](concepts-conversations).
 
@@ -32,8 +38,6 @@ See [Harnesses](concepts-harnesses).
 **Panel** — anything in the window with a tab that you can move, split or close.
 
 **Permission mode** — how much a harness may do without asking, named as the harness names it.
-
-**Agent definition** — a saved setup, listed under **Agent definitions**, that starts an agent in one pick.
 
 **Project** — a folder Ubiq has opened, and everything it remembers about it. See [Projects](projects).
 

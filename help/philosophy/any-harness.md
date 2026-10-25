@@ -18,7 +18,7 @@ Each harness runs unchanged. Ubiq does not stand in for it or talk to a model in
 harness you start is the one doing the work, with its own commands, its own screen and its own
 [permission modes](agents-permissions), shown under their own labels.
 
-When you [start an agent](agents-starting), you pick the harness, the account it signs in as, the
+When you [start an agent](agents-new-agent), you pick the harness, the account it signs in as, the
 model, the effort level and the permission mode. An agent definition saves a harness, a model,
 skills and MCP servers as a named setup, so you can start the same setup again in one pick.
 

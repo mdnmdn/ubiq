@@ -17,7 +17,7 @@ Both need an open project. Open a folder with **Add a project** in the title bar
 
 ## My agent seems stuck. What do I do?
 
-It may be waiting on a request scrolled out of view; the **NEEDS YOU** strip above the footer catches that. Otherwise press **Stop**, and if nothing answers, use **Abort** and then **Resume**. See [The conversation](agents-conversation).
+It may be waiting on a request scrolled out of view; the **NEEDS YOU** strip above the footer catches that. Otherwise press **Stop**, and if nothing answers, use **Abort** and then **Resume**. See [Inside a conversation](agents-conversation).
 
 ## My search does not find a file I know is there.
 

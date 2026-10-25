@@ -46,6 +46,6 @@ The agent appears as a conversation: a column in [Agents mode](agents-starting),
 ## Where to go next
 
 - [Your first project and your first agent](guides-first-project-and-agent) — the same first run, step by step.
-- [Harnesses](concepts-harnesses) and [Conversations](concepts-conversations) — what you just started, and what you can do with it later.
+- [Harnesses](concepts-harnesses) and [Conversations](concepts-conversations) — what you started, and what you can do with it later.
 - [Accounts](agents-accounts) — run a harness under more than one identity.
 - [Troubleshooting](troubleshooting) — when a harness will not start or something looks wrong.

@@ -18,21 +18,23 @@ click until you have chosen what to run.
 |---|---|
 | **Agents** tab | Your saved [agent definitions](agents-definitions), one row each, as `name — harness · model · level`; project ones first, then global ones |
 | **Harness** tab | A harness and the [account](agents-accounts) it runs as; moving between the tabs starts the answer again |
-| **Customize** | Under a chosen definition; turns the harness, model, level and mode rows on for this one start |
-| Model, reasoning level | What the harness offers; the dialog opens on the last launch, else the harness's own default |
-| Permission mode | The harness's own labels; see [permission modes](agents-permissions) |
-| Subagent ceiling | How many subagents the agent may use; the agent is told it, not given a switch |
+| **Customize** | Under a chosen definition; turns the harness, **Model**, **Thinking effort** and **Mode** rows on for this one start |
+| **Model**, **Thinking effort** | What the harness offers; the dialog opens on the last launch, else the harness's own default |
+| **Mode** | The permission mode, in the harness's own labels; see [permission modes](agents-permissions) |
+| **Persistent** | Keeps the conversation across a restart of Ubiq; dimmed for a harness that keeps its history outside Ubiq |
+| **Max subagents** | How many subagents the agent may use; the agent is told it, not given a switch |
+| **Ask for feedback**, **Plan mode** | Shown only when the dialog opens from a task's **Assign to an agent**; each changes what the initial prompt tells the agent — to ask when it needs to, or to plan before it acts |
 | **Initial prompt** | Sent as the agent's first message, so it starts working without a keystroke |
 | **MCPs**, **Skills** | Checklists of what Ubiq can add to the run; ticks apply to this agent |
 | **Custom policies** | Extra folders the agent may write; live only while agent isolation is on in settings |
 | **Start** | Starts the agent as a conversation in a column or chat tab |
-| **Start in terminal** | Starts the same run as a terminal pane; it ignores the initial prompt and the ceiling |
-| **Save agent definition** | Saves these answers as an agent definition; offered when the target is a bare harness |
+| **Start in terminal** | Starts the same run as a terminal pane; it ignores the initial prompt and **Max subagents** |
+| **Save agent** | Saves these answers as an agent definition; offered when the target is a bare harness |
 
 The **Harness** tab lists **Configured** rows (a harness with an account signed in), then **Default** rows, which
 use the harness's own configuration in place. A harness whose program is missing is drawn dimmed. A harness with
-no conversation view, such as Grok, is not offered here. The Claude Code and Codex
-adapter variants appear only after you switch them on in [Settings](settings-harnesses).
+no conversation view, such as Grok, is not offered here. The ACP versions of Claude Code
+and Codex appear only after you turn on their **Enable … ACP** switch in [Settings](settings-harnesses).
 
 ## What you can do here
 
@@ -40,8 +42,8 @@ adapter variants appear only after you switch them on in [Settings](settings-har
 - Name an agent. Ubiq names it after its harness, with a number from the second one on. After the agent answers its
   first prompt it takes a short title of its own, if a provider is set up in [Settings](settings-assist). Rename it
   from its tab to keep your name for good.
-- Choose a model and level before the harness launches; the agent's composer offers the same pickers until it
-  has.
+- Choose a model, thinking effort and mode here, and change them later from the pickers beside **Send** in the
+  agent's [conversation](agents-conversation); they stay live for the conversation's whole life.
 - Hide or end the agent later: see [hide or close a tab](how-to-hide-or-close-a-tab).
 
 Press **Esc** to dismiss; nothing is created, so a dismissed dialog leaves no empty tab or column.

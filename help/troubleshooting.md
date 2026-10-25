@@ -63,7 +63,7 @@ See [Permission modes](agents-permissions) and [Inside a conversation](agents-co
 
 Its tab was hidden, and the agent is still running.
 
-- A terminal pane: open the chevron beside **+** on a tab strip and pick it under **Detached**.
+- A terminal pane: open the chevron beside **+** on a pane's tab strip and pick it under **Detached**.
 - A conversation: click its row in the sidebar of [Agents mode](agents-starting), or open **Agents not on screen** beside **New agent** in the title bar.
 
 ## Closing a tab ended the agent

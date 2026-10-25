@@ -33,7 +33,8 @@ closes the tab — the harness has ended, so its pane ends with it.
 A terminal shows what an agent is doing now; a chat tab is for reading back what it did. The
 transcript sits beside your code, lets you answer prompts without hunting through a screen, and
 shows what the run has spent in its footer. You can open as many chat tabs as you like and move
-them anywhere in the window. Closing one ends nothing, because the conversation outlives the tab.
+them anywhere in the window. A chat tab's **×** hides it rather than ending the agent, because the
+conversation outlives the tab.
 
 Pick the terminal when you want the harness exactly as it is, and the chat tab when you want to
-read, answer and attach. [Starting an agent](agents-starting) shows where you choose.
+read, answer and attach. [The new agent dialog](agents-new-agent) is where you choose.
