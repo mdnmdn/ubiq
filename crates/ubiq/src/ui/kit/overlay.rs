@@ -119,7 +119,7 @@ pub fn modal_sized(
         body,
         footer,
         on_dismiss,
-        true,
+        Dismissal::Anywhere,
         window,
     )
 }
@@ -149,9 +149,50 @@ pub fn modal_sized_pinned(
         body,
         footer,
         on_dismiss,
-        false,
+        Dismissal::CloseOnly,
         window,
     )
+}
+
+/// [`modal_sized`] with no way out but its own footer: no ×, and a backdrop click does nothing.
+/// For a walk the user leaves only through its own buttons — the onboarding wizard, whose footer
+/// always offers one (Skip). Escape is the window's, as everywhere: `AppState::cancel_dialog`
+/// decides what it does over this.
+#[allow(clippy::too_many_arguments)]
+pub fn modal_locked(
+    id: &'static str,
+    edge: Rgba,
+    width: f32,
+    fill_height: Option<f32>,
+    title: &str,
+    body: AnyElement,
+    footer: AnyElement,
+    window: &Window,
+) -> AnyElement {
+    modal_frame(
+        id,
+        edge,
+        width,
+        fill_height,
+        title,
+        None,
+        body,
+        footer,
+        |_, _| {},
+        Dismissal::Footer,
+        window,
+    )
+}
+
+/// Which ways out a modal frame offers besides its footer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dismissal {
+    /// The × and a click outside.
+    Anywhere,
+    /// The × only.
+    CloseOnly,
+    /// Neither: the footer is the only way out.
+    Footer,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -165,7 +206,7 @@ fn modal_frame(
     body: AnyElement,
     footer: AnyElement,
     on_dismiss: impl Fn(&mut Window, &mut gpui::App) + 'static,
-    outside_dismisses: bool,
+    dismissal: Dismissal,
     window: &Window,
 ) -> AnyElement {
     let dismiss = Rc::new(on_dismiss);
@@ -228,12 +269,14 @@ fn modal_frame(
                         })
                 })
                 .children(actions)
-                .child(icon_button(
-                    ElementId::Name(format!("{id}-close").into()),
-                    IconName::Close,
-                    false,
-                    move |_, window, cx| close(window, cx),
-                )),
+                .children((dismissal != Dismissal::Footer).then(|| {
+                    icon_button(
+                        ElementId::Name(format!("{id}-close").into()),
+                        IconName::Close,
+                        false,
+                        move |_, window, cx| close(window, cx),
+                    )
+                })),
         )
         .child(body_slot.child(body))
         .child(
@@ -250,7 +293,7 @@ fn modal_frame(
                 .border_color(theme::border())
                 .child(footer),
         );
-    let panel = if outside_dismisses {
+    let panel = if dismissal == Dismissal::Anywhere {
         panel.on_mouse_down_out(move |_, window, cx| dismiss(window, cx))
     } else {
         panel

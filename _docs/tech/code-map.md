@@ -335,7 +335,8 @@ crates/ubiq/src/
 │   │   ├── mod.rs
 │   │   └── motion.rs
 │   ├── about.rs
-│   └── updates.rs
+│   ├── updates.rs
+│   └── onboarding.rs
 ├── ui/
 │   ├── mod.rs
 │   ├── chat/
@@ -522,7 +523,15 @@ crates/ubiq/src/
 │   │   ├── settings.rs
 │   │   ├── theme.rs
 │   │   └── viewer.rs
-│   └── about.rs
+│   ├── about.rs
+│   └── onboarding/
+│       ├── done.md
+│       ├── flows.rs
+│       ├── ide.md
+│       ├── ide_done.md
+│       ├── mod.rs
+│       ├── tour.md
+│       └── welcome.md
 ├── lib.rs
 ├── theme.rs
 ├── web_export/
@@ -587,7 +596,8 @@ crates/ubiq/src/
 │   ├── unix_connect.rs
 │   ├── about.rs
 │   ├── updates.rs
-│   └── help_images.rs
+│   ├── help_images.rs
+│   └── onboarding.rs
 ├── version.rs
 └── ext/
     ├── id.rs
@@ -869,6 +879,7 @@ the documents in its row.
 | `crates/ubiq/src/app/new_agent.rs` | [`features/workbench-agents.md`](../features/workbench-agents.md) |
 | `crates/ubiq/src/app/new_mission.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
 | `crates/ubiq/src/app/notifications.rs` | [`features/notifications.md`](../features/notifications.md) |
+| `crates/ubiq/src/app/onboarding.rs` | [`features/onboarding.md`](../features/onboarding.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/panels.rs` | [`features/chat.md`](../features/chat.md), [`features/panes-and-terminals.md`](../features/panes-and-terminals.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/app/picker.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`components.md`](./components.md) |
 | `crates/ubiq/src/app/plan.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
@@ -943,9 +954,10 @@ the documents in its row.
 | `crates/ubiq/src/state/new_agent.rs` | [`features/workbench-agents.md`](../features/workbench-agents.md) |
 | `crates/ubiq/src/state/new_mission.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
 | `crates/ubiq/src/state/notifications.rs` | [`features/notifications.md`](../features/notifications.md) |
+| `crates/ubiq/src/state/onboarding.rs` | [`features/onboarding.md`](../features/onboarding.md), [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/overlay.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/state/plan.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
-| `crates/ubiq/src/state/prefs.rs` | [`features/chat.md`](../features/chat.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/state/prefs.rs` | [`features/chat.md`](../features/chat.md), [`features/onboarding.md`](../features/onboarding.md), [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/state/remote.rs` | [`features/workbench.md`](../features/workbench.md), [`architecture.md`](./architecture.md) |
 | `crates/ubiq/src/state/run_picker.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/state/scene.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md) |
@@ -1027,7 +1039,7 @@ the documents in its row.
 | `crates/ubiq/src/ui/kit/files.rs` | [`features/workbench-ide.md`](../features/workbench-ide.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/menu.rs` | [`features/workbench-sink.md`](../features/workbench-sink.md), [`features/workbench-teams.md`](../features/workbench-teams.md), [`components.md`](./components.md), [`ui-and-design.md`](./ui-and-design.md), [`wip/clone-a-project.md`](../wip/clone-a-project.md), [`wip/teams-cross-project.md`](../wip/teams-cross-project.md) |
 | `crates/ubiq/src/ui/kit/mod.rs` | [`components.md`](./components.md), [`ui-and-design.md`](./ui-and-design.md) |
-| `crates/ubiq/src/ui/kit/overlay.rs` | [`ui-and-design.md`](./ui-and-design.md) |
+| `crates/ubiq/src/ui/kit/overlay.rs` | [`features/onboarding.md`](../features/onboarding.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/popover.rs` | [`components.md`](./components.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/ribbon.rs` | [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/kit/settings.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
@@ -1054,6 +1066,8 @@ the documents in its row.
 | `crates/ubiq/src/ui/new_pane_menu.rs` | [`features/panes-and-terminals.md`](../features/panes-and-terminals.md) |
 | `crates/ubiq/src/ui/new_project_menu.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/notifications.rs` | [`features/notifications.md`](../features/notifications.md) |
+| `crates/ubiq/src/ui/onboarding/flows.rs` | [`features/onboarding.md`](../features/onboarding.md) |
+| `crates/ubiq/src/ui/onboarding/mod.rs` | [`features/onboarding.md`](../features/onboarding.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/outline.rs` | [`features/workbench.md`](../features/workbench.md), [`ui-and-design.md`](./ui-and-design.md) |
 | `crates/ubiq/src/ui/overflow_menu.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/src/ui/plan.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
@@ -1128,6 +1142,7 @@ the documents in its row.
 | `crates/ubiq/tests/nav_text.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/navigator.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/new_project.rs` | [`features/workbench.md`](../features/workbench.md) |
+| `crates/ubiq/tests/onboarding.rs` | [`features/onboarding.md`](../features/onboarding.md) |
 | `crates/ubiq/tests/plan.rs` | [`features/workbench-tasks.md`](../features/workbench-tasks.md) |
 | `crates/ubiq/tests/prefs.rs` | [`features/workbench.md`](../features/workbench.md) |
 | `crates/ubiq/tests/rail_container.rs` | [`features/workbench.md`](../features/workbench.md) |

@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-24
+updated: 2026-10-25
 verified: 2026-10-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5517,6 +5517,24 @@ having been opened once, and a pure crate lets every format rule be tested witho
 placeholders, labels never wrap, and edges are routed by a simple elbow rather than draw.io's own
 router — so a native Preview can differ from what the draw.io editor shows.
 
+### D223 — Onboarding flows are compiled in, and completion is a preference
+
+The first-run wizard's flows are Rust values built in `crates/ubiq/src/ui/onboarding/flows.rs`,
+a registry whose markdown bodies are `include_str!`'d beside it. Which flows are done is a set of
+flow ids in `InterfacePrefs.onboarding_done`, inside the interface preferences blob the host
+stores, so no message is added to `crates/ubiq-proto/src/messages.rs`. Only the first
+window of a process auto-starts a launch flow (`AUTO_STARTED` in `app/onboarding.rs`); a mode flow
+is per window, guarded by the done set alone.
+
+**Why:** a flow names places on the screen by `UiId` and modes by `RailMode`, so it changes with
+the interface and belongs in the same commit; an id set in a blob the interface reads and
+writes needs no host work and survives an older blob through its serde default; and one greeting
+per process is what a person opening two windows expects.
+
+**Cost:** a flow cannot be authored without a rebuild, an id once recorded is never reconsidered
+(a rewritten flow needs a new id to be seen again), and a second window of the process never shows
+a launch flow its first window skipped.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce
@@ -5524,6 +5542,7 @@ router — so a native Preview can differ from what the draw.io editor shows.
 - [`transport-contract.md`](./transport-contract.md) — the conversation family D53 shapes, the
   naming rules D58 and D90 state, and the connector family D65 to D71 produce
 - [`../features/notifications.md`](../features/notifications.md) — the bell D88 shapes
+- [`../features/onboarding.md`](../features/onboarding.md) — the wizard D223 shapes
 - [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what D103, D130 and
   D142 decide between
 - [`../backlog.md`](../backlog.md) — the choices still open

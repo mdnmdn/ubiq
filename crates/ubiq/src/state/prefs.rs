@@ -255,6 +255,11 @@ pub struct InterfacePrefs {
     /// none yet.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub last_start_by_project: std::collections::BTreeMap<String, LastStart>,
+    /// The onboarding flows finished or skipped, by id (`crate::state::onboarding`). `default`
+    /// like every field added after the first release, so no schema bump: a blob without it has
+    /// done none, which is what a first run is.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub onboarding_done: std::collections::BTreeSet<String>,
     /// Every key in the blob this build does not know, kept as it was found and written back out.
     ///
     /// Serde drops what a struct does not name, so without this a blob carrying more than this
@@ -282,6 +287,7 @@ impl Default for InterfacePrefs {
             custom_themes: Vec::new(),
             last_start: None,
             last_start_by_project: Default::default(),
+            onboarding_done: Default::default(),
             rest: Default::default(),
         }
     }

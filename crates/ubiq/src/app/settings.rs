@@ -37,6 +37,7 @@ impl AppState {
             custom_themes: self.workbench.custom_themes.clone(),
             last_start: self.workbench.last_start.clone(),
             last_start_by_project: self.workbench.last_start_by_project.clone(),
+            onboarding_done: self.workbench.onboarding_done.clone(),
             // Whatever the blob carried that this build does not name, put back as it was found.
             rest: self.workbench.interface_rest.clone(),
         };

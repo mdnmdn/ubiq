@@ -285,6 +285,11 @@ pub const TITLEBAR_SETTINGS: UiId = UiId::new("titlebar.settings");
 pub const TITLEBAR_OVERFLOW: UiId = UiId::new("titlebar.overflow");
 pub const TITLEBAR_THEME: UiId = UiId::new("titlebar.theme");
 
+/// The strip along the window's foot.
+pub const STATUS_BAR: UiId = UiId::new("statusbar");
+/// The centre of the window: the docked panels and the mode's own screen between rail and edge.
+pub const WORKSPACE: UiId = UiId::new("workspace");
+
 /// Every name the interface knows.
 ///
 /// This is the answer to "is that a real target?" — for `_tools/helpbundle.py` checking a `ui.*`
@@ -330,6 +335,8 @@ pub const CATALOGUE: &[UiId] = &[
     TITLEBAR_SETTINGS,
     TITLEBAR_OVERFLOW,
     TITLEBAR_THEME,
+    STATUS_BAR,
+    WORKSPACE,
 ];
 
 /// Whether a name is in the [`CATALOGUE`].
@@ -658,6 +665,22 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         TargetInfo {
             label: "Light and dark",
             blurb: "Switch the whole window between the light and the dark colours.",
+        },
+    ),
+    (
+        STATUS_BAR,
+        TargetInfo {
+            label: "Status bar",
+            blurb: "What the window is doing at a glance — the mode's counts, the update, the \
+                    size control and the build.",
+        },
+    ),
+    (
+        WORKSPACE,
+        TargetInfo {
+            label: "Workspace",
+            blurb: "Where the work happens: the mode's screen in the middle and the panels docked \
+                    around it, each one movable.",
         },
     ),
 ];

@@ -1013,7 +1013,7 @@ pub fn textarea_on(state: &Entity<TextareaState>, window: &Window, cx: &App) -> 
 
 /// The three shapes a modal comes in, each raised by its own trigger.
 fn modals(cx: &mut Context<AppState>) -> AnyElement {
-    let triggers: Vec<AnyElement> = [
+    let mut triggers: Vec<AnyElement> = [
         (SinkModal::Confirm, "A question"),
         (SinkModal::Form, "A form"),
         (SinkModal::Danger, "Something irreversible"),
@@ -1029,11 +1029,24 @@ fn modals(cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
     })
     .collect();
+    // `kit::modal_locked`, as the onboarding wizard draws it — the real one, raised by hand.
+    triggers.push(
+        ghost_button(
+            "sink-modal-locked",
+            Some(IconName::Inspector),
+            "A locked walk",
+            cx.listener(|this, _, _, cx| {
+                this.open_onboarding(crate::state::onboarding::WELCOME, cx)
+            }),
+        )
+        .into_any_element(),
+    );
 
     group(
         "Modals",
         "One question, over the window. Dismissed by a click outside it or by its own close; the \
-         scrim is a token, so both palettes dim by what their ground needs.",
+         scrim is a token, so both palettes dim by what their ground needs. A locked modal has \
+         neither and leaves only through its footer.",
         vec![row(triggers)],
     )
 }

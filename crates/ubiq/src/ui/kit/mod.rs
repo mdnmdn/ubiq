@@ -67,7 +67,7 @@ pub use menu::{
     multi_order,
 };
 pub use overlay::{
-    confirm_modal, modal, modal_note, modal_sized, modal_sized_pinned, prompt_modal,
+    confirm_modal, modal, modal_locked, modal_note, modal_sized, modal_sized_pinned, prompt_modal,
 };
 pub use panel::{Tab, panel, panel_header, tab_strip};
 pub use popover::popover;

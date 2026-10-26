@@ -119,6 +119,8 @@ reads the accessor** — `theme::titlebar_height()`, `theme::explorer_width()`,
 | `COLUMN_WIDTH` / `COLUMN_SHUT` / `TASK_PANEL_WIDTH` | 320 / 44 / 420 | Columns and the task panel |
 | `MODAL_WIDTH` / `MODAL_MAX_HEIGHT` | 460 / 0.8 | One question; the fraction of window height its body scrolls inside |
 | `LOGIN_MODAL_WIDTH` / `LOGIN_MODAL_HEIGHT` | 960 / 720 | The one modal that is not one question — a full-screen harness login TUI |
+| `ONBOARDING_WIDTH` / `ONBOARDING_HEIGHT` | 560 / 440 | The onboarding dialog, fixed so steps never resize it |
+| `ONBOARDING_CALLOUT_WIDTH` / `ONBOARDING_CALLOUT_ROOM` / `ONBOARDING_DOT` | 360 / 190 / 7 | A highlight step's card, the height placement assumes for it, a progress dot |
 | `SETTINGS_WIDTH` / `SETTINGS_HEIGHT` | 820 / 560 | The settings page overlay |
 
 `MdWidth` (`Readable`/`Wide`/`Full`), `MdDensity` (`Comfortable`/`Compact`) and `MdMinimapSide`
@@ -216,7 +218,9 @@ typed survives a redraw; `confirm_enabled: false` dims at `.opacity(0.5)` — th
 disabled style). `modal_sized`'s header takes an `actions: Option<AnyElement>` beside the title,
 drawn before the dismiss — nearly every caller passes `None` (`modal(...)` does, for all of them);
 `ui/board/detail.rs::popup()` is the one that passes something, the empty-fields eye a task panel
-loses when drawn centred instead of docked (`T-263`, `G375`).
+loses when drawn centred instead of docked (`T-263`, `G375`). `modal_locked(...)` is `modal_sized`
+with no × and no backdrop dismissal (a private `Dismissal` enum picks the behaviour); its footer
+must always offer a way out — the onboarding dialog is the one caller.
 
 ### `menu.rs` — one dropdown mechanism for every menu in the window
 

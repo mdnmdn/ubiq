@@ -45,6 +45,7 @@ pub mod new_mission;
 pub mod new_pane_menu;
 pub mod new_project_menu;
 pub mod notifications;
+pub mod onboarding;
 pub mod outline;
 pub mod overflow_menu;
 pub mod plan;

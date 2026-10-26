@@ -38,6 +38,7 @@ pub mod navigator;
 pub mod new_agent;
 pub mod new_mission;
 pub mod notifications;
+pub mod onboarding;
 pub mod overlay;
 pub mod plan;
 pub mod prefs;
