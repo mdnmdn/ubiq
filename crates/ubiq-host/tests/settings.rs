@@ -421,5 +421,7 @@ fn key_profile(name: &str) -> SshProfile {
             path: "~/.ssh/id_ed25519".to_string(),
             has_passphrase: true,
         },
+        initial_command: None,
+        terminal_enabled: false,
     }
 }

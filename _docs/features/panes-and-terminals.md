@@ -77,7 +77,8 @@ has, the default marked; picking one runs that shell. On Unix the list is a fixe
 `%ProgramFiles%\PowerShell\`, the Store alias, `pwsh.exe` on `PATH`, Windows PowerShell, the command
 processor), each labelled with product name and version (`PowerShell 7`, `PowerShell 7 (preview)`,
 `Windows PowerShell 5.1`, `Command Prompt`). It is not a launcher for anything on disk, and an
-uninstalled shell is not offered. Above the shells, separated, the menu offers every agent harness the
+uninstalled shell is not offered. After the shells, separated, come the saved SSH profiles that are terminal-enabled
+([`drone.md`](./drone.md)): each opens an interactive `ssh` pane in the bottom region. Above the shells, separated, the menu offers every agent harness the
 harness library knows; picking one starts a composed agent
 ([`sessions-and-workspaces.md`](./sessions-and-workspaces.md)), and a harness whose binary is absent is an
 unavailable row, because the row is how a user learns it could be there. **The runnable tools are not on

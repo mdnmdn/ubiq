@@ -2192,6 +2192,8 @@ fn an_ssh_secret_is_refused_for_a_profile_that_holds_none() {
             port: 22,
             user: String::new(),
             auth: SshAuth::Agent,
+            initial_command: None,
+            terminal_enabled: false,
         }],
         ..HostSettings::default()
     };

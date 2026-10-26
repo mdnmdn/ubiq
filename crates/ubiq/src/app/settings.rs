@@ -2808,8 +2808,19 @@ impl AppState {
             .as_ref()
             .map_or(SshMethod::Agent, |profile| SshMethod::of(&profile.auth));
         self.set_ssh_form_fields(held.as_ref(), window, cx);
-        self.workbench.settings.ssh_form = Some(SshProfileForm { id, method });
+        self.workbench.settings.ssh_form = Some(SshProfileForm {
+            id,
+            method,
+            terminal: held.as_ref().is_some_and(|profile| profile.terminal_enabled),
+        });
         self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn toggle_ssh_terminal(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.ssh_form {
+            form.terminal = !form.terminal;
+        }
         cx.notify();
     }
 
@@ -2838,6 +2849,7 @@ impl AppState {
         let port = self.ssh_port_input.read(cx).value().trim().to_string();
         let user = self.ssh_user_input.read(cx).value().trim().to_string();
         let key_path = self.ssh_key_path_input.read(cx).value().trim().to_string();
+        let typed_command = self.ssh_initial_command_input.read(cx).value().trim().to_string();
         // Trimmed, because a passphrase pasted with a newline around it is not a different one.
         let secret = self.ssh_secret_input.read(cx).value().trim().to_string();
         let Some(form) = self.workbench.settings.ssh_form.take() else {
@@ -2878,6 +2890,17 @@ impl AppState {
         // carried into the record either — a stale port on a row that cannot use one is a lie.
         let alias = form.method == SshMethod::ConfigAlias;
         let id = form.id.unwrap_or_else(SshProfileId::generate);
+        // Unchecked hides the command box without wiping what it held.
+        let initial_command = if form.terminal {
+            Some(typed_command).filter(|command| !command.is_empty())
+        } else {
+            form.id.and_then(|id| {
+                self.workbench
+                    .settings
+                    .ssh_profile(id)
+                    .and_then(|profile| profile.initial_command.clone())
+            })
+        };
         let profile = SshProfile {
             id,
             name,
@@ -2885,6 +2908,8 @@ impl AppState {
             port: if alias { 22 } else { port },
             user: if alias { String::new() } else { user },
             auth,
+            initial_command,
+            terminal_enabled: form.terminal,
         };
         let profiles = &mut self.workbench.settings.host.ssh_profiles;
         match profiles.iter_mut().find(|held| held.id == id) {
@@ -2902,6 +2927,37 @@ impl AppState {
         }
         self.set_ssh_form_fields(None, window, cx);
         cx.notify();
+    }
+
+    /// Copy a profile under a fresh id and "<name> copy". The secret is not copied (see
+    /// [`SshProfile::cloned`]), so the copy has none filed until the user types one.
+    pub fn clone_ssh_profile(&mut self, id: SshProfileId, cx: &mut Context<Self>) {
+        let Some(copy) = self.workbench.settings.ssh_profile(id).map(SshProfile::cloned) else {
+            return;
+        };
+        self.workbench.settings.host.ssh_profiles.push(copy);
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Open an interactive `ssh` terminal to a profile in the bottom region. Any password or
+    /// passphrase is asked for in the terminal itself.
+    pub fn open_ssh_terminal(&mut self, id: SshProfileId, cx: &mut Context<Self>) {
+        let Some(args) = self
+            .workbench
+            .settings
+            .ssh_profile(id)
+            .and_then(ubiq_proto::ssh::terminal_args)
+        else {
+            return;
+        };
+        self.reveal_pane_region(cx);
+        self.spawn_pane(
+            Some("ssh".to_string()),
+            args,
+            ubiq_proto::messages::AgentPicks::default(),
+            cx,
+        );
     }
 
     pub fn close_ssh_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2932,7 +2988,11 @@ impl AppState {
             Some(SshAuth::KeyFile { path, .. }) => path.clone(),
             _ => String::new(),
         };
+        let initial = held
+            .and_then(|profile| profile.initial_command.clone())
+            .unwrap_or_default();
         for (input, value) in [
+            (&self.ssh_initial_command_input, initial.as_str()),
             (&self.ssh_name_input, name.as_str()),
             (&self.ssh_host_input, host.as_str()),
             (&self.ssh_port_input, port.as_str()),

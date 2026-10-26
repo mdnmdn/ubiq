@@ -4769,6 +4769,14 @@ fn ssh_profile_row(
             .gap_2()
             .children(chip.map(|(text, colour)| badge(text, colour)))
             .child(test_button)
+            .children(profile.terminal_enabled.then(|| {
+                ghost_button(
+                    ElementId::Name(format!("app-settings-ssh-{id}-terminal").into()),
+                    None,
+                    "Open terminal",
+                    cx.listener(move |this, _, _, cx| this.open_ssh_terminal(id, cx)),
+                )
+            }))
             // Offered only where there is one to forget: a control that clears nothing is a
             // control that lies about what is filed.
             .children(filed.then(|| {
@@ -4784,6 +4792,12 @@ fn ssh_profile_row(
                 None,
                 "Edit",
                 cx.listener(move |this, _, window, cx| this.open_ssh_form(Some(id), window, cx)),
+            ))
+            .child(ghost_button(
+                ElementId::Name(format!("app-settings-ssh-{id}-clone").into()),
+                None,
+                "Clone",
+                cx.listener(move |this, _, _, cx| this.clone_ssh_profile(id, cx)),
             ))
             .child(ghost_button(
                 ElementId::Name(format!("app-settings-ssh-{id}-remove").into()),
@@ -6006,6 +6020,30 @@ pub fn ssh_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
                  reference and rides the settings file; the key itself is never read here.",
                 &app.ssh_key_path_input,
                 focused(&app.ssh_key_path_input),
+            ))
+        })
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(check_box(
+                    "app-settings-ssh-terminal-enabled",
+                    form.terminal,
+                    cx.listener(|this, _, _, cx| this.toggle_ssh_terminal(cx)),
+                ))
+                .child(label_block(
+                    "Enable terminal",
+                    "Offer this profile as a terminal in the new-pane menu.",
+                )),
+        )
+        .when(form.terminal, |body| {
+            body.child(form_field(
+                "Initial command",
+                "Optional. Run on the far side when the terminal opens; the session stays at a \
+                 login shell afterwards.",
+                &app.ssh_initial_command_input,
+                focused(&app.ssh_initial_command_input),
             ))
         })
         .when(form.method.takes_secret(), |body| {

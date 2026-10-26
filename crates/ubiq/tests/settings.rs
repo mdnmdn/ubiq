@@ -2267,3 +2267,29 @@ fn locating_a_registry_agent_writes_its_command_and_adds_it(cx: &mut TestAppCont
         "the registry is asked again so the row reflects the new command"
     );
 }
+
+#[test]
+fn a_cloned_ssh_profile_gets_a_new_id_and_no_secret() {
+    use ubiq_proto::ids::SshProfileId;
+    use ubiq_proto::settings::{SshAuth, SshProfile};
+    let original = SshProfile {
+        id: SshProfileId::generate(),
+        name: "box".into(),
+        host: "h".into(),
+        port: 22,
+        user: "u".into(),
+        auth: SshAuth::KeyFile {
+            path: "~/.ssh/k".into(),
+            has_passphrase: true,
+        },
+        initial_command: Some("tmux a".into()),
+        terminal_enabled: true,
+    };
+    let copy = original.cloned();
+    assert_ne!(copy.id, original.id);
+    assert_eq!(copy.name, "box copy");
+    assert_eq!(copy.initial_command, original.initial_command);
+    assert!(copy.terminal_enabled);
+    assert!(!copy.auth.has_secret());
+    assert!(original.auth.has_secret());
+}

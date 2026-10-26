@@ -1272,6 +1272,8 @@ pub struct AppState {
     pub ssh_port_input: Entity<InputState>,
     pub ssh_user_input: Entity<InputState>,
     pub ssh_key_path_input: Entity<InputState>,
+    /// The SSH form's optional command to run on connect.
+    pub ssh_initial_command_input: Entity<InputState>,
     // ponytail: this kit has no masked field, so a typed passphrase is on screen until the modal
     // closes — the same ceiling `ai_key_input` has, and the same fix.
     pub ssh_secret_input: Entity<InputState>,

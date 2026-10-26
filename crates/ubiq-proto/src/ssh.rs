@@ -37,6 +37,43 @@ pub fn typable_target(profile: &SshProfile) -> Option<String> {
     (!refused).then_some(target)
 }
 
+/// The argv (after `ssh`) for an **interactive terminal** to a profile, run in a pane rather than
+/// spawned headless: no batch mode, so a password or passphrase is asked for in the terminal.
+///
+/// An [`SshProfile::initial_command`] forces a tty (`-t`) and rides as the remote command followed
+/// by `exec $SHELL -l`, so the session stays interactive once it finishes. `None` when the target
+/// cannot be put in an argv.
+pub fn terminal_args(profile: &SshProfile) -> Option<Vec<String>> {
+    let target = typable_target(profile)?;
+    let mut args = Vec::new();
+    if !matches!(profile.auth, SshAuth::ConfigAlias) {
+        if profile.port != 22 {
+            args.extend(["-p".to_string(), profile.port.to_string()]);
+        }
+        if let SshAuth::KeyFile { path, .. } = &profile.auth
+            && !path.trim().is_empty()
+        {
+            args.extend(["-i".to_string(), path.trim().to_string()]);
+        }
+        if !profile.user.trim().is_empty() {
+            args.extend(["-l".to_string(), profile.user.trim().to_string()]);
+        }
+    }
+    let initial = profile
+        .initial_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|command| !command.is_empty());
+    if initial.is_some() {
+        args.push("-t".to_string());
+    }
+    args.push(target);
+    if let Some(command) = initial {
+        args.push(format!("{command}; exec $SHELL -l"));
+    }
+    Some(args)
+}
+
 /// Which program [`apply_connection_options`] is building argv for. `ssh` and `scp` read
 /// identical `-o` options but spell the port and the user differently — `-p`/`-l` against
 /// `-P`/`-o User=`, `scp` having no `-l` of its own.
@@ -202,7 +239,35 @@ mod tests {
             port: 2222,
             user: "ops".into(),
             auth,
+            initial_command: None,
+            terminal_enabled: false,
         }
+    }
+
+    #[test]
+    fn terminal_args_cover_port_key_user_and_initial_command() {
+        let mut p = profile(SshAuth::KeyFile {
+            path: " ~/.ssh/k ".into(),
+            has_passphrase: false,
+        });
+        assert_eq!(
+            terminal_args(&p).unwrap(),
+            ["-p", "2222", "-i", "~/.ssh/k", "-l", "ops", "bastion.example"]
+        );
+        p.port = 22;
+        p.user.clear();
+        p.auth = SshAuth::Agent;
+        p.initial_command = Some("  cd /srv  ".into());
+        assert_eq!(
+            terminal_args(&p).unwrap(),
+            ["-t", "bastion.example", "cd /srv; exec $SHELL -l"]
+        );
+        p.auth = SshAuth::ConfigAlias;
+        p.port = 2222;
+        p.initial_command = Some("   ".into());
+        assert_eq!(terminal_args(&p).unwrap(), ["bastion.example"]);
+        p.host = "-oProxyCommand=x".into();
+        assert!(terminal_args(&p).is_none());
     }
 
     fn args(command: &Command) -> Vec<String> {

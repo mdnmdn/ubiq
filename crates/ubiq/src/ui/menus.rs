@@ -317,6 +317,24 @@ pub fn new_pane(app: &AppState, cx: &App) -> Vec<MenuEntry> {
         // The console is not a pane, and the line says so: everything above it starts something.
         entries.push(MenuEntry::separator());
     }
+    // Saved ssh profiles open an interactive terminal in the bottom region.
+    let mut profiles = app
+        .workbench
+        .settings
+        .host
+        .ssh_profiles
+        .iter()
+        .filter(|profile| profile.terminal_enabled)
+        .peekable();
+    if has_project && profiles.peek().is_some() {
+        entries.extend(profiles.map(|profile| {
+            let id = profile.id;
+            MenuEntry::new(SharedString::from(profile.name.clone()))
+                .icon(IconName::Network)
+                .on(move |this, _, cx| this.open_ssh_terminal(id, cx))
+        }));
+        entries.push(MenuEntry::separator());
+    }
     entries
         .push(MenuEntry::new(CONSOLE_ROW).on(|this, window, cx| this.reveal_console(window, cx)));
     entries

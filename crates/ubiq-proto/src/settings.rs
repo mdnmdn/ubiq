@@ -251,6 +251,30 @@ pub struct SshProfile {
     /// How the connection authenticates.
     #[serde(default)]
     pub auth: SshAuth,
+    /// A command to run on the far side as soon as an interactive terminal to this profile
+    /// opens, after which the session stays at a login shell. `None` runs nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_command: Option<String>,
+    /// Whether this profile is offered as a terminal (the "+" menu and the row's "Open
+    /// terminal"). Off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub terminal_enabled: bool,
+}
+
+impl SshProfile {
+    /// A copy under a fresh id, named "<name> copy". **No secret is copied**: the `has_*` flag is
+    /// cleared, since the material is filed against the original's id and the clone has none.
+    pub fn cloned(&self) -> Self {
+        let mut copy = self.clone();
+        copy.id = SshProfileId::generate();
+        copy.name = format!("{} copy", self.name);
+        match &mut copy.auth {
+            SshAuth::KeyFile { has_passphrase, .. } => *has_passphrase = false,
+            SshAuth::Password { has_password } => *has_password = false,
+            SshAuth::Agent | SshAuth::ConfigAlias => {}
+        }
+        copy
+    }
 }
 
 /// How an [`SshProfile`] authenticates.

@@ -977,6 +977,8 @@ mod tests {
             port: 2222,
             user: "ubiq".to_string(),
             auth,
+            initial_command: None,
+            terminal_enabled: false,
         }
     }
 

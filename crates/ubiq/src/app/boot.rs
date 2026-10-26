@@ -510,6 +510,9 @@ impl AppState {
         });
         let ssh_key_path_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("~/.ssh/id_ed25519"));
+        let ssh_initial_command_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Optional \u{2014} e.g. cd /srv/app && tmux attach")
+        });
         let ssh_secret_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Type it once \u{2014} it is never read back")
         });
@@ -1652,6 +1655,7 @@ impl AppState {
             ssh_port_input.read(cx).focus_handle(cx),
             ssh_user_input.read(cx).focus_handle(cx),
             ssh_key_path_input.read(cx).focus_handle(cx),
+            ssh_initial_command_input.read(cx).focus_handle(cx),
             ssh_secret_input.read(cx).focus_handle(cx),
             feedback_url_input.read(cx).focus_handle(cx),
             feedback_key_input.read(cx).focus_handle(cx),
@@ -1995,6 +1999,7 @@ impl AppState {
             ssh_port_input,
             ssh_user_input,
             ssh_key_path_input,
+            ssh_initial_command_input,
             ssh_secret_input,
             feedback_url_input,
             feedback_key_input,

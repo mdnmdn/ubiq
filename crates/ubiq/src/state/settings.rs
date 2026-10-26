@@ -703,6 +703,8 @@ pub struct SshProfileForm {
     /// the form is saved, so an abandoned form still leaves nothing behind.
     pub id: Option<SshProfileId>,
     pub method: SshMethod,
+    /// The "Enable terminal" box; the initial command is drawn only while it is ticked.
+    pub terminal: bool,
 }
 
 /// The Stop-drone question, while one is up.

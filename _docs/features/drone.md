@@ -68,6 +68,15 @@ An **SSH connection profile** is a name, a host, a port, a user and an authentic
 an agent, a key file, a password, or deferral to `~/.ssh/config` by alias — where the host field is
 the alias and every other field is ignored, which the form says by hiding them.
 
+A profile can also be **terminal-enabled**: an "Enable terminal" box on the form reveals an optional
+**initial command**. Unchecking hides the command without wiping it. A terminal-enabled profile gets
+an **Open terminal** button on its row and an entry in the "+" new-pane menu (after the local shells,
+before Logs), and opens an interactive `ssh` pane in the bottom region — `ssh [-p] [-i] [-l] host`,
+or `-t host "<cmd>; exec $SHELL -l"` with a command, so the session stays at a login shell. A
+password or passphrase is asked for in the terminal itself; the askpass helper is not used. **Clone**
+on a row copies the profile (terminal flag and command included) as "<name> copy" under a fresh id,
+with no secret filed.
+
 **The profile list is the interface's and the secret material is the host's** (`D124`). The list
 rides the ordinary settings write. A passphrase or password crosses only as a `Secret`, into the
 connector store's own `ssh` namespace keyed by the profile id, and the answer to setting or clearing
