@@ -1451,6 +1451,7 @@ mod tests {
             resume: None,
             fork: true,
             model: None,
+            thinking: None,
             mcp_servers: Vec::new(),
             #[cfg(feature = "inproc-mcp")]
             inproc_servers: Vec::new(),

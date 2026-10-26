@@ -13,13 +13,14 @@
 //! are whatever ACP's `session/new` carries.
 
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 use crate::Result;
 use crate::acp_registry::{AcpAgentStatus, AcpStatus, Installer};
+use crate::io::{ConfigCategory, ConfigOption, ConfigValue};
 use crate::spec::{HarnessId, IoModes, RunSpec};
 
-use super::{Harness, IoSupport, Launch, ModelInfo};
+use super::{Harness, IoSupport, Launch, ModelInfo, ModelThinking, ThinkingLevel};
 
 /// A registry agent this machine can run, resolved to an executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,9 +257,18 @@ impl Harness for RegistryHarness {
         Ok(launch)
     }
 
-    /// The models come over ACP once a session is open; there is nothing to probe beforehand.
+    /// An ACP agent names its models on `session/new` and nowhere else, so the probe opens one
+    /// and closes it unprompted ([`crate::io::acp_client::probe_config`]). Without it a registry
+    /// agent's pickers stayed empty until its first turn had launched it.
     fn discover_models(&self) -> Result<Vec<ModelInfo>> {
-        Ok(Vec::new())
+        Ok(catalogue_of(&self.probe()?).0)
+    }
+
+    /// The same probe's thinking option, as the levels of the model it was stated for — the
+    /// session's current one. A level is per model, and the probe heard only that model's, so no
+    /// other model is credited with them; the live session states the rest once it runs.
+    fn discover_thinking(&self) -> Result<std::collections::BTreeMap<String, ModelThinking>> {
+        Ok(catalogue_of(&self.probe()?).1)
     }
 
     fn version(&self) -> Result<String> {
@@ -271,13 +281,110 @@ impl Harness for RegistryHarness {
         cwd: &Path,
     ) -> Result<Box<dyn crate::io::IoBridge>> {
         let child = crate::io::spawn_piped(&provisioned.launch, cwd)?;
-        Ok(Box::new(crate::io::AcpBridge::new(
+        let bridge = crate::io::AcpBridge::new(
             child,
             cwd,
             provisioned.resume.as_deref(),
             provisioned.model.as_deref(),
-        )?))
+        )?;
+        // No effort flag reaches an adapter's command line; the level is set over the wire.
+        bridge.apply_thinking(provisioned.thinking.as_deref());
+        Ok(Box::new(bridge))
     }
+}
+
+impl RegistryHarness {
+    /// The config options a fresh session offers, probed once per agent version and process:
+    /// [`Harness::discover_models`] and [`Harness::discover_thinking`] are asked back to back and
+    /// must not spawn the agent twice. A failure is not remembered, so the next ask retries.
+    ///
+    /// Run in [`super::shared::probe_cwd`] with the user's own environment, which is what a
+    /// registry run inherits too (module docs) — so the probe hears the same config the run will.
+    fn probe(&self) -> Result<Vec<ConfigOption>> {
+        /// `(id, version)` → what that agent's probe stated.
+        type Probed = Vec<((String, String), Vec<ConfigOption>)>;
+        static PROBED: Mutex<Probed> = Mutex::new(Vec::new());
+        let key = (self.id.clone(), self.version.clone());
+        let memo = PROBED.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, options)) = memo.iter().find(|(known, _)| *known == key) {
+            return Ok(options.clone());
+        }
+        drop(memo);
+        let cwd = super::shared::probe_cwd();
+        let mut spec = RunSpec::new(self.id.clone(), cwd.clone());
+        spec.io = IoModes::Structured;
+        let child = crate::io::spawn_piped(&self.launch(&spec)?, &cwd)?;
+        let options = crate::io::acp_client::probe_config(child, &cwd)?;
+        // Nor is a session that stated nothing: it may be one that was not signed in yet.
+        if !options.is_empty() {
+            let mut memo = PROBED.lock().unwrap_or_else(|e| e.into_inner());
+            memo.retain(|(known, _)| *known != key);
+            memo.push((key, options.clone()));
+        }
+        Ok(options)
+    }
+}
+
+/// A probed session's pickers as a model catalogue: every choice of the model option, the
+/// current one flagged default, and the thinking option's levels under that current model.
+fn catalogue_of(
+    options: &[ConfigOption],
+) -> (
+    Vec<ModelInfo>,
+    std::collections::BTreeMap<String, ModelThinking>,
+) {
+    let select = |option: &ConfigOption| match &option.value {
+        ConfigValue::Select {
+            current_value,
+            options,
+        } => Some((current_value.clone(), options.clone())),
+        ConfigValue::Boolean { .. } => None,
+    };
+    let mut models = Vec::new();
+    let mut current_model = None;
+    if let Some((current, choices)) = options
+        .iter()
+        .find(|option| option.category == Some(ConfigCategory::Model))
+        .and_then(select)
+    {
+        models = choices
+            .iter()
+            .map(|choice| ModelInfo {
+                id: choice.value.clone(),
+                description: choice
+                    .description
+                    .clone()
+                    .or_else(|| (choice.name != choice.value).then(|| choice.name.clone())),
+                default: choice.value == current,
+            })
+            .collect();
+        current_model = Some(current);
+    }
+    let mut thinking = std::collections::BTreeMap::new();
+    if let Some(model) = current_model
+        && let Some((current, choices)) = options
+            .iter()
+            .find(|option| crate::io::acp_client::is_thinking_option(option))
+            .and_then(select)
+        && !choices.is_empty()
+    {
+        let levels = choices
+            .into_iter()
+            .map(|choice| ThinkingLevel {
+                value: choice.value,
+                label: choice.name,
+                description: choice.description,
+            })
+            .collect();
+        thinking.insert(
+            model,
+            ModelThinking {
+                levels,
+                default_level: Some(current).filter(|level| !level.is_empty()),
+            },
+        );
+    }
+    (models, thinking)
 }
 
 #[cfg(test)]
@@ -421,5 +528,55 @@ mod tests {
             install_prefixes(Path::new("/home/u/.cargo/goose"), Some(Path::new("/home/u")))
                 .is_empty()
         );
+    }
+
+    /// Mistral Vibe's `session/new` `configOptions`, in the shape its ACP source builds them
+    /// (`vibe/acp/utils.py`: `build_model_config`, `make_thinking_response`): the model's
+    /// choices become the catalogue and its `category: "thinking"` levels hang on the current one.
+    #[test]
+    fn a_probed_session_becomes_a_catalogue() {
+        let options: Vec<ConfigOption> = [
+            r#"{"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"default",
+                "options":[{"value":"default","name":"Default"}]}"#,
+            r#"{"id":"model","name":"Model","category":"model","type":"select","currentValue":"devstral",
+                "options":[{"value":"devstral","name":"Devstral 2","description":"devstral-2512"},
+                           {"value":"local","name":"local"}]}"#,
+            r#"{"id":"thinking","name":"Thinking","category":"thinking","type":"select","currentValue":"high",
+                "options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]}"#,
+        ]
+        .iter()
+        .map(|json| crate::io::acp::from_config_option(&serde_json::from_str(json).unwrap()))
+        .collect();
+
+        let (models, thinking) = catalogue_of(&options);
+        assert_eq!(
+            models,
+            vec![
+                ModelInfo {
+                    id: "devstral".into(),
+                    description: Some("devstral-2512".into()),
+                    default: true,
+                },
+                ModelInfo::new("local"),
+            ]
+        );
+        assert_eq!(
+            thinking.len(),
+            1,
+            "only the model the levels were stated for"
+        );
+        let levels = &thinking["devstral"];
+        assert_eq!(levels.default_level.as_deref(), Some("high"));
+        assert_eq!(
+            levels
+                .levels
+                .iter()
+                .map(|l| l.value.as_str())
+                .collect::<Vec<_>>(),
+            ["low", "high"]
+        );
+        assert_eq!(levels.levels[1].label, "High");
+
+        assert_eq!(catalogue_of(&[]), (Vec::new(), Default::default()));
     }
 }

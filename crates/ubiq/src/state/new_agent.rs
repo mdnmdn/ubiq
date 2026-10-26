@@ -575,9 +575,7 @@ impl NewAgentForm {
     pub fn preamble(&self) -> Option<String> {
         let mut turn = String::new();
         if let Some(max) = self.max_subagents {
-            turn.push_str(&format!(
-                "**IMPORTANT: RUN AT MOST {max} SUBAGENTS AT THE SAME TIME.**"
-            ));
+            turn.push_str(&subagent_directive(max));
         }
         let prompt = self.prompt.trim();
         if !prompt.is_empty() {
@@ -592,6 +590,27 @@ impl NewAgentForm {
 
 /// What the subagent picker opens on. Three is the working default the directive is written for.
 pub const DEFAULT_SUBAGENTS: u8 = 3;
+
+const DIRECTIVE_HEAD: &str = "**IMPORTANT: RUN AT MOST ";
+const DIRECTIVE_TAIL: &str = " SUBAGENTS AT THE SAME TIME.**";
+
+/// The subagent ceiling as the directive [`NewAgentForm::preamble`] opens a run's first turn on.
+pub fn subagent_directive(max: u8) -> String {
+    format!("{DIRECTIVE_HEAD}{max}{DIRECTIVE_TAIL}")
+}
+
+/// `text` without a leading [`subagent_directive`], for any ceiling — what lets a turn the
+/// harness hands back with the directive still on it (a `session/load` replay, where no send of
+/// this window armed a preamble to take off) read as what the user wrote. `None` when `text` does
+/// not open on one.
+pub fn strip_subagent_directive(text: &str) -> Option<&str> {
+    let rest = text.trim_start().strip_prefix(DIRECTIVE_HEAD)?;
+    let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    if digits == 0 {
+        return None;
+    }
+    Some(rest[digits..].strip_prefix(DIRECTIVE_TAIL)?.trim_start())
+}
 
 /// Put a held preamble in front of the turn the user typed, as one text.
 ///
@@ -835,6 +854,24 @@ mod tests {
         );
         assert_eq!(fold_preamble("", "Do the thing."), "Do the thing.");
         assert_eq!(fold_preamble("Rule.", ""), "Rule.");
+    }
+
+    /// A replayed first turn still carries the directive; any ceiling is recognised and taken
+    /// off, and a turn that merely mentions one keeps its words.
+    #[test]
+    fn a_subagent_directive_comes_off_the_turn_it_opens() {
+        let folded = fold_preamble(&subagent_directive(12), "hi");
+        assert_eq!(strip_subagent_directive(&folded), Some("hi"));
+        assert_eq!(
+            strip_subagent_directive(&subagent_directive(3)),
+            Some(""),
+            "a directive alone is nothing the user said"
+        );
+        assert_eq!(strip_subagent_directive("hi"), None);
+        assert_eq!(
+            strip_subagent_directive("**IMPORTANT: RUN AT MOST many SUBAGENTS AT THE SAME TIME.**"),
+            None
+        );
     }
 
     /// `T-64`'s two checkboxes each flip one sentence of the assignment prompt, independently —
