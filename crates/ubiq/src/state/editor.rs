@@ -42,6 +42,22 @@ pub enum FileLanguage {
     Toml,
     Kotlin,
     Diff,
+    /// One JSON value per line; the JSON grammar reads a run of top-level values.
+    JsonLines,
+    /// No XML grammar is bundled; HTML's tag/attribute/comment tree is the close fit.
+    Xml,
+    /// No INI grammar is bundled; TOML's sections, keys and comments are the close fit.
+    Ini,
+    Make,
+    /// Highlighted with the Make grammar: recipes, variables and comments line up.
+    Just,
+    /// Highlighted with the shell grammar.
+    Dockerfile,
+    /// Highlighted with the shell grammar.
+    Dotenv,
+    GraphQL,
+    Proto,
+    Lua,
     Plain,
 }
 
@@ -68,6 +84,16 @@ impl FileLanguage {
             FileLanguage::Toml => "TOML",
             FileLanguage::Kotlin => "Kotlin",
             FileLanguage::Diff => "Diff",
+            FileLanguage::JsonLines => "JSON Lines",
+            FileLanguage::Xml => "XML",
+            FileLanguage::Ini => "INI",
+            FileLanguage::Make => "Makefile",
+            FileLanguage::Just => "Justfile",
+            FileLanguage::Dockerfile => "Dockerfile",
+            FileLanguage::Dotenv => ".env",
+            FileLanguage::GraphQL => "GraphQL",
+            FileLanguage::Proto => "Protobuf",
+            FileLanguage::Lua => "Lua",
             FileLanguage::Plain => "Plain Text",
         }
     }
@@ -77,6 +103,20 @@ impl FileLanguage {
     /// Only extensions the highlighter actually has a grammar for are named; everything else is
     /// plain text rather than highlighted as something it is not.
     pub fn of(path: &str) -> Self {
+        let name = leaf(path).to_lowercase();
+        match name.as_str() {
+            "justfile" | ".justfile" => return FileLanguage::Just,
+            "makefile" | "gnumakefile" => return FileLanguage::Make,
+            "dockerfile" | "containerfile" => return FileLanguage::Dockerfile,
+            ".editorconfig" | ".gitconfig" | ".gitmodules" => return FileLanguage::Ini,
+            _ => {}
+        }
+        if name == ".env" || name.starts_with(".env.") {
+            return FileLanguage::Dotenv;
+        }
+        if name.starts_with("dockerfile.") {
+            return FileLanguage::Dockerfile;
+        }
         match extension(path).as_str() {
             "tsx" => FileLanguage::Tsx,
             "ts" | "mts" | "cts" => FileLanguage::TypeScript,
@@ -98,6 +138,21 @@ impl FileLanguage {
             "toml" => FileLanguage::Toml,
             "kt" | "kts" => FileLanguage::Kotlin,
             "diff" | "patch" => FileLanguage::Diff,
+            "jsonl" | "ndjson" => FileLanguage::JsonLines,
+            "xml" | "xsd" | "xsl" | "xslt" | "svg" | "plist" | "csproj" | "fsproj" | "vbproj"
+            | "props" | "targets" | "resx" | "xaml" | "wsdl" | "rss" | "atom" | "kml" => {
+                FileLanguage::Xml
+            }
+            "ini" | "cfg" | "conf" | "properties" | "editorconfig" | "gitconfig" => {
+                FileLanguage::Ini
+            }
+            "mk" | "mak" => FileLanguage::Make,
+            "just" => FileLanguage::Just,
+            "dockerfile" => FileLanguage::Dockerfile,
+            "env" => FileLanguage::Dotenv,
+            "graphql" | "gql" => FileLanguage::GraphQL,
+            "proto" => FileLanguage::Proto,
+            "lua" => FileLanguage::Lua,
             _ => FileLanguage::Plain,
         }
     }
@@ -1498,6 +1553,37 @@ fn extension(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_detection_for_data_and_config_formats() {
+        let cases = [
+            ("logs/a.jsonl", FileLanguage::JsonLines),
+            ("a.NDJSON", FileLanguage::JsonLines),
+            ("pom.xml", FileLanguage::Xml),
+            ("icon.svg", FileLanguage::Xml),
+            ("app.csproj", FileLanguage::Xml),
+            ("Justfile", FileLanguage::Just),
+            ("justfile", FileLanguage::Just),
+            ("x/tasks.just", FileLanguage::Just),
+            ("a.ini", FileLanguage::Ini),
+            ("a.conf", FileLanguage::Ini),
+            ("app.properties", FileLanguage::Ini),
+            (".editorconfig", FileLanguage::Ini),
+            (".gitconfig", FileLanguage::Ini),
+            ("Makefile", FileLanguage::Make),
+            ("Dockerfile", FileLanguage::Dockerfile),
+            ("Dockerfile.dev", FileLanguage::Dockerfile),
+            (".env", FileLanguage::Dotenv),
+            (".env.local", FileLanguage::Dotenv),
+            ("q.graphql", FileLanguage::GraphQL),
+            ("a.proto", FileLanguage::Proto),
+            ("init.lua", FileLanguage::Lua),
+            ("notes.txt", FileLanguage::Plain),
+        ];
+        for (path, want) in cases {
+            assert_eq!(FileLanguage::of(path), want, "{path}");
+        }
+    }
 
     /// draw.io gets the same viewer, toggle and layouts as Excalidraw — the second tenant with a
     /// real editor of its own and no source anyone hand-edits.

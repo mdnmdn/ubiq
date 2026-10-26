@@ -86,6 +86,10 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
     "tree-sitter-sql",
     "tree-sitter-kotlin",
     "tree-sitter-diff",
+    "tree-sitter-make",
+    "tree-sitter-graphql",
+    "tree-sitter-proto",
+    "tree-sitter-lua",
 ] }
 gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "0bbd9870ce420af9feacbf948b21d3824d82dc0b" }
 

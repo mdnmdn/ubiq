@@ -85,6 +85,14 @@ pub fn highlighter_language(language: FileLanguage) -> Language {
         FileLanguage::Toml => Language::Toml,
         FileLanguage::Kotlin => Language::Kotlin,
         FileLanguage::Diff => Language::Diff,
+        FileLanguage::JsonLines => Language::Json,
+        FileLanguage::Xml => Language::Html,
+        FileLanguage::Ini => Language::Toml,
+        FileLanguage::Make | FileLanguage::Just => Language::Make,
+        FileLanguage::Dockerfile | FileLanguage::Dotenv => Language::Bash,
+        FileLanguage::GraphQL => Language::GraphQL,
+        FileLanguage::Proto => Language::Proto,
+        FileLanguage::Lua => Language::Lua,
         FileLanguage::Plain => Language::Plain,
     }
 }
