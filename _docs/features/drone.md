@@ -5,7 +5,7 @@ kind: feature
 status: current
 summary: One small executable Ubiq places on a machine it is not running on, serving that machine's terminal, files, search and machine facts over a single duplex byte stream — attached as an ordinary host over an SSH exec channel, with three lifetimes, a per-project origin, and a hash-pinned binary the interface uploads when the remote `PATH` has none.
 read_when: you are changing how Ubiq reaches a machine it is not running on — the drone binary, its handshake, its lifetime, its deployment, or the SSH profiles and surfaces behind it
-updated: 2026-10-12
+updated: 2026-10-26
 verified: 2026-10-12
 code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
 depends_on: [tech-architecture, tech-transport, tech-structure, wip-drone]
@@ -209,7 +209,13 @@ and those log a warning and drop.
   list, a folder, and a lifetime preset. A Check control sits under the profile picker.
 - **The SSH profiles settings section** is a row list, a form modal that holds no typed values of
   its own, and a delete confirm. Saving mints the id and writes the list; the secret box is sent
-  only when it was typed into, is blanked either way, and is never prefilled from storage.
+  only when it was typed into, is blanked either way, and is never prefilled from storage. Each row carries a **Test** — the same
+  `ssh` probe the Check runs, against that profile — which becomes **Stop test** while it runs. A
+  verdict line sits under the row: "Testing the connection…", then "Test passed: the session
+  connected." or "Test failed: <reason>". **Stop test** stops waiting and drops the late answer; the
+  `ssh` process is left to finish, not killed (`G452`). The running state and the verdict are shared
+  with the Drones section's Check and the connect modal's Check, so any of the three answers for the
+  profile.
 - **The Drones settings section** lists, per saved SSH-carrier host, what is running there — roots,
   uptime, pane count, version and linger — with a per-host Refresh, a per-host Check, and a per-drone
   Stop behind a danger confirm, since stopping kills every pane the drone holds. Version skew is

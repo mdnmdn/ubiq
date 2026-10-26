@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-10-25
+updated: 2026-10-26
 verified: 2026-10-09
 review_cycle: monthly
 ---
@@ -421,6 +421,8 @@ change what Ubiq does (here), or where a document lives (there)?
 | G449 | The help panel's contents tree has no section headings. A page's depth is the count of `/` in its path (`_tools/helpbundle.py`, `Page.depth`), so `index` and `getting-started` sit at depth 0 and every folder page at depth 1, and the flat nav order hangs every folder page under **Getting started** as its child. The manifest's `nav.order` names folders, which the panel never draws as rows. Closing it is a section row per folder in the packed catalogue, or a depth rule that makes a folder's pages children of its own first page | [`wip/help.md`](./wip/help.md), [`help/structure.md`](./help/structure.md) |
 | G450 | In a running build the help page body clipped about 150 px above the panel's bottom edge while the scrollbar ran the full height, so the last lines were reachable only by scrolling. Seen once, in the first pass over the panel, and not re-checked after the later panel changes; `ui/help/mod.rs` `page_body` lays the body out as a `flex_1` column with `min_h(0)`, which is where to look | [`wip/help.md`](./wip/help.md) |
 | G451 | A help page's inline icon is a PNG of one baked tint (`#6b6b80`), so it cannot follow the text colour in every palette. The alternative is a renderer change that draws an inline SVG as a mask tinted by the text token, as buttons are; the library's inline-flow path only builds `img(Resource::Uri)` and the text view is a pinned dependency, so the change is a fork or an upstream one. Worth taking only if the tint reads badly on a light palette | [`help/images.md`](./help/images.md), [`wip/help.md`](./wip/help.md) |
+| G452 | The SSH profile row's **Stop test** does not kill the `ssh` process. `AppState::stop_ssh_test()` (`app/settings.rs`) clears the busy mark and `land_ssh_check` drops the late answer, but the child runs until its own timeout, so a stalled host holds a process for that long. A stop followed by a new Test can also let the old answer land on the new check, since nothing tags a check with its generation. Closing it is keeping the child on the check and killing it on Stop, with a generation counter so a late answer cannot resolve a newer check | [`features/drone.md`](./features/drone.md) |
+| G453 | No shared kit primitive draws a Test / Stop test control with its verdict line. The SSH profile rows (`ui/settings.rs`, `ssh_profile_row()`) and the Check beside the Drones and connect-modal pickers each draw their own, and the Test controls in `features/workbench.md` (the knowledge-base source and the AI provider) and the RDP targets (Studio), the DB connection and the feedback tests are the same shape. Closing it is one `kit` primitive taking the run action, the busy state and the verdict, used by all of them | [`features/drone.md`](./features/drone.md), [`features/workbench.md`](./features/workbench.md), [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 
 
 ## Related docs

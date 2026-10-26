@@ -800,6 +800,14 @@ impl AppState {
         .detach();
     }
 
+    /// Empty the project picker's filter, so an operation on a row leaves the full list behind it.
+    pub fn clear_project_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workbench.project_filter.clear();
+        let search = self.project_search.clone();
+        search.update(cx, |state, cx| state.set_value("", window, cx));
+        cx.notify();
+    }
+
     /// Drop the record and everything Ubiq remembers about it. Nothing inside the project's own
     /// folder is touched, which is why the word is "Forget".
     pub fn forget_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {

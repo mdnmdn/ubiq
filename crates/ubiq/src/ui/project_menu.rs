@@ -367,7 +367,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             format!("project-locate-{project}"),
             IconName::FolderOpen,
             "Locate",
-            cx.listener(move |this, _, _, cx| this.choose_folder(Some(project), cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.choose_folder(Some(project), cx)
+            }),
         ));
     }
 
@@ -377,7 +380,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             format!("project-take-{project}"),
             IconName::ArrowLeft,
             "Take into this window",
-            cx.listener(move |this, _, _, cx| this.take_project(project, cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.take_project(project, cx)
+            }),
         ));
     }
 
@@ -388,7 +394,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             format!("project-window-{project}"),
             IconName::ExternalLink,
             "Open in a new window",
-            cx.listener(move |_, _, _, cx| open_project_window(Some(project), cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                open_project_window(Some(project), cx)
+            }),
         ));
     }
 
@@ -397,14 +406,18 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             format!("project-close-{project}"),
             IconName::Close,
             "Close in this window",
-            cx.listener(move |this, _, _, cx| this.close_project(project, false, cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.close_project(project, false, cx)
+            }),
         ));
     } else {
         line = line.child(action(
             format!("project-forget-{project}"),
             IconName::Delete,
             "Forget",
-            cx.listener(move |this, _, _, cx| {
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
                 this.set_row_action(Some((project, RowAction::ConfirmForget)), cx)
             }),
         ));
@@ -412,13 +425,16 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
 
     // Clicking the row does the obvious thing for where it sits: point this window at it, go to the
     // window that has it, or open it here.
-    let click = cx.listener(move |this, _, _, cx| match group {
-        Group::Here => this.activate_project(project, cx),
-        Group::Elsewhere(_, id) => {
-            this.close_menu(cx);
-            focus_window(id, cx);
+    let click = cx.listener(move |this, _, window, cx| {
+        this.clear_project_filter(window, cx);
+        match group {
+            Group::Here => this.activate_project(project, cx),
+            Group::Elsewhere(_, id) => {
+                this.close_menu(cx);
+                focus_window(id, cx);
+            }
+            Group::History => this.take_project(project, cx),
         }
-        Group::History => this.take_project(project, cx),
     });
 
     line.on_click(click).into_any_element()
@@ -518,7 +534,10 @@ fn forget_row(
             "forget-confirm",
             "Forget",
             theme::danger(),
-            cx.listener(move |this, _, _, cx| this.forget_project(project, cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.forget_project(project, cx)
+            }),
         ))
         .into_any_element()
 }

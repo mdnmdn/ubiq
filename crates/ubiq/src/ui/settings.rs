@@ -4681,7 +4681,7 @@ fn ssh_profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return column(rows);
     }
 
-    rows.extend(profiles.iter().map(|profile| ssh_profile_row(profile, cx)));
+    rows.extend(profiles.iter().map(|profile| ssh_profile_row(app, profile, cx)));
     column(rows)
 }
 
@@ -4691,8 +4691,14 @@ fn ssh_profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// The badge says what is true of *this* method rather than a shared word: an agent profile and
 /// a config alias have nothing to file, so they carry no badge at all — an empty one would read
 /// as something missing.
-fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyElement {
+fn ssh_profile_row(
+    app: &AppState,
+    profile: &SshProfile,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
     let id = profile.id;
+    let testing = app.workbench.settings.ssh_check_busy.contains(&id);
+    let verdict = app.workbench.settings.ssh_checks.get(&id);
     let (method, address) = match &profile.auth {
         // The alias is the whole address: every other field on the record is left to the file
         // it names, so the row does not pretend to know a port or a user.
@@ -4728,7 +4734,33 @@ fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyEleme
         SshAuth::Agent | SshAuth::ConfigAlias => None,
     };
 
-    setting_row(
+    // The same Test the RDP targets carry: the button turns into "Stop test" while it runs, and
+    // the verdict is a line under the row.
+    let test_button = if testing {
+        ghost_button(
+            ElementId::Name(format!("app-settings-ssh-{id}-test").into()),
+            None,
+            "Stop test",
+            cx.listener(move |this, _, _, cx| this.stop_ssh_test(id, cx)),
+        )
+    } else {
+        ghost_button(
+            ElementId::Name(format!("app-settings-ssh-{id}-test").into()),
+            None,
+            "Test",
+            cx.listener(move |this, _, _, cx| this.check_picked_ssh_profile(id, cx)),
+        )
+    };
+    let verdict_line = if testing {
+        Some(note("Testing the connection\u{2026}", theme::text_faint()))
+    } else {
+        verdict.map(|result| match result {
+            Ok(_) => note("Test passed: the session connected.", theme::success()),
+            Err(why) => note(&format!("Test failed: {why}"), theme::danger()),
+        })
+    };
+
+    let row = setting_row(
         &format!("{} \u{b7} {method}", profile.name),
         &address,
         div()
@@ -4736,6 +4768,7 @@ fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyEleme
             .items_center()
             .gap_2()
             .children(chip.map(|(text, colour)| badge(text, colour)))
+            .child(test_button)
             // Offered only where there is one to forget: a control that clears nothing is a
             // control that lies about what is filed.
             .children(filed.then(|| {
@@ -4759,7 +4792,16 @@ fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyEleme
                 cx.listener(move |this, _, _, cx| this.open_remove_ssh_profile(id, cx)),
             ))
             .into_any_element(),
-    )
+    );
+    match verdict_line {
+        Some(line) => div()
+            .flex()
+            .flex_col()
+            .child(row)
+            .child(div().pb_2().child(line))
+            .into_any_element(),
+        None => row,
+    }
 }
 
 /// The drones running on every saved ssh-carrier host, one sub-section per host.

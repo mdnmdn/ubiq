@@ -3087,11 +3087,21 @@ impl AppState {
         outcome: Result<HostCheck, ConnectFailure>,
         cx: &mut Context<Self>,
     ) {
-        self.workbench.settings.ssh_check_busy.remove(&profile_id);
+        // A check stopped from the profile row has nothing waiting for it: drop the late answer.
+        if !self.workbench.settings.ssh_check_busy.remove(&profile_id) {
+            return;
+        }
         self.workbench
             .settings
             .ssh_checks
             .insert(profile_id, outcome.map_err(|failure| failure.to_string()));
+        cx.notify();
+    }
+
+    /// Stop waiting for a running check: the `ssh` is left to finish on its own, its answer is
+    /// dropped by [`Self::land_ssh_check`], and the profile's row goes back to offering Test.
+    pub fn stop_ssh_test(&mut self, profile_id: SshProfileId, cx: &mut Context<Self>) {
+        self.workbench.settings.ssh_check_busy.remove(&profile_id);
         cx.notify();
     }
 
