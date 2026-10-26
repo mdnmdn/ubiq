@@ -721,7 +721,7 @@ fn tail_signature(conversation: &Conversation, visible: &[usize]) -> u64 {
     let tail = match visible.last().and_then(|ix| conversation.blocks.get(*ix)) {
         // The chips count: a turn drawn with three files under it is a taller row than the same
         // prose with none, and the attachments arrive on the same update the text does.
-        Some(ConvBlock::User { text, attached }) => text.len() + attached.len(),
+        Some(ConvBlock::User { text, attached, .. }) => text.len() + attached.len(),
         Some(ConvBlock::Agent { body: text, .. } | ConvBlock::Thought { body: text, .. }) => {
             text.len()
         }
@@ -821,7 +821,7 @@ fn block_shape(block: &ConvBlock) -> (u64, Pixels) {
         // A sent turn's chips are a wrapping row under its prose, so they are part of both halves
         // of the answer: the signature moves when a chip does, and the estimate allows a row for
         // every three of them, which is about what fits across a column.
-        ConvBlock::User { text, attached } => (
+        ConvBlock::User { text, attached, .. } => (
             text.len() + attached.len().div_ceil(3) * 80,
             hashed((text.len(), attached.len())),
         ),
@@ -1238,11 +1238,12 @@ fn one_block(
         ConvBlock::User {
             text,
             attached: files,
+            at,
         } => {
             let turn = user_turn(id, ix, text, files, preview, view, root, body_cache, cx);
-            copyable(view, ix, text, turn)
+            copyable(view, ix, text, *at, turn)
         }
-        ConvBlock::Agent { body, .. } => {
+        ConvBlock::Agent { body, at, .. } => {
             // The body as a `SharedString` the conversation keeps: a streaming tail is copied when
             // it grows rather than every time this frame builds it.
             let text = conversation.markdown(ix, body);
@@ -1257,8 +1258,9 @@ fn one_block(
                 view,
                 ix,
                 body,
+                *at,
                 markdown
-                    .on_link_click(crate::ui::on_link(root.clone(), None))
+                    .on_link_click(on_agent_link(root.clone(), id))
                     .into_any_element(),
             )
         }
@@ -1801,14 +1803,35 @@ fn writing_mark(activity: Activity, variant: u64, view: &ConversationView) -> An
 /// the message, because a control on every line of a transcript reads as a toolbar rather than a
 /// conversation. The clipboard gets the block's own text, which is what the harness said or
 /// received rather than anything rendered over it.
+///
+/// Beside the button, in the same hover, the local time the message was said — `HH:MM`, and the
+/// full date and offset on its own tooltip. Nothing where `at` is `None`: a message whose source
+/// kept no time is not given one.
 fn copyable(
     view: &ConversationView,
     ix: usize,
     text: impl Into<String>,
+    at: Option<i64>,
     body: AnyElement,
 ) -> AnyElement {
     let group = SharedString::from(format!("{}-msg-{ix}", view.id));
     let text = text.into();
+    let stamp = at
+        .and_then(|at| message_time(at, &chrono::Local))
+        .map(|(short, full)| {
+            let full = SharedString::from(full);
+            div()
+                .id(view.eid(&format!("at-{ix}")))
+                .px_1()
+                .rounded_sm()
+                .bg(theme::surface())
+                .text_size(theme::font(theme::Family::Conversation, theme::Role::Meta))
+                .text_color(theme::text_muted())
+                .child(short)
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(full.clone()).build(window, cx)
+                })
+        });
     div()
         .debug_selector(move || format!("transcript-block-{ix}"))
         .relative()
@@ -1822,8 +1845,12 @@ fn copyable(
                 .absolute()
                 .bottom_0()
                 .right_0()
+                .flex()
+                .items_center()
+                .gap_1()
                 .invisible()
                 .group_hover(group, |this| this.visible())
+                .children(stamp)
                 .child(
                     icon_button(
                         view.eid(&format!("copy-{ix}")),
@@ -1838,6 +1865,19 @@ fn copyable(
                 ),
         )
         .into_any_element()
+}
+
+/// A message's time in `zone`, as the hover draws it: `HH:MM`, and the full
+/// `YYYY-MM-DD HH:MM:SS ±HH:MM` its tooltip says. `None` for a time no calendar holds.
+pub fn message_time<Tz: chrono::TimeZone>(at_ms: i64, zone: &Tz) -> Option<(String, String)>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let when = chrono::DateTime::from_timestamp_millis(at_ms)?.with_timezone(zone);
+    Some((
+        when.format("%H:%M").to_string(),
+        when.format("%Y-%m-%d %H:%M:%S %:z").to_string(),
+    ))
 }
 
 /// What the user said sits in the accent, the way every other surface in the window draws a turn
@@ -1878,13 +1918,24 @@ fn user_turn(
         .border_color(theme::accent())
         .text_size(theme::font(theme::Family::Conversation, theme::Role::Body))
         .text_color(theme::text())
-        .child(markdown.on_link_click(crate::ui::on_link(root.clone(), None)));
+        .child(markdown.on_link_click(on_agent_link(root.clone(), agent)));
 
     if !files.is_empty() {
         said = said.child(sent_attachment_tags(agent, ix, files, preview, view, cx));
     }
 
     div().pl_6().flex_none().child(said).into_any_element()
+}
+
+/// Resolve the conversation's owner when clicked, rather than the window's active project.
+fn on_agent_link(
+    root: gpui::Entity<AppState>,
+    agent: AgentId,
+) -> impl Fn(&SharedString, &gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + Send + Sync + 'static
+{
+    move |target, _, _, cx| {
+        root.update(cx, |app, cx| app.follow_agent_link(agent, target, cx));
+    }
 }
 
 /// A sent turn's text as markdown that keeps the author's line breaks: every single newline outside
@@ -2164,6 +2215,8 @@ fn thought_group(
         view,
         first,
         bodies().collect::<Vec<_>>().join("\n\n"),
+        // Reasoning carries no time of its own; only what was said does.
+        None,
         box_.into_any_element(),
     )
 }
@@ -4246,6 +4299,21 @@ mod tests {
     use ubiq_proto::conversation::{ConvContent, ConvUpdate, ToolCallPatch};
     use ubiq_proto::work::AgentId;
 
+    /// The hover's clock and its tooltip, in the zone they are read in.
+    #[test]
+    fn a_message_time_reads_as_a_clock_and_a_full_stamp() {
+        // 2026-01-01T00:00:05Z, read two hours east.
+        let zone = chrono::FixedOffset::east_opt(2 * 3600).unwrap();
+        assert_eq!(
+            message_time(1_767_225_605_000, &zone),
+            Some((
+                "02:00".to_string(),
+                "2026-01-01 02:00:05 +02:00".to_string()
+            ))
+        );
+        assert_eq!(message_time(i64::MAX, &zone), None, "no calendar holds it");
+    }
+
     /// A typed line break stays one; a fence and a paragraph gap are left alone.
     #[test]
     fn user_line_breaks_become_hard_breaks_outside_fences() {
@@ -4326,6 +4394,7 @@ mod tests {
                 content: ConvContent::Text("Here is what I found.".to_string()),
                 message_id: Some("m1".to_string()),
                 subagent: None,
+                at: None,
             },
         );
         c.apply(3, thought(3, "t2"));
@@ -4392,6 +4461,7 @@ mod tests {
                 content: ConvContent::Text("Let me check that file.".to_string()),
                 message_id: Some("m1".to_string()),
                 subagent: None,
+                at: None,
             },
         );
         let visible = c.visible_blocks().to_vec();
@@ -4452,6 +4522,7 @@ mod tests {
         let plain = ConvBlock::User {
             text: "review this".to_string(),
             attached: Vec::new(),
+            at: None,
         };
         let with_files = ConvBlock::User {
             text: "review this".to_string(),
@@ -4460,6 +4531,7 @@ mod tests {
                 path: "src/lib.rs".to_string(),
                 size: Some(12),
             }],
+            at: None,
         };
 
         let (plain_sig, plain_estimate) = block_shape(&plain);
@@ -4483,6 +4555,7 @@ mod tests {
             ConvUpdate::UserChunk {
                 content: ConvContent::Text("review this".to_string()),
                 message_id: Some("u1".to_string()),
+                at: None,
             },
         );
         let visible = c.visible_blocks().to_vec();
@@ -4494,6 +4567,7 @@ mod tests {
             ConvUpdate::UserChunk {
                 content: ConvContent::Text("review this".to_string()),
                 message_id: Some("u1".to_string()),
+                at: None,
             },
         );
         let visible = plain.visible_blocks().to_vec();

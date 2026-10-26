@@ -780,6 +780,12 @@ fn pump(
     // which is also what it is for every turn after the first: this pass runs once.
     let mut gathering: Option<Gathering> = None;
     let mut gathered = false;
+    // Whether what arrives is history rather than speech. An ACP `session/load` (or fork) replays
+    // the whole conversation *before* the handshake's `SessionStarted`, and ACP's updates carry no
+    // time of their own — so until that event, a message is left undated rather than dated to the
+    // moment it was reloaded. Every other wire replays nothing: Claude Code's synthesised prompt
+    // can precede its `SessionStarted` and is live.
+    let mut replaying = bridge.acp_capabilities().is_some();
 
     loop {
         let (event, raw) = match bridge.next_event_raw() {
@@ -923,9 +929,13 @@ fn pump(
             }
         }
 
-        let Some(update) = map_event(event) else {
+        if matches!(event, AgentEvent::SessionStarted { .. }) {
+            replaying = false;
+        }
+        let Some(mut update) = map_event(event) else {
             continue;
         };
+        stamp(&mut update, (!replaying).then(crate::coordinator::now_ms));
 
         // Read before the send, which takes the update; recorded after it, so the window is
         // never made to wait on the meter.
@@ -1077,6 +1087,13 @@ fn now_seconds() -> i64 {
         .unwrap_or_default()
 }
 
+/// Date a message chunk, where it is one. `None` leaves it undated.
+fn stamp(update: &mut ConvUpdate, when: Option<i64>) {
+    if let ConvUpdate::UserChunk { at, .. } | ConvUpdate::AgentChunk { at, .. } = update {
+        *at = when;
+    }
+}
+
 /// Who said it, as the transcript needs it: the instance *and* the kind.
 ///
 /// The instance is the whole point — `parent_tool_use_id` is the id of the `Task` call that
@@ -1117,6 +1134,7 @@ fn map_event(event: AgentEvent) -> Option<ConvUpdate> {
         } => ConvUpdate::UserChunk {
             content: map_content(content),
             message_id,
+            at: None,
         },
         AgentEvent::AgentMessageChunk {
             content,
@@ -1126,6 +1144,7 @@ fn map_event(event: AgentEvent) -> Option<ConvUpdate> {
             content: map_content(content),
             message_id,
             subagent: map_origin(origin),
+            at: None,
         },
         AgentEvent::AgentThoughtChunk {
             content,
@@ -1540,6 +1559,7 @@ mod tests {
                 content: ConvContent::Text("hello".to_string()),
                 message_id: Some("m1".to_string()),
                 subagent: None,
+                at: None,
             }
         );
     }

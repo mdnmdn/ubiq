@@ -562,7 +562,7 @@ fn host_settings(host: &ubiq_proto::settings::HostSettings) -> Reply {
 }
 
 /// Now, in epoch milliseconds — the unit a stored credential's own expiry is in.
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -4956,6 +4956,8 @@ impl Coordinator {
             .map(|(n, prompt)| ConvUpdate::UserChunk {
                 content: ubiq_proto::conversation::ConvContent::Text(prompt.text),
                 message_id: Some(format!("restored-{n}")),
+                // The time the prompt was written down as sent, not the time it is redrawn.
+                at: Some(prompt.at),
             })
             .chain(std::iter::once(ConvUpdate::TurnEnded {
                 stop_reason: if error.is_some() {

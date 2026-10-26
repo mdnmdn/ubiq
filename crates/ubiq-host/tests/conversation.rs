@@ -254,14 +254,21 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
     let Message::ConversationUpdate { update, .. } = &messages[1] else {
         panic!("expected an update");
     };
-    assert_eq!(
-        **update,
-        ConvUpdate::AgentChunk {
-            content: ConvContent::Text("hello".to_string()),
-            message_id: Some("m1".to_string()),
-            subagent: None,
-        }
-    );
+    let ConvUpdate::AgentChunk {
+        content,
+        message_id,
+        subagent,
+        at,
+    } = &**update
+    else {
+        panic!("expected an agent chunk");
+    };
+    assert_eq!(*content, ConvContent::Text("hello".to_string()));
+    assert_eq!(message_id.as_deref(), Some("m1"));
+    assert_eq!(*subagent, None);
+    // A live chunk is dated when the host hears it; the bridge here speaks no ACP, so nothing
+    // it says is a replay.
+    assert!(at.is_some_and(|ms| ms > 1_700_000_000_000), "{at:?}");
 
     // End of stream is the harness going, and the pump says so itself.
     assert!(matches!(
@@ -271,6 +278,72 @@ fn what_the_harness_says_reaches_the_bus_in_order() {
             ..
         }
     ));
+    conversation.stop(false);
+}
+
+/// The scripted bridge, claiming to speak ACP — whose `session/load` replays history ahead of
+/// the handshake's `SessionStarted`.
+struct AcpScripted(Scripted);
+
+impl IoBridge for AcpScripted {
+    fn send(&mut self, input: AgentInput) -> anyhow::Result<()> {
+        self.0.send(input)
+    }
+
+    fn next_event(&mut self) -> anyhow::Result<Option<AgentEvent>> {
+        self.0.next_event()
+    }
+
+    fn input(&self) -> Option<Arc<dyn AgentInputSink>> {
+        self.0.input()
+    }
+
+    fn acp_capabilities(&self) -> Option<agent_manager::io::AcpCapabilities> {
+        Some(agent_manager::io::AcpCapabilities::default())
+    }
+}
+
+/// A replayed message is history, not speech: it is left undated rather than dated to the moment
+/// it was reloaded, and only what follows the handshake carries the time it was heard.
+#[test]
+fn an_acp_replay_is_undated_and_what_follows_it_is_dated() {
+    let (_hub, host_end, client) = bus_pair();
+    let (bridge, _) = Scripted::new(vec![
+        text_under("old", "said yesterday"),
+        AgentEvent::SessionStarted {
+            session_id: Some("s1".to_string()),
+            model: None,
+            mode: None,
+            tools: Vec::new(),
+            agents: Vec::new(),
+        },
+        text_under("new", "said now"),
+    ]);
+    let host = host_end.mailbox(To::Client(client.id()));
+    let conversation = Conversation::start(
+        AgentId::generate(),
+        Box::new(AcpScripted(bridge)),
+        host,
+        0,
+        None,
+        None,
+        false,
+        flags(),
+        None,
+    );
+    let ats: Vec<Option<i64>> = drain(&client, 3)
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConversationUpdate { update, .. } => match *update {
+                ConvUpdate::AgentChunk { at, .. } => Some(at),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ats.len(), 2);
+    assert_eq!(ats[0], None, "the replayed message has no time of its own");
+    assert!(ats[1].is_some(), "the live one is dated");
     conversation.stop(false);
 }
 

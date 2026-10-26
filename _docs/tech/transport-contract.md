@@ -1627,6 +1627,16 @@ context that ran out, so an ACP harness emits nothing here and a divider is neve
 falling `UsageRecord.used`: a fresh turn lowers that too, and a guessed boundary is worse than
 none — the same rule that keeps a context ring off a harness that names no window (`G96`).
 
+**`UserChunk` and `AgentChunk` carry `at?`, when the message was said — unix milliseconds, UTC,
+`#[serde(default)]`.** `agent_manager::io::AgentEvent` dates nothing — no bridge parses a
+per-line time (Claude Code's on-disk transcript has one, and nothing reads that file) — so the
+pump stamps a live chunk with the moment it hears it (`stamp` in
+`ubiq-host/src/conversation.rs`); a message's time is its first chunk's, which is the window's to
+keep. **A replay is never dated with now.** An ACP `session/load` replays the history ahead of
+the handshake's `Started`, so on an ACP bridge every chunk before that event goes out with `at`
+absent; the saved prompts a failed or id-less ACP restore draws (`replay_saved_prompts`) carry the
+time each was written down. Claude Code and Codex replay nothing on resume. `ThoughtChunk` is undated: reasoning is not something a reader asks the time of.
+
 **Ubiq's own naming of a conversation is an `AgentChanged`, not a message of its own and not a
 `ConvUpdate`.** It takes no place in the sequence an interface checks for gaps: the naming is not
 something the harness said, and the pump that owns that sequence is not what produced it — the
@@ -1871,7 +1881,7 @@ Forty-seven records travel inside payloads.
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `title?`, `definition?`, `summary?`, `activity`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `restorable`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |
 
-| `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |
+| `ConvUpdate` | one of: `Started`, `UserChunk` (`content`, `message_id?`, `at?`), `AgentChunk` (`content`, `message_id?`, `subagent?`, `at?`), `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |
 | `ToolCallRecord` | `id`, `title`, `kind`, `status`, `content[]`, `locations[]` |
 | `ToolCallPatch` | `id`, and `title?`, `kind?`, `status?`, `content?`, `locations?` — absent is unchanged |
 | `ToolLocation` | `path`, `line?` |

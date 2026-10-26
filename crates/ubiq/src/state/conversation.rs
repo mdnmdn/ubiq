@@ -46,14 +46,20 @@ pub enum ConvBlock {
     /// a queue when the turn goes out, popped by that turn's own real-text
     /// [`ConvUpdate::UserChunk`] — and a sent attachment is not removable, so nothing here is ever
     /// edited afterwards.
+    ///
+    /// `at` is when it was said, unix milliseconds — the host's, off the update, and `None` where
+    /// the source keeps no time (an ACP replay).
     User {
         text: String,
         attached: Vec<Attachment>,
+        at: Option<i64>,
     },
-    /// Assistant prose, markdown. `subagent` is `None` for the conversation itself.
+    /// Assistant prose, markdown. `subagent` is `None` for the conversation itself. `at` is when
+    /// its first chunk was said, on the same terms as a user turn's.
     Agent {
         body: String,
         subagent: Option<Subagent>,
+        at: Option<i64>,
     },
     /// Reasoning. `open` is whether the disclosure is drawn expanded — the same shape a tool
     /// call's own `open` is, so a thinking block is toggled and drawn through the one pattern the
@@ -857,12 +863,18 @@ impl Conversation {
     /// Spent whether or not it matched: it belongs to exactly one turn, and a harness that
     /// reformats what it echoes must not leave it armed for the next one, where it would cut the
     /// front off a message the user really did write.
+    ///
+    /// Failing that, a subagent directive is taken off whatever turn it opens: a `session/load`
+    /// replay hands back a first turn with the preamble still on it and no send here armed one,
+    /// and the directive is this interface's own words, never the user's.
     fn strip_preamble(&mut self, text: String) -> String {
-        let Some(preamble) = self.prompt_preamble.take() else {
-            return text;
-        };
-        match text.strip_prefix(&preamble) {
-            Some(rest) => rest.trim_start().to_string(),
+        if let Some(preamble) = self.prompt_preamble.take()
+            && let Some(rest) = text.strip_prefix(&preamble)
+        {
+            return rest.trim_start().to_string();
+        }
+        match super::new_agent::strip_subagent_directive(&text) {
+            Some(rest) => rest.to_string(),
             None => text,
         }
     }
@@ -899,9 +911,13 @@ impl Conversation {
                 }
                 self.replayed = false;
                 self.launched = true;
+                // Whatever was replayed is closed: a live reply starts a new, dated block rather
+                // than appending to the last undated one.
+                self.end_open_thought();
+                self.open = None;
             }
 
-            ConvUpdate::UserChunk { content, .. } => {
+            ConvUpdate::UserChunk { content, at, .. } => {
                 // A user turn always starts a block: the harness echoes one
                 // per prompt, and merging two would merge two questions.
                 self.end_open_thought();
@@ -925,6 +941,7 @@ impl Conversation {
                         self.blocks.push(ConvBlock::User {
                             text: said,
                             attached,
+                            at,
                         });
                     }
                 }
@@ -948,9 +965,10 @@ impl Conversation {
                 content,
                 message_id,
                 subagent,
+                at,
             } => {
                 self.agent_working();
-                self.append(message_id, content, false, subagent);
+                self.append(message_id, content, false, subagent, at);
             }
             ConvUpdate::ThoughtChunk {
                 content,
@@ -958,7 +976,7 @@ impl Conversation {
                 subagent,
             } => {
                 self.agent_working();
-                self.append(message_id, content, true, subagent);
+                self.append(message_id, content, true, subagent, None);
             }
 
             ConvUpdate::ToolCall(call) => {
@@ -1445,6 +1463,7 @@ impl Conversation {
         content: ConvContent,
         thought: bool,
         subagent: Option<Subagent>,
+        at: Option<i64>,
     ) {
         let Some(text) = text_of(&content) else {
             return;
@@ -1488,6 +1507,7 @@ impl Conversation {
             ConvBlock::Agent {
                 body: text,
                 subagent,
+                at,
             }
         });
         self.open = Some((message_id.unwrap_or_default(), ix));
@@ -2048,6 +2068,7 @@ mod tests {
                 kind: kind.map(str::to_string),
                 ..Default::default()
             }),
+            at: None,
         }
     }
 
@@ -2132,6 +2153,7 @@ mod tests {
                     kind: Some("general-purpose".to_string()),
                     ..Default::default()
                 }),
+                at: None,
             }],
         );
     }
@@ -2196,6 +2218,7 @@ mod tests {
                     model: Some("claude-haiku-4-5-20251001".to_string()),
                     thinking: None,
                 }),
+                at: None,
             },
         );
         c.apply(3, said_by("Ahoy!", "t754", Some("general-purpose")));
@@ -2418,6 +2441,7 @@ mod tests {
             content: ConvContent::Text(text.to_string()),
             message_id: id.map(str::to_string),
             subagent: None,
+            at: None,
         }
     }
 
@@ -2443,7 +2467,8 @@ mod tests {
             c.blocks,
             vec![ConvBlock::Agent {
                 body: "Hello".to_string(),
-                subagent: None
+                subagent: None,
+                at: None,
             }]
         );
     }
@@ -2459,11 +2484,13 @@ mod tests {
             vec![
                 ConvBlock::Agent {
                     body: "first".to_string(),
-                    subagent: None
+                    subagent: None,
+                    at: None,
                 },
                 ConvBlock::Agent {
                     body: "second".to_string(),
-                    subagent: None
+                    subagent: None,
+                    at: None,
                 },
             ]
         );
@@ -2537,6 +2564,7 @@ mod tests {
                 content: ConvContent::Text("done".to_string()),
                 message_id: Some("m1".to_string()),
                 subagent: None,
+                at: None,
             },
         );
         assert_eq!(open(&c)[..3], [true; 3], "a reader's own choice stands");
@@ -2889,6 +2917,7 @@ mod tests {
                     kind: Some("Explore".to_string()),
                     ..Default::default()
                 }),
+                at: None,
             },
         );
 
@@ -3109,6 +3138,83 @@ mod tests {
         assert_eq!(c.compose_prompt("plain"), "plain");
     }
 
+    /// A message keeps the time the host gave it — an agent's, its first chunk's, however many
+    /// follow.
+    #[test]
+    fn a_message_keeps_the_time_it_was_said() {
+        let mut c = conversation();
+        c.apply(
+            1,
+            ConvUpdate::UserChunk {
+                content: ConvContent::Text("hello".to_string()),
+                message_id: None,
+                at: Some(1_000),
+            },
+        );
+        for (seq, at) in [(2, 2_000), (3, 3_000)] {
+            c.apply(
+                seq,
+                ConvUpdate::AgentChunk {
+                    content: ConvContent::Text("hi".to_string()),
+                    message_id: Some("m1".to_string()),
+                    subagent: None,
+                    at: Some(at),
+                },
+            );
+        }
+        match &c.blocks[..] {
+            [
+                ConvBlock::User { at: said, .. },
+                ConvBlock::Agent {
+                    at: answered, body, ..
+                },
+            ] => {
+                assert_eq!(*said, Some(1_000));
+                assert_eq!(
+                    *answered,
+                    Some(2_000),
+                    "the first chunk's time, not the last's"
+                );
+                assert_eq!(body, "hihi");
+            }
+            other => panic!("expected a user and an agent block, got {other:?}"),
+        }
+    }
+
+    /// A live reply after a replayed history is a new, dated block, not a tail on the last
+    /// undated one.
+    #[test]
+    fn a_live_reply_after_a_replay_starts_a_dated_block() {
+        let mut c = conversation();
+        let agent = |at| ConvUpdate::AgentChunk {
+            content: ConvContent::Text("hi".to_string()),
+            message_id: None,
+            subagent: None,
+            at,
+        };
+        c.apply(1, agent(None));
+        c.apply(
+            2,
+            ConvUpdate::Started {
+                session_id: None,
+                model: None,
+                mode: None,
+                tools: Vec::new(),
+                agents: Vec::new(),
+            },
+        );
+        c.apply(3, agent(Some(5_000)));
+        match &c.blocks[..] {
+            [
+                ConvBlock::Agent { at: None, .. },
+                ConvBlock::Agent {
+                    at: Some(5_000), ..
+                },
+            ] => {}
+            other => panic!("expected two agent blocks, got {other:?}"),
+        }
+    }
+
     /// The chips survive Send. The harness echoes back one string of `@path` mentions and says
     /// nothing about which of them were tags, so the turn carries its own list across — and the
     /// composer is empty afterwards, exactly as a plain clear leaves it.
@@ -3124,11 +3230,12 @@ mod tests {
             ConvUpdate::UserChunk {
                 content: ConvContent::Text("review this @src/lib.rs".to_string()),
                 message_id: Some("u1".to_string()),
+                at: None,
             },
         );
 
         match &c.blocks[..] {
-            [ConvBlock::User { text, attached }] => {
+            [ConvBlock::User { text, attached, .. }] => {
                 assert_eq!(text, "review this @src/lib.rs");
                 assert_eq!(attached.len(), 1);
                 assert_eq!(attached[0].path, "src/lib.rs");
@@ -3149,6 +3256,7 @@ mod tests {
         let echo = |text: &str| ConvUpdate::UserChunk {
             content: ConvContent::Text(text.to_string()),
             message_id: None,
+            at: None,
         };
         c.apply(1, echo("first @a.rs"));
         c.apply(2, echo("second"));
@@ -3181,6 +3289,7 @@ mod tests {
         let echo = |text: &str| ConvUpdate::UserChunk {
             content: ConvContent::Text(text.to_string()),
             message_id: None,
+            at: None,
         };
         c.apply(1, echo("one @first.rs"));
         c.apply(2, echo("two @second.rs"));
@@ -3211,6 +3320,7 @@ mod tests {
         let echo = |text: &str| ConvUpdate::UserChunk {
             content: ConvContent::Text(text.to_string()),
             message_id: None,
+            at: None,
         };
         c.apply(1, echo("plain"));
         c.apply(2, echo("with a file @later.rs"));
@@ -3252,6 +3362,7 @@ mod tests {
             ConvUpdate::UserChunk {
                 content: ConvContent::Text("a later, unrelated question".to_string()),
                 message_id: None,
+                at: None,
             },
         );
 
@@ -3281,6 +3392,7 @@ mod tests {
                 ConvUpdate::UserChunk {
                     content: ConvContent::Text("a resumed conversation's first turn".to_string()),
                     message_id: None,
+                    at: None,
                 },
             );
             match &c.blocks[..] {
@@ -3301,12 +3413,13 @@ mod tests {
         let echo = |text: &str| ConvUpdate::UserChunk {
             content: ConvContent::Text(text.to_string()),
             message_id: None,
+            at: None,
         };
         c.apply(1, echo("[Request interrupted by user]"));
         c.apply(2, echo("the real turn @kept.rs"));
 
         match &c.blocks[..] {
-            [ConvBlock::User { text, attached }] => {
+            [ConvBlock::User { text, attached, .. }] => {
                 assert_eq!(text, "the real turn @kept.rs");
                 assert_eq!(attached.len(), 1, "the marker left them alone");
                 assert_eq!(attached[0].path, "kept.rs");
@@ -3329,6 +3442,7 @@ mod tests {
             ConvUpdate::UserChunk {
                 content: ConvContent::Text("something else".to_string()),
                 message_id: None,
+                at: None,
             },
         );
 
@@ -3361,6 +3475,7 @@ mod tests {
         ConvUpdate::UserChunk {
             content: ConvContent::Text(text.to_string()),
             message_id: None,
+            at: None,
         }
     }
 

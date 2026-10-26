@@ -198,6 +198,7 @@ fn chunk(text: &str) -> ConvUpdate {
         content: ConvContent::Text(text.to_string()),
         message_id: Some("m1".to_string()),
         subagent: None,
+        at: None,
     }
 }
 
@@ -1132,6 +1133,7 @@ fn the_lifecycle_glyph_reads_launched_run_and_the_transcript() {
     c.blocks.push(ConvBlock::Agent {
         body: "said something".to_string(),
         subagent: None,
+        at: None,
     });
     assert_eq!(lifecycle(&c), Lifecycle::Unloaded);
 
@@ -1186,6 +1188,7 @@ fn a_delegate_line(id: &str) -> ConvUpdate {
             kind: Some("general-purpose".to_string()),
             ..Default::default()
         }),
+        at: None,
     }
 }
 
@@ -1720,6 +1723,7 @@ fn the_agent_switcher_appears_only_once_a_subagent_has(cx: &mut TestAppContext) 
                 kind: Some("general-purpose".to_string()),
                 ..Default::default()
             }),
+            at: None,
         },
         cx,
     );
@@ -1784,6 +1788,7 @@ fn the_agent_switcher_appears_only_once_a_subagent_has(cx: &mut TestAppContext) 
                 model: Some("claude-haiku-4-5-20251001".to_string()),
                 thinking: None,
             }),
+            at: None,
         },
         cx,
     );
@@ -1923,6 +1928,7 @@ fn the_todo_panel_shares_the_activity_bar_with_subagents(cx: &mut TestAppContext
                 kind: Some("general".to_string()),
                 ..Default::default()
             }),
+            at: None,
         },
         cx,
     );
@@ -2844,6 +2850,7 @@ fn a_markdown_message_wraps_at_the_panel_width_and_leaves_no_band(cx: &mut TestA
             content: ConvContent::Text("The review found five defects.".to_string()),
             message_id: Some("m2".to_string()),
             subagent: None,
+            at: None,
         },
         cx,
     );

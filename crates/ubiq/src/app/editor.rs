@@ -556,9 +556,30 @@ impl AppState {
     /// a destination that names a place is navigated to, the web and mail are handed to the
     /// operating system, and anything else is nothing at all.
     pub fn follow_link(&mut self, base: &str, target: &str, cx: &mut Context<Self>) {
-        let dest = self
-            .project(cx)
-            .and_then(|project| crate::state::nav::resolve_relative(project, base, target));
+        self.follow_link_from(self.project(cx), base, target, cx);
+    }
+
+    /// Follow transcript links from the agent's project, including in a cross-project Teams view.
+    /// An expired conversation supplies no project for relative links.
+    pub fn follow_agent_link(&mut self, agent: AgentId, target: &str, cx: &mut Context<Self>) {
+        let project = self.project_of_agent(agent, cx).filter(|project| {
+            self.projects
+                .get(project)
+                .is_some_and(|open| open.conversations.contains_key(&agent))
+        });
+        self.follow_link_from(project, "", target, cx);
+    }
+
+    fn follow_link_from(
+        &mut self,
+        project: Option<ProjectId>,
+        base: &str,
+        target: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let dest = project
+            .and_then(|project| crate::state::nav::resolve_relative(project, base, target))
+            .or_else(|| crate::state::nav::parse_link(target, None).ok());
         match dest {
             Some(dest) => self.navigate(dest, cx),
             None => {
