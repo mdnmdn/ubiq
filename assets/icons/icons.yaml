@@ -311,6 +311,32 @@ categories:
       goal: the text-ratio slider's high end — a large letterform
       keywords: [text ratio, font size, large, type, letter, glyph]
 
+  # The verbs on a settings list's row (`kit::row_action`, `ui/kit/controls.rs`) — what replaced
+  # the text "Edit", "Clone", "Delete" buttons and the borrowed `Replace` (rename) and `Delete`
+  # (a backspace key, not a removal). Test is the run half of a run/stop pair, so it borrows
+  # `Play` and `action-stop` is drawn to sit beside it at the same optical mass. Edit is the
+  # pencil over a line, because the bare pencil is already `annotate-draw`.
+  action:
+    action-test:
+      goal: try the row's configuration now — a connection, an endpoint, a probe
+      source: "lucide:Play"
+      keywords: [test, try, check, probe, run]
+    action-stop:
+      goal: stop the test the row is running
+      keywords: [stop, cancel, abort, halt]
+    action-edit:
+      goal: open the row's record for editing — a pencil writing on a line
+      keywords: [edit, modify, change, pencil, pen]
+    action-rename:
+      goal: change only the row's name — a text field with its cursor
+      keywords: [rename, name, label, title, cursor]
+    action-clone:
+      goal: make a new row starting from a copy of this one
+      keywords: [clone, duplicate, copy, fork]
+    action-delete:
+      goal: remove the row — a bin, for delete, remove, forget and disconnect alike
+      keywords: [delete, remove, trash, bin, forget, disconnect, discard]
+
   # The run-tool picker's runner kinds (T-282) — where a runnable tool was found or defined, so a
   # tool's origin reads at a glance beside its name.
   runner:

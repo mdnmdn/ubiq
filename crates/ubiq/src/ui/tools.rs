@@ -18,8 +18,8 @@ use crate::state::settings::{ToolEditScope, ToolEditor};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    check_box, choice_pill, elided, field, ghost_button, heading, icon_button, label_block, mono,
-    primary_button,
+    RowAction, check_box, choice_pill, elided, field, ghost_button, heading, icon_button,
+    label_block, mono, primary_button, row_action,
 };
 
 /// The platform multiple choice: the value a row stores, and what its pill says.
@@ -176,22 +176,23 @@ fn tool_row(
                 .flex_none()
                 .items_center()
                 .gap_1()
-                .child(ghost_button(
+                .child(row_action(
                     ElementId::Name(format!("{prefix}-edit-{id}").into()),
-                    None,
-                    "Edit",
+                    RowAction::Edit,
                     cx.listener(move |this, _, window, cx| {
                         this.begin_edit_tool(scope_edit.clone(), id, window, cx);
                     }),
                 ))
-                .child(icon_button(
-                    ElementId::Name(format!("{prefix}-remove-{id}").into()),
-                    IconName::Close,
-                    false,
-                    cx.listener(move |this, _, _, cx| {
-                        this.remove_tool(scope_drop.clone(), id, cx);
-                    }),
-                )),
+                .child(
+                    row_action(
+                        ElementId::Name(format!("{prefix}-remove-{id}").into()),
+                        RowAction::Delete,
+                        cx.listener(move |this, _, _, cx| {
+                            this.remove_tool(scope_drop.clone(), id, cx);
+                        }),
+                    )
+                    .tip("Remove"),
+                ),
         )
         .into_any_element()
 }

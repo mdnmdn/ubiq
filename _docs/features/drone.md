@@ -218,7 +218,7 @@ and those log a warning and drop.
   list, a folder, and a lifetime preset. A Check control sits under the profile picker.
 - **The SSH profiles settings section** is a row list, a form modal that holds no typed values of
   its own, and a delete confirm. Saving mints the id and writes the list; the secret box is sent
-  only when it was typed into, is blanked either way, and is never prefilled from storage. Each row carries a **Test** — the same
+  only when it was typed into, is blanked either way, and is never prefilled from storage. Each row carries a **Test** icon action — the same
   `ssh` probe the Check runs, against that profile — which becomes **Stop test** while it runs. A
   verdict line sits under the row: "Testing the connection…", then "Test passed: the session
   connected." or "Test failed: <reason>". **Stop test** stops waiting and drops the late answer; the

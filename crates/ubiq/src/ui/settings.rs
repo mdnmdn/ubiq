@@ -40,10 +40,11 @@ use crate::state::settings::{
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
-    ghost_button, heading, icon_button, label_block, menu::Picker, meter, modal, modal_note,
-    modal_sized, mono, nav_item, primary_button, prompt_modal, quota_ring as kit_quota_ring,
-    removable_tag, section_label, setting_row, settings_split, slab, state_chip, status_dot,
+    RowAction, UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
+    ghost_button, heading, icon_button, icon_button_tip, label_block, menu::Picker, meter, modal,
+    modal_note, modal_sized, mono, nav_item, primary_button, prompt_modal,
+    quota_ring as kit_quota_ring, removable_tag, row_action, section_label, setting_row,
+    settings_split, slab, state_chip, status_dot,
 };
 use crate::ui::sink::project::Form;
 use crate::ui::size;
@@ -1733,24 +1734,24 @@ fn ai_provider_row(info: &AiProviderInfo, cx: &mut Context<AppState>) -> AnyElem
             .child(badge(chip, colour))
             // Warning rather than danger: nothing is wrong, something is not finished.
             .children(unset.then(|| badge("no model", theme::warning())))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-ai-{id}-test").into()),
-                None,
-                "Test",
+                RowAction::Test,
                 cx.listener(move |this, _, _, cx| this.open_ai_test(id, cx)),
             ))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-ai-{id}-edit").into()),
-                None,
-                "Edit",
+                RowAction::Edit,
                 cx.listener(move |this, _, window, cx| this.open_ai_form(Some(id), window, cx)),
             ))
-            .child(ghost_button(
-                ElementId::Name(format!("app-settings-ai-{id}-remove").into()),
-                None,
-                "Remove",
-                cx.listener(move |this, _, _, cx| this.open_remove_ai_provider(id, cx)),
-            ))
+            .child(
+                row_action(
+                    ElementId::Name(format!("app-settings-ai-{id}-remove").into()),
+                    RowAction::Delete,
+                    cx.listener(move |this, _, _, cx| this.open_remove_ai_provider(id, cx)),
+                )
+                .tip("Remove"),
+            )
             .into_any_element(),
     )
 }
@@ -2012,10 +2013,11 @@ fn grant_chips(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .px_2()
                 .child(Input::new(&app.grant_path_input).appearance(false)),
         )
-        .child(icon_button(
+        .child(icon_button_tip(
             "app-settings-grant-add",
             IconName::Plus,
-            false,
+            "Add grant",
+            true,
             cx.listener(|this, _, window, cx| this.add_extra_grant(window, cx)),
         ))
         .into_any_element()
@@ -3074,28 +3076,9 @@ pub(crate) fn definition_row(
                 .flex_none()
                 .items_center()
                 .gap_1()
-                .child(ghost_button(
-                    ElementId::Name(
-                        format!("app-settings-definition-{}-clone", definition.id).into(),
-                    ),
-                    None,
-                    "Clone",
-                    cx.listener(move |this, _, _, cx| {
-                        this.clone_definition(clone_id.clone(), scope, cx)
-                    }),
-                ))
-                .child(ghost_button(
-                    ElementId::Name(
-                        format!("app-settings-definition-{}-edit", definition.id).into(),
-                    ),
-                    None,
-                    "Edit",
-                    cx.listener(move |this, _, window, cx| {
-                        this.open_definition_form(Some(edit.clone()), None, window, cx)
-                    }),
-                ))
                 // A project's own row also switches off from here; a global has its off switch
-                // in the form. Both delete, in the scope the row lives in.
+                // in the form. Both delete, in the scope the row lives in. The text verb comes
+                // before the icons.
                 .when(scope.is_some(), |row| {
                     let toggle = definition.clone();
                     row.child(ghost_button(
@@ -3113,12 +3096,29 @@ pub(crate) fn definition_row(
                         }),
                     ))
                 })
-                .child(ghost_button(
+                .child(row_action(
+                    ElementId::Name(
+                        format!("app-settings-definition-{}-edit", definition.id).into(),
+                    ),
+                    RowAction::Edit,
+                    cx.listener(move |this, _, window, cx| {
+                        this.open_definition_form(Some(edit.clone()), None, window, cx)
+                    }),
+                ))
+                .child(row_action(
+                    ElementId::Name(
+                        format!("app-settings-definition-{}-clone", definition.id).into(),
+                    ),
+                    RowAction::Clone,
+                    cx.listener(move |this, _, _, cx| {
+                        this.clone_definition(clone_id.clone(), scope, cx)
+                    }),
+                ))
+                .child(row_action(
                     ElementId::Name(
                         format!("app-settings-definition-{}-delete", definition.id).into(),
                     ),
-                    None,
-                    "Delete",
+                    RowAction::Delete,
                     {
                         let delete_id = definition.id.clone();
                         cx.listener(move |this, _, _, cx| {
@@ -3205,18 +3205,16 @@ fn account_block(
                     .flex()
                     .items_center()
                     .gap_1()
-                    .child(icon_button(
+                    .child(row_action(
                         ElementId::Name(format!("app-settings-account-{id}-rename").into()),
-                        IconName::Replace,
-                        false,
+                        RowAction::Rename,
                         cx.listener(move |this, _, window, cx| {
                             this.open_rename_account(rename_id.clone(), window, cx)
                         }),
                     ))
-                    .child(icon_button(
+                    .child(row_action(
                         ElementId::Name(format!("app-settings-account-{id}-delete").into()),
-                        IconName::Delete,
-                        false,
+                        RowAction::Delete,
                         cx.listener(move |this, _, _, cx| {
                             this.open_delete_account(delete_id.clone(), cx)
                         }),
@@ -3332,18 +3330,6 @@ fn harness_row(
                 .items_center()
                 .gap_1()
                 .child(ghost_button(
-                    check_id,
-                    None,
-                    "Check",
-                    cx.listener({
-                        let account = account.to_string();
-                        let agent_type = agent_type.to_string();
-                        move |this, _, _, cx| {
-                            this.check_harness_login(agent_type.clone(), account.clone(), cx)
-                        }
-                    }),
-                ))
-                .child(ghost_button(
                     reauth_id,
                     None,
                     "Re-authenticate",
@@ -3366,7 +3352,21 @@ fn harness_row(
                             this.open_sign_out(agent_type.clone(), account.clone(), cx)
                         }
                     }),
-                )),
+                ))
+                .child(
+                    row_action(
+                        check_id,
+                        RowAction::Test,
+                        cx.listener({
+                            let account = account.to_string();
+                            let agent_type = agent_type.to_string();
+                            move |this, _, _, cx| {
+                                this.check_harness_login(agent_type.clone(), account.clone(), cx)
+                            }
+                        }),
+                    )
+                    .tip("Check"),
+                ),
         )
         .into_any_element()
 }
@@ -4633,12 +4633,14 @@ fn host_row(
                     }),
                 )
             }))
-            .child(ghost_button(
-                ElementId::Name(format!("app-settings-host-{address}-forget").into()),
-                None,
-                "Forget",
-                cx.listener(move |this, _, _, cx| this.forget_remote_host(save_id.clone(), cx)),
-            ))
+            .child(
+                row_action(
+                    ElementId::Name(format!("app-settings-host-{address}-forget").into()),
+                    RowAction::Delete,
+                    cx.listener(move |this, _, _, cx| this.forget_remote_host(save_id.clone(), cx)),
+                )
+                .tip("Forget"),
+            )
             .into_any_element(),
     )
 }
@@ -4681,7 +4683,11 @@ fn ssh_profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return column(rows);
     }
 
-    rows.extend(profiles.iter().map(|profile| ssh_profile_row(app, profile, cx)));
+    rows.extend(
+        profiles
+            .iter()
+            .map(|profile| ssh_profile_row(app, profile, cx)),
+    );
     column(rows)
 }
 
@@ -4691,11 +4697,7 @@ fn ssh_profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// The badge says what is true of *this* method rather than a shared word: an agent profile and
 /// a config alias have nothing to file, so they carry no badge at all — an empty one would read
 /// as something missing.
-fn ssh_profile_row(
-    app: &AppState,
-    profile: &SshProfile,
-    cx: &mut Context<AppState>,
-) -> AnyElement {
+fn ssh_profile_row(app: &AppState, profile: &SshProfile, cx: &mut Context<AppState>) -> AnyElement {
     let id = profile.id;
     let testing = app.workbench.settings.ssh_check_busy.contains(&id);
     let verdict = app.workbench.settings.ssh_checks.get(&id);
@@ -4737,17 +4739,15 @@ fn ssh_profile_row(
     // The same Test the RDP targets carry: the button turns into "Stop test" while it runs, and
     // the verdict is a line under the row.
     let test_button = if testing {
-        ghost_button(
+        row_action(
             ElementId::Name(format!("app-settings-ssh-{id}-test").into()),
-            None,
-            "Stop test",
+            RowAction::StopTest,
             cx.listener(move |this, _, _, cx| this.stop_ssh_test(id, cx)),
         )
     } else {
-        ghost_button(
+        row_action(
             ElementId::Name(format!("app-settings-ssh-{id}-test").into()),
-            None,
-            "Test",
+            RowAction::Test,
             cx.listener(move |this, _, _, cx| this.check_picked_ssh_profile(id, cx)),
         )
     };
@@ -4768,7 +4768,6 @@ fn ssh_profile_row(
             .items_center()
             .gap_2()
             .children(chip.map(|(text, colour)| badge(text, colour)))
-            .child(test_button)
             .children(profile.terminal_enabled.then(|| {
                 ghost_button(
                     ElementId::Name(format!("app-settings-ssh-{id}-terminal").into()),
@@ -4787,24 +4786,25 @@ fn ssh_profile_row(
                     cx.listener(move |this, _, _, cx| this.forget_ssh_secret(id, cx)),
                 )
             }))
-            .child(ghost_button(
+            .child(test_button)
+            .child(row_action(
                 ElementId::Name(format!("app-settings-ssh-{id}-edit").into()),
-                None,
-                "Edit",
+                RowAction::Edit,
                 cx.listener(move |this, _, window, cx| this.open_ssh_form(Some(id), window, cx)),
             ))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-ssh-{id}-clone").into()),
-                None,
-                "Clone",
+                RowAction::Clone,
                 cx.listener(move |this, _, _, cx| this.clone_ssh_profile(id, cx)),
             ))
-            .child(ghost_button(
-                ElementId::Name(format!("app-settings-ssh-{id}-remove").into()),
-                None,
-                "Remove",
-                cx.listener(move |this, _, _, cx| this.open_remove_ssh_profile(id, cx)),
-            ))
+            .child(
+                row_action(
+                    ElementId::Name(format!("app-settings-ssh-{id}-remove").into()),
+                    RowAction::Delete,
+                    cx.listener(move |this, _, _, cx| this.open_remove_ssh_profile(id, cx)),
+                )
+                .tip("Remove"),
+            )
             .into_any_element(),
     );
     match verdict_line {
@@ -5122,16 +5122,17 @@ fn connection_row(
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(ghost_button(
-                    ElementId::Name(format!("app-settings-connection-{id}-check").into()),
-                    None,
-                    "Check",
-                    cx.listener(move |this, _, _, cx| this.check_connection(id, cx)),
-                ))
-                .child(icon_button(
+                .child(
+                    row_action(
+                        ElementId::Name(format!("app-settings-connection-{id}-check").into()),
+                        RowAction::Test,
+                        cx.listener(move |this, _, _, cx| this.check_connection(id, cx)),
+                    )
+                    .tip("Check"),
+                )
+                .child(row_action(
                     ElementId::Name(format!("app-settings-connection-{id}-rename").into()),
-                    IconName::Replace,
-                    false,
+                    RowAction::Rename,
                     cx.listener({
                         let label = label.clone();
                         move |this, _, window, cx| {
@@ -5139,12 +5140,16 @@ fn connection_row(
                         }
                     }),
                 ))
-                .child(icon_button(
-                    ElementId::Name(format!("app-settings-connection-{id}-disconnect").into()),
-                    IconName::Delete,
-                    false,
-                    cx.listener(move |this, _, _, cx| this.open_disconnect(id, label.clone(), cx)),
-                )),
+                .child(
+                    row_action(
+                        ElementId::Name(format!("app-settings-connection-{id}-disconnect").into()),
+                        RowAction::Delete,
+                        cx.listener(move |this, _, _, cx| {
+                            this.open_disconnect(id, label.clone(), cx)
+                        }),
+                    )
+                    .tip("Disconnect"),
+                ),
         )
         .into_any_element()
 }
@@ -5220,12 +5225,14 @@ fn cert_row(app: &AppState, cert: &TrustedCert, cx: &mut Context<AppState>) -> A
                     if uses == 1 { "" } else { "s" }
                 ))),
         )
-        .child(ghost_button(
-            ElementId::Name(format!("app-settings-cert-{origin}-forget").into()),
-            None,
-            "Forget",
-            cx.listener(move |this, _, _, cx| this.open_forget_cert(origin.clone(), uses, cx)),
-        ))
+        .child(
+            row_action(
+                ElementId::Name(format!("app-settings-cert-{origin}-forget").into()),
+                RowAction::Delete,
+                cx.listener(move |this, _, _, cx| this.open_forget_cert(origin.clone(), uses, cx)),
+            )
+            .tip("Forget"),
+        )
         .into_any_element()
 }
 
@@ -5286,16 +5293,14 @@ fn oauth_row(entry: &OauthApp, cx: &mut Context<AppState>) -> AnyElement {
             .items_center()
             .gap_2()
             .child(badge(chip, colour))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-oauth-{id}-edit").into()),
-                None,
-                "Edit",
+                RowAction::Edit,
                 cx.listener(move |this, _, window, cx| this.open_app_form(Some(id), window, cx)),
             ))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-oauth-{id}-delete").into()),
-                None,
-                "Delete",
+                RowAction::Delete,
                 cx.listener(move |this, _, _, cx| this.open_delete_app(id, name.clone(), cx)),
             ))
             .into_any_element(),

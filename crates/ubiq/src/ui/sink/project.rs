@@ -40,8 +40,8 @@ use crate::theme::{Family, Role};
 use crate::ui::board::status_colour;
 use crate::ui::hsv;
 use crate::ui::kit::{
-    UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
-    primary_button, section_label, setting_row, settings_split, toggle_pill,
+    RowAction, UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono,
+    nav_item, primary_button, row_action, section_label, setting_row, settings_split, toggle_pill,
 };
 use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
@@ -1078,14 +1078,16 @@ fn search_excludes_row(
                         mono(pattern.clone(), theme::text())
                             .text_size(theme::font(Family::Chrome, Role::Body)),
                     )
-                    .child(icon_button(
-                        ElementId::Name(format!("project-exclude-remove-{index}").into()),
-                        IconName::Close,
-                        false,
-                        cx.listener(move |this, _, _, cx| {
-                            this.remove_project_search_exclude(project, removed.clone(), cx)
-                        }),
-                    ))
+                    .child(
+                        row_action(
+                            ElementId::Name(format!("project-exclude-remove-{index}").into()),
+                            RowAction::Delete,
+                            cx.listener(move |this, _, _, cx| {
+                                this.remove_project_search_exclude(project, removed.clone(), cx)
+                            }),
+                        )
+                        .tip("Remove"),
+                    )
                     .into_any_element()
             })
             .collect()
@@ -1208,12 +1210,16 @@ fn kb(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -
                                     .text_color(colour)
                                     .child(SharedString::from(word))
                             }))
-                            .child(icon_button(
-                                crate::ui::eid("project-kb-remove", id),
-                                IconName::Close,
-                                false,
-                                cx.listener(move |this, _, _, cx| this.remove_kb_source(id, cx)),
-                            )),
+                            .child(
+                                row_action(
+                                    crate::ui::eid("project-kb-remove", id),
+                                    RowAction::Delete,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.remove_kb_source(id, cx)
+                                    }),
+                                )
+                                .tip("Remove"),
+                            ),
                     )
                     // What Ubiq may do to this source, visible without opening anything: a row
                     // that does not say it is one the reader has to remember for. Protection is
@@ -1934,34 +1940,20 @@ fn boards_section(
                             this.set_board_enabled(project, toggle_id.clone(), !enabled, cx)
                         }),
                     ))
-                    .child(if count == 0 {
-                        ghost_button(
+                    .child(
+                        row_action(
                             ("project-board-delete", ix),
-                            Some(IconName::Delete),
-                            "Delete",
+                            RowAction::Delete,
                             cx.listener(move |this, _, _, cx| {
                                 this.delete_board(project, id.clone(), cx)
                             }),
                         )
-                        .into_any_element()
-                    } else {
-                        div()
-                            .id(("project-board-delete", ix))
-                            .h(px(26.))
-                            .px_2()
-                            .flex()
-                            .items_center()
-                            .text_size(theme::font(Family::Chrome, Role::Body))
-                            .text_color(theme::text_faint())
-                            .child("Delete")
-                            .tooltip(|window, cx| {
-                                gpui_component::tooltip::Tooltip::new(
-                                    "A board that holds tasks cannot be deleted",
-                                )
-                                .build(window, cx)
-                            })
-                            .into_any_element()
-                    });
+                        .enabled(count == 0)
+                        .tip(match count {
+                            0 => "Delete",
+                            _ => "A board that holds tasks cannot be deleted",
+                        }),
+                    );
             }
             div()
                 .flex()

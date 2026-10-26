@@ -274,6 +274,120 @@ pub fn icon_button_tip(
     })
 }
 
+/// A verb on one row of a settings list. Each has one icon and one tooltip, so the same action
+/// looks and names itself the same way in every list. Canonical order on a row: `Test`/`StopTest`,
+/// `Edit`, `Rename`, `Clone`, `Delete`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowAction {
+    Test,
+    StopTest,
+    Edit,
+    Rename,
+    Clone,
+    Delete,
+}
+
+impl RowAction {
+    /// The glyph. Fixed per action: a call site that wants another picture wants another action.
+    pub fn icon(self) -> Icon {
+        match self {
+            RowAction::Test => IconName::Play.into(),
+            RowAction::StopTest => super::UbiqIcon::ActionStop.into(),
+            RowAction::Edit => super::UbiqIcon::ActionEdit.into(),
+            RowAction::Rename => super::UbiqIcon::ActionRename.into(),
+            RowAction::Clone => super::UbiqIcon::ActionClone.into(),
+            RowAction::Delete => super::UbiqIcon::ActionDelete.into(),
+        }
+    }
+
+    /// The default tooltip. [`RowActionButton::tip`] overrides it where the row says it otherwise
+    /// ("Remove", "Forget", "Disconnect").
+    pub fn label(self) -> &'static str {
+        match self {
+            RowAction::Test => "Test",
+            RowAction::StopTest => "Stop test",
+            RowAction::Edit => "Edit",
+            RowAction::Rename => "Rename",
+            RowAction::Clone => "Clone",
+            RowAction::Delete => "Delete",
+        }
+    }
+}
+
+/// A compact icon-only button for one [`RowAction`] — square, sized for a one-line row, always
+/// tooltipped. `Delete` turns its glyph to the danger colour on hover.
+#[derive(IntoElement)]
+pub struct RowActionButton {
+    id: ElementId,
+    action: RowAction,
+    tip: Option<SharedString>,
+    enabled: bool,
+    on_click: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+}
+
+/// A row's verb as an icon button: [`RowAction`] fixes the icon and the tooltip; `.tip(..)`
+/// renames the tooltip, `.enabled(false)` draws it faint with no hover and no click.
+pub fn row_action(
+    id: impl Into<ElementId>,
+    action: RowAction,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> RowActionButton {
+    RowActionButton {
+        id: id.into(),
+        action,
+        tip: None,
+        enabled: true,
+        on_click: Box::new(on_click),
+    }
+}
+
+impl RowActionButton {
+    /// Replace the default tooltip, for a row whose verb is worded otherwise ("Forget").
+    pub fn tip(mut self, tip: impl Into<SharedString>) -> Self {
+        self.tip = Some(tip.into());
+        self
+    }
+
+    /// With `false` the button is drawn faint and ignores the pointer, keeping its tooltip.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+impl gpui::RenderOnce for RowActionButton {
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        let tip = self.tip.unwrap_or_else(|| self.action.label().into());
+        let danger = self.action == RowAction::Delete;
+        let root = div()
+            .id(self.id)
+            .size(px(24.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .child(self.action.icon().with_size(Size::Small));
+        let root = if self.enabled {
+            let on_click = self.on_click;
+            root.text_color(theme::text_muted())
+                .cursor_pointer()
+                .hover(move |this| {
+                    this.bg(theme::hover()).text_color(if danger {
+                        theme::danger()
+                    } else {
+                        theme::text()
+                    })
+                })
+                .on_click(move |event, window, cx| on_click(event, window, cx))
+        } else {
+            root.text_color(theme::text_faint())
+        };
+        root.tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+        })
+    }
+}
+
 /// A text button with no fill, used for `+ New chat` and the panel header actions.
 pub fn ghost_button(
     id: impl Into<ElementId>,

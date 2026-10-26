@@ -14,6 +14,16 @@ use gpui_component::IconNamed;
 /// An icon Ubiq draws itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum UbiqIcon {
+    /// make a new row starting from a copy of this one
+    ActionClone,
+    /// remove the row — a bin, for delete, remove, forget and disconnect alike
+    ActionDelete,
+    /// open the row's record for editing — a pencil writing on a line
+    ActionEdit,
+    /// change only the row's name — a text field with its cursor
+    ActionRename,
+    /// stop the test the row is running
+    ActionStop,
     /// draw an arrow that points at something in the picture
     AnnotateArrow,
     /// narrow the picture to a dragged rectangle
@@ -179,6 +189,11 @@ pub enum UbiqIcon {
 impl IconNamed for UbiqIcon {
     fn path(self) -> SharedString {
         SharedString::new_static(match self {
+            Self::ActionClone => "icons/action-clone.svg",
+            Self::ActionDelete => "icons/action-delete.svg",
+            Self::ActionEdit => "icons/action-edit.svg",
+            Self::ActionRename => "icons/action-rename.svg",
+            Self::ActionStop => "icons/action-stop.svg",
             Self::AnnotateArrow => "icons/annotate-arrow.svg",
             Self::AnnotateCrop => "icons/annotate-crop.svg",
             Self::AnnotateDraw => "icons/annotate-draw.svg",
@@ -265,6 +280,11 @@ impl IconNamed for UbiqIcon {
 
 /// Every variant, so a test can assert each one still has a file behind it.
 pub const ALL: &[UbiqIcon] = &[
+    UbiqIcon::ActionClone,
+    UbiqIcon::ActionDelete,
+    UbiqIcon::ActionEdit,
+    UbiqIcon::ActionRename,
+    UbiqIcon::ActionStop,
     UbiqIcon::AnnotateArrow,
     UbiqIcon::AnnotateCrop,
     UbiqIcon::AnnotateDraw,
@@ -361,6 +381,11 @@ macro_rules! ours {
 /// `gpui-component` ships.
 pub fn bytes(path: &str) -> Option<&'static [u8]> {
     Some(match path {
+        "icons/action-clone.svg" => ours!("action-clone"),
+        "icons/action-delete.svg" => ours!("action-delete"),
+        "icons/action-edit.svg" => ours!("action-edit"),
+        "icons/action-rename.svg" => ours!("action-rename"),
+        "icons/action-stop.svg" => ours!("action-stop"),
         "icons/annotate-arrow.svg" => ours!("annotate-arrow"),
         "icons/annotate-crop.svg" => ours!("annotate-crop"),
         "icons/annotate-draw.svg" => ours!("annotate-draw"),

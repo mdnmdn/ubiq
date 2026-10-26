@@ -161,6 +161,7 @@ a harness is a small secondary tag, never where one is being *chosen*.
 | `removable_tag(...)` | `tag` plus a `×` that drops it. Built from `tag`, so the two never drift |
 | `check_box(...)` | A row chosen where several may be |
 | `icon_button(...)`, `ghost_button(...)`, `primary_button(...)` | Icon-only (30px, tooltip carries the label), inline label, and the screen's single obvious action |
+| `row_action(id, RowAction, on_click)` → `RowActionButton` (`.tip(..)`, `.enabled(..)`) | A list row's verb, icon-only, 24px: `Test`, `StopTest`, `Edit`, `Rename`, `Clone`, `Delete` — fixed icon and tooltip each, in that order on a row |
 | `elided(...)`, `elided_with(...)` | Truncate with the system ellipsis, whole string as tooltip — takes an element id |
 | `meter(fraction, colour)` | The flat meter |
 | `progress_ring(pct, diameter)`, `progress_ring_in(pct, diameter, fill)` | A canvas ring; `_in` takes its own fill token |

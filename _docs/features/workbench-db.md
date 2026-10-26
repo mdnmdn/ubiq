@@ -37,7 +37,7 @@ bottom. Opening a project in DB asks the host for its connection list once.
 host, port, database, user and password; SQLite takes a file. A connection may be flagged read-only,
 and carries a SSL choice. The Databases section of project settings lists them — name, engine,
 where it points, a read-only marker, and whether a password is `saved`, `not saved` or held for the
-`session` only — each with Test, Edit and Remove (Remove asks in the row itself), and an **Add
+`session` only — each with Test, Edit and Remove as icon actions with tooltips (Remove asks in the row itself), and an **Add
 connection** button. A warning row says so when this install cannot keep a password. Add and Edit
 raise one modal form: the engine, a box that takes a pasted connection string and fills the
 fields, the per-engine fields, SSL, an **SSH tunnel** choice for a server (`None` or one of the

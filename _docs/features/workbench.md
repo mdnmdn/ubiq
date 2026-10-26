@@ -386,13 +386,13 @@ the project dialog's (`ubiq.project.skills`, `ubiq.project.mcp-servers`, gated o
 same component with that project as the layer and, below the project's own rows, a `From the
 application` group with no actions, on which an entry the project shadows by id says so. Arriving at
 any of the four asks `ListCatalog` for the layers it draws. **Skills** lists a layer's skills (id,
-origin badge `Installed` / `Linked` / `Folder`, description elided, `Remove` — absent on a `Folder`
+origin badge `Installed` / `Linked` / `Folder`, description elided, a Remove icon action — absent on a `Folder`
 one, which leaves with the folder entry under `Scanned folders`), with `Add skill folder…` and `Add
 skills directory…` (Ubiq's host folder picker, `PickerOwner::SkillFolder`, answered with `AddSkill`)
 and `Browse repositories…`, a modal that searches the configured sources (`SearchSkills`, source
-pills, `Install`). The application page alone also lists the sources with `Remove` and `Add source…`
+pills, `Install`). The application page alone also lists the sources with a Remove icon action and `Add source…`
 (a git address and an optional path; `SaveSkillSources`). **MCP servers** lists a layer's servers
-(id, `Local` / `HTTP` / `SSE` badge, command or URL elided, `Edit`, `Remove`) with `Add MCP server`
+(id, `Local` / `HTTP` / `SSE` badge, command or URL elided, Edit and Remove icon actions) with `Add MCP server`
 and `Search registry…`. The form takes Local (command, arguments and `KEY=VALUE` lines) or Remote
 (URL, HTTP or SSE, `Name: value` header lines), an optional description, and a paste box whose `Fill
 from paste` asks the host to read it (`ParseMcpConfig`): one server fills the form, several are
@@ -405,12 +405,13 @@ definition form.
 **Agent definitions is the project's own nav item, and it opens on `Use the global agents`.**
 Ticked is the default and means every global is on offer at a start aimed here. The list below
 is drawn either way — while ticked the globals show ticked and read-only, and unticking lets each
-be ticked on its own. This project's own setups, each with `Clone`, `Edit` (the same definition
-form the application's own section opens, saving back into the project), `Disable`/`Enable` (a
-save with only the off switch flipped) and `Delete` (behind a confirm, `DeleteAgentDefinition`),
+be ticked on its own. This project's own setups, each with Edit (the same definition
+form the application's own section opens, saving back into the project), Clone and Delete (behind
+a confirm, `DeleteAgentDefinition`) as icon actions, and `Disable`/`Enable` (a
+save with only the off switch flipped),
 any refusal the host sends drawn as a banner above them, `Add agent`
 above them under the same no-harness guard the application section's carries, and then the
-globals, each with **its own tick**, a `Clone to project` and `Delete` (behind a confirm that warns
+globals, each with **its own tick**, a `Clone to project` and a Delete icon action (behind a confirm that warns
 projects using it lose it). Unticking a global takes it out of what a start in this project is offered and
 changes it nowhere else; `Clone to project` copies it into the project under a free name, which is how
 a global is taken in and edited here, because a global itself is still edited where it was written. A
@@ -843,7 +844,7 @@ each stays routed to the host that owns it, exactly as `D81` has every unaddress
 against whichever host `active` names. Picking a saved-but-unattached or failed row instead raises
 the same connect modal described above, address prefilled and the token left blank — a token is
 never kept, so a reconnect always asks for it again. Below the dropdown, a "Saved hosts" list shows
-every remembered host with a per-entry **Forget**, which drops the record and nothing else — a live
+every remembered host with a per-entry **Forget** icon action, which drops the record and nothing else — a live
 connection under that address, if this window still has one, is untouched. Each row carries a chip
 saying which of attached, saved and last-attempt-failed it is, and an attached row gains a
 **Disconnect** beside Forget: it closes every pane that host was running and drops the socket while
@@ -1180,7 +1181,7 @@ folded into the settings the interface holds, and `ListAgentTypes` re-asked so e
 availability reflects it — when the field is closed and when **Save** is pressed; an emptied field
 removes the override.
 
-**An account is drawn as one block per identity: its name, and Rename and Delete.** An account is a
+**An account is drawn as one block per identity: its name, and Rename and Delete icon actions.** An account is a
 set of credential references — environment-variable names, a base URL, a key helper — written as a
 file; no credential and no path reaches the interface, because neither crosses the bus. The list is
 asked for on every open, so an account written elsewhere appears without a restart. Deleting is the
@@ -1191,11 +1192,12 @@ section, in the same warning shape a project's own row confirmations use, and cl
 next time the user opens a dialog, starts a sign-in, or dismisses it by hand.
 
 **Under the name, one row per harness the account is signed in to.** The harness's name, the status
-of its login when it has been asked for, and three controls: **Check**, which asks the host what the
-login says about its own expiry and writes the answer in place — `valid`, `expires`, `expired`,
-`unknown`, `missing` — without a modal; **Re-authenticate**, the same login flow with the harness
-and the identity already known, so it skips the picker; and **Sign out**, which removes that one
-harness's home behind a confirmation and leaves the account and its other harnesses alone. The rows
+of its login when it has been asked for, and three controls: **Re-authenticate**, the same login
+flow with the harness and the identity already known, so it skips the picker; **Sign out**, which
+removes that one harness's home behind a confirmation and leaves the account and its other
+harnesses alone; and, last, the Test icon (tooltip *Check*), which asks the host what the login
+says about its own expiry and writes the answer in place — `valid`, `expires`, `expired`,
+`unknown`, `missing` — without a modal. The rows
 come from `AccountInfo::logged_in`, which carries harness ids and nothing else — not the home, not
 the login, not a path. A `Check` that reads `missing` on a machine where the harness is plainly
 signed in is the honest answer to a question asked of the wrong store: on macOS the login may be in
@@ -1264,7 +1266,7 @@ faint, the same way a harness type is in the New-agent menu, because a definitio
 that cannot run it; a switched-off one reads faint for the same reason, being listed and not on
 offer. A definition carrying `AgentDefinition::description` draws it on a second line under the
 name, elided to one rather than wrapped — the field is written for another agent to read (`tech/transport-contract.md`), and the row is a summary, not the form it can be
-read in full from. Each row carries `Clone`, `Edit` and `Delete` (behind a confirm), and `+ Add agent` opens
+read in full from. Each row carries Edit, Clone and Delete icon actions (Delete behind a confirm), and `+ Add agent` opens
 the same form empty. Changing the name in an edited definition renames it (`SaveAgentDefinition::replaces`), refused when the new name is taken.
 
 **Nothing here signs in.** A login is the account's (`D194`), not the definition's, so the way in
@@ -2119,7 +2121,7 @@ the conventions behind that split are `tech/ui-and-design.md`'s.
 
 The providers under the Assistance row are `ai_providers()`, one `ai_provider_row()` each: the name
 and the kind, a badge saying whether a key is filed and another saying no model is chosen, and Test,
-Edit and Remove. `ai_form()` is both the add and the edit — a `kit::modal` rather than a
+Edit and Remove icon actions. `ai_form()` is both the add and the edit — a `kit::modal` rather than a
 `prompt_modal`, because it asks several questions — and its boxes are `form_field()`, `app_form()`'s
 own field shape lifted into a free function because a provider's fields are built in two places and
 a closure holding the render context cannot live across both. An add asks for kind, name, endpoint and key
