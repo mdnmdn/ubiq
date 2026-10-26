@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{DbConnId, DbSessionId};
+use crate::ids::{DbConnId, DbSessionId, SshProfileId};
 use crate::messages::Secret;
 
 pub use ubiq_db::conn::{ConnectionConfig, DbKind, SslMode};
@@ -50,6 +50,10 @@ pub struct DbConnection {
     /// What an agent may do with this connection. Absent in an older record: no access.
     #[serde(default)]
     pub agent: DbAgentSettings,
+    /// The SSH profile (app settings) the host tunnels this connection through — a reference,
+    /// never credential material. Absent in an older record: a direct connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<SshProfileId>,
 }
 
 /// What an agent may do with a connection, through the SQL MCP servers.
@@ -298,6 +302,7 @@ mod tests {
                     default: true,
                     description: "the cache".into(),
                 }),
+                ssh: None,
             },
             Message::DeleteDbConnection {
                 project_id,
@@ -309,6 +314,7 @@ mod tests {
                 id: Some(conn),
                 config: Box::new(config.clone()),
                 password: SecretEdit::Keep,
+                ssh: Some(SshProfileId::generate()),
             },
             Message::DbPassword {
                 project_id,
@@ -401,6 +407,7 @@ mod tests {
                     config,
                     password: PasswordState::Saved,
                     agent: DbAgentSettings::default(),
+                    ssh: Some(SshProfileId::generate()),
                 }],
                 keystore: DbKeystore::Unavailable("no secret service".into()),
             },
@@ -601,11 +608,14 @@ mod tests {
             config: ConnectionConfig::new(DbKind::Sqlite),
             password: PasswordState::None,
             agent: DbAgentSettings::default(),
+            ssh: Some(SshProfileId::generate()),
         })
         .unwrap();
         value.as_object_mut().unwrap().remove("agent");
+        value.as_object_mut().unwrap().remove("ssh");
         let back: DbConnection = serde_json::from_value(value).unwrap();
         assert_eq!(back.agent, DbAgentSettings::default());
+        assert_eq!(back.ssh, None, "an older record is a direct connection");
         assert_eq!(serde_json::to_string(&DbAgentAccess::Rw).unwrap(), r#""rw""#);
     }
 

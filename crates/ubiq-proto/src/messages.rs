@@ -2084,6 +2084,10 @@ pub enum Message {
         remember: bool,
         /// `None` keeps what is saved.
         agent: Option<DbAgentSettings>,
+        /// The SSH profile to tunnel through, by reference; `None` is a direct connection. Always
+        /// the whole choice, unlike `agent`: the form that saves is the form that picks it.
+        #[serde(default)]
+        ssh: Option<SshProfileId>,
     },
     /// What shared query editors this project has. Answered with [`Message::DbEditorsListed`].
     DbEditors {
@@ -2111,6 +2115,9 @@ pub enum Message {
         id: Option<DbConnId>,
         config: Box<ConnectionConfig>,
         password: SecretEdit,
+        /// The SSH profile the Test tunnels through, as the form has it now; `None` dials direct.
+        #[serde(default)]
+        ssh: Option<SshProfileId>,
     },
     /// The password for a connection that answered [`DbConnState::NeedsPassword`]. Answered with
     /// [`Message::DbConnectionState`].

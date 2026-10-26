@@ -24,6 +24,8 @@
 //! - `ids`: the contract's identifiers, one newtype per kind
 //! - `projects`: the project record, its snapshot, and what the project family carries
 //! - `settings`: which half owns a settings blob, and the host's own record
+//! - `ssh`: the system `ssh`/`scp` argv an SSH profile stands for — shared because the interface
+//!   dials a drone with it and the host tunnels a database through it; it builds, never spawns
 //! - `feedback`: a report the user sends outward, and whether this build has anywhere to send it
 //! - `update`: Ubiq updating itself — the channel, the settings, the status the host reports
 //! - `files`: one level of a project's tree, one file's bytes, and what a single path can fail at
@@ -77,6 +79,7 @@ pub mod quota;
 pub mod repos;
 pub mod search;
 pub mod settings;
+pub mod ssh;
 pub mod stats;
 pub mod tasksrc;
 pub mod tools;

@@ -522,6 +522,23 @@ fn window(hub: bus::Hub, paths: Vec<PathBuf>, listener: Option<handoff::Listener
         // Before any window: `open_project_window` takes the window's connection from here.
         app::BusHub::install(hub, cx);
 
+        // The host's worker threads are not joined on quit, so the database SSH tunnels — `ssh`
+        // children in process groups of their own — are ended here, whichever path quits; and on
+        // a panic of this thread, which takes the process with it. This binary is the one place
+        // that names both halves, so it is where the host is told.
+        cx.on_app_quit(|_| {
+            ubiq_host::db::tunnel::kill_all_tunnels();
+            async {}
+        })
+        .detach();
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if std::thread::current().name() == Some("main") {
+                ubiq_host::db::tunnel::kill_all_tunnels();
+            }
+            previous(info);
+        }));
+
         // Unsaved work is the interface's to answer for, so ⌘Q is a question first: the window
         // holding it raises the same dialog its close button does, and quits on the yes.
         cx.on_action(|_: &Quit, cx| {

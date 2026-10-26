@@ -26,7 +26,14 @@ use serde::Deserialize;
 use ubiq_proto::bus::Client;
 use ubiq_proto::carrier::{self, DroneIdentity, HandshakeError};
 use ubiq_proto::ids::ProjectId;
-use ubiq_proto::settings::{DronePreset, SshAuth, SshProfile};
+use ubiq_proto::settings::{DronePreset, SshProfile};
+// The argv a profile stands for is shared with the host's database tunnel, so it lives in the
+// contract crate; the two askpass names stay reachable from here for their existing readers.
+pub use ubiq_proto::ssh::{ASKPASS_PROFILE_VAR, ASKPASS_ROOT_VAR};
+use ubiq_proto::ssh::{
+    ConnectionKind, apply_askpass, apply_connection_options, no_window, put_in_own_session,
+    target as ssh_target,
+};
 
 use super::remote_connect::{ConnectFailure, start_drone_session};
 
@@ -37,11 +44,6 @@ use super::remote_connect::{ConnectFailure, start_drone_session};
 /// is `None`. A saved `RemoteCarrier::Ssh`'s own `drone_path` — typed by hand, or written back by
 /// [`ensure_drone`] after it uploads one — is what a caller prefers over this instead.
 const DRONE_COMMAND: &str = "ubiq-drone";
-
-/// How long `ssh` may spend on its own connection before giving up. Mirrors
-/// `remote_connect::CONNECT_TIMEOUT` — a wrong address must not hang the modal for whatever the
-/// platform's own ceiling is.
-const CONNECT_TIMEOUT_SECS: u64 = 6;
 
 /// How long the whole launch — connect, authenticate, run the drone, exchange the handshake — may
 /// take before the child is killed and the modal is told.
@@ -325,91 +327,6 @@ fn spawn_ssh_command(
         .map_err(|error| ConnectFailure::Unreachable(format!("ssh could not be started: {error}")))
 }
 
-/// What `ssh` is pointed at: the alias for a `ConfigAlias` profile, the host otherwise. The user
-/// rides as `-l` rather than as `user@host`, so a name with an `@` in it is not ambiguous.
-fn ssh_target(profile: &SshProfile) -> String {
-    profile.host.trim().to_string()
-}
-
-/// Which program [`apply_connection_options`] is building argv for. `ssh` and `scp` read
-/// identical `-o` options but spell the port and the user differently — `-p`/`-l` against
-/// `-P`/`-o User=`, `scp` having no `-l` of its own.
-#[derive(Clone, Copy)]
-enum ConnectionKind {
-    Ssh,
-    Scp,
-}
-
-/// The profile fields `ssh` and `scp` read the same way: port, user, identity file, connect
-/// timeout and batch mode — everything [`SshAuth::ConfigAlias`] defers to `~/.ssh/config` instead,
-/// on [`spawn_ssh_command`]'s original reasoning. Factored out so [`ensure_drone`]'s `scp` upload
-/// builds its argv from the same profile fields a dial already does, rather than a second reading
-/// of them drifting from the first.
-fn apply_connection_options(command: &mut Command, profile: &SshProfile, kind: ConnectionKind) {
-    if matches!(profile.auth, SshAuth::ConfigAlias) {
-        return;
-    }
-    match kind {
-        ConnectionKind::Ssh => {
-            command.arg("-p").arg(profile.port.to_string());
-            if !profile.user.trim().is_empty() {
-                command.arg("-l").arg(profile.user.trim());
-            }
-        }
-        ConnectionKind::Scp => {
-            command.arg("-P").arg(profile.port.to_string());
-            if !profile.user.trim().is_empty() {
-                command
-                    .arg("-o")
-                    .arg(format!("User={}", profile.user.trim()));
-            }
-        }
-    }
-    if let SshAuth::KeyFile { path, .. } = &profile.auth
-        && !path.trim().is_empty()
-    {
-        command.arg("-i").arg(path.trim());
-    }
-    command
-        .arg("-o")
-        .arg(format!("ConnectTimeout={CONNECT_TIMEOUT_SECS}"));
-    // Batch mode where there is nothing to answer a prompt with: an agent key or an unencrypted
-    // key file either works or does not, and failing at once beats blocking on a prompt no
-    // terminal will ever see. Where a secret *is* filed, batch mode would refuse the askpass
-    // helper that supplies it, so it is left off.
-    if !profile.auth.has_secret() {
-        command.arg("-o").arg("BatchMode=yes");
-    }
-}
-
-/// A session of its own, so an interrupt aimed at the terminal Ubiq was launched from does not
-/// take the child with it. `SSH_ASKPASS_REQUIRE=force` is what actually keeps the password off a
-/// terminal; this only keeps the child out of the window's job control.
-fn put_in_own_session(command: &mut Command) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = command;
-    }
-}
-
-/// `ssh`/`scp`/`taskkill` here all talk over pipes or exit codes, never a screen — the same
-/// headless shape [`spawn_ssh_command`]'s module doc opens with. Windows would still pop a console
-/// window for a console-subsystem child like these: the app has already freed its own console
-/// (`ubiq_app::detach_console`), and a child with none of its own to inherit gets a brand-new one.
-#[cfg(windows)]
-fn no_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt as _;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-#[cfg(not(windows))]
-fn no_window(_command: &mut Command) {}
-
 /// The command the far machine runs. One string, because that is what `ssh` hands its login
 /// shell — so the root is single-quoted for that shell, which is the only quoting this needs.
 ///
@@ -483,53 +400,6 @@ fn linger_arg(preset: DronePreset, linger_secs: Option<u64>) -> String {
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
-
-/// Point `ssh` at Ubiq's own binary for the password prompt, when the profile has a secret filed.
-///
-/// **The material is never in `argv`, never in a file, and never on the bus.** What crosses here
-/// is the profile *id* — a reference, exactly as it is on the settings record — in the child's
-/// environment. The helper, which is this same executable in the mode
-/// `ubiq_app::askpass` answers, opens the host's secret store under the config root and writes the
-/// material on its own standard output, which is where OpenSSH reads an askpass answer from. So
-/// the material's whole path is keychain → helper stdout → `ssh`: it never enters this process at
-/// all, which is a stronger statement than keeping it out of `argv`.
-///
-/// **Why the helper and not a message.** `crates/ubiq` cannot read the host's keychain, so the
-/// alternative was a new message carrying the secret back to the interface in a `Secret`. That
-/// would be legal under `D65` and still wrong: it would make the interface hold material for the
-/// first time, to hand it to a child process it could have let fetch its own. `D124`'s split — the
-/// list is the interface's, the material is the host's — survives untouched this way, and no
-/// message was added.
-fn apply_askpass(command: &mut Command, profile: &SshProfile, config_root: Option<&str>) {
-    if !profile.auth.has_secret() {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else {
-        // Without a path to this binary there is no helper to point at. `ssh` then prompts, finds
-        // no terminal, and fails with its own sentence — which is the right failure to show.
-        tracing::warn!("no path to this executable: ssh will have no askpass helper");
-        return;
-    };
-    command.env("SSH_ASKPASS", exe);
-    // OpenSSH 8.4 and later: use the helper whatever the terminal and `DISPLAY` say. Older
-    // clients consult `DISPLAY` instead, which is why one is set below when there is none.
-    command.env("SSH_ASKPASS_REQUIRE", "force");
-    if std::env::var_os("DISPLAY").is_none() {
-        command.env("DISPLAY", ":0");
-    }
-    command.env(ASKPASS_PROFILE_VAR, profile.id.to_string());
-    if let Some(root) = config_root {
-        command.env(ASKPASS_ROOT_VAR, root);
-    }
-}
-
-/// The environment variable that puts the binary into askpass mode, and names which profile's
-/// secret is wanted. Read by `ubiq_app::askpass`; a reference, never material.
-pub const ASKPASS_PROFILE_VAR: &str = "UBIQ_ASKPASS_PROFILE";
-
-/// Which config root the helper opens its secret store under. Absent, the helper resolves its own
-/// the way any other launch does.
-pub const ASKPASS_ROOT_VAR: &str = "UBIQ_ASKPASS_ROOT";
 
 // ── The deployer ──────────────────────────────────────────────────────────────
 
@@ -1097,6 +967,7 @@ impl Killer {
 mod tests {
     use super::*;
     use ubiq_proto::ids::SshProfileId;
+    use ubiq_proto::settings::SshAuth;
 
     fn profile(auth: SshAuth) -> SshProfile {
         SshProfile {

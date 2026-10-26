@@ -953,8 +953,20 @@ impl Coordinator {
         let armed = Arc::new(crate::armed::Armed::new());
         // The database family, built here so the SQL servers can be handed a handle on it: they run
         // on the listener's own threads and reach the same sessions and editors a window does
-        // (`D202`).
-        let db = crate::db::Db::new(root.path.clone());
+        // (`D202`). Settings are shared from here so a connection's SSH profile is read from them at
+        // dial time.
+        let settings = Arc::new(settings);
+        let ssh_settings = settings.clone();
+        let db = crate::db::Db::new(
+            root.path.clone(),
+            Arc::new(move |id| {
+                ssh_settings
+                    .host()
+                    .ssh_profiles
+                    .into_iter()
+                    .find(|profile| profile.id == id)
+            }),
+        );
         let mcp = crate::mcp::start(
             mcp_agents.clone(),
             host.voice(),
@@ -1024,7 +1036,6 @@ impl Coordinator {
         if let Err(error) = agents.ensure_default_definitions() {
             tracing::warn!("the default agent definitions could not be written: {error:#}");
         }
-        let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
         // The task-source sync worker: the **third** holder of the work handle, after this thread

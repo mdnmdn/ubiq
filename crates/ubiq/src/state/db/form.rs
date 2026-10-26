@@ -15,7 +15,7 @@ use ubiq_proto::db::{
     ConnectionConfig, DbAgentAccess, DbAgentSettings, DbConnection, DbKind, PasswordState,
     SecretEdit,
 };
-use ubiq_proto::ids::{DbConnId, DbProbeId};
+use ubiq_proto::ids::{DbConnId, DbProbeId, SshProfileId};
 use ubiq_proto::messages::Secret;
 
 /// The inputs a form types into. Built when the form opens, where there is a `Window`.
@@ -53,6 +53,8 @@ pub struct DbConnForm {
     pub config: ConnectionConfig,
     /// What agents may do with it: access and the default flag (the description is a text field).
     pub agent: DbAgentSettings,
+    /// The SSH profile the host tunnels through; `None` dials direct. A server's only.
+    pub ssh: Option<SshProfileId>,
     /// *Forget password* was pressed: send `Clear` unless a new one is typed.
     pub forget_password: bool,
     /// What the host reported for the connection being edited.
@@ -72,6 +74,7 @@ impl DbConnForm {
             id: None,
             config: ConnectionConfig::new(kind),
             agent: DbAgentSettings::default(),
+            ssh: None,
             forget_password: false,
             saved: PasswordState::None,
             remember: true,
@@ -89,6 +92,7 @@ impl DbConnForm {
             id: Some(conn.id),
             config,
             agent: conn.agent.clone(),
+            ssh: conn.ssh,
             saved: conn.password,
             ..Self::new(conn.config.kind)
         }
@@ -177,6 +181,11 @@ impl DbConnForm {
             config.name = config.default_name();
         }
         Ok(config)
+    }
+
+    /// The SSH profile to send: none for a file database, which has nothing to tunnel to.
+    pub fn collect_ssh(&self) -> Option<SshProfileId> {
+        self.ssh.filter(|_| !self.kind().is_file_based())
     }
 
     /// Read-write is not offered on a read-only connection.
@@ -373,14 +382,23 @@ mod tests {
                 default: true,
                 description: "the erp".into(),
             },
+            ssh: Some(SshProfileId::generate()),
         };
         let form = DbConnForm::editing(&conn);
         assert_eq!(form.id, Some(conn.id));
         assert_eq!(form.text().port, "1444");
         assert_eq!(form.secret_edit(""), SecretEdit::Keep);
         assert_eq!(form.collect(&form.text()).unwrap(), conn.config);
-        // The agent settings round-trip through the form unchanged.
+        // The agent settings and the tunnel round-trip through the form unchanged.
         assert_eq!(form.collect_agent(&form.text()), conn.agent);
+        assert_eq!(form.collect_ssh(), conn.ssh);
+    }
+
+    #[test]
+    fn a_file_database_sends_no_tunnel() {
+        let mut form = DbConnForm::new(DbKind::Sqlite);
+        form.ssh = Some(SshProfileId::generate());
+        assert_eq!(form.collect_ssh(), None);
     }
 
     #[test]

@@ -267,6 +267,7 @@ mod tests {
             config,
             password,
             agent: Default::default(),
+            ssh: None,
         }
     }
 

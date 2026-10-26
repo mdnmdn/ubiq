@@ -323,9 +323,9 @@ impl AppState {
                 return;
             }
         };
-        let (id, edit) = (form.id, form.secret_edit(&typed));
+        let (id, edit, ssh) = (form.id, form.secret_edit(&typed), form.collect_ssh());
         form.error = None;
-        let probe = self.test_db_connection(project, id, config, edit);
+        let probe = self.test_db_connection(project, id, config, edit, ssh);
         if let Some(form) = self.db_mut(cx).and_then(|db| db.form.as_mut()) {
             form.probe = Some(probe);
         }
@@ -357,12 +357,13 @@ impl AppState {
             }
         };
         let agent = form.collect_agent(&text);
+        let ssh = form.collect_ssh();
         let (id, edit, remember) = (form.id, form.secret_edit(&typed), form.remember);
         db.form = None;
         if let Some(id) = id {
             db.tree.reset(id);
         }
-        self.save_db_connection(project, id, config, edit, remember, agent);
+        self.save_db_connection(project, id, config, edit, remember, agent, ssh);
         cx.notify();
     }
 
@@ -373,14 +374,14 @@ impl AppState {
         let Some(project) = self.project(cx) else {
             return;
         };
-        let Some(config) = self
+        let Some((config, ssh)) = self
             .db(cx)
             .and_then(|db| db.connection(conn))
-            .map(|saved| saved.config.clone())
+            .map(|saved| (saved.config.clone(), saved.ssh))
         else {
             return;
         };
-        let probe = self.test_db_connection(project, Some(conn), config, SecretEdit::Keep);
+        let probe = self.test_db_connection(project, Some(conn), config, SecretEdit::Keep, ssh);
         if let Some(db) = self.db_mut(cx) {
             db.tree.tests.insert(conn, probe);
         }
