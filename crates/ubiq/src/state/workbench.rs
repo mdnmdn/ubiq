@@ -770,6 +770,9 @@ pub struct WorkbenchState {
     /// The About modal, while it is up. Raised from the titlebar's mark, over anything, like
     /// `feedback`.
     pub about: Option<crate::state::about::AboutState>,
+    /// The Tools dialog, while it is up. Raised from the titlebar's wrench, over anything, like
+    /// `about`.
+    pub devtools: Option<crate::state::devtools::DevtoolsState>,
     /// The onboarding wizard, while a run is open — dialog or highlight. See
     /// `crate::state::onboarding`.
     pub onboarding: Option<crate::state::onboarding::OnboardingRun>,
@@ -1100,6 +1103,7 @@ impl Default for WorkbenchState {
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
             updates: crate::state::updates::UpdatesState::default(),
             about: None,
+            devtools: None,
             onboarding: None,
             onboarding_done: Default::default(),
             prefs_loaded: false,

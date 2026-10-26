@@ -222,6 +222,10 @@ categories:
       goal: open the project in a browser
       source: "adopted:Globe"
     titlebar-settings: {goal: the settings screen, source: "adopted:Settings2"}
+    titlebar-tools:
+      goal: the developer tools dialog — encoders, decoders, converters and a text diff
+      source: "adopted:Wrench"
+      keywords: [tools, utilities, base64, jwt, hash, uuid, diff, convert]
     titlebar-theme-light: {goal: switch to the light palette, source: "adopted:Sun"}
     titlebar-theme-dark: {goal: switch to the dark palette, source: "adopted:Moon"}
     titlebar-notifications: {goal: the notification centre, source: "adopted:Bell"}

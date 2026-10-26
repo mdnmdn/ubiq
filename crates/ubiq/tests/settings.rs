@@ -59,6 +59,7 @@ fn a_blob_survives_the_round_trip() {
         excalidraw_theme: ubiq::state::web_panel::WebTheme::Light,
         drawio_theme: ubiq::state::web_panel::WebTheme::Dark,
         archify: Default::default(),
+        devtools_clipboard: false,
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);

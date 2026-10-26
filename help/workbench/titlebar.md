@@ -2,8 +2,8 @@
 id: workbench-titlebar
 title: The title bar
 summary: The window's top row — the project cluster, the command field, and every action in the right-hand cluster.
-keywords: [titlebar, title bar, command field, navigator, new agent, new terminal, search, notifications, feedback, help, point at something, settings, remote hosts, theme, back, forward, run tool]
-targets: [ui.titlebar, ui.titlebar.project, ui.titlebar.new-project, ui.titlebar.new-project-menu, ui.titlebar.nav-back, ui.titlebar.nav-forward, ui.titlebar.command, ui.titlebar.actions, ui.titlebar.region-left, ui.titlebar.region-bottom, ui.titlebar.region-right, ui.titlebar.new-agent, ui.titlebar.hidden-agents, ui.titlebar.new-terminal, ui.titlebar.new-terminal-menu, ui.titlebar.search, ui.titlebar.notifications, ui.titlebar.feedback, ui.titlebar.help, ui.titlebar.point-at, ui.titlebar.settings, ui.titlebar.overflow, ui.titlebar.theme]
+keywords: [titlebar, title bar, command field, navigator, new agent, new terminal, search, notifications, feedback, help, point at something, tools, base64, jwt, uuid, diff, settings, remote hosts, theme, back, forward, run tool]
+targets: [ui.titlebar, ui.titlebar.project, ui.titlebar.new-project, ui.titlebar.new-project-menu, ui.titlebar.nav-back, ui.titlebar.nav-forward, ui.titlebar.command, ui.titlebar.actions, ui.titlebar.region-left, ui.titlebar.region-bottom, ui.titlebar.region-right, ui.titlebar.new-agent, ui.titlebar.hidden-agents, ui.titlebar.new-terminal, ui.titlebar.new-terminal-menu, ui.titlebar.search, ui.titlebar.notifications, ui.titlebar.feedback, ui.titlebar.help, ui.titlebar.point-at, ui.titlebar.tools, ui.titlebar.settings, ui.titlebar.overflow, ui.titlebar.theme]
 order: 15
 status: current
 related: [workbench-rail, workbench-modes, workbench-panels, workbench-notifications, workbench-tools, getting-started]
@@ -32,6 +32,7 @@ thing, and its narrow chevron lists the alternatives.
 | **Send feedback** ![Send feedback](../img/ui/board-comment.png) | Opens the [feedback dialog](feedback) |
 | **Help** ![Help](../img/ui/titlebar-help.png) | Opens the manual on this screen's page; **F1** |
 | **Point at something (⇧F1)** ![Point at something](../img/ui/titlebar-point-at.png) | Describes whichever control you point at; see [the help panel](workbench-help) |
+| **Tools** ![Tools](../img/ui/titlebar-tools.png) | Base64, JWT, dates and timestamps, URL encoding, hashes, UUIDs, placeholder text and a text diff; its **Smart** page tells you which one a pasted value needs, and offers what is on the clipboard |
 | **Settings** ![Settings](../img/ui/titlebar-settings.png) | Accounts, agents, connections and the rest; its chevron, **More**, holds **Remote hosts**, **Connect to a remote host**, **Explore the project in browser**, **Capture this window**, **Help** and **Point at something…** |
 | Theme ![Light](../img/ui/titlebar-theme-light.png) ![Dark](../img/ui/titlebar-theme-dark.png) | Switches between the light and dark palettes |
 | **About Ubiq** ![About Ubiq](../img/ui/titlebar-about.png) | The version, updates and licences |

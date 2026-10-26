@@ -112,6 +112,10 @@ gpui-terminal = { path = "../../vendor/gpui-terminal" }
 serde = { version = "1.0", features = ["derive"] }
 # The view-state blob the host stores opaquely is JSON, and its schema is the interface's
 serde_json = "1.0"
+# The editor tab menu's Format row (`state/format.rs`): a YAML re-emit and an XML event pass.
+# Both are already in the tree.
+serde_yaml = "0.9"
+quick-xml = "0.42"
 
 # Inflates one entry at a time out of a vendor bundle archive (`web_export/archive.rs`). Already
 # a build-dependency below for the same reason on the writing side; needed here too to read back.
@@ -139,6 +143,17 @@ merman = { version = "=0.8.0", default-features = false, features = [
 # The content address a cached diagram is filed under. A stable hash, because the name has to mean
 # the same thing after a restart and after a toolchain upgrade.
 sha2 = "0.11"
+
+# The Tools dialog (`tools/`): pure text utilities computed in the interface — nothing in them
+# touches a file, a process or the host. Every one is already in the lock (the host, the proto and
+# agent-manager name them), so none adds a crate to the tree. `md-5`/`sha1` are sha2's 0.11 family.
+base64 = "0.23"
+md-5 = "0.11"
+sha1 = "0.11"
+percent-encoding = "2"
+uuid = { version = "1", features = ["v1", "v4", "v5", "v7"] }
+# The text diff the dialog draws through `ui::viewer::diff` — two pasted texts the host never saw.
+similar = "3"
 
 # Swift and C# ship a grammar in gpui-component but no highlight query — these three build the two
 # `LanguageConfig`s that fill that gap, from the grammar crates' own bundled `highlights.scm`.

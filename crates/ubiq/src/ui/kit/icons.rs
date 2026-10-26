@@ -158,6 +158,8 @@ pub enum UbiqIcon {
     TitlebarThemeDark,
     /// switch to the light palette
     TitlebarThemeLight,
+    /// the developer tools dialog — encoders, decoders, converters and a text diff
+    TitlebarTools,
     /// the harness handed the work to a subagent
     ToolDelegate,
     /// the harness changed a file in place — a page and the pen that changed it
@@ -249,6 +251,7 @@ impl IconNamed for UbiqIcon {
             Self::TitlebarSettings => "icons/titlebar-settings.svg",
             Self::TitlebarThemeDark => "icons/titlebar-theme-dark.svg",
             Self::TitlebarThemeLight => "icons/titlebar-theme-light.svg",
+            Self::TitlebarTools => "icons/titlebar-tools.svg",
             Self::ToolDelegate => "icons/tool-delegate.svg",
             Self::ToolEdit => "icons/tool-edit.svg",
             Self::ToolMove => "icons/tool-move.svg",
@@ -334,6 +337,7 @@ pub const ALL: &[UbiqIcon] = &[
     UbiqIcon::TitlebarSettings,
     UbiqIcon::TitlebarThemeDark,
     UbiqIcon::TitlebarThemeLight,
+    UbiqIcon::TitlebarTools,
     UbiqIcon::ToolDelegate,
     UbiqIcon::ToolEdit,
     UbiqIcon::ToolMove,
@@ -429,6 +433,7 @@ pub fn bytes(path: &str) -> Option<&'static [u8]> {
         "icons/titlebar-settings.svg" => ours!("titlebar-settings"),
         "icons/titlebar-theme-dark.svg" => ours!("titlebar-theme-dark"),
         "icons/titlebar-theme-light.svg" => ours!("titlebar-theme-light"),
+        "icons/titlebar-tools.svg" => ours!("titlebar-tools"),
         "icons/tool-delegate.svg" => ours!("tool-delegate"),
         "icons/tool-edit.svg" => ours!("tool-edit"),
         "icons/tool-move.svg" => ours!("tool-move"),

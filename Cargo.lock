@@ -2121,9 +2121,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.3"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03bb0e1cc970d482d121d9a1744999169b69a07470b3d644a7894e53fcaf4574"
+checksum = "fe3e9d21d39e6f39ff46e03d5b621424f88ee23d8a1672c6bfc9ccc7f2da4f6a"
 dependencies = [
  "cmov",
 ]
@@ -6283,7 +6283,7 @@ dependencies = [
  "saturating",
  "serde",
  "serde_json",
- "sha1",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "uuid",
@@ -9955,6 +9955,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11928,6 +11939,7 @@ name = "ubiq"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "chrono",
  "flate2",
  "flume 0.12.0",
@@ -11943,6 +11955,7 @@ dependencies = [
  "lb-wry",
  "lsp-types",
  "markdown",
+ "md-5 0.11.0",
  "merman",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -11950,7 +11963,9 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "oxc",
  "parking_lot",
+ "percent-encoding",
  "pulldown-cmark",
+ "quick-xml 0.42.0",
  "raw-window-handle",
  "regex",
  "rquickjs",
@@ -11958,7 +11973,10 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "sha1 0.11.0",
  "sha2 0.11.0",
+ "similar 3.2.0",
  "tempfile",
  "tiny_http",
  "tracing",
@@ -11979,6 +11997,7 @@ dependencies = [
  "ubiq-md",
  "ubiq-proto",
  "ureq 3.4.2",
+ "uuid",
  "webpki-roots 1.0.9",
  "windows-capture",
  "windows-sys 0.61.2",

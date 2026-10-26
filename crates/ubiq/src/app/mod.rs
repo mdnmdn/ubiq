@@ -1439,6 +1439,7 @@ pub use hosts::{
     RemoteHostMeta, host_menu_rows, host_row_label, preferred_remote,
 };
 mod db;
+mod devtools;
 mod image_edit;
 pub use db::{DbPageRequest, DbQueryReply, DbQueryRequest};
 mod kb;

@@ -94,6 +94,8 @@ pub enum Layer {
     /// The About modal. Beside the feedback modal on its terms: raised from the titlebar, over
     /// whatever is already up.
     About,
+    /// The Tools dialog. Raised from the titlebar like About, and painted just after it.
+    Devtools,
     /// An agent's question to the user. Above the feedback modal on the same terms — it is raised
     /// from the transcript, and from the host at any moment — and it is the one modal that is
     /// never raised over another: an ask arriving while anything is up leaves a notification and

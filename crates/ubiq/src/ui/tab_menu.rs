@@ -50,7 +50,15 @@ use crate::ui::{self, kit};
 /// a pane's origin is one. It is true only for a terminal whose pane was started by
 /// [`ubiq_proto::messages::Message::RunTool`] and whose command has since ended — the "wait on
 /// exit" case, where the tab is still up over output nothing is producing any more.
-pub fn rows(kind: &PanelKind, pinned: bool, restartable: bool) -> Vec<&'static str> {
+///
+/// `formattable` is true for a file tab whose language is JSON, YAML or XML: it adds **Format**
+/// after Save.
+pub fn rows(
+    kind: &PanelKind,
+    pinned: bool,
+    restartable: bool,
+    formattable: bool,
+) -> Vec<&'static str> {
     let pin_row = if pinned { "Unpin" } else { "Pin" };
     match kind {
         PanelKind::File(_) => {
@@ -72,8 +80,11 @@ pub fn rows(kind: &PanelKind, pinned: bool, restartable: bool) -> Vec<&'static s
                 "Refresh",
                 SEPARATOR,
                 "Save",
-                "Word Wrap",
             ]);
+            if formattable {
+                rows.push("Format");
+            }
+            rows.push("Word Wrap");
             rows.push(pin_row);
             rows
         }
@@ -118,7 +129,8 @@ pub fn overlay(
     };
     let pinned = app.tab_pinned(&kind, cx);
     let restartable = app.tab_restartable(&kind, cx);
-    let items: Vec<_> = rows(&kind, pinned, restartable)
+    let formattable = app.tab_formattable(&kind, cx);
+    let items: Vec<_> = rows(&kind, pinned, restartable, formattable)
         .iter()
         .map(|label| {
             if *label == SEPARATOR {

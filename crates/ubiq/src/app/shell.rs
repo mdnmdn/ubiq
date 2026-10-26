@@ -1061,6 +1061,7 @@ impl AppState {
                     .is_some_and(|f| !f.capturing && f.shot_edit.is_some()),
             ),
             (Layer::About, w.about.is_some()),
+            (Layer::Devtools, w.devtools.is_some()),
             (Layer::Ask, w.ask.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
             (Layer::FileDialog, w.file_dialog.is_some()),
@@ -1293,6 +1294,9 @@ impl AppState {
             // the ask's own record, and the transcript entry reopens it. Dismissing is not
             // answering, so the harness is still parked and the entry is still there to say so.
             self.close_ask(window, cx);
+        } else if self.workbench.devtools.is_some() {
+            // Drawn after About, so peeled before it.
+            self.close_devtools(cx);
         } else if self.workbench.about.is_some() {
             // Drawn after feedback, so peeled before it.
             self.close_about(cx);

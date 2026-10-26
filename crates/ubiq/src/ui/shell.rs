@@ -433,6 +433,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::about::render(app, window, cx)),
         )
+        // The Tools dialog, after About on the same terms: both are raised from the titlebar.
+        .children(
+            app.workbench
+                .devtools
+                .as_ref()
+                .map(|_| crate::ui::devtools::overlay(app, window, cx)),
+        )
         // An agent's question, over the feedback modal on the same terms — except that it is
         // never actually raised over anything: an ask arriving while any layer is up leaves a
         // notification and a transcript entry instead, and the entry's button is what raises it

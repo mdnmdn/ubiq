@@ -473,18 +473,18 @@ fn restart_is_a_row_only_when_there_is_something_to_restart() {
     let terminal = PanelKind::Terminal(PaneId::generate());
 
     assert_eq!(
-        ubiq::ui::tab_menu::rows(&terminal, false, true),
+        ubiq::ui::tab_menu::rows(&terminal, false, true, false),
         vec!["Rename\u{2026}", "Restart", "Hide", "Close", "Pin"],
         "Restart sits above the two endings, because it is the opposite of them"
     );
     assert_eq!(
-        ubiq::ui::tab_menu::rows(&terminal, false, false),
+        ubiq::ui::tab_menu::rows(&terminal, false, false, false),
         vec!["Rename\u{2026}", "Hide", "Close", "Pin"],
         "a pane with nothing to restart was offered the row anyway"
     );
     // Pinning takes Hide away and leaves Restart, which is about the process rather than the tab.
     assert_eq!(
-        ubiq::ui::tab_menu::rows(&terminal, true, true),
+        ubiq::ui::tab_menu::rows(&terminal, true, true, false),
         vec!["Rename\u{2026}", "Restart", "Close", "Unpin"],
     );
 }

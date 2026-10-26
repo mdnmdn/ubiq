@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-10-25
-verified: 2026-10-25
+updated: 2026-10-26
+verified: 2026-10-26
 code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/ui/onboarding/mod.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -548,7 +548,10 @@ Every other step keeps `kit::modal`'s ordinary `MODAL_WIDTH` and scrolling body;
 hosts a pane still follows every rule above, only what fills the body changes. The About modal
 (`ui/about.rs`, `Layer::About` just above `Layer::Feedback`) is the other fixed-size one: a
 `kit::tab_strip` of three tabs in a panel that keeps its size whichever tab is up, its package list a
-`uniform_list` of equal rows inside the filled body.
+`uniform_list` of equal rows inside the filled body. The Tools dialog (`ui/devtools.rs`,
+`Layer::Devtools` just above `Layer::About`) is a page overlay on the settings page's frame —
+`SETTINGS_WIDTH`/`SETTINGS_HEIGHT` and `kit::settings_split` — rather than a modal; its icon,
+`titlebar-tools`, is Lucide's wrench adopted into the titlebar set.
 
 **A walk the user leaves only through its own buttons is `kit::modal_locked`.** It is `modal_sized` with no
 × and a backdrop click that does nothing — a private `Dismissal` enum in `ui/kit/overlay.rs` picks

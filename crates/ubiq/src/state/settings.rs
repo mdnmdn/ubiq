@@ -300,6 +300,11 @@ pub struct UiSettings {
     /// The diagram viewer's preferences (quality override, palette, motion, chart theme).
     #[serde(default)]
     pub archify: crate::state::archify::ArchifySettings,
+    /// Whether the Tools dialog reads the clipboard when it opens and offers the section the text
+    /// on it looks like (`state/devtools.rs`). On by default; the dialog's own Smart section is
+    /// where it is switched off.
+    #[serde(default = "default_true")]
+    pub devtools_clipboard: bool,
 }
 
 fn default_md_char_scale() -> f32 {
@@ -339,6 +344,7 @@ impl Default for UiSettings {
             excalidraw_theme: Default::default(),
             drawio_theme: Default::default(),
             archify: Default::default(),
+            devtools_clipboard: true,
         }
     }
 }

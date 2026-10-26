@@ -1026,7 +1026,9 @@ impl AppState {
         self.workbench.tab_menu = None;
         let pinned = self.tab_pinned(&kind, cx);
         let restartable = self.tab_restartable(&kind, cx);
-        let Some(&row) = ui::tab_menu::rows(&kind, pinned, restartable).get(index) else {
+        let formattable = self.tab_formattable(&kind, cx);
+        let Some(&row) = ui::tab_menu::rows(&kind, pinned, restartable, formattable).get(index)
+        else {
             return;
         };
         match &kind {
@@ -1049,6 +1051,7 @@ impl AppState {
                     "Reveal in Explorer" => self.reveal_tab_in_explorer(&key, cx),
                     "Refresh" => self.refresh_editor_tab(&key, cx),
                     "Save" => self.save_file(&key, window, cx),
+                    "Format" => self.format_editor_tab(&key, window, cx),
                     "Word Wrap" => self.toggle_editor_wrap(window, cx),
                     "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
                     _ => {}
@@ -1177,6 +1180,47 @@ impl AppState {
         if let Some(project) = self.project(cx) {
             self.navigate(Destination::new(project, View::Explorer { path: rel }), cx);
         }
+    }
+
+    /// Whether a file tab's menu offers Format: a text buffer in JSON, YAML or XML.
+    pub fn tab_formattable(&self, kind: &PanelKind, cx: &App) -> bool {
+        let PanelKind::File(key) = kind else {
+            return false;
+        };
+        self.file(key, cx).is_some_and(|file| {
+            file.buffer().is_some() && crate::state::format::can_format(file.language)
+        })
+    }
+
+    /// Format a tab's buffer in place: one `replace_all` (so one undo step, and the change event
+    /// dirties it), never a save. A parse error leaves the buffer alone and raises a notification.
+    fn format_editor_tab(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(file) = self.file(key, cx) else {
+            return;
+        };
+        let (Some(buffer), language) = (file.buffer().cloned(), file.language) else {
+            return;
+        };
+        let name = file.path.to_string();
+        let text = buffer.read(cx).value().to_string();
+        match crate::state::format::format_text(language, &text) {
+            None => {}
+            Some(Ok(formatted)) => {
+                if formatted != text {
+                    buffer.update(cx, |state, cx| state.replace_all(formatted, window, cx));
+                }
+            }
+            Some(Err(reason)) => {
+                self.raise_notification(
+                    ubiq_proto::notifications::NotificationRequest::error(
+                        ubiq_proto::notifications::Family::Files,
+                        format!("Cannot format {name}: {reason}"),
+                    )
+                    .with_category("format"),
+                );
+            }
+        }
+        cx.notify();
     }
 
     /// Refresh a tab: re-read its file from disk. A buffer holding unsaved edits asks first, in

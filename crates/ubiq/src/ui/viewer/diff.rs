@@ -1,7 +1,9 @@
 //! A file's change against a version-control base, as rows.
 //!
-//! The host computed the hunks; this draws them. No diff library reaches the interface, which is
-//! the same discipline that keeps a VT parser out of the host.
+//! The host computed the hunks; this draws them. No diff of a *file* is computed in the interface,
+//! which is the same discipline that keeps a VT parser out of the host. The one diff the interface
+//! computes itself is the Tools dialog's (`crate::devtools::diff`): two pasted texts the host never
+//! held, built into the same `FileDiff` and drawn by this same renderer.
 //!
 //! It is the chat transcript's `EDIT` block at file scale — one styled row per line, in status
 //! tokens at low alpha — with a side-by-side layout as its second mode. Which of the two is on

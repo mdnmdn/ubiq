@@ -280,6 +280,8 @@ pub const TITLEBAR_FEEDBACK: UiId = UiId::new("titlebar.feedback");
 pub const TITLEBAR_HELP: UiId = UiId::new("titlebar.help");
 pub const TITLEBAR_ABOUT: UiId = UiId::new("titlebar.about");
 pub const TITLEBAR_POINT_AT: UiId = UiId::new("titlebar.point-at");
+/// The Tools dialog's wrench.
+pub const TITLEBAR_TOOLS: UiId = UiId::new("titlebar.tools");
 /// Settings, and the chevron beside it holding the rest of the occasional commands.
 pub const TITLEBAR_SETTINGS: UiId = UiId::new("titlebar.settings");
 pub const TITLEBAR_OVERFLOW: UiId = UiId::new("titlebar.overflow");
@@ -332,6 +334,7 @@ pub const CATALOGUE: &[UiId] = &[
     TITLEBAR_HELP,
     TITLEBAR_ABOUT,
     TITLEBAR_POINT_AT,
+    TITLEBAR_TOOLS,
     TITLEBAR_SETTINGS,
     TITLEBAR_OVERFLOW,
     TITLEBAR_THEME,
@@ -643,6 +646,14 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         TargetInfo {
             label: "Point at something",
             blurb: "Point at any part of the window and read what it is (\u{21e7}F1).",
+        },
+    ),
+    (
+        TITLEBAR_TOOLS,
+        TargetInfo {
+            label: "Tools",
+            blurb: "Base64, JWT, dates, URL encoding, hashes, UUIDs, placeholder text and a text \
+                    diff — and a Smart field that tells you which one a pasted value needs.",
         },
     ),
     (
