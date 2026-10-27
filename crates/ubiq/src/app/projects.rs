@@ -145,7 +145,7 @@ impl AppState {
             }
             return;
         }
-        if self.drone_attached(&origin) {
+        if self.drone_attached(project, &origin) {
             return;
         }
         self.dial_project_drone(project, origin, cx);

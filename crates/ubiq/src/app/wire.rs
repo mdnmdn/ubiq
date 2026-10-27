@@ -39,6 +39,14 @@ impl AppState {
         self.terminals.get(&pane_id).map(|pane| &pane.view)
     }
 
+    /// Say on the project banner that the drone behind a pinned project has not attached yet, in
+    /// place of a request the bus would drop.
+    pub(super) fn show_remote_not_attached(&mut self, cx: &mut Context<Self>) {
+        self.workbench.project_error = Some("the remote is not attached yet".to_string());
+        self.workbench.open_menu = Some(MenuId::Project);
+        cx.notify();
+    }
+
     /// Ask for a workspace. The pane appears when the coordinator answers, so a harness that fails
     /// to start leaves no empty tab behind.
     ///
@@ -58,6 +66,10 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
+        if self.bus.is_pinned_unserved(project_id) {
+            self.show_remote_not_attached(cx);
+            return;
+        }
         self.bus.send(Message::SpawnWorkspace {
             session_id: self.session,
             project_id,
@@ -81,6 +93,10 @@ impl AppState {
         let Some(project_id) = self.project(cx) else {
             return;
         };
+        if self.bus.is_pinned_unserved(project_id) {
+            self.show_remote_not_attached(cx);
+            return;
+        }
         // Every run path counts as a recent, so the one place a run is asked for is the one place
         // it is written down.
         if let Some(open) = self.projects.get_mut(&project_id) {
@@ -658,8 +674,16 @@ impl AppState {
             }
 
             Message::PaneError { pane_id, error } => {
+                let refused_spawn = !self.terminals.contains_key(&pane_id);
                 self.pane_stopped(pane_id);
                 tracing::error!("pane {pane_id}: {error}");
+                // A spawn the host refused has no pane to show it on, so it lands on the project
+                // menu's banner, the place a refused project edit already goes. An error on a
+                // live pane (a write, a resize) stays in the log.
+                if refused_spawn {
+                    self.workbench.project_error = Some(error);
+                    self.workbench.open_menu = Some(MenuId::Project);
+                }
                 cx.notify();
             }
 
@@ -687,8 +711,19 @@ impl AppState {
                 // Read before `cx.global_mut` borrows the app: every project some *other* host
                 // reported, which this answer knows nothing about and must not take away.
                 let keep = self.bus.projects_not_on(host);
+                // Open projects whose serving host this answer changes: their tree was asked of
+                // the old one at open, and the new one has never been asked.
+                let mut moved = Vec::new();
                 for project in &projects {
-                    self.bus.note_project(project.record.id, host);
+                    let id = project.record.id;
+                    let before = self.bus.host_of_project(id);
+                    self.bus.note_project(id, host);
+                    if host == HostRef::Local {
+                        self.bus.note_pinned(id, project.record.runs_on.is_some());
+                    }
+                    if self.projects.contains_key(&id) && self.bus.host_of_project(id) != before {
+                        moved.push(id);
+                    }
                     self.note_definition_scope(&project.record);
                 }
                 cx.global_mut::<WindowRegistry>()
@@ -697,12 +732,18 @@ impl AppState {
                 // A catalogue that no longer names a project this window held takes it away, so
                 // what the window holds is reconciled before anything is drawn from it.
                 self.sync_projects(cx);
+                for id in moved {
+                    self.ask_root_tree(id);
+                }
             }
 
             Message::ProjectAdded { project } => {
                 let id = project.record.id;
                 let root = project.record.path.clone();
                 self.bus.note_project(id, host);
+                if host == HostRef::Local {
+                    self.bus.note_pinned(id, project.record.runs_on.is_some());
+                }
                 self.note_definition_scope(&project.record);
                 cx.global_mut::<WindowRegistry>().apply(project);
                 // There is no clone-success message: a finished clone is a registered project, so
@@ -730,6 +771,10 @@ impl AppState {
 
             Message::ProjectChanged { project } => {
                 self.bus.note_project(project.record.id, host);
+                if host == HostRef::Local {
+                    self.bus
+                        .note_pinned(project.record.id, project.record.runs_on.is_some());
+                }
                 self.note_definition_scope(&project.record);
                 cx.global_mut::<WindowRegistry>().apply(project);
                 cx.notify();
@@ -737,6 +782,7 @@ impl AppState {
 
             Message::ProjectForgotten { project_id } => {
                 self.bus.forget_project(project_id);
+                self.bus.note_pinned(project_id, false);
                 self.workbench
                     .settings
                     .definition_scopes

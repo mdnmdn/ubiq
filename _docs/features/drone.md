@@ -142,6 +142,8 @@ next, where a socket that accepts a connection is a drone answering on this same
 whose socket does not answer is pruned — file and socket both — as it is found, because a caller
 that lists is a caller about to decide whether to start one.
 
+**The socket is keyed by root folder and `--root-id`**, so a drone started for a folder without an id is never adopted by a launch that names one.
+
 **Starting adopts rather than failing.** Binding a path a live drone answers on is success with
 nothing served, and a path that answers nothing is removed and rebound. That is what makes the one
 shell line the interface sends — start-or-adopt, then exec an attach — safe to re-run after a
@@ -161,7 +163,7 @@ a **contributed carrier**: an edition registers one through the origin-carrier c
 (`ext::origin`) with its kind, its list of targets, which saved remote it claims as its own drone,
 and a launch hook. The base registers none. Saving an origin writes the record and stops; nothing
 dials until the project is opened. Opening it launches or adopts the drone from the interface's side
-of the bus — for a profile, adopting a host that is attached for that same profile and folder; for a
+of the bus — for a profile, adopting a host that is attached for that same profile and folder *and* whose catalogue announced this project's id (a drone dialled from the folder browser carries no `--root-id`, so it is not adopted and a fresh one is dialled); for a
 contributed carrier, whatever its launch hook decides. An origin naming a carrier this build lacks
 puts a sentence on the row.
 
@@ -235,9 +237,20 @@ A drone answers the pane family in full, the file family except diffing, host br
 listing, shell listing and search. **Everything else is refused with a typed answer** through a
 catch-all arm, so a message added later is refused rather than dropped — the ACP registry requests
 `CheckAcpRegistry` and `InstallAcpAdapter` among them, because the registry is the controller's own
-(`relay.rs` lists both as refused). Seven messages have no error
-variant to refuse with — the stats listing, the six notifications and the command-line shortcut —
-and those log a warning and drop.
+(`relay.rs` lists both as refused). A few messages have no error
+variant to refuse with — the notification family, the command-line shortcut and shell integration —
+and those log a warning and drop. Three asks the window makes on every attach or project open are answered rather
+than refused: `ListStats` with the machine's own readings (uptime, load, memory, disk; no usage
+meter), and `ListBoards` / `ListMissions` with empty lists. Starting an agent, as a conversation
+or as a terminal harness, for a project a drone serves is refused by the window itself — the project
+menu's banner reads "agents are not available on a drone yet (R7)" and nothing is sent. A
+`PaneError` from any drone spawn is shown on the same banner.
+
+A project already open when a drone starts serving it (the drone's `ProjectList` moves its host)
+has its root listing asked again from the drone: the tree requested at open went to the previous
+host. Until a drone serves a project whose row says `runs_on`, the bus drops that project's folder
+and pane requests (`Bus::send`) instead of letting them fall to the local host, which would read the
+same path on the wrong machine; there is no reply to refuse with, so the tree re-ask is the recovery.
 
 ### The surfaces
 
@@ -395,6 +408,6 @@ panel). `_tools/drone.py` generates and verifies the manifest.
 - Produce one cross-built binary so the manifest carries an entry and the deployer can put a binary
   on a far machine.
 - Say that a lifetime ran out, rather than reporting it as a link that dropped.
-- Give the seven refusable-but-silent messages an error variant to be refused with.
+- Give the refusable-but-silent messages an error variant to be refused with.
 - Advertise a `git` capability, and serve file diffing behind it.
 - Design the runtime build — `agent-manager` on the far side, for WSL and containers.

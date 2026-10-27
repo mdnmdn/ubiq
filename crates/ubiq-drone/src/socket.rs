@@ -124,7 +124,25 @@ fn read_line(reader: &mut impl Read, what_for: &str) -> io::Result<String> {
 /// none (a bare `ssh` into a system without a login session is the ordinary case), and the
 /// temporary directory the fallback for a machine with neither.
 pub fn socket_path(roots: &[PathBuf]) -> PathBuf {
-    state_dir().join(format!("{:016x}.sock", root_hash(roots)))
+    state_dir().join(format!(
+        "{:016x}.sock",
+        root_hash(roots.iter().map(|path| (path, None)))
+    ))
+}
+
+/// [`socket_path`] for launched roots, where the id a root announces under is part of the key.
+///
+/// A folder served under the catalogue's id and the same folder served under a random one are
+/// different drones to the interface, so `--listen` must not adopt one for the other.
+pub fn socket_path_for(roots: &[crate::relay::Root]) -> PathBuf {
+    state_dir().join(format!(
+        "{:016x}.sock",
+        root_hash(
+            roots
+                .iter()
+                .map(|root| (&root.path, root.id.map(|id| id.to_string())))
+        )
+    ))
 }
 
 /// Where every drone's socket and state file live: `$XDG_RUNTIME_DIR/ubiq-drone`, with the same
@@ -155,12 +173,13 @@ fn non_empty(name: &str) -> Option<String> {
 ///
 /// A hash and not the path itself because a socket path has a length limit an absolute project
 /// path would blow through, and because two spellings of one folder must land on one drone.
-fn root_hash(roots: &[PathBuf]) -> u64 {
+fn root_hash<'a>(roots: impl Iterator<Item = (&'a PathBuf, Option<String>)>) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for root in roots {
+    for (root, id) in roots {
         let resolved = root.canonicalize().unwrap_or_else(|_| root.clone());
-        for byte in resolved.to_string_lossy().as_bytes() {
-            hash ^= u64::from(*byte);
+        let id = id.map(|id| format!("\u{1}{id}")).unwrap_or_default();
+        for byte in resolved.to_string_lossy().bytes().chain(id.bytes()) {
+            hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
         hash ^= 0xff;

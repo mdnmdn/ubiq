@@ -268,6 +268,10 @@ pub struct Bus {
     /// The one thing in this bus that is not a host's wholesale property — see
     /// [`Bus::row_owner`], which is the rule this set exists for.
     owned_locally: RefCell<HashSet<ProjectId>>,
+    /// Projects whose catalogue row says they run on a drone (`runs_on`). Such a project's folder
+    /// is not on this machine, so while no drone serves it a folder or pane request must not fall
+    /// back to the local host, which would read the same path on the wrong machine.
+    pinned_remote: RefCell<HashSet<ProjectId>>,
     /// What each attached remote said about itself — its `HostInfo` greeting plus the latest
     /// `Stats` poll. Same shape and same reason as `panes`: written from `receive`, read from
     /// `render`, without taking `&mut`.
@@ -288,6 +292,7 @@ impl Bus {
             panes: RefCell::new(HashMap::new()),
             projects: RefCell::new(HashMap::new()),
             owned_locally: RefCell::new(HashSet::new()),
+            pinned_remote: RefCell::new(HashSet::new()),
             remote_meta: RefCell::new(HashMap::new()),
             next_host_id: AtomicU64::new(0),
         }
@@ -343,6 +348,14 @@ impl Bus {
     /// now be resolved to one of several hosts instead of the one there used to be.
     pub fn send(&self, message: Message) {
         let host = self.resolve(&message);
+        if host == HostRef::Local && self.unserved_pinned(&message) {
+            // The bus has no way to answer its own window, so this is a drop. The tree is asked
+            // again when the drone attaches (`ask_root_tree`).
+            tracing::debug!(
+                "dropped a request for a project whose drone is not attached: {message:?}"
+            );
+            return;
+        }
         self.send_to(host, message);
     }
 
@@ -496,6 +509,30 @@ impl Bus {
     pub fn forget_project(&self, project_id: ProjectId) {
         self.projects.borrow_mut().remove(&project_id);
         self.owned_locally.borrow_mut().remove(&project_id);
+    }
+
+    /// Record whether a catalogue row pins its project to a drone.
+    pub fn note_pinned(&self, project_id: ProjectId, pinned: bool) {
+        if pinned {
+            self.pinned_remote.borrow_mut().insert(project_id);
+        } else {
+            self.pinned_remote.borrow_mut().remove(&project_id);
+        }
+    }
+
+    /// Whether a project's row pins it to a drone and no drone is serving it right now.
+    pub fn is_pinned_unserved(&self, id: ProjectId) -> bool {
+        self.pinned_remote.borrow().contains(&id)
+            && matches!(self.projects.borrow().get(&id), None | Some(HostRef::Local))
+    }
+
+    /// Whether `message` is project-scoped for a drone-pinned project that no drone is serving
+    /// right now. Everything is, except the record's own half, which the local catalogue owns.
+    fn unserved_pinned(&self, message: &Message) -> bool {
+        !is_record_message(message)
+            && message
+                .project_id()
+                .is_some_and(|id| self.is_pinned_unserved(id))
     }
 
     /// Which host reported a project. `Local` for one never recorded — the catalogue a window

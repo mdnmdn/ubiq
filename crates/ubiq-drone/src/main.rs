@@ -156,14 +156,14 @@ fn main() {
     match mode {
         Mode::Stdio => serve_stdio(roots),
         Mode::Attach { path } => {
-            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
+            let path = path.unwrap_or_else(|| socket::socket_path_for(&roots));
             if let Err(error) = socket::attach(&path, linger) {
                 eprintln!("ubiq-drone: attaching to {}: {error}", path.display());
                 std::process::exit(1);
             }
         }
         Mode::Listen { path, held } => {
-            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
+            let path = path.unwrap_or_else(|| socket::socket_path_for(&roots));
             if held {
                 listen(roots, &path, linger.unwrap_or_default());
             } else {
@@ -180,7 +180,7 @@ fn main() {
             );
         }
         Mode::Status { path } => {
-            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
+            let path = path.unwrap_or_else(|| socket::socket_path_for(&roots));
             match ubiq_drone::state::DroneState::read(&ubiq_drone::state::state_path(&path)) {
                 Ok(state) if ubiq_drone::state::is_live(&state) => {
                     println!(
@@ -195,7 +195,7 @@ fn main() {
             }
         }
         Mode::Stop { path } => {
-            let path = path.unwrap_or_else(|| socket::socket_path(&paths(&roots)));
+            let path = path.unwrap_or_else(|| socket::socket_path_for(&roots));
             match socket::stop(&path) {
                 Ok(answer) => println!("{answer}"),
                 Err(error) => {
@@ -261,12 +261,6 @@ fn detach(roots: &[Root], linger: Linger, path: &std::path::Path) {
         std::process::exit(1);
     }
     println!("{}", path.display());
-}
-
-/// The bare paths behind a set of roots, for the socket derivation that only ever needs those —
-/// `socket_path` and `DroneState::new` hash and record the folders, never the ids bound to them.
-fn paths(roots: &[Root]) -> Vec<PathBuf> {
-    roots.iter().map(|root| root.path.clone()).collect()
 }
 
 /// A desktop launcher's thin `PATH` breaks every bare-name spawn, and a drone is started by

@@ -1103,22 +1103,29 @@ impl AppState {
     /// The live connection carries a saved entry's id, and the saved entry carries the carrier,
     /// so the match runs through `remote_hosts` rather than through a field on `RemoteConn`:
     /// how a connection's bytes arrive is the saved host's business, not the live one's.
-    pub(super) fn drone_attached(&self, origin: &DroneOrigin) -> bool {
+    ///
+    /// **And is serving `project`.** The same profile and folder is not enough: a drone dialled
+    /// from the folder browser carries no `--root-id`, so it announces the folder under an id of
+    /// its own and the project would stay routed to the local host. Only a connection whose own
+    /// catalogue named this project's id is adopted; otherwise a fresh drone is dialled.
+    pub(super) fn drone_attached(&self, project: ProjectId, origin: &DroneOrigin) -> bool {
         self.bus.remote_conns().iter().any(|conn| {
-            self.workbench
-                .settings
-                .host
-                .remote_hosts
-                .iter()
-                .any(|saved| {
-                    saved.id == conn.save_id
-                        && matches!(
-                            &saved.carrier,
-                            RemoteCarrier::Ssh { profile, root, .. }
-                                if origin.profile == Some(*profile)
-                                    && root.trim() == origin.root.trim()
-                        )
-                })
+            self.bus.project_host(project) == HostRef::Remote(conn.id)
+                && self
+                    .workbench
+                    .settings
+                    .host
+                    .remote_hosts
+                    .iter()
+                    .any(|saved| {
+                        saved.id == conn.save_id
+                            && matches!(
+                                &saved.carrier,
+                                RemoteCarrier::Ssh { profile, root, .. }
+                                    if origin.profile == Some(*profile)
+                                        && root.trim() == origin.root.trim()
+                            )
+                    })
         })
     }
 
