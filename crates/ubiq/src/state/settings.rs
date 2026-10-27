@@ -180,6 +180,24 @@ impl TabClose {
     }
 }
 
+/// How settled a feature is — what the Experimental section's two switches answer for.
+///
+/// A feature names its tier where it is registered (a settings section's
+/// [`crate::ext::settings::SettingsSectionSpec::tier`], a rail mode's `Availability::When`
+/// predicate, a menu block's rows) and asks [`UiSettings::offers`]. **Off hides the way in, not
+/// what is running**: a host already connected, a drone already serving, keep going — only the
+/// sections, rail modes and menu rows that lead to them leave the window.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub enum Tier {
+    /// Always offered.
+    #[default]
+    Stable,
+    /// Offered while `Enable experimental settings` is on.
+    Experimental,
+    /// Offered while `Enable dev settings` is on — the application's own test furniture.
+    Dev,
+}
+
 /// The default for the two × settings that end what they close: a plain shell pane and an agent
 /// pane both go, because a terminal put away by accident is a terminal the user cannot find.
 fn default_tab_close() -> TabClose {
@@ -305,6 +323,24 @@ pub struct UiSettings {
     /// where it is switched off.
     #[serde(default = "default_true")]
     pub devtools_clipboard: bool,
+    /// `Enable experimental settings` — what [`Tier::Experimental`] features ask. Off by default,
+    /// and off is what a blob written before the switch existed reads as.
+    #[serde(default)]
+    pub experimental: bool,
+    /// `Enable dev settings` — what [`Tier::Dev`] features ask. Off by default, like the one above.
+    #[serde(default)]
+    pub dev_settings: bool,
+}
+
+impl UiSettings {
+    /// Whether a feature of this tier is offered — its sections, rail modes and menu rows drawn.
+    pub fn offers(&self, tier: Tier) -> bool {
+        match tier {
+            Tier::Stable => true,
+            Tier::Experimental => self.experimental,
+            Tier::Dev => self.dev_settings,
+        }
+    }
 }
 
 fn default_md_char_scale() -> f32 {
@@ -345,6 +381,8 @@ impl Default for UiSettings {
             drawio_theme: Default::default(),
             archify: Default::default(),
             devtools_clipboard: true,
+            experimental: false,
+            dev_settings: false,
         }
     }
 }
@@ -764,6 +802,12 @@ pub enum FeedbackTest {
 pub struct SettingsState {
     pub open: bool,
     pub nav: SettingsSection,
+    /// What the overlay's search box holds — the nav lists only the sections it matches
+    /// ([`crate::ext::settings::SettingsSectionSpec::matches`]). Kept across opens, because the
+    /// box still shows it.
+    pub filter: String,
+    /// The same, for the project dialog's search box.
+    pub project_filter: String,
     pub ui: UiSettings,
     /// The Host layer's own record. Owned and parsed by the host — this is only ever what the
     /// host last said it held, or the default while nothing has answered yet.
@@ -1153,6 +1197,8 @@ impl Default for SettingsState {
         Self {
             open: false,
             nav: SettingsSection::default(),
+            filter: String::new(),
+            project_filter: String::new(),
             ui: UiSettings::default(),
             host: HostSettings::default(),
             accounts: Vec::new(),

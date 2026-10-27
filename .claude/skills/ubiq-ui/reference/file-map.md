@@ -12,7 +12,7 @@ Re-exports live in `state/mod.rs`; the work's own records are **not** re-exporte
 | Module | Holds |
 |---|---|
 | `about.rs` | The About modal: its tab, the host's per-channel releases, and the third-party package list baked in from `assets/third-party.json` (`AboutState`, `AboutTab`, `ThirdParty`, `third_party()`) |
-| `onboarding.rs` | The onboarding wizard's data: `Flow`, `Step`, `StepBody`, `FormKind`, `Gate`, `StepAction`, `Trigger`, `OnboardingRun` (a flow plus what it chains; the dots span it). The done set is `WorkbenchState::onboarding_done` |
+| `onboarding.rs` | The onboarding wizard's data: `Flow`, `Step`, `StepBody`, `FormKind`, `Gate`, `StepAction`, `Trigger`, `OnboardingRun` (a flow plus what it chains; the dots span it; a `SubFlow` step's run is a sub-run holding its `parent`). The done set is `WorkbenchState::onboarding_done` |
 | `agents.rs` | The agents screen's view of the work: who is on screen, how they spread across parallel columns, who is on the bench. Owns `COLUMN_MIN_WIDTH`, `COLUMNS_MAX`, the composer row constants |
 | `board.rs` | The tasks board's *view* state — filter text, which session, the form (`BoardState`, `Field`, `TaskForm`) |
 | `chat.rs` | One entry per open chat tab (`ChatTab`, `ChatPick`, `ChatPicks`, `attach_choices`, `StartOffer`) |
@@ -68,7 +68,7 @@ this far: a pane is an ID, a title, and an emulator reading one end of the bus.
 | `host_browse.rs` | Filling the shared file picker from a remote host's filesystem, before a project exists on it |
 | `projects.rs`, `clone.rs` | Opening, switching and cloning projects |
 | `about.rs` | The About modal: open, close, switch tab, ask `QueryReleases`, `take_update` |
-| `onboarding.rs` | The wizard's behaviour: `open_onboarding`, `onboarding_next`/`_back`, `skip_onboarding`, `check_onboarding`, the process-wide `AUTO_STARTED` |
+| `onboarding.rs` | The wizard's behaviour: `open_onboarding`, `onboarding_start_sub`, `onboarding_next`/`_back`, `skip_onboarding`, `check_onboarding`, the process-wide `AUTO_STARTED` |
 | `agents.rs` | The agents screen's behaviour: columns, bench, composers |
 | `chat.rs`, `panels.rs` | Chat tabs, and the dock's panels |
 | `plan.rs` | The annotated document: open (dialog or tab), save, the `DocumentWire` trait (every plan-family message), `document_md_event` (each `MdViewEvent` to a verb), `refresh_document_decor`, the composer and the rail's focus |
@@ -147,7 +147,7 @@ process, a path on disk or a file descriptor.
 | `file_tab_menu.rs` | A file tab's right-click menu |
 | `clone.rs` | The clone modal |
 | `about.rs` | The About modal: three tabs (About, Releases, Open source), fixed size, raised from the titlebar's mark |
-| `onboarding/` | `mod.rs` the locked dialog, palette form, footer and highlight callout (`place_callout`); `flows.rs` the registry (welcome, tour, IDE) with its `*.md` bodies |
+| `onboarding/` | `mod.rs` the locked dialog, palette form, footer and highlight callout (`place_callout`); `flows.rs` the registry (welcome, tour, IDE); its markdown is the hidden help pages in `help/onboarding/` |
 | `remote_connect.rs` | The "Connect to a remote host" modal |
 
 ### `kit/`

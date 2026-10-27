@@ -265,12 +265,14 @@ pub fn help_balloon_gap() -> f32 {
 /// The onboarding wizard: the dialog's fixed size, so a markdown step scrolls inside it and
 /// moving between steps never resizes the panel; and the callout a highlight step shows beside its
 /// target. `ONBOARDING_CALLOUT_ROOM` is, like `HELP_BALLOON_ROOM`, the height the placement
-/// arithmetic assumes rather than one the card is given. `ONBOARDING_DOT` is a progress dot's side.
+/// arithmetic assumes rather than one the card is given. `ONBOARDING_DOT` is a progress dot's side,
+/// and `ONBOARDING_GLOW` the width of the pulsing ring around a highlight's outline.
 pub const ONBOARDING_WIDTH: f32 = 560.0;
 pub const ONBOARDING_HEIGHT: f32 = 440.0;
 pub const ONBOARDING_CALLOUT_WIDTH: f32 = 360.0;
 pub const ONBOARDING_CALLOUT_ROOM: f32 = 190.0;
 pub const ONBOARDING_DOT: f32 = 7.0;
+pub const ONBOARDING_GLOW: f32 = 4.0;
 
 pub fn onboarding_width() -> f32 {
     scaled(ONBOARDING_WIDTH)
@@ -290,6 +292,10 @@ pub fn onboarding_callout_room() -> f32 {
 
 pub fn onboarding_dot() -> f32 {
     scaled(ONBOARDING_DOT)
+}
+
+pub fn onboarding_glow() -> f32 {
+    scaled(ONBOARDING_GLOW)
 }
 
 /// The one modal that is not one question: a running harness login for a full-screen TUI

@@ -3,7 +3,7 @@ use super::ssh_connect::{self, DroneState, HostCheck};
 use super::*;
 use crate::state::file_picker::PickerRequest;
 use crate::state::new_agent::{NewAgentForm, Purpose};
-use crate::state::settings::{DroneStopConfirm, FeedbackTest, ShellIntegration};
+use crate::state::settings::{DroneStopConfirm, FeedbackTest, ShellIntegration, Tier};
 use ubiq_proto::messages::ShellIntegrationAction;
 use ubiq_proto::tools::{ToolDef, parse_env};
 
@@ -433,6 +433,13 @@ impl AppState {
     }
 
     pub fn set_settings_nav(&mut self, nav: SettingsSection, cx: &mut Context<Self>) {
+        // A section whose tier is switched off is not a place the nav can stand.
+        if nav
+            .spec()
+            .is_some_and(|spec| !self.workbench.settings.ui.offers(spec.tier))
+        {
+            return;
+        }
         self.workbench.settings.nav = nav;
         // What used to be a chain of `if nav == …` is the section's own `on_show` (`D180`): a
         // contributed section gets the same on-arrival refresh the base's own do, and the base
@@ -661,6 +668,38 @@ impl AppState {
         }
         self.remember_host_settings();
         self.bus.send(Message::ListAgentTypes);
+        cx.notify();
+    }
+
+    /// Whether a feature of `tier` is offered in this window — the seam an extension's rail
+    /// predicate, menu rows or origin carrier reads to follow the Experimental section's switches.
+    pub fn offers(&self, tier: Tier) -> bool {
+        self.workbench.settings.ui.offers(tier)
+    }
+
+    /// `Enable experimental settings`.
+    pub fn toggle_experimental(&mut self, cx: &mut Context<Self>) {
+        let ui = &mut self.workbench.settings.ui;
+        ui.experimental = !ui.experimental;
+        self.tier_switched(cx);
+    }
+
+    /// `Enable dev settings`.
+    pub fn toggle_dev_settings(&mut self, cx: &mut Context<Self>) {
+        let ui = &mut self.workbench.settings.ui;
+        ui.dev_settings = !ui.dev_settings;
+        self.tier_switched(cx);
+    }
+
+    /// After a tier switch: written down, and a window standing in a rail mode that just left the
+    /// rail moves to the first one still on it. Nothing running is stopped.
+    fn tier_switched(&mut self, cx: &mut Context<Self>) {
+        self.remember_settings();
+        if !self.mode_enabled(self.workbench.rail_mode, cx)
+            && let Some(next) = RailMode::every().find(|m| self.mode_enabled(*m, cx))
+        {
+            self.enter_rail_mode(next, false, cx);
+        }
         cx.notify();
     }
 

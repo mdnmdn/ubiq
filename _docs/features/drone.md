@@ -265,6 +265,7 @@ same path on the wrong machine; there is no reply to refuse with, so the tree re
   `ssh` process is left to finish, not killed (`G452`). The running state and the verdict are shared
   with the Drones section's Check and the connect modal's Check, so any of the three answers for the
   profile.
+- **Drones are experimental** (`Tier::Experimental`, Settings › Experimental); a serving one runs on.
 - **The Drones settings section** lists, per saved SSH-carrier host, what is running there — roots,
   uptime, pane count, version and linger — with a per-host Refresh, a per-host Check, and a per-drone
   Stop behind a danger confirm, since stopping kills every pane the drone holds. Version skew is

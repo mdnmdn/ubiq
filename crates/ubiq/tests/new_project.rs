@@ -112,6 +112,15 @@ fn a_project() -> ProjectSnapshot {
 #[gpui::test]
 fn the_menu_offers_add_clone_and_remote_in_the_pickers_own_order(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
+    // Remote hosts are experimental: no remote row until `Enable experimental settings` is on.
+    assert_eq!(
+        fixture.rows(cx),
+        vec![
+            "Add a project\u{2026}".to_string(),
+            "Clone a project\u{2026}".to_string(),
+        ]
+    );
+    fixture.state.update(cx, |state, cx| state.toggle_experimental(cx));
     assert_eq!(
         fixture.rows(cx),
         vec![
@@ -150,6 +159,7 @@ fn picking_clone_raises_the_clone_modal(cx: &mut TestAppContext) {
 #[gpui::test]
 fn picking_remote_with_nothing_attached_raises_the_connect_modal(cx: &mut TestAppContext) {
     let fixture = Fixture::open(cx);
+    fixture.state.update(cx, |state, cx| state.toggle_experimental(cx));
 
     fixture.pick(2, cx);
 

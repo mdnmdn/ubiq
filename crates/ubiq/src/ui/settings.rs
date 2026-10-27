@@ -11,7 +11,7 @@ use gpui::{
     deferred, div, point, px,
 };
 use gpui_component::input::Input;
-use gpui_component::{Icon, IconName};
+use gpui_component::{Icon, IconName, Sizable as _};
 use ubiq_proto::assist::{AiProviderInfo, AiProviderKind, AssistProvider, ModelRole};
 use ubiq_proto::connectors::{
     AuthKind, CertReason, Connection, InstanceNeed, OAUTH_REDIRECT, OauthApp, ProviderId,
@@ -28,7 +28,7 @@ use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
 use crate::app::ssh_connect::DroneState;
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::ext::settings::{
-    SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, register,
+    SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, Tier, register,
 };
 use crate::ext::{Registry, SlotId, ids};
 use crate::state::Layer;
@@ -110,7 +110,7 @@ fn dialog(
         .child(header(cx))
         .child(settings_split(
             "app-settings",
-            nav(app, cx),
+            nav(app, window, cx),
             body(app, window, cx),
         ))
 }
@@ -142,10 +142,13 @@ fn header(cx: &mut Context<AppState>) -> AnyElement {
 
 /// The overlay's nav rows. The column they are drawn in — and the scroll that keeps a nav longer
 /// than the panel reachable — is [`settings_split`]'s, shared with the project dialog.
-fn nav(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
+fn nav(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Vec<AnyElement> {
     let current = app.workbench.settings.nav;
-    crate::ext::settings::app_sections()
+    let settings = &app.workbench.settings;
+    let mut rows = vec![settings_search(&app.settings_search, window, cx)];
+    let listed: Vec<AnyElement> = crate::ext::settings::app_sections()
         .iter()
+        .filter(|spec| spec.listed(&settings.ui, &settings.filter))
         .map(|spec| {
             let item = SettingsSection(spec.id);
             nav_item(
@@ -164,7 +167,52 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
                 }),
             )
         })
-        .collect()
+        .collect();
+    if listed.is_empty() {
+        rows.push(no_match());
+    }
+    rows.extend(listed);
+    rows
+}
+
+/// The search box at the top of either settings nav: a field over `input`, whose text the nav
+/// filters its sections by (`SettingsSectionSpec::matches`). Shared by the overlay and the
+/// project dialog rather than a kit primitive — it is settings furniture, not a control.
+pub(crate) fn settings_search(
+    input: &gpui::Entity<gpui_component::input::InputState>,
+    window: &Window,
+    cx: &gpui::App,
+) -> AnyElement {
+    let focused = input.read(cx).focus_handle(cx).is_focused(window);
+    field(theme::accent(), focused)
+        .h(px(30.))
+        .flex_none()
+        .gap_2()
+        .mb_1()
+        .child(
+            Icon::new(IconName::Search)
+                .with_size(gpui_component::Size::XSmall)
+                .text_color(theme::text_faint()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .child(Input::new(input).appearance(false)),
+        )
+        .into_any_element()
+}
+
+/// What the nav says when the search box matches no section.
+pub(crate) fn no_match() -> AnyElement {
+    div()
+        .px_2()
+        .py_1()
+        .text_size(theme::font(Family::Chrome, Role::Meta))
+        .text_color(theme::text_faint())
+        .child("No section matches")
+        .into_any_element()
 }
 
 /// The overlay's own seventeen sections — eighteen on Windows, where Shell integration joins the
@@ -187,6 +235,24 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::APPEARANCE,
             "Appearance",
+            &[
+                "theme",
+                "palette",
+                "dark",
+                "light",
+                "ground",
+                "accent",
+                "colour",
+                "color",
+                "text brightness",
+                "themes",
+                "open projects in the rail",
+                "capture the window",
+                "screenshot",
+                "cache token ring",
+                "teams arrangement",
+                "rail modes",
+            ],
             || IconName::Palette.into(),
             |ctx, _, cx| appearance(ctx.app, cx),
         ),
@@ -196,6 +262,19 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::SIZE,
             "Size",
+            &[
+                "font",
+                "zoom",
+                "scale",
+                "interface size",
+                "text size",
+                "presets",
+                "chrome text",
+                "conversation text",
+                "content text",
+                "density",
+                "reset",
+            ],
             || UbiqIcon::SizeInterfaceLarge.into(),
             |ctx, _, cx| size_section(ctx.app, cx),
         ),
@@ -205,6 +284,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::FILE_EXPLORER,
             "File explorer",
+            &[
+                "files",
+                "tree",
+                "folders",
+                "preview",
+                "hidden files",
+                "dotfiles",
+            ],
             || IconName::Folder.into(),
             |ctx, _, cx| file_explorer(ctx.app, cx),
         ),
@@ -214,6 +301,17 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::EDITOR,
             "Editor",
+            &[
+                "code",
+                "markdown",
+                "vim",
+                "closing a tab",
+                "terminal tab",
+                "agent chat tab",
+                "restore conversations",
+                "board",
+                "mission term",
+            ],
             || IconName::File.into(),
             |ctx, _, cx| editor(ctx.app, cx),
         ),
@@ -223,6 +321,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::SEARCH,
             "Search",
+            &[
+                "find",
+                "grep",
+                "excluded paths",
+                "index",
+                "fallback tools",
+                "ripgrep",
+            ],
             || IconName::Search.into(),
             |ctx, _, cx| search(ctx.app, cx),
         ),
@@ -238,6 +344,19 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::HARNESSES,
                 "Harnesses",
+                &[
+                    "claude",
+                    "codex",
+                    "gemini",
+                    "opencode",
+                    "copilot",
+                    "acp",
+                    "registry",
+                    "identities",
+                    "accounts",
+                    "login",
+                    "quota",
+                ],
                 || UbiqIcon::HarnessAny.into(),
                 |ctx, _, cx| harnesses(ctx.app, cx),
             )
@@ -248,6 +367,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::AGENT_DEFINITIONS,
             "Agent definitions",
+            &["agents", "setups", "model", "permission mode", "profiles"],
             // The rail's own Agents mark, so the section that writes a setup and the screen that
             // runs one read as the same thing.
             || UbiqIcon::ModeAgents.into(),
@@ -261,6 +381,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::SKILLS,
                 "Skills",
+                &["catalog", "catalogue", "agent skills"],
                 || IconName::BookOpen.into(),
                 |ctx, _, cx| crate::ui::catalog::skills_page(ctx.app, None, "app-skills", cx),
             )
@@ -273,6 +394,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::MCP_SERVERS,
                 "MCP servers",
+                &["mcp", "tools", "servers", "catalog", "catalogue"],
                 || IconName::Network.into(),
                 |ctx, _, cx| crate::ui::catalog::mcp_page(ctx.app, None, "app-mcp", cx),
             )
@@ -283,6 +405,13 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::ISOLATION,
             "Isolation",
+            &[
+                "sandbox",
+                "confine agents to their project",
+                "agent home",
+                "grants",
+                "permissions",
+            ],
             || UbiqIcon::Isolation.into(),
             |ctx, _, cx| isolation(ctx.app, cx),
         ),
@@ -294,6 +423,15 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::ASSIST,
                 "Assistance",
+                &[
+                    "assistance",
+                    "ai providers",
+                    "api",
+                    "suggestions",
+                    "name conversations",
+                    "models",
+                    "llm",
+                ],
                 || IconName::Cpu.into(),
                 |ctx, _, cx| assist(ctx.app, cx),
             )
@@ -304,9 +442,18 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         ids::SETTINGS_APP_CONNECTIVITY,
         SettingsSectionSpec {
             on_show: Some(AppState::on_show_connectors),
+            tier: Tier::Experimental,
             ..section(
                 ids::CONNECTORS,
                 "Connectors",
+                &[
+                    "connections",
+                    "oauth",
+                    "app registrations",
+                    "trusted certificates",
+                    "integrations",
+                    "accounts",
+                ],
                 || UbiqIcon::FamilyConnectors.into(),
                 |ctx, _, cx| connectors(ctx.app, cx),
             )
@@ -314,31 +461,48 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
     );
     add(
         ids::SETTINGS_APP_CONNECTIVITY,
-        section(
-            ids::HOSTS,
-            "Hosts",
-            || UbiqIcon::HostRemote.into(),
-            |ctx, _, cx| hosts_section(ctx.app, cx),
-        ),
+        SettingsSectionSpec {
+            tier: Tier::Experimental,
+            ..section(
+                ids::HOSTS,
+                "Hosts",
+                &[
+                    "remote",
+                    "remote hosts",
+                    "saved hosts",
+                    "serve",
+                    "connect",
+                    "network",
+                ],
+                || UbiqIcon::HostRemote.into(),
+                |ctx, _, cx| hosts_section(ctx.app, cx),
+            )
+        },
     );
     add(
         ids::SETTINGS_APP_CONNECTIVITY,
         section(
             ids::SSH,
             "SSH profiles",
+            &["ssh", "keys", "profiles", "tunnel", "remote"],
             || IconName::Network.into(),
             |ctx, _, cx| ssh_profiles(ctx.app, cx),
         ),
     );
     add(
         ids::SETTINGS_APP_CONNECTIVITY,
-        section(
-            ids::DRONES,
-            "Drones",
-            // A drone is unattended by design — the same mark the titlebar's own agent menu wears.
-            || IconName::Bot.into(),
-            |ctx, _, cx| drones_section(ctx.app, cx),
-        ),
+        SettingsSectionSpec {
+            tier: Tier::Experimental,
+            ..section(
+                ids::DRONES,
+                "Drones",
+                &["drone", "remote", "ubiq-drone", "ssh", "unattended"],
+                // A drone is unattended by design — the same mark the titlebar's own agent menu
+                // wears.
+                || IconName::Bot.into(),
+                |ctx, _, cx| drones_section(ctx.app, cx),
+            )
+        },
     );
 
     add(
@@ -348,6 +512,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::TOOLS,
                 "Tools",
+                &["runners", "commands", "scripts", "run", "system tools"],
                 || IconName::Play.into(),
                 |ctx, _, cx| crate::ui::tools::panel(ctx.app, cx, ToolEditScope::System),
             )
@@ -360,6 +525,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::COMMAND_LINE,
                 "Command line",
+                &["cli", "path", "shortcut", "ubiq command", "terminal"],
                 || IconName::SquareTerminal.into(),
                 |ctx, _, cx| command_line(ctx.app, cx),
             )
@@ -373,6 +539,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::FEEDBACK,
                 "Feedback",
+                &["report", "bug", "intake url", "key"],
                 || IconName::Inbox.into(),
                 |ctx, window, cx| feedback(ctx.app, window, cx),
             )
@@ -383,6 +550,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::UPDATES,
             "Updates",
+            &[
+                "version",
+                "channel",
+                "check for updates",
+                "download",
+                "upgrade",
+                "release",
+            ],
             || UbiqIcon::GitFetch.into(),
             |ctx, _, cx| updates(ctx.app, cx),
         ),
@@ -399,20 +574,84 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
                 ..section(
                     ids::SHELL_INTEGRATION,
                     "Shell integration",
+                    &[
+                        "explorer",
+                        "context menu",
+                        "open in ubiq",
+                        "windows",
+                        "right-click",
+                    ],
                     || IconName::FolderOpen.into(),
                     |ctx, _, cx| shell_integration(ctx.app, cx),
                 )
             },
         );
     }
+    // Last, so the switches that bring sections back are where a reader looks for what is
+    // missing. Stable itself: hiding the way to turn things back on would be a trap.
+    add(
+        ids::SETTINGS_APP_SYSTEM,
+        section(
+            ids::EXPERIMENTAL,
+            "Experimental",
+            &[
+                "experimental",
+                "dev",
+                "developer",
+                "flags",
+                "features",
+                "preview",
+                "remote",
+                "drone",
+                "connectors",
+                "sink",
+            ],
+            || IconName::TriangleAlert.into(),
+            |ctx, _, cx| experimental(ctx.app, cx),
+        ),
+    );
+}
+
+/// The two switches every [`Tier`] asks. Turning one off hides the ways in, never what is running.
+fn experimental(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let ui = &app.workbench.settings.ui;
+    column(vec![
+        heading(
+            "Experimental",
+            "Features still being shaped, and the application's own test furniture. Off hides \
+             their settings sections, rail modes and menu rows; nothing already running is \
+             stopped.",
+        ),
+        setting_row(
+            "Enable experimental settings",
+            "Remote hosts, drones, connectors, and any feature an edition marks experimental.",
+            check_box(
+                "app-settings-experimental",
+                ui.experimental,
+                cx.listener(|this, _, _, cx| this.toggle_experimental(cx)),
+            )
+            .into_any_element(),
+        ),
+        setting_row(
+            "Enable dev settings",
+            "The kitchen sink rail mode, and any developer screen an edition contributes.",
+            check_box(
+                "app-settings-dev",
+                ui.dev_settings,
+                cx.listener(|this, _, _, cx| this.toggle_dev_settings(cx)),
+            )
+            .into_any_element(),
+        ),
+    ])
 }
 
 /// One overlay section, with the fields the overlay never varies already filled in: it is always
-/// offered, it prints no count, and it asks nothing on arrival. `group` is a placeholder that
-/// `sections`' own `add` stamps over.
+/// offered and stable, it prints no count, and it asks nothing on arrival. `group` is a placeholder
+/// that `sections`' own `add` stamps over.
 fn section(
     id: SlotId,
     label: &'static str,
+    keywords: &'static [&'static str],
     icon: fn() -> Icon,
     render: fn(&SectionCtx<'_>, &Window, &mut Context<AppState>) -> AnyElement,
 ) -> SettingsSectionSpec {
@@ -423,6 +662,8 @@ fn section(
         label,
         icon,
         gate: SectionGate::Always,
+        tier: Tier::Stable,
+        keywords,
         count: None,
         on_show: None,
         render,
@@ -436,10 +677,13 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyEleme
         project: None,
     };
     match app.workbench.settings.nav.spec() {
-        Some(spec) => (spec.render)(&ctx, window, cx),
+        // A section whose tier is switched off is not drawn even when the nav stands on it.
+        Some(spec) if app.workbench.settings.ui.offers(spec.tier) => {
+            (spec.render)(&ctx, window, cx)
+        }
         // The nav stands on a section nothing is registered under — a second edition removed it
         // while the overlay was open. Draws nothing rather than falling back to another page.
-        None => div().into_any_element(),
+        _ => div().into_any_element(),
     }
 }
 

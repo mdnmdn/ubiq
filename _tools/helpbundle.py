@@ -62,6 +62,7 @@ FRONTMATTER_FIELDS = {
     "related",
     "redirects",
     "since",
+    "hidden",
 }
 LIST_FIELDS = {"keywords", "context", "targets", "related", "redirects"}
 STATUSES = {"current", "draft", "planned"}
@@ -175,6 +176,15 @@ def validate_frontmatter_shape(data: dict, rel: str) -> None:
             int(data["order"])
         except ValueError:
             raise PageError(f"{rel}: order {data['order']!r} is not an integer") from None
+    if "hidden" in data:
+        if data["hidden"] not in ("true", "false"):
+            raise PageError(f"{rel}: hidden {data['hidden']!r} is not `true` or `false`")
+        if data["hidden"] == "true":
+            # A hidden page is compiled into the interface (the onboarding wizard reads it with
+            # `include_str!`) and never reaches the bundle, so nothing may route a reader to it.
+            for routed in ("context", "targets", "redirects", "related", "order"):
+                if routed in data:
+                    raise PageError(f"{rel}: a hidden page cannot declare {routed!r}")
 
 
 # ── the page model ─────────────────────────────────────────────────────────────────────────────
@@ -194,6 +204,9 @@ class Page:
     related: list[str] = field(default_factory=list)
     redirects: list[str] = field(default_factory=list)
     since: str = ""
+    # Validated like any page, but out of the nav, the catalogue and the bundle: content the
+    # interface compiles in (the onboarding wizard's pages), kept here so it is authored as help.
+    hidden: bool = False
     body: str = ""
 
     @property
@@ -231,6 +244,7 @@ def load_pages(errors: list[str]) -> list[Page]:
                 related=list(data.get("related", [])),
                 redirects=list(data.get("redirects", [])),
                 since=data.get("since", ""),
+                hidden=data.get("hidden") == "true",
                 body=body,
             )
         )
@@ -333,15 +347,22 @@ def validate(pages: list[Page], manifest: dict, errors: list[str]) -> tuple[dict
         else:
             by_id[page.id] = page
     by_path = {page.path for page in pages}
+    # A link resolves only to what the bundle holds, and a hidden page is not in it.
+    shown_ids = {page_id: page for page_id, page in by_id.items() if not page.hidden}
+    shown_paths = {page.path for page in pages if not page.hidden}
 
     for page in pages:
         for match in LINK_RE.finditer(page.body):
             target = match.group(1)
-            if not resolve_link_target(target, page, by_id, by_path):
+            if not resolve_link_target(target, page, shown_ids, shown_paths):
                 errors.append(f"{page.path}: link target does not resolve: {target!r}")
         for match in IMAGE_RE.finditer(page.body):
             target = match.group(1)
             if target.startswith(IGNORED_SCHEMES):
+                continue
+            if page.hidden:
+                # Compiled into the interface, a hidden page has no help root to read an image from.
+                errors.append(f"{page.path}: a hidden page cannot show an image: {target!r}")
                 continue
             image_path = (Path(page.path).parent / target).as_posix()
             if not (HELP_DIR / image_path).is_file():
@@ -389,7 +410,7 @@ def validate(pages: list[Page], manifest: dict, errors: list[str]) -> tuple[dict
 
     nav_order = manifest.get("nav", {}).get("order", [])
     reached = expand_nav(nav_order, pages, errors)
-    missing = live_ids - {page.id for page in reached}
+    missing = set(shown_ids) - {page.id for page in reached}
     for page_id in sorted(missing):
         errors.append(f"page {page_id!r} ({by_id[page_id].path}) is not reachable from [nav] order")
 
@@ -421,7 +442,9 @@ def validate(pages: list[Page], manifest: dict, errors: list[str]) -> tuple[dict
 
 def expand_nav(nav_order: list[str], pages: list[Page], errors: list[str]) -> list[Page]:
     """A flat entry names one page by path; a `folder/` entry names every page under it, siblings
-    sorted by `order` then alphabetically."""
+    sorted by `order` then alphabetically. A hidden page is never in the nav: a folder skips it and
+    a flat entry naming it is not a page."""
+    pages = [page for page in pages if not page.hidden]
     by_path = {page.path: page for page in pages}
     out: list[Page] = []
     for entry in nav_order:
@@ -521,14 +544,16 @@ def build_catalog(
 
 def run_validate() -> tuple[list[Page], dict, dict, dict, list[str]] | None:
     """Returns `(pages, manifest, resolved_context, targets_map, errors)`, or `None` when `help/`
-    is absent."""
+    is absent. Every page is validated; only the pages that are not hidden are returned, so the
+    catalogue and the bundle never hold a hidden one."""
     if not HELP_DIR.is_dir():
         return None
     errors: list[str] = []
     manifest = load_manifest(errors)
     pages = load_pages(errors)
     resolved_context, targets_map = validate(pages, manifest, errors)
-    return pages, manifest, resolved_context, targets_map, errors
+    listed = [page for page in pages if not page.hidden]
+    return listed, manifest, resolved_context, targets_map, errors
 
 
 def report_errors(errors: list[str]) -> None:

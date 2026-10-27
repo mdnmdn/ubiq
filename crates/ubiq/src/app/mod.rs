@@ -1050,6 +1050,11 @@ pub struct AppState {
     /// two can be on screen in the same window at once — the modal is raised over the picker
     /// row that opened it — and one field drawn twice is one field in two places.
     pub all_projects_search: Entity<InputState>,
+    /// The application settings overlay's search box; its text is `SettingsState::filter`.
+    pub settings_search: Entity<InputState>,
+    /// The project dialog's search box; its text is `SettingsState::project_filter`. Separate
+    /// from the overlay's because the sink draws the project fixture while the overlay can be up.
+    pub project_settings_search: Entity<InputState>,
     /// The one buffer every `kit::Picker` that opts into search types into — a menu is one at a
     /// time, so one field suffices. Cleared and focused on open.
     pub picker_search: Entity<InputState>,

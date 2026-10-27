@@ -180,6 +180,11 @@ impl AppState {
         let all_projects_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Find a project\u{2026}"));
 
+        let settings_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
+        let project_settings_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search settings\u{2026}"));
+
         let picker_search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter\u{2026}"));
 
         let search_query =
@@ -1407,6 +1412,27 @@ impl AppState {
         ));
 
         subscriptions.push(cx.subscribe_in(
+            &settings_search,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.workbench.settings.filter = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &project_settings_search,
+            window,
+            |this, input, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.workbench.settings.project_filter = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            },
+        ));
+
+        subscriptions.push(cx.subscribe_in(
             &all_projects_search,
             window,
             |this, input, event: &InputEvent, _window, cx| {
@@ -1923,6 +1949,8 @@ impl AppState {
             command_input,
             project_search,
             all_projects_search,
+            settings_search,
+            project_settings_search,
             picker_search,
             search_query,
             search_excludes_input,

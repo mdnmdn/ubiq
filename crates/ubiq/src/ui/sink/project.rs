@@ -24,7 +24,8 @@ use ubiq_proto::work::Status;
 
 use crate::app::AppState;
 use crate::ext::settings::{
-    self as ext_settings, SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, register,
+    self as ext_settings, SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, Tier,
+    register,
 };
 use crate::ext::{Registry, SlotId, ids};
 use crate::state::git::head_label;
@@ -228,7 +229,7 @@ fn dialog(
         .child(header(app, form, colour, cx))
         .child(settings_split(
             prefix,
-            nav(app, form, cx),
+            nav(app, form, window, cx),
             body(app, window, cx, form),
         ))
         .child(footer(app, form, cx))
@@ -320,7 +321,7 @@ fn header(
 
 /// The dialog's nav rows. The column and its scroll are [`settings_split`]'s, shared with the
 /// application overlay.
-fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Vec<AnyElement> {
+fn nav(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -> Vec<AnyElement> {
     let current = match form {
         Form::Sink => app.sink.project.nav,
         Form::Live => app
@@ -347,12 +348,24 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Vec<AnyElement
         form,
         project: project_of(app),
     };
-    ext_settings::project_sections()
+    // The live dialog has a search box and follows the Experimental switches; the sink's fixture
+    // answers to everything, so it has neither.
+    let settings = &app.workbench.settings;
+    let mut rows = Vec::new();
+    if form == Form::Live {
+        rows.push(crate::ui::settings::settings_search(
+            &app.project_settings_search,
+            window,
+            cx,
+        ));
+    }
+    let listed: Vec<AnyElement> = ext_settings::project_sections()
         .iter()
         // A fixture-only section is not a row the live dialog greys out — it is a row the live
         // dialog does not have (`T-231`). `SectionGate::SinkOnly` already says "never offered by
         // the live dialog"; drawing it there anyway was two rows the user could only ever look at.
         .filter(|spec| form == Form::Sink || spec.gate != SectionGate::SinkOnly)
+        .filter(|spec| form == Form::Sink || spec.listed(&settings.ui, &settings.project_filter))
         .map(|spec| {
             let item = ProjectNav(spec.id);
             // Tasks, Remote and the knowledge base are on Tools' footing exactly: all four attach
@@ -370,7 +383,12 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Vec<AnyElement
                 cx.listener(move |this, _, _, cx| this.set_sink_project_nav(item, cx)),
             )
         })
-        .collect()
+        .collect();
+    if listed.is_empty() {
+        rows.push(crate::ui::settings::no_match());
+    }
+    rows.extend(listed);
+    rows
 }
 
 /// The dialog's own eight sections, registered into the settings container (`D180`).
@@ -390,6 +408,20 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::PROJECT_GENERAL,
             "General",
+            &[
+                "name",
+                "about",
+                "colour",
+                "color",
+                "project path",
+                "folder",
+                "rail initials",
+                "storage",
+                "project data",
+                "repositories",
+                "git",
+                "modes",
+            ],
             || Icon::new(IconName::Settings),
             |ctx, window, cx| general(ctx.app, window, cx, ctx.form),
         ),
@@ -401,6 +433,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_TOOLS,
                 "Tools",
+                &["runners", "commands", "scripts", "run"],
                 || Icon::new(IconName::Play),
                 |ctx, _, cx| project_tools(ctx.app, cx, ctx.form),
             )
@@ -413,6 +446,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_AGENT_DEFINITIONS,
                 "Agent definitions",
+                &["agents", "setups", "use the global agents", "inherited"],
                 // The rail's own Agents mark, the same one the app-wide section wears.
                 || Icon::new(UbiqIcon::ModeAgents),
                 |ctx, window, cx| agent_definitions(ctx.app, ctx.form, window, cx),
@@ -427,6 +461,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_SKILLS,
                 "Skills",
+                &["catalog", "catalogue", "agent skills"],
                 || Icon::new(IconName::BookOpen),
                 |ctx, _, cx| project_catalog(ctx, CatalogPage::Skills, cx),
             )
@@ -440,6 +475,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_MCP_SERVERS,
                 "MCP servers",
+                &["mcp", "tools", "servers", "catalog", "catalogue"],
                 || Icon::new(IconName::Network),
                 |ctx, _, cx| project_catalog(ctx, CatalogPage::Mcp, cx),
             )
@@ -452,6 +488,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_TASKS,
                 "Tasks",
+                &[
+                    "board",
+                    "boards",
+                    "tasks",
+                    "kanban",
+                    "mission term",
+                    "index",
+                ],
                 // The rail's own Tasks mark, so the row that configures the board and the rail
                 // that opens it read as the same thing — `Kb` below takes its icon for the same
                 // reason.
@@ -464,9 +508,20 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         ids::SETTINGS_PROJECT_CORE,
         SettingsSectionSpec {
             gate: SectionGate::WithRecord,
+            // Which machine the folder is on: a drone origin, so experimental with the drones.
+            tier: Tier::Experimental,
             ..section(
                 ids::PROJECT_REMOTE,
                 "Remote",
+                &[
+                    "remote",
+                    "drone",
+                    "where this folder is",
+                    "reached through",
+                    "machine",
+                    "lifetime",
+                    "ssh",
+                ],
                 // Borrowed, not drawn. `Network` is already Integrations', and the question this
                 // panel asks is *which machine*, which is the globe's.
                 || Icon::new(IconName::Globe),
@@ -488,6 +543,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_KB,
                 "Knowledge base",
+                &["knowledge base", "kb", "documents", "sources", "notes"],
                 // The rail's own KB mark, so the row that configures the screen and the rail that
                 // opens it read as the same thing.
                 || Icon::new(UbiqIcon::ModeKb),
@@ -505,6 +561,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_DB,
                 "Databases",
+                &[
+                    "database",
+                    "databases",
+                    "sql",
+                    "connections",
+                    "postgres",
+                    "sqlite",
+                ],
                 // The rail's own DB mark, for `Kb`'s reason.
                 || Icon::new(UbiqIcon::ModeDb),
                 |ctx, window, cx| crate::ui::db::settings::render(ctx.app, ctx.form, window, cx),
@@ -519,6 +583,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_DOCUMENTATION,
                 "Documentation",
+                &["docs", "documentation", "pages"],
                 || Icon::new(IconName::BookOpen),
                 |_, _, _| documentation(),
             )
@@ -532,6 +597,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_INTEGRATIONS,
                 "Integrations",
+                &["integrations", "services", "network"],
                 || Icon::new(IconName::Network),
                 |_, _, _| integrations(),
             )
@@ -544,6 +610,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
 fn section(
     id: SlotId,
     label: &'static str,
+    keywords: &'static [&'static str],
     icon: fn() -> Icon,
     render: fn(&SectionCtx<'_>, &Window, &mut Context<AppState>) -> AnyElement,
 ) -> SettingsSectionSpec {
@@ -554,6 +621,8 @@ fn section(
         label,
         icon,
         gate: SectionGate::Always,
+        tier: Tier::Stable,
+        keywords,
         count: None,
         on_show: None,
         render,
@@ -584,10 +653,13 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
         project: project_of(app),
     };
     match nav.spec() {
-        Some(spec) => (spec.render)(&ctx, window, cx),
+        // The live dialog draws no section whose tier is switched off; the fixture draws all.
+        Some(spec) if form == Form::Sink || app.workbench.settings.ui.offers(spec.tier) => {
+            (spec.render)(&ctx, window, cx)
+        }
         // Nothing is registered under the nav's id — a second edition removed the section the
         // dialog was left on. Draws nothing rather than falling back to another page.
-        None => div().into_any_element(),
+        _ => div().into_any_element(),
     }
 }
 

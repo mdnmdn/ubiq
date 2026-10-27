@@ -66,6 +66,8 @@ pub const UPDATES: SlotId = SlotId::new("ubiq.settings.updates");
 pub const COMMAND_LINE: SlotId = SlotId::new("ubiq.settings.command-line");
 /// Registered on Windows only — the one platform whose context menu Ubiq knows how to join.
 pub const SHELL_INTEGRATION: SlotId = SlotId::new("ubiq.settings.shell-integration");
+/// The two switches every `Tier` asks: experimental features and dev furniture.
+pub const EXPERIMENTAL: SlotId = SlotId::new("ubiq.settings.experimental");
 
 // ── The project dialog's own sections ───────────────────────────────
 

@@ -4,7 +4,9 @@
 //! click — and `AppState::cancel_dialog` swallows Escape while it is up; Skip is always offered,
 //! so the user is never trapped. The footer is the same on the dialog and on the callout: Skip on
 //! the left, a dot per step of the whole run in the middle, Back and Next (Finish on the last step)
-//! on the right, each faded and inert while its step says so.
+//! on the right, each faded and inert while its step says so. In a sub-run the dots are the
+//! sub-run's own, Skip reads **Skip tour** and the last Next reads **Done**: all three hand the
+//! window back to the step that launched it.
 //!
 //! **A highlight step steps the dialog aside.** The window stays usable: the layer over it takes
 //! no mouse, and only the callout card occludes. The target's rectangle is read from the last
@@ -13,17 +15,21 @@
 
 pub mod flows;
 
+use std::time::Duration;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, ElementId, InteractiveElement as _, IntoElement, ParentElement as _,
-    Styled as _, Window, anchored, deferred, div, point, px,
+    AnimationExt as _, AnyElement, Context, ElementId, InteractiveElement as _, IntoElement,
+    ParentElement as _, Styled as _, Window, anchored, deferred, div, point, pulsating_between, px,
 };
 
 use crate::app::AppState;
 use crate::state::onboarding::{FormKind, OnboardingRun, StepBody};
 use crate::state::ui_id::MarkRect;
 use crate::theme::{self, Family, Role};
-use crate::ui::kit::{choice_pill, ghost_button, modal_locked, modal_note, primary_button};
+use crate::ui::kit::{
+    choice_pill, ghost_button, modal_locked, modal_note, primary_button, pulse_animation,
+};
 use crate::ui::{ident, viewer};
 
 /// The wizard, or nothing while no run is open. Called from the window root.
@@ -46,19 +52,23 @@ fn dialog(
 ) -> AnyElement {
     let step = run.current();
     let body = match &step.body {
-        StepBody::Markdown(source) => {
-            let key = format!("onboarding.{}.{}", run.current_flow(), run.index);
-            let follow = crate::ui::on_link(cx.entity(), None);
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h(px(0.))
-                .child(viewer::markdown::render_linked(
-                    app, &key, source, false, follow, cx,
-                ))
-                .into_any_element()
-        }
+        StepBody::Markdown(source) => markdown_body(app, run, source, cx),
+        StepBody::SubFlow { source, launch, .. } => div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .gap_3()
+            .child(markdown_body(app, run, source, cx))
+            .child(
+                div().flex().flex_none().justify_center().child(primary_button(
+                    "onboarding-launch",
+                    None,
+                    launch.clone(),
+                    cx.listener(|this, _, _, cx| this.onboarding_start_sub(cx)),
+                )),
+            )
+            .into_any_element(),
         StepBody::Form(FormKind::Palette) => palette_form(app, cx),
         StepBody::Highlight { .. } => div().into_any_element(),
     };
@@ -72,6 +82,39 @@ fn dialog(
         footer(app, run, cx).flex_1().into_any_element(),
         window,
     )
+}
+
+/// A step's markdown, its frontmatter dropped (the page is authored in `help/onboarding/`), filling
+/// the room it is given and scrolling inside it.
+///
+/// The scrollable text view takes its height from its parent as a percentage, and a flex item's
+/// height is not one it can resolve against: inside the modal it fell back to the document's own
+/// height measured at the wrong width, and the body was clipped at about half the dialog. An
+/// absolutely positioned box pinned to all four edges has a definite size, so the view gets it.
+fn markdown_body(
+    app: &AppState,
+    run: &OnboardingRun,
+    source: &str,
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let key = format!("onboarding.{}.{}", run.current_flow(), run.index);
+    let follow = crate::ui::on_link(cx.entity(), None);
+    let (_, source) = viewer::markdown::split_frontmatter(source);
+    div()
+        .flex_1()
+        .min_h(px(0.))
+        .relative()
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .flex_col()
+                .child(viewer::markdown::render_linked(
+                    app, &key, source, false, follow, cx,
+                )),
+        )
+        .into_any_element()
 }
 
 /// The first form: the palette the window wears, one pill per built-in, applied on the spot.
@@ -137,7 +180,7 @@ fn footer(app: &AppState, run: &OnboardingRun, cx: &mut Context<AppState>) -> gp
         .child(ghost_button(
             "onboarding-skip",
             None,
-            "Skip",
+            if run.is_sub() { "Skip tour" } else { "Skip" },
             cx.listener(|this, _, _, cx| this.skip_onboarding(cx)),
         ))
         .child(
@@ -164,7 +207,12 @@ fn footer(app: &AppState, run: &OnboardingRun, cx: &mut Context<AppState>) -> gp
             primary_button(
                 "onboarding-next",
                 None,
-                if run.is_last() { "Finish" } else { "Next" },
+                match (run.is_last(), run.is_sub()) {
+                    (false, _) => "Next",
+                    (true, false) => "Finish",
+                    // The end of a sub-run hands back to the step that launched it.
+                    (true, true) => "Done",
+                },
                 cx.listener(|this, _, _, cx| this.onboarding_next(cx)),
             )
             .when(!next_open, |button| button.opacity(0.5)),
@@ -237,19 +285,32 @@ fn callout_layer(
         .into_any_element()
 }
 
-/// The target's outline: an accent border just outside its rectangle, drawn over the window but
-/// taking no mouse.
+/// The target's outline: a translucent accent fill inside an accent border just outside its
+/// rectangle, and around that a glow that pulses slowly — drawn over the window but taking no
+/// mouse. The fill is `accent_soft`, translucent in every palette, so the target reads through it.
 fn outline(rect: MarkRect) -> AnyElement {
     let pad = 2.;
-    div()
-        .absolute()
-        .left(px(rect.x - pad))
-        .top(px(rect.y - pad))
-        .w(px(rect.width + 2. * pad))
-        .h(px(rect.height + 2. * pad))
+    let glow = theme::onboarding_glow();
+    let around = |el: gpui::Div, by: f32| {
+        el.absolute()
+            .left(px(rect.x - by))
+            .top(px(rect.y - by))
+            .w(px(rect.width + 2. * by))
+            .h(px(rect.height + 2. * by))
+    };
+    let halo = around(div(), pad + glow)
+        .border(px(glow))
+        .border_color(theme::accent_muted())
+        .with_animation(
+            "onboarding-glow",
+            pulse_animation(Duration::from_millis(2_800)).with_easing(pulsating_between(0.1, 0.9)),
+            |this, delta| this.opacity(delta),
+        );
+    let fill = around(div(), pad)
+        .bg(theme::accent_soft())
         .border_2()
-        .border_color(theme::accent())
-        .into_any_element()
+        .border_color(theme::accent());
+    div().child(halo).child(fill).into_any_element()
 }
 
 /// Where the callout goes: right of the target, else below, else left, else above, else centred

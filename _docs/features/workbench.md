@@ -6,7 +6,7 @@ status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the Tools dialog, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, the Tools dialog, remote hosts, the file picker, vim mode, or the status bar
 updated: 2026-10-27
-verified: 2026-10-26
+verified: 2026-10-27
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/onboarding.rs, crates/ubiq/src/state/onboarding.rs, crates/ubiq/src/ui/search.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/updates.rs, crates/ubiq/src/app/updates.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs, crates/ubiq/src/state/about.rs, crates/ubiq/src/app/about.rs, crates/ubiq/src/ui/about.rs, crates/ubiq/src/state/devtools.rs, crates/ubiq/src/app/devtools.rs, crates/ubiq/src/ui/devtools.rs, crates/ubiq/src/devtools/mod.rs, crates/ubiq/src/devtools/codec.rs, crates/ubiq/src/devtools/detect.rs, crates/ubiq/src/devtools/diff.rs, crates/ubiq/src/devtools/hash.rs, crates/ubiq/src/devtools/jwt.rs, crates/ubiq/src/devtools/lorem.rs, crates/ubiq/src/devtools/time.rs, crates/ubiq/src/devtools/uuids.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
@@ -1033,7 +1033,32 @@ with the project settings dialog's own nav; the container owns the panel, the na
 scroll, and a section owns only what is inside it. The order is by declared group — interface,
 agents, connectivity, system — and never by an integer a section carries.
 
-Sixteen sections ship: **Appearance** (the rail's common-mode tiles, app-wide, below; the palette
+**Both navs open with a search box, and a section is found by its keywords.** Every spec declares
+`keywords` — other names for it and words from what it says — and the box keeps the rows whose
+label or any keyword contains the query, case-insensitively (`SettingsSectionSpec::matches`); an
+empty query lists everything and no match says so in the nav. The text is
+`SettingsState::filter` (`project_filter` for the project dialog), fed by the window's
+`settings_search` / `project_settings_search` fields and kept across opens, since the box still
+shows it. The kitchen sink's fixture copy of the project dialog has no box.
+
+**A section carries a `Tier`, and the Experimental section's two switches decide which tiers are
+offered** (`UiSettings::experimental`, `UiSettings::dev_settings`, both off by default and off for a
+blob that predates them). A section of a tier switched off is not in the nav, is not drawn when the
+nav stands on it, and `set_settings_nav()` / `set_sink_project_nav()` refuse to move to it. The
+same answer — `AppState::offers(Tier)` — is what a rail predicate or a menu block asks, base or
+second edition. **Off hides the ways in, never what is running**: an attached host or a serving drone
+keeps going.
+
+- *Enable experimental settings* (`Tier::Experimental`): **Connectors**, **Hosts** and **Drones**
+  here, **Remote** in the project dialog, the overflow menu's *Remote hosts* and *Connect to a
+  remote host*, the new-project menu's and project picker's *Open remote project…*, and
+  `open_remote_manager()` / `open_remote_connect()` / `open_remote_project_picker()` themselves.
+  **SSH profiles** stays stable: a database connection's tunnel dials them too.
+- *Enable dev settings* (`Tier::Dev`): the **Sink** rail mode (`Availability::When`), the
+  **Extensions demo** section and the demo rail mode it gates. Switching a tier off with the window
+  in a mode that leaves the rail moves the window to the first mode still on it.
+
+These sections ship: **Appearance** (the rail's common-mode tiles, app-wide, below; the palette
 family as one pill per family — labelled by the member whose ground is in use, so picking one keeps
 the ground; the ground itself, the same flip the titlebar offers, within the family; the accent as a
 row of swatches, the palette's own first and then the six the build ships, each named on its
@@ -1098,7 +1123,9 @@ same unsaved-files-and-running-agents question the quit confirm asks
 same state, and its Releases tab lists what every channel publishes), **Shell integration** on Windows only (*Open in Ubiq* on
 Explorer's right-click menu), and **Extensions demo** — the kitchen sink's own contribution
 (`X11`, `D186`), registered through `ext::settings::register` with nothing in this list's own
-module touched to add it, and the switch that gates the rail's own demo mode below. The kitchen
+module touched to add it, and the switch that gates the rail's own demo mode below — then
+**Experimental**, last in System, with the two tier switches above; stable itself, so the way back
+on is never hidden. The kitchen
 sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
 

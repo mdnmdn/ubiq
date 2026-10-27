@@ -159,10 +159,12 @@ fn every_registered_mode_has_a_screen() {
 #[test]
 fn every_base_mode_is_always_available() {
     for spec in rail::modes() {
-        if spec.id == ids::EXT_DEMO_RAIL {
+        // The sink is dev furniture: `When`, reading `Enable dev settings` (`Tier::Dev`).
+        if spec.id == ids::EXT_DEMO_RAIL || spec.id == ids::RAIL_SINK {
             assert!(
                 matches!(spec.availability, Availability::When(_)),
-                "the demo mode is `When`"
+                "`{}` is `When`",
+                spec.id
             );
             continue;
         }

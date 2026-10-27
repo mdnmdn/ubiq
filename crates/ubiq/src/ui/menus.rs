@@ -33,6 +33,7 @@ use ubiq_proto::messages::AgentPicks;
 
 use crate::app::AppState;
 use crate::ext::{SlotId, ids};
+use crate::state::settings::Tier;
 use crate::ui::kit;
 
 /// What one row does when it is picked. The same shape `ui::handler` bridges, so an entry's
@@ -268,6 +269,7 @@ pub fn new_project(app: &AppState, _cx: &App) -> Vec<MenuEntry> {
             .on(|this, window, cx| this.open_clone(None, window, cx)),
         MenuEntry::new(remote)
             .icon(IconName::Network)
+            .visible_when(app.offers(Tier::Experimental))
             .on(|this, window, cx| match this.preferred_remote_host() {
                 Some((host, label)) => this.open_remote_project_picker(host, label, window, cx),
                 None => this.open_remote_connect(window, cx),
@@ -437,14 +439,17 @@ fn with_identity(entry: MenuEntry, identity: &SharedString) -> MenuEntry {
 pub fn overflow(app: &AppState, cx: &App) -> Vec<MenuEntry> {
     let has_project = app.project(cx).is_some();
     let capture_offered = app.capture_offered(cx);
+    let remote = app.offers(Tier::Experimental);
     vec![
         // Remote hosts came off the strip when Settings took its place there: the manager is
         // consulted occasionally, and its own connect action is the row right under it.
         MenuEntry::new("Remote hosts")
             .icon(kit::UbiqIcon::HostRemote)
+            .visible_when(remote)
             .on(|this, _, cx| this.open_remote_manager(cx)),
         MenuEntry::new("Connect to a remote host")
             .icon(kit::UbiqIcon::HostRemote)
+            .visible_when(remote)
             .on(|this, window, cx| this.open_remote_connect(window, cx)),
         MenuEntry::new("Explore the project in browser")
             .icon(kit::UbiqIcon::TitlebarBrowser)

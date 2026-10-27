@@ -1,3 +1,10 @@
+---
+id: onboarding-welcome
+title: Welcome
+summary: The onboarding wizard's first page — what Ubiq is, in three points.
+hidden: true
+---
+
 # Welcome to Ubiq
 
 Ubiq is an **agentic workspace**: several AI coding agents — Claude Code, Codex, Gemini CLI,

@@ -550,9 +550,10 @@ impl AppState {
         // rather than written out in both places.
         if let Some(settings) = self.workbench.project_settings.as_mut() {
             let editing = matches!(settings.mode, ProjectSettingsMode::Edit { .. });
-            let offered = nav
-                .spec()
-                .is_some_and(|spec| spec.gate.enabled(Form::Live, editing));
+            let offered = nav.spec().is_some_and(|spec| {
+                spec.gate.enabled(Form::Live, editing)
+                    && self.workbench.settings.ui.offers(spec.tier)
+            });
             if offered {
                 settings.nav = nav;
                 // The section's on-arrival asks, on the overlay's terms (`D180`).

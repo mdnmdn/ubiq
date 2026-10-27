@@ -10,6 +10,7 @@
 //! `crates/ubiq/src/state/windows.rs`, and the catalogue it projects belongs to the host.
 
 use chrono::Utc;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, Context, ElementId, Focusable, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Window, WindowId, anchored, deferred, div, px,
@@ -219,7 +220,11 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
     body = body
         .child(add_row(cx))
         .child(clone_row(cx))
-        .child(remote_row(app, cx));
+        // Remote hosts are experimental (`Tier::Experimental`): no row while the switch is off.
+        .when(
+            app.offers(crate::state::settings::Tier::Experimental),
+            |body| body.child(remote_row(app, cx)),
+        );
 
     if !empty {
         let mut history_rows: Vec<AnyElement> = groups

@@ -11,6 +11,10 @@ impl AppState {
     /// Raise the manager panel. The connect modal stays where it is when it is up — the panel
     /// paints under it, so "New connection" from here lands on top.
     pub fn open_remote_manager(&mut self, cx: &mut Context<Self>) {
+        // Remote hosts are experimental: with the switch off there is no way in, whatever asked.
+        if !self.offers(crate::state::settings::Tier::Experimental) {
+            return;
+        }
         self.workbench.remote_manager.open = true;
         cx.notify();
     }

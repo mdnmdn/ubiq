@@ -7,7 +7,9 @@
 //!
 //! A step is informative (markdown), a form the interface draws, or a **highlight**: the dialog
 //! steps aside, a place on the screen is outlined, and a small card beside it carries the same
-//! navigation. What a step does on arrival ([`StepAction`]) and when its buttons are live
+//! navigation. A **sub-flow** step stands for a whole other flow — the welcome's tour — in one
+//! step and one dot: launched from it, that flow runs as a sub-run with its own steps and progress
+//! and hands the window back to the step when it ends. What a step does on arrival ([`StepAction`]) and when its buttons are live
 //! ([`Gate`]) are named here and answered in `app/onboarding.rs`, so nothing in this module needs
 //! `AppState`.
 //!
@@ -24,7 +26,7 @@ pub type FlowId = &'static str;
 
 /// The first-run welcome.
 pub const WELCOME: FlowId = "welcome";
-/// The tour of the main screen, chained after the welcome.
+/// The tour of the main screen, a sub-flow of the welcome.
 pub const TOUR: FlowId = "tour";
 /// The first visit to the IDE with a project open.
 pub const IDE: FlowId = "ide";
@@ -36,7 +38,8 @@ pub enum Trigger {
     Start,
     /// The first time the window is in this mode (with a project, if the mode needs one).
     EnterMode(RailMode),
-    /// Never by itself: opened by hand, or reached through another flow's `then`.
+    /// Never by itself: opened by hand, reached through another flow's `then`, or launched from a
+    /// sub-flow step.
     Manual,
 }
 
@@ -56,6 +59,13 @@ pub enum StepBody {
     Form(FormKind),
     /// No dialog: `target` is outlined and `text` sits in a card beside it.
     Highlight { target: UiId, text: SharedString },
+    /// The dialog, with this markdown and a `launch` button that opens `flow` as a sub-run. The
+    /// whole sub-flow is this one step: Next passes it without running it.
+    SubFlow {
+        flow: FlowId,
+        source: SharedString,
+        launch: SharedString,
+    },
 }
 
 /// Whether a navigation button is live on a step. Named conditions rather than closures, so the
@@ -109,6 +119,22 @@ impl Step {
         )
     }
 
+    pub fn sub_flow(
+        title: impl Into<SharedString>,
+        flow: FlowId,
+        source: impl Into<SharedString>,
+        launch: impl Into<SharedString>,
+    ) -> Self {
+        Self::with(
+            title,
+            StepBody::SubFlow {
+                flow,
+                source: source.into(),
+                launch: launch.into(),
+            },
+        )
+    }
+
     pub fn entering(mut self, action: StepAction) -> Self {
         self.on_enter = Some(action);
         self
@@ -142,12 +168,18 @@ pub struct Flow {
 }
 
 /// A flow and the flows it chains, open on one step.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// A run opened from a [`StepBody::SubFlow`] step is a **sub-run**: it holds the run it was
+/// launched from as `parent`, with its own steps and its own progress, and leaving it — past its
+/// last step, by its Skip, or Back from its first — puts the parent back on screen.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct OnboardingRun {
     /// Every flow in the run, in order.
     pub flows: Vec<FlowId>,
     pub steps: Vec<(FlowId, Step)>,
     pub index: usize,
+    /// The run this one was launched from, when it is a sub-run.
+    pub parent: Option<Box<OnboardingRun>>,
 }
 
 impl OnboardingRun {
@@ -172,7 +204,28 @@ impl OnboardingRun {
             flows,
             steps,
             index: 0,
+            parent: None,
         })
+    }
+
+    /// Open `sub` over this run, which it keeps as its parent.
+    pub fn enter_sub(&mut self, mut sub: OnboardingRun) {
+        let parent = std::mem::replace(self, OnboardingRun::default());
+        sub.parent = Some(Box::new(parent));
+        *self = sub;
+    }
+
+    /// Put the parent back, on the step that launched this sub-run. `false` for a top-level run.
+    pub fn leave_sub(&mut self) -> bool {
+        let Some(parent) = self.parent.take() else {
+            return false;
+        };
+        *self = *parent;
+        true
+    }
+
+    pub fn is_sub(&self) -> bool {
+        self.parent.is_some()
     }
 
     pub fn current(&self) -> &Step {

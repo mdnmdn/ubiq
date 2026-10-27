@@ -120,7 +120,7 @@ reads the accessor** — `theme::titlebar_height()`, `theme::explorer_width()`,
 | `MODAL_WIDTH` / `MODAL_MAX_HEIGHT` | 460 / 0.8 | One question; the fraction of window height its body scrolls inside |
 | `LOGIN_MODAL_WIDTH` / `LOGIN_MODAL_HEIGHT` | 960 / 720 | The one modal that is not one question — a full-screen harness login TUI |
 | `ONBOARDING_WIDTH` / `ONBOARDING_HEIGHT` | 560 / 440 | The onboarding dialog, fixed so steps never resize it |
-| `ONBOARDING_CALLOUT_WIDTH` / `ONBOARDING_CALLOUT_ROOM` / `ONBOARDING_DOT` | 360 / 190 / 7 | A highlight step's card, the height placement assumes for it, a progress dot |
+| `ONBOARDING_CALLOUT_WIDTH` / `ONBOARDING_CALLOUT_ROOM` / `ONBOARDING_DOT` / `ONBOARDING_GLOW` | 360 / 190 / 7 / 4 | A highlight step's card, the height placement assumes for it, a progress dot, the pulsing ring around the outline |
 | `SETTINGS_WIDTH` / `SETTINGS_HEIGHT` | 820 / 560 | The settings page overlay |
 
 `MdWidth` (`Readable`/`Wide`/`Full`), `MdDensity` (`Comfortable`/`Compact`) and `MdMinimapSide`

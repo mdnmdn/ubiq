@@ -692,6 +692,10 @@ enum Outbound {
 impl AppState {
     /// Raise the connect modal, with both fields empty.
     pub fn open_remote_connect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Remote hosts and drones are experimental: with the switch off there is no way in.
+        if !self.offers(crate::state::settings::Tier::Experimental) {
+            return;
+        }
         self.clear_remote_connect_inputs(window, cx);
         self.workbench.remote_connect = Some(RemoteConnectState::default());
         cx.notify();

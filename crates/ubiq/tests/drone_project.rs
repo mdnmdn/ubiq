@@ -328,7 +328,9 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             ProjectNav::default()
         );
 
-        // Editing an existing project, it opens.
+        // Editing an existing project, it opens — once experimental settings are on, since the
+        // Remote section is `Tier::Experimental`.
+        state.workbench.settings.ui.experimental = true;
         state.workbench.project_settings = Some(ProjectSettings {
             mode: ProjectSettingsMode::Edit {
                 project: ProjectId::generate(),

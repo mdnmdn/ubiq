@@ -60,6 +60,8 @@ fn a_blob_survives_the_round_trip() {
         drawio_theme: ubiq::state::web_panel::WebTheme::Dark,
         archify: Default::default(),
         devtools_clipboard: false,
+        experimental: true,
+        dev_settings: true,
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
@@ -93,6 +95,9 @@ fn missing_fields_open_on_defaults() {
     // native wire is the better one (`D95`), so the second id for a tool is opt-in and an absent
     // field is the same answer as an unticked box.
     assert!(back.acp_enabled.is_empty());
+    // A blob written before the Experimental section existed opens with both switches off.
+    assert!(!back.experimental);
+    assert!(!back.dev_settings);
 }
 
 #[test]

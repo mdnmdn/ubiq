@@ -2,8 +2,12 @@
 //!
 //! A flow is data (`crate::state::onboarding`); this is the one list of them, built on demand so a
 //! flow can depend on the window — the IDE walk visits exactly the modes the rail is drawing.
-//! Adding a flow or a step is an entry here; nothing else changes. The markdown is compiled in
-//! from the files beside this one.
+//! Adding a flow or a step is an entry here; nothing else changes.
+//!
+//! The markdown is authored in the help tree, under `help/onboarding/`, as `hidden: true` pages:
+//! the packer validates them and keeps them out of the nav, the catalogue and the bundle, and they
+//! are compiled in here, so a step never waits for — or lacks — a help bundle. The dialog drops
+//! their frontmatter.
 
 use gpui::App;
 
@@ -12,33 +16,34 @@ use crate::state::RailMode;
 use crate::state::onboarding::{Flow, FormKind, IDE, Step, StepAction, TOUR, Trigger, WELCOME};
 use crate::state::ui_id;
 
-const WELCOME_MD: &str = include_str!("welcome.md");
-const TOUR_MD: &str = include_str!("tour.md");
-const DONE_MD: &str = include_str!("done.md");
-const IDE_MD: &str = include_str!("ide.md");
-const IDE_DONE_MD: &str = include_str!("ide_done.md");
+const WELCOME_MD: &str = include_str!("../../../../../help/onboarding/welcome.md");
+const TOUR_MD: &str = include_str!("../../../../../help/onboarding/tour.md");
+const DONE_MD: &str = include_str!("../../../../../help/onboarding/done.md");
+const IDE_MD: &str = include_str!("../../../../../help/onboarding/ide.md");
+const IDE_DONE_MD: &str = include_str!("../../../../../help/onboarding/ide-done.md");
 
 /// Every flow, in the order the launch check considers them.
 pub fn all(app: &AppState, cx: &App) -> Vec<Flow> {
     vec![welcome(), tour(), ide(app, cx)]
 }
 
-/// The first run: what Ubiq is, the colours, and the way into the tour.
+/// The first run: what Ubiq is, the colours, the tour as one step, and the way on.
 fn welcome() -> Flow {
     Flow {
         id: WELCOME,
         title: "Welcome".into(),
         trigger: Trigger::Start,
-        then: Some(TOUR),
+        then: None,
         steps: vec![
             Step::markdown("Welcome", WELCOME_MD),
             Step::form("Your colours", FormKind::Palette),
-            Step::markdown("A quick tour", TOUR_MD),
+            Step::sub_flow("A quick tour", TOUR, TOUR_MD, "Start the tour"),
+            Step::markdown("You're set", DONE_MD),
         ],
     }
 }
 
-/// The main screen's areas, one highlight each.
+/// The main screen's areas, one highlight each — run as a sub-flow of the welcome.
 fn tour() -> Flow {
     Flow {
         id: TOUR,
@@ -88,7 +93,6 @@ fn tour() -> Flow {
                 "Counts for the mode you are in, the update when one is ready, and the size \
                  control for the whole window.",
             ),
-            Step::markdown("You're set", DONE_MD),
         ],
     }
 }

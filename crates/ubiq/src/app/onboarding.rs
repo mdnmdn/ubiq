@@ -3,8 +3,8 @@
 //!
 //! The data is `crate::state::onboarding` and the flows themselves are
 //! `crate::ui::onboarding::flows`. What is answered here is everything a step names but cannot
-//! do: whether a [`Gate`] is open, what a [`StepAction`] does to the window, and which flows a
-//! finished or skipped run marks done in the interface's preferences.
+//! do: whether a [`Gate`] is open, what a [`StepAction`] does to the window, entering and leaving
+//! a sub-flow, and which flows a finished or skipped run marks done in the interface's preferences.
 //!
 //! **Only the first window auto-starts a launch flow.** A process opening several windows would
 //! otherwise greet the user once per window; [`AUTO_STARTED`] is the process-wide answer. Mode
@@ -16,7 +16,7 @@ use gpui::{App, Context};
 
 use super::AppState;
 use crate::state::RailMode;
-use crate::state::onboarding::{FlowId, Gate, OnboardingRun, StepAction, Trigger};
+use crate::state::onboarding::{FlowId, Gate, OnboardingRun, StepAction, StepBody, Trigger};
 
 /// Whether this process has already auto-started a [`Trigger::Start`] flow in some window.
 static AUTO_STARTED: AtomicBool = AtomicBool::new(false);
@@ -39,12 +39,34 @@ impl AppState {
         cx.notify();
     }
 
-    /// Whether the current step's Back is live.
-    pub fn onboarding_back_open(&self, cx: &App) -> bool {
-        self.workbench
+    /// Launch the current step's sub-flow over the run. The sub-run has its own steps and dots;
+    /// ending it, skipping it or backing out of it returns here.
+    pub fn onboarding_start_sub(&mut self, cx: &mut Context<Self>) {
+        let Some(StepBody::SubFlow { flow, .. }) = self
+            .workbench
             .onboarding
             .as_ref()
-            .is_some_and(|run| !run.is_first() && self.gate_open(run.current().back, cx))
+            .map(|run| run.current().body.clone())
+        else {
+            return;
+        };
+        let registry = crate::ui::onboarding::flows::all(self, cx);
+        let Some(sub) = OnboardingRun::chain(flow, &registry) else {
+            return;
+        };
+        if let Some(run) = self.workbench.onboarding.as_mut() {
+            run.enter_sub(sub);
+        }
+        self.enter_onboarding_step(cx);
+        cx.notify();
+    }
+
+    /// Whether the current step's Back is live. A sub-run's first step backs out to the step that
+    /// launched it.
+    pub fn onboarding_back_open(&self, cx: &App) -> bool {
+        self.workbench.onboarding.as_ref().is_some_and(|run| {
+            (!run.is_first() || run.is_sub()) && self.gate_open(run.current().back, cx)
+        })
     }
 
     /// Whether the current step's Next (or Finish) is live.
@@ -55,7 +77,8 @@ impl AppState {
             .is_some_and(|run| self.gate_open(run.current().next, cx))
     }
 
-    /// Next: a flow whose last step is passed is done; passing the run's last step closes it.
+    /// Next: a flow whose last step is passed is done; passing the run's last step closes it — or,
+    /// in a sub-run, returns to the parent and passes the step that launched it.
     pub fn onboarding_next(&mut self, cx: &mut Context<Self>) {
         if !self.onboarding_next_open(cx) {
             return;
@@ -74,6 +97,8 @@ impl AppState {
         if run.forward() {
             self.enter_onboarding_step(cx);
             cx.notify();
+        } else if run.leave_sub() {
+            self.onboarding_next(cx);
         } else {
             self.finish_onboarding(cx);
         }
@@ -87,7 +112,7 @@ impl AppState {
             .workbench
             .onboarding
             .as_mut()
-            .is_some_and(|run| run.back())
+            .is_some_and(|run| run.back() || run.leave_sub())
         {
             self.enter_onboarding_step(cx);
             cx.notify();
@@ -95,11 +120,16 @@ impl AppState {
     }
 
     /// Skip: the way out that is always offered. Every flow of the run counts as done, so none of
-    /// them comes back by itself.
+    /// them comes back by itself. In a sub-run it skips that sub-flow only: the parent comes back
+    /// and moves past the step that launched it.
     pub fn skip_onboarding(&mut self, cx: &mut Context<Self>) {
-        let Some(run) = self.workbench.onboarding.as_ref() else {
+        let Some(run) = self.workbench.onboarding.as_mut() else {
             return;
         };
+        if run.leave_sub() {
+            self.onboarding_next(cx);
+            return;
+        }
         let flows: Vec<String> = run.flows.iter().map(|flow| flow.to_string()).collect();
         self.workbench.onboarding_done.extend(flows);
         self.remember_interface();

@@ -206,6 +206,9 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.offers(crate::state::settings::Tier::Experimental) {
+            return;
+        }
         self.host_browse = Some(HostBrowseState::new(HostRef::Remote(host), label.clone()));
         self.bus
             .send_to(HostRef::Remote(host), Message::BrowseHostDir { path: None });

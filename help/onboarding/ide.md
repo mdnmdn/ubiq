@@ -1,3 +1,10 @@
+---
+id: onboarding-ide
+title: Project modes
+summary: The IDE walk's first page — what a project mode is, before the walk visits each one.
+hidden: true
+---
+
 # Project modes
 
 A project is seen through **modes**, listed on the rail. Each is a different screen over the same
