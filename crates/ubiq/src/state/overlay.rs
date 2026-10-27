@@ -138,6 +138,9 @@ pub enum Layer {
     ThemeNaming,
     /// The terminal tab's Close confirm.
     ClosePane,
+    /// An origin carrier's question (`ext::origin::OriginConfirm`) — raised while a project is
+    /// opened, so at the window root on the pane Close's footing.
+    OriginConfirm,
     /// The chat tab's Close confirm.
     EndConversation,
     /// The document-ownership question: reassign a bound document to the agent that asked?

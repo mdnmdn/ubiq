@@ -109,6 +109,7 @@ fn add_project(ui: &Client, path: &std::path::Path) -> ProjectId {
         custom_colour: None,
         temporary: false,
         storage: StorageMode::UbiqManaged,
+        runs_on: None,
     });
 
     loop {
@@ -1086,6 +1087,7 @@ fn a_temporary_project_never_reaches_the_catalogue_file_but_still_resolves() {
         custom_colour: None,
         temporary: true,
         storage: StorageMode::UbiqManaged,
+        runs_on: None,
     });
     let project_id = loop {
         match ui.from_host().recv_timeout(PATIENCE) {
@@ -1137,6 +1139,7 @@ fn naming_a_temporary_project_makes_it_durable() {
         custom_colour: None,
         temporary: true,
         storage: StorageMode::UbiqManaged,
+        runs_on: None,
     });
     let project_id = loop {
         match ui.from_host().recv_timeout(PATIENCE) {

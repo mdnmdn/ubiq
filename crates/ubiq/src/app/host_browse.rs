@@ -22,6 +22,7 @@ use std::collections::HashSet;
 
 use ubiq_proto::files::EntryKind;
 use ubiq_proto::files::{HostDirEntry, HostPathError};
+use ubiq_proto::projects::DroneOrigin;
 
 use crate::state::file_picker::{
     Commit, PickKind, PickerCount, PickerNode, PickerOwner, PickerRequest, PickerView,
@@ -239,6 +240,87 @@ impl AppState {
         self.host_browse = Some(HostBrowseState::new(host, label));
         self.bus
             .send_to(host, Message::BrowseHostDir { path: start });
+    }
+
+    /// Whether `host` is a drone — dialled through a drone carrier (`Ssh` or `Unix`) rather than a
+    /// socket to a full host.
+    pub(super) fn is_drone_host(&self, host: HostRef) -> bool {
+        let HostRef::Remote(id) = host else {
+            return false;
+        };
+        let Some(conn) = self.bus.remote(id) else {
+            return false;
+        };
+        self.workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find(|saved| saved.id == conn.save_id)
+            .is_some_and(|saved| !matches!(saved.carrier, RemoteCarrier::Socket))
+    }
+
+    /// Say a record message — `OpenedProject`, `RefreshProject` — to the project row's owner,
+    /// unless that owner is a drone: a drone keeps no catalogue and refuses every one of them with
+    /// a `ProjectError`, which is the picker's banner raised again on every open. Dropped there
+    /// rather than sent, because nothing would come of it but the refusal.
+    pub(super) fn send_record(&self, message: Message) {
+        let Some(project) = message.project_id() else {
+            return;
+        };
+        if self.is_drone_host(self.bus.row_owner(project)) {
+            tracing::debug!("not asking a drone to keep a record: {message:?}");
+            return;
+        }
+        self.bus.send(message);
+    }
+
+    /// What a folder picked on `host` is pinned to, when `host` is a drone.
+    ///
+    /// `None` is a full host, whose own catalogue takes the folder. A drone is told apart by the
+    /// carrier its saved entry was dialled with: an SSH drone pins the folder to that profile, and
+    /// a socket drone to whichever contributed carrier claims the entry (`ext::origin`). A socket
+    /// drone nothing claims cannot be launched again for a project, and is refused with a sentence
+    /// rather than handed an add it would refuse itself.
+    pub(super) fn drone_origin_for(
+        &self,
+        host: HostRef,
+        path: &str,
+    ) -> Option<Result<DroneOrigin, String>> {
+        let HostRef::Remote(id) = host else {
+            return None;
+        };
+        let save_id = &self.bus.remote(id)?.save_id;
+        let saved = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find(|saved| saved.id == *save_id)?;
+        let origin = |profile, via, preset| DroneOrigin {
+            profile,
+            root: path.trim().to_string(),
+            preset,
+            linger_secs: None,
+            via,
+        };
+        match &saved.carrier {
+            RemoteCarrier::Socket => None,
+            RemoteCarrier::Ssh {
+                profile, preset, ..
+            } => Some(Ok(origin(Some(*profile), None, *preset))),
+            RemoteCarrier::Unix { preset, .. } => Some(
+                crate::ext::origin::claim(self, save_id)
+                    .map(|via| origin(None, Some(via), *preset))
+                    .ok_or_else(|| {
+                        format!(
+                            "{} is a drone this window did not launch, so it cannot hold a project",
+                            saved.name
+                        )
+                    }),
+            ),
+        }
     }
 
     /// Flip whether a folder picked from a remote host joins its catalogue durably. The

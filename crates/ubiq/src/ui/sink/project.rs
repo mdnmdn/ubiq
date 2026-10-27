@@ -1637,6 +1637,16 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
             .unwrap_or_default(),
     };
     let profiles = app.workbench.settings.host.ssh_profiles.clone();
+    // Every contributed carrier's targets, beside the profiles (`ext::origin`).
+    let targets: Vec<(&'static str, crate::ext::origin::OriginTarget)> =
+        crate::ext::origin::carriers()
+            .iter()
+            .flat_map(|spec| {
+                (spec.targets)(app, cx)
+                    .into_iter()
+                    .map(move |target| (spec.kind, target))
+            })
+            .collect();
     let prefix = form.prefix();
 
     let where_row = setting_row(
@@ -1668,7 +1678,7 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
     let mut rows = div().flex().flex_col().child(where_row);
 
     if field.on_drone {
-        let picker: AnyElement = if profiles.is_empty() {
+        let picker: AnyElement = if profiles.is_empty() && targets.is_empty() {
             div()
                 .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text_faint())
@@ -1690,12 +1700,29 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
                         cx.listener(move |this, _, _, cx| this.set_project_drone_profile(id, cx)),
                     )
                 }))
+                .children(targets.into_iter().map(|(kind, target)| {
+                    let via = ubiq_proto::projects::OriginVia {
+                        kind: kind.to_string(),
+                        target: target.target,
+                    };
+                    let picked = field.via.as_ref() == Some(&via);
+                    choice_pill(
+                        ElementId::Name(
+                            format!("{prefix}-drone-via-{}-{}", via.kind, via.target).into(),
+                        ),
+                        target.label,
+                        picked,
+                        cx.listener(move |this, _, _, cx| {
+                            this.set_project_drone_via(via.clone(), cx)
+                        }),
+                    )
+                }))
                 .into_any_element()
         };
         rows = rows.child(setting_row(
             "Reached through",
-            "One of the saved SSH profiles. The profile says where and how to connect; the \
-             secret stays the host's and never reaches this dialog.",
+            "One of the saved SSH profiles, or a target another carrier offers. Either says \
+             where and how to connect; the secret stays the host's and never reaches this dialog.",
             picker,
         ));
 

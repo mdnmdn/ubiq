@@ -5,9 +5,9 @@ kind: feature
 status: current
 summary: One small executable Ubiq places on a machine it is not running on, serving that machine's terminal, files, search and machine facts over a single duplex byte stream — attached as an ordinary host over an SSH exec channel, with three lifetimes, a per-project origin, and a hash-pinned binary the interface uploads when the remote `PATH` has none.
 read_when: you are changing how Ubiq reaches a machine it is not running on — the drone binary, its handshake, its lifetime, its deployment, or the SSH profiles and surfaces behind it
-updated: 2026-10-26
-verified: 2026-10-12
-code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/ssh.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
+updated: 2026-10-27
+verified: 2026-10-27
+code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/ssh.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ext/origin.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
 depends_on: [tech-architecture, tech-transport, tech-structure, wip-drone]
 review_cycle: monthly
 ---
@@ -155,10 +155,22 @@ flag the relay's own tick reads.
 
 ### A project that runs on a drone
 
-A project record carries an optional **origin** — a profile, the folder on the far machine, a
-lifetime preset and an optional linger. Saving one writes the record and stops; nothing dials until
-the project is opened. Opening it launches or adopts the drone from the interface's side of the bus,
-adopting a host that is attached for that same profile and folder.
+A project record carries an optional **origin** — what reaches the machine, the folder on the far
+machine, a lifetime preset and an optional linger. What reaches it is an SSH profile, or a target of
+a **contributed carrier**: an edition registers one through the origin-carrier container
+(`ext::origin`) with its kind, its list of targets, which saved remote it claims as its own drone,
+and a launch hook. The base registers none. Saving an origin writes the record and stops; nothing
+dials until the project is opened. Opening it launches or adopts the drone from the interface's side
+of the bus — for a profile, adopting a host that is attached for that same profile and folder; for a
+contributed carrier, whatever its launch hook decides. An origin naming a carrier this build lacks
+puts a sentence on the row.
+
+**A folder picked on a drone becomes a local project.** A drone keeps no catalogue, so the remote
+folder browser's commit on a drone does not ask it to add one: it adds a local record pinned to the
+picked folder through the carrier that reached it — the saved host's SSH profile and preset, or the
+contributed carrier that claims the saved host — honouring "Keep project". A socket drone no carrier
+claims is refused with a sentence. The host takes such a record without looking at its own disk and
+reports it healthy, since its folder is not there to probe.
 
 **For a duplicate project id the local host owns the row** (`D132`). A project the local catalogue
 names while a drone fills it in is the one case where a host does not own its rows wholesale, so the
@@ -167,8 +179,23 @@ serves it. Serving still moves, which is what puts a pane on the far machine, an
 re-listing does not take the folder back off a live drone. The drone is given the locally-minted
 project id for that folder, so a reattach is the same project rather than a second one.
 
+**The record's own messages go to the row's owner.** `OpenedProject`, `RefreshProject`,
+`UpdateProject`, `LocateProject` and `ForgetProject` for a locally-owned row reach the local host
+whatever serves it; a drone refuses all five, and sending them there raised the picker's banner on
+every open. For a row a drone owns outright — the folder it was launched on — the interface does not
+send `OpenedProject` or `RefreshProject` at all.
+
 **A laptop that sleeps loses its drone, never its project.** When a drone goes away, each local row
-it was serving is marked unreadable with a sentence naming the drone.
+it was serving is marked unreadable with a sentence naming the drone; a drone that names the row
+again clears it. Nothing else does: the local host cannot see a far folder and always reports such a
+row healthy, so its `OpenedProject`/`RefreshProject` answer and its own listing keep a drone row's
+sentence for as long as its origin is unchanged. **Locate is not offered for a drone row**, and the
+host refuses `LocateProject` on one: the folder is on the far machine, and a folder picked here
+would re-point the record at the wrong disk.
+
+**A carrier may ask before it loses work**: `ext::origin::OriginConfirm` is a danger confirm at the
+window root (`Layer::OriginConfirm`) carrying the project and two callbacks, and
+`AppState::saved_remote_panes` counts what a saved remote's live connections hold.
 
 ### Where the binary comes from
 
@@ -231,7 +258,8 @@ and those log a warning and drop.
   flagged on the row rather than hidden: a managed drone outlives the Ubiq that deployed it, and the
   one remedy is stop, redeploy, reattach. **A drone is never hot-swapped under live panes.**
 - **The project dialog's Remote panel** edits the project's origin — runs here, or on a drone with a
-  profile, a folder and a preset — and a form agreeing with the record writes nothing.
+  profile or a contributed carrier's target, a folder and a preset — and a form agreeing with the
+  record writes nothing.
 
 **The Check control answers a question neither a listing nor a dial can:** whether `ssh` works and
 nothing answers to the drone binary, versus `ssh` never getting through at all. It chains this
@@ -250,8 +278,13 @@ Every message a drone speaks is an existing one, and
   second encoding would need its own ceiling, truncation rule and decode errors.
 - **`MESSAGE_SCHEMA`**, a `u32` beside the frame ceiling in `crates/ubiq-proto/src/wire.rs`.
 - **`ProjectRecord.runs_on`**, an optional `DroneOrigin`, carried on an update as a three-state
-  `DroneChange` because an `Option<Option<_>>` cannot cross the wire. It is purely additive, so the
-  catalogue version does not move.
+  `DroneChange` because an `Option<Option<_>>` cannot cross the wire, and on `AddProject` for a far
+  folder. Its `profile` and its `via` (`OriginVia`, a contributed carrier's kind and target) are
+  both optional and **exactly one is set**: the host refuses an add or update naming both or neither
+  with a `ProjectError`, and a catalogue row naming both or neither loads as running here, logged.
+  A profile-only origin is additive and leaves `projects.toml` at version 1; a catalogue holding a
+  `via` origin is written at **version 2**, because a build from before `via` could not parse it and
+  would set the whole file aside — a version it does not know it leaves alone instead. Both load.
 - **`SavedRemoteHost.carrier`**, its `DronePreset` and its remembered `drone_path`, in
   `crates/ubiq-proto/src/settings.rs` beside `SshProfile` and its authentication choice.
 - **The search family**, answered by a drone exactly as the local worker answers it.

@@ -5,7 +5,7 @@ kind: feature
 status: draft
 summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the Tools dialog, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
 read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, the Tools dialog, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-10-26
+updated: 2026-10-27
 verified: 2026-10-26
 code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/onboarding.rs, crates/ubiq/src/state/onboarding.rs, crates/ubiq/src/ui/search.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/updates.rs, crates/ubiq/src/app/updates.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs, crates/ubiq/src/state/about.rs, crates/ubiq/src/app/about.rs, crates/ubiq/src/ui/about.rs, crates/ubiq/src/state/devtools.rs, crates/ubiq/src/app/devtools.rs, crates/ubiq/src/ui/devtools.rs, crates/ubiq/src/devtools/mod.rs, crates/ubiq/src/devtools/codec.rs, crates/ubiq/src/devtools/detect.rs, crates/ubiq/src/devtools/diff.rs, crates/ubiq/src/devtools/hash.rs, crates/ubiq/src/devtools/jwt.rs, crates/ubiq/src/devtools/lorem.rs, crates/ubiq/src/devtools/time.rs, crates/ubiq/src/devtools/uuids.rs]
 depends_on: [tech-ui]
@@ -285,7 +285,9 @@ worth nothing once the name it is meant to distinguish has been truncated to fit
 name shows the full path as a tooltip whether or not the row had room to print it. A row
 whose folder is missing, is not a directory, or cannot be read prints that path in the warning
 colour with a mark beside it, and offers **Locate** — which re-points the record through the system
-folder chooser and keeps the id, the colour and the history. A record is never removed because its
+folder chooser and keeps the id, the colour and the history. A row that runs on a drone offers no
+Locate: its folder is on the far machine, and opening the row again is what re-dials. A record is
+never removed because its
 folder went: an unplugged drive and a worktree mid-rebase are both temporary, and forgetting is
 always the user's action.
 
@@ -333,7 +335,8 @@ remote host attached it opens the "Connect to a remote host" modal instead of a 
 row is the only place a first-time user learns the feature exists at all. With one remote it raises
 the file picker walking that host's own filesystem, rooted at whatever `BrowseHostDir { path: None
 }` answers with; choosing a folder there sends `AddProject` to that host rather than to the local
-one. **With more than one remote attached it opens the one application settings' Hosts section has
+one — unless the host is a drone, which keeps no catalogue: then the folder becomes a local project
+pinned to the drone's carrier ([`drone.md`](./drone.md)). **With more than one remote attached it opens the one application settings' Hosts section has
 active** — `AppState::preferred_remote_host()` reads `Bus::active` and falls back to the first
 remote attached when `active` is Local (the common case, since nothing points it anywhere else
 until the Hosts dropdown, below, is used), so the row never refuses to act just because a second
@@ -2015,6 +2018,13 @@ carries the id of the runner source that found it, and a `RunnerKindSpec` per id
 picker calls the kind and which icon marks its rows. The base seeds `make`, `just` and `mise`;
 a runner no kind was registered for is drawn with a generic icon, not dropped. The registry is
 `ubiq_app::Contributions::runner_kinds`, installed beside the other three before the first window.
+
+**A drone-served project's carriers are a container too: the origin carriers** (`ext::origin`). An
+`OriginCarrierSpec` gives a carrier's kind — what a project origin's `via` names — the targets the
+project dialog's Remote panel lists beside the SSH profiles, which saved remote it claims as one of
+its drones (so a folder picked on that drone becomes a local project pinned to it), and the hook that
+launches or adopts the drone when such a project opens. The base registers none; the registry is
+`ubiq_app::Contributions::origin_carriers`. [`drone.md`](./drone.md) owns what an origin is.
 
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
 `size.rs`, `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `teams/`

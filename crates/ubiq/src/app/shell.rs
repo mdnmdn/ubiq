@@ -1069,6 +1069,7 @@ impl AppState {
             (Layer::ThemeEditor, w.theme_editor.is_some()),
             (Layer::ThemeNaming, w.theme_prompt.is_some()),
             (Layer::ClosePane, w.confirm_close_pane.is_some()),
+            (Layer::OriginConfirm, w.origin_confirm.is_some()),
             (Layer::EndConversation, w.confirm_end_conversation.is_some()),
             (Layer::DocConflict, w.doc_conflict.is_some()),
             (
@@ -1243,6 +1244,9 @@ impl AppState {
             // Escape is the answer a destructive confirm should be easiest of all to give, which
             // is why both sit this high.
             self.dismiss_end_conversation_confirm(cx);
+        } else if self.workbench.origin_confirm.is_some() {
+            // Painted between the two closes, so peeled between them.
+            self.dismiss_origin_confirm(cx);
         } else if self.workbench.confirm_close_pane.is_some() {
             self.dismiss_close_pane_confirm(cx);
         } else if self.workbench.theme_prompt.is_some() {

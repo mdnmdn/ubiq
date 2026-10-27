@@ -1040,7 +1040,7 @@ impl AppState {
         let root = root.trim();
         WindowRegistry::read(cx).all().find_map(|snapshot| {
             let origin = snapshot.record.runs_on.as_ref()?;
-            (origin.profile == profile && origin.root.trim() == root)
+            (origin.profile == Some(profile) && origin.root.trim() == root)
                 .then_some((snapshot.record.id, origin.linger_secs))
         })
     }
@@ -1115,7 +1115,7 @@ impl AppState {
                         && matches!(
                             &saved.carrier,
                             RemoteCarrier::Ssh { profile, root, .. }
-                                if *profile == origin.profile
+                                if origin.profile == Some(*profile)
                                     && root.trim() == origin.root.trim()
                         )
                 })
@@ -1142,7 +1142,7 @@ impl AppState {
             .host
             .ssh_profiles
             .iter()
-            .find(|profile| profile.id == origin.profile)
+            .find(|profile| Some(profile.id) == origin.profile)
             .cloned()
         else {
             // The profile was deleted out from under the project. Said on the row rather than
@@ -1156,13 +1156,14 @@ impl AppState {
         };
         let label = profile.name.clone();
         let address = profile.host.clone();
+        let profile_id = profile.id;
         let params = ssh_connect::SshDialParams {
             profile,
             root: origin.root.clone(),
             preset: origin.preset,
             root_id: Some(project),
             linger_secs: origin.linger_secs,
-            drone_path: self.saved_drone_path(origin.profile, &origin.root),
+            drone_path: self.saved_drone_path(profile_id, &origin.root),
             config_root: self.workbench.config_root.clone(),
         };
 
@@ -1170,7 +1171,7 @@ impl AppState {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let outcome = outcome.await;
             let _ = this.update(cx, |this, cx| {
-                this.land_project_drone(project, origin, label, address, outcome, cx)
+                this.land_project_drone(project, profile_id, origin, label, address, outcome, cx)
             });
         })
         .detach();
@@ -1186,6 +1187,7 @@ impl AppState {
     fn land_project_drone(
         &mut self,
         project: ProjectId,
+        profile_id: SshProfileId,
         origin: DroneOrigin,
         label: String,
         address: String,
@@ -1215,7 +1217,7 @@ impl AppState {
                     RemoteScheme::Http,
                     false,
                     RemoteCarrier::Ssh {
-                        profile: origin.profile,
+                        profile: profile_id,
                         root: origin.root,
                         preset: origin.preset,
                         drone_path,

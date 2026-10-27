@@ -1765,10 +1765,18 @@ impl Coordinator {
                 custom_colour,
                 temporary,
                 storage,
+                runs_on,
             } => {
-                let replies =
-                    self.projects
-                        .add(&path, name, colour, custom_colour, temporary, storage);
+                let replies = match runs_on {
+                    Some(origin) => {
+                        self.projects
+                            .add_far(&path, name, colour, custom_colour, temporary, origin)
+                    }
+                    None => {
+                        self.projects
+                            .add(&path, name, colour, custom_colour, temporary, storage)
+                    }
+                };
                 self.answer(client, replies);
             }
             Message::ForgetProject { project_id } => {

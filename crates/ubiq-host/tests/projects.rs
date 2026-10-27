@@ -15,6 +15,7 @@ use tempfile::TempDir;
 use ubiq_host::gc;
 use ubiq_host::health::probe;
 use ubiq_host::projects::Projects;
+use ubiq_host::reply::Reply;
 use ubiq_host::store::file::{FileProjectStore, FileTaskStore};
 use ubiq_host::store::memory::{MemoryPreferenceStore, MemoryProjectStore};
 use ubiq_host::store::project_dir;
@@ -51,11 +52,51 @@ fn record(name: &str, path: &str) -> ProjectRecord {
 /// A drone origin worth telling apart from "local": a real profile, a real far root.
 fn origin() -> DroneOrigin {
     DroneOrigin {
-        profile: SshProfileId::generate(),
+        profile: Some(SshProfileId::generate()),
         root: "/far/root".to_string(),
         preset: DronePreset::Session,
         linger_secs: None,
+        via: None,
     }
+}
+
+/// A far folder is taken in without touching this disk: the record carries the origin with the
+/// picked folder as its root, reads healthy, and a second pick of the same place resolves to it.
+#[test]
+fn a_far_folder_is_added_pinned_and_resolves_to_itself_the_second_time() {
+    let dir = TempDir::new().unwrap();
+    let (mut projects, _) = Projects::open(
+        dir.path().to_path_buf(),
+        Box::new(MemoryProjectStore::with(vec![])),
+        Box::new(MemoryPreferenceStore::new()),
+    );
+    let pinned = DroneOrigin {
+        profile: None,
+        via: Some(ubiq_proto::projects::OriginVia {
+            kind: "example".to_string(),
+            target: "t1".to_string(),
+        }),
+        ..origin()
+    };
+    let first = projects.add_far(r"C:\work\proj", None, None, None, false, pinned.clone());
+    let snapshot = match first.first() {
+        Some(Reply::Everyone(Message::ProjectAdded { project })) => project.clone(),
+        other => panic!("expected a broadcast add, got {other:?}"),
+    };
+    assert_eq!(snapshot.record.name, "proj");
+    assert_eq!(snapshot.health, ProjectHealth::Ok);
+    let kept = snapshot.record.runs_on.clone().expect("it is pinned");
+    assert_eq!(kept.root, r"C:\work\proj");
+    assert_eq!(kept.via, pinned.via);
+
+    let again = projects.add_far(r"C:\work\proj", None, None, None, false, pinned);
+    match again.first() {
+        Some(Reply::Asker(Message::ProjectAdded { project })) => {
+            assert_eq!(project.record.id, snapshot.record.id)
+        }
+        other => panic!("expected the project that is there, got {other:?}"),
+    }
+    assert_eq!(projects.list().len(), 1);
 }
 
 /// A catalogue holding one record, in memory, for the `runs_on` tests below. The `TempDir` is
@@ -350,6 +391,155 @@ fn updating_a_project_can_bring_it_back_home() {
     );
 
     assert_eq!(projects.record(id).unwrap().runs_on, None);
+}
+
+/// An origin carried by a contributed carrier rather than a profile.
+fn carried() -> DroneOrigin {
+    DroneOrigin {
+        profile: None,
+        via: Some(ubiq_proto::projects::OriginVia {
+            kind: "example".to_string(),
+            target: "t1".to_string(),
+        }),
+        ..origin()
+    }
+}
+
+fn written_version(dir: &TempDir) -> i64 {
+    let raw = fs::read_to_string(dir.path().join("projects.toml")).unwrap();
+    raw.parse::<toml::Table>().unwrap()["version"]
+        .as_integer()
+        .unwrap()
+}
+
+/// The version moves only for a catalogue that holds a `via` origin: an SSH-only one stays at the
+/// version older builds read, and a later write that drops the last `via` steps it back. Both load.
+#[test]
+fn the_catalogue_version_moves_only_for_a_carried_origin() {
+    let dir = TempDir::new().unwrap();
+    let store = store(&dir);
+    let mut ssh = record("ssh", "/far/root");
+    ssh.runs_on = Some(origin());
+    store.upsert(&ssh).unwrap();
+    assert_eq!(written_version(&dir), 1);
+    assert_eq!(store.load().unwrap(), vec![ssh.clone()]);
+
+    let mut far = record("far", "/far/other");
+    far.runs_on = Some(carried());
+    store.upsert(&far).unwrap();
+    assert_eq!(written_version(&dir), 2);
+    let reread = FileProjectStore::new(dir.path().join("projects.toml"));
+    assert_eq!(reread.load().unwrap().len(), 2);
+
+    store.remove(far.id).unwrap();
+    assert_eq!(written_version(&dir), 1);
+}
+
+/// A row whose origin names both ways in, or neither, loads as running here; the rest of the
+/// catalogue loads as written.
+#[test]
+fn a_malformed_origin_loads_as_local_without_losing_the_catalogue() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("projects.toml");
+    let (both, neither, fine) = (
+        ProjectId::generate(),
+        ProjectId::generate(),
+        ProjectId::generate(),
+    );
+    let profile = SshProfileId::generate();
+    let row = |id: ProjectId, origin: &str| {
+        format!(
+            "[[project]]\nid = \"{id}\"\nname = \"p\"\npath = \"/far\"\ncolour = 0\ncreated_at = \"2026-08-14T09:12:44Z\"\n\n[project.runs_on]\nroot = \"/far\"\npreset = \"session\"\n{origin}\n"
+        )
+    };
+    let body = format!(
+        "version = 2\n\n{}\n{}\n{}",
+        row(
+            both,
+            &format!(
+                "profile = \"{profile}\"\n\n[project.runs_on.via]\nkind = \"x\"\ntarget = \"t\""
+            )
+        ),
+        row(neither, ""),
+        row(fine, &format!("profile = \"{profile}\"")),
+    );
+    fs::write(&path, body).unwrap();
+
+    let loaded = store(&dir).load().expect("the catalogue loads");
+    let runs_on = |id| loaded.iter().find(|r| r.id == id).unwrap().runs_on.clone();
+    assert_eq!(runs_on(both), None);
+    assert_eq!(runs_on(neither), None);
+    assert!(runs_on(fine).is_some());
+}
+
+/// An add or an update whose origin names both ways in, or neither, is refused and changes nothing.
+#[test]
+fn an_origin_naming_both_or_neither_is_refused() {
+    let (mut projects, id, _dir) = projects_with(record("ubiq", "/dev/ubiq"));
+    let neither = DroneOrigin {
+        profile: None,
+        ..origin()
+    };
+    let both = DroneOrigin {
+        via: carried().via,
+        ..origin()
+    };
+    for bad in [neither.clone(), both.clone()] {
+        let replies = projects.update(
+            id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(DroneChange::Set(bad)),
+            None,
+            None,
+        );
+        assert!(
+            matches!(
+                replies.first(),
+                Some(Reply::Asker(Message::ProjectError { .. }))
+            ),
+            "{replies:?}"
+        );
+    }
+    assert_eq!(projects.record(id).unwrap().runs_on, None);
+
+    for bad in [neither, both] {
+        let replies = projects.add_far("/far/x", None, None, None, false, bad);
+        assert!(
+            matches!(
+                replies.first(),
+                Some(Reply::Asker(Message::ProjectError { .. }))
+            ),
+            "{replies:?}"
+        );
+    }
+    assert_eq!(projects.list().len(), 1);
+}
+
+/// Locate re-points a record at a folder on *this* machine, which a drone-served project's folder
+/// never is: refused, and the record keeps its far path.
+#[test]
+fn locate_refuses_a_drone_served_project() {
+    let mut pinned = record("far", "/far/root");
+    pinned.runs_on = Some(origin());
+    let (mut projects, id, dir) = projects_with(pinned);
+    let here = dir.path().to_string_lossy().into_owned();
+    let replies = projects.locate(id, &here);
+    assert!(
+        matches!(
+            replies.first(),
+            Some(Reply::Asker(Message::ProjectError { .. }))
+        ),
+        "{replies:?}"
+    );
+    assert_eq!(projects.record(id).unwrap().path, "/far/root");
 }
 
 #[test]

@@ -543,6 +543,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .confirm_close_pane
                 .map(|_| close_pane_confirm(app, window, cx)),
         )
+        // An origin carrier's question, raised while a project is opened.
+        .children(crate::ext::origin::confirm(app, window, cx))
         // The chat tab's Close, asked before it is done — and painted here for exactly the reason
         // the pane's is. It used to hang off the conversation panel, which works for the
         // three-dots menu (the panel is still up) but not for the tab's own ×: that path takes
@@ -856,6 +858,7 @@ fn overlaid(app: &AppState) -> bool {
         || workbench.theme_editor.is_some()
         || workbench.theme_prompt.is_some()
         || workbench.confirm_close_pane.is_some()
+        || workbench.origin_confirm.is_some()
         || workbench.confirm_end_conversation.is_some()
         || workbench.doc_conflict.is_some()
         || workbench.remote_manager.open

@@ -5,7 +5,7 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-10-26
+updated: 2026-10-27
 verified: 2026-10-26
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
@@ -136,7 +136,7 @@ recolour and a move on disk.
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `ListProjects` | UI → host | — | `ProjectList` |
-| `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary`, `storage` | `ProjectAdded` or `ProjectError` |
+| `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary`, `storage`, `runs_on?` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
 | `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `mission_term?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?`, `definitions_use_global?`, `definitions_allowed?` | `ProjectChanged` |
 | `SetProjectInitials` | UI → host | `project_id`, `initials` | `ProjectChanged` |
@@ -374,7 +374,11 @@ neither field says anything about them. `AddProject` carries neither: a new proj
 globals, and narrowing it is a settings gesture.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
-already in the catalogue answers with the project that is there, so no duplicate appears.
+already in the catalogue answers with the project that is there, so no duplicate appears. **With
+`runs_on` the path is a far one**: the folder is on a drone's machine, so nothing is checked on this
+disk, the record is written with that origin (its `root` the path) and is always Ubiq-managed, and a
+folder already pinned to the same place through the same carrier answers with the project that is
+there.
 
 **The two colour fields travel together.** `colour` is an index into the theme's swatches and
 `custom_colour` is a packed `0x00RRGGBB` that wins over it, which is what lets project settings
@@ -2065,12 +2069,22 @@ attached by path, so nothing new crosses the bus for it. On the MCP side `manage
 `create_task` and `update_task` both take `attachments` — a bare string or a `{target, label}`
 object — and every task the task servers answer carries them, each tagged `kb` or `file`.
 
-`ProjectRecord.runs_on` is an `Option<DroneOrigin>` — an SSH profile id, the folder on the far
-machine, a `DronePreset` and an optional linger in seconds — and names the drone a project's folder
-lives behind; absent is a project that runs where Ubiq does. It rides `UpdateProject` as a
-`DroneChange` — `Local` or `Set(origin)` — for the reason `IndexChange` is one. The field is purely
-additive, so `CATALOGUE_VERSION` does not move: a catalogue written before it reads back with
-`runs_on: None`, which is the answer such a record already meant. The coordinator stores it and
+`ProjectRecord.runs_on` is an `Option<DroneOrigin>` — what reaches the machine, the folder on the
+far machine, a `DronePreset` and an optional linger in seconds — and names the drone a project's
+folder lives behind; absent is a project that runs where Ubiq does. What reaches the machine is
+exactly one of `profile`, an SSH profile id, and `via`, an `OriginVia { kind, target }` naming a
+carrier an edition registers (`ubiq::ext::origin`) and one of its targets; `profile` became an
+`Option` when `via` arrived, and every record written before then carries it, so it reads back
+unchanged. An origin naming both or neither (`DroneOrigin::check`, `OriginShape`) is refused on
+`AddProject` and `UpdateProject` with a `ProjectError`, and loads from the catalogue as no origin. A
+row whose origin is a drone's reports `ProjectHealth::Ok` from the host, which has no folder of its
+own to probe for it, and `LocateProject` on one is a `ProjectError`. It rides `UpdateProject` as a
+`DroneChange` — `Local` or `Set(origin)` — for the reason `IndexChange` is one. The field is
+additive: a catalogue written before it reads back with `runs_on: None`, which is the answer such a
+record already meant. **`via` is not additive for older builds**, which cannot parse an origin
+without a `profile` and would set the whole catalogue aside, so a catalogue holding one is written
+at `CATALOGUE_VERSION` 2 — an older build leaves a newer version alone — and one without stays at
+`CATALOGUE_VERSION_PLAIN` 1; both load. The coordinator stores it and
 rebroadcasts `ProjectChanged`, and does nothing else with it — under `D116` a drone attaches as an
 ordinary host, so the coordinator never learns one exists. Launching the drone, and keeping the row
 on screen while it is down, are the interface's (`D132`).

@@ -145,6 +145,12 @@ pub const RUNNER_MAKE: SlotId = SlotId::new("ubiq.runner.make");
 pub const RUNNER_JUST: SlotId = SlotId::new("ubiq.runner.just");
 pub const RUNNER_MISE: SlotId = SlotId::new("ubiq.runner.mise");
 
+// ── The origin-carrier container ────────────────────────────────────
+
+/// The carriers a drone-served project can be reached through besides the base's own SSH — one
+/// group, and empty in the base. See `ext::origin`.
+pub const ORIGIN_CARRIER: SlotId = SlotId::new("origin-carrier");
+
 // ── The viewer container (`D204`) ───────────────────────────────────
 
 /// The IDE editor's contributed viewers — one group, since a viewer is ordered by registration

@@ -361,8 +361,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         ),
     };
 
-    // A project whose folder has gone offers the two actions that can help.
-    if !healthy {
+    // A project whose folder has gone offers the two actions that can help. Not a drone-served
+    // one: its folder is on the drone's machine, and a folder picked on this one would re-point
+    // the record at the wrong disk — opening it again is what re-dials.
+    if !healthy && entry.record.runs_on.is_none() {
         line = line.child(action(
             format!("project-locate-{project}"),
             IconName::FolderOpen,
@@ -703,12 +705,15 @@ fn banner(error: String, cx: &mut Context<AppState>) -> impl IntoElement {
                 .text_color(theme::text())
                 .child(error),
         )
-        .child(small_button(
-            "project-error-dismiss",
-            "Dismiss",
-            theme::text_muted(),
-            cx.listener(|this, _, _, cx| this.dismiss_project_error(cx)),
-        ))
+        .child(
+            small_button(
+                "project-error-dismiss",
+                "Dismiss",
+                theme::text_muted(),
+                cx.listener(|this, _, _, cx| this.dismiss_project_error(cx)),
+            )
+            .debug_selector(|| "project-error-dismiss".into()),
+        )
 }
 
 /// A window's letter, in the small outlined square the picker prints beside every open project.
@@ -761,7 +766,7 @@ fn small_button(
     label: &'static str,
     colour: gpui::Rgba,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-) -> impl IntoElement {
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .h(px(22.))

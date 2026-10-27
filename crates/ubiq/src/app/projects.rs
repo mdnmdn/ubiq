@@ -121,6 +121,30 @@ impl AppState {
         else {
             return;
         };
+        // An origin naming no way in, or two, has nothing to dial; the row says which.
+        if let Err(shape) = origin.check() {
+            cx.global_mut::<WindowRegistry>()
+                .mark_unreadable(project, shape.to_string());
+            cx.notify();
+            return;
+        }
+        // A contributed carrier launches, or adopts, its own drone — see `ext::origin`.
+        if let Some(via) = &origin.via {
+            match crate::ext::origin::carrier(&via.kind) {
+                Some(spec) => (spec.launch)(self, project, &origin, cx),
+                None => {
+                    cx.global_mut::<WindowRegistry>().mark_unreadable(
+                        project,
+                        format!(
+                            "this project runs through a `{}` carrier, which this build does not have",
+                            via.kind
+                        ),
+                    );
+                    cx.notify();
+                }
+            }
+            return;
+        }
         if self.drone_attached(&origin) {
             return;
         }
@@ -144,7 +168,7 @@ impl AppState {
         let id = self.window_id;
         self.ensure_drone(project, cx);
         cx.global_mut::<WindowRegistry>().activate(id, project);
-        self.bus.send(Message::OpenedProject {
+        self.send_record(Message::OpenedProject {
             project_id: project,
         });
         // The window now points somewhere else: its tree, its tabs and its terminals are the new
@@ -189,7 +213,7 @@ impl AppState {
         // way while the tree and the tabs are being built.
         self.ensure_drone(project, cx);
         // The host decides what opening a project means, and stamps it.
-        self.bus.send(Message::OpenedProject {
+        self.send_record(Message::OpenedProject {
             project_id: project,
         });
         // Everything the project brings with it — its furniture, its pane, its tree — is the
@@ -820,7 +844,7 @@ impl AppState {
 
     /// Look at a project's folder again — the action a row marked missing offers.
     pub fn refresh_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
-        self.bus.send(Message::RefreshProject {
+        self.send_record(Message::RefreshProject {
             project_id: project,
         });
         cx.notify();
@@ -861,6 +885,7 @@ impl AppState {
             custom_colour: custom,
             temporary,
             storage,
+            runs_on: None,
         });
         cx.notify();
     }

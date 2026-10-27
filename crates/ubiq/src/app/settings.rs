@@ -166,6 +166,14 @@ impl AppState {
     /// Detach a saved remote if it is attached (closing its panes, stopping its reconnect loop)
     /// and delete the entry — [`Self::forget_remote_host`] after a disconnect.
     pub fn forget_saved_remote(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.disconnect_saved_remote(id, cx);
+        self.forget_remote_host(id.to_string(), cx);
+    }
+
+    /// Detach every live connection to the saved remote `id` — closing its panes and stopping its
+    /// reconnect loop — and keep the entry, so a later [`Self::connect_saved_remote`] dials it
+    /// again.
+    pub fn disconnect_saved_remote(&mut self, id: &str, cx: &mut Context<Self>) {
         let attached: Vec<_> = self
             .bus
             .remote_conns()
@@ -176,7 +184,6 @@ impl AppState {
         for host in attached {
             self.disconnect_host(host, cx);
         }
-        self.forget_remote_host(id.to_string(), cx);
     }
 
     /// Rename a saved host. The id, address, scheme and keychain token are untouched — a name is

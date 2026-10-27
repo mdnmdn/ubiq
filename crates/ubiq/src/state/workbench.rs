@@ -986,6 +986,8 @@ pub struct WorkbenchState {
     /// Only the *destructive* close asks. Hide takes the tab away and leaves the harness running,
     /// so there is nothing to warn about and nothing to confirm.
     pub confirm_close_pane: Option<PaneId>,
+    /// An origin carrier's question, when one is up (`ext::origin::OriginConfirm`).
+    pub origin_confirm: Option<crate::ext::origin::OriginConfirm>,
     /// The shells the host says this machine has, in the order the menu offers them. Empty until
     /// the host answers — a window asks as it attaches and again every time the menu opens, so a
     /// shell installed since is offered without a restart.
@@ -1155,6 +1157,7 @@ impl Default for WorkbenchState {
             confirm_end_conversation: None,
             chat_focus: None,
             confirm_close_pane: None,
+            origin_confirm: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
             mcps: Vec::new(),

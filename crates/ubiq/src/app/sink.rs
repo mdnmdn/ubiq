@@ -1,5 +1,6 @@
 use super::*;
 
+use ubiq_proto::projects::OriginVia;
 use ubiq_proto::work::AgentId;
 
 use crate::state::conversation::Conversation;
@@ -621,6 +622,17 @@ impl AppState {
     pub fn set_project_drone_profile(&mut self, profile: SshProfileId, cx: &mut Context<Self>) {
         let field = self.drone_field();
         field.profile = Some(profile);
+        field.via = None;
+        field.on_drone = true;
+        cx.notify();
+    }
+
+    /// Which contributed carrier's target the form's drone is reached through instead
+    /// (`ext::origin`). Picking one clears the profile: an origin names one way in.
+    pub fn set_project_drone_via(&mut self, via: OriginVia, cx: &mut Context<Self>) {
+        let field = self.drone_field();
+        field.via = Some(via);
+        field.profile = None;
         field.on_drone = true;
         cx.notify();
     }

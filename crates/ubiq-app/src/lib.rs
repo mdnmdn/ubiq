@@ -220,6 +220,10 @@ pub struct Contributions {
     /// registered a kind for is drawn with a generic icon. See `ubiq::ext::runner`.
     #[cfg(feature = "ui")]
     pub runner_kinds: ubiq::ext::Registry<ubiq::ext::runner::RunnerKindSpec>,
+    /// The carriers a drone-served project can be reached through besides SSH. Empty in the base;
+    /// a carrier registered here is named by a project origin's `via`. See `ubiq::ext::origin`.
+    #[cfg(feature = "ui")]
+    pub origin_carriers: ubiq::ext::Registry<ubiq::ext::origin::OriginCarrierSpec>,
     /// The IDE editor's contributed viewers (`D204`). Seeded with the base's own, Archify's; its
     /// other viewers are `ViewerKind`'s built-in variants. A spec claims paths (`Default` opens them in it, `Offer`
     /// lists it under "Open with"), declares its layouts, and draws from the tab's own buffer —
@@ -241,6 +245,8 @@ impl Default for Contributions {
             bar_menus: ubiq::ext::menu::base_registry(),
             #[cfg(feature = "ui")]
             runner_kinds: ubiq::ext::runner::base_registry(),
+            #[cfg(feature = "ui")]
+            origin_carriers: ubiq::ext::origin::base_registry(),
             #[cfg(feature = "ui")]
             viewers: ubiq::ext::viewer::base_registry(),
         }
@@ -471,6 +477,7 @@ pub fn run(boot: Boot) {
         ubiq::ext::rail::install(boot.contributions.rail_modes);
         ubiq::ext::menu::install(boot.contributions.bar_menus);
         ubiq::ext::runner::install(boot.contributions.runner_kinds);
+        ubiq::ext::origin::install(boot.contributions.origin_carriers);
         ubiq::ext::viewer::install(boot.contributions.viewers);
         window(hub, paths, listener);
     }

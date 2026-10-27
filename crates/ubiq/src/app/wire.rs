@@ -3817,7 +3817,7 @@ impl AppState {
         }
 
         if matches!(error, FileError::Missing | FileError::Denied(_)) {
-            self.bus.send(Message::RefreshProject {
+            self.send_record(Message::RefreshProject {
                 project_id: project,
             });
         }

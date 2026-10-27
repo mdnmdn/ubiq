@@ -221,6 +221,21 @@ fn pane_id_of(message: &Message) -> Option<PaneId> {
     }
 }
 
+/// The project-naming messages that read or write the catalogue *record* rather than the folder —
+/// routed to the row's owner, never to a drone that only serves it. These are the five a drone
+/// refuses with `ProjectError`, which is why a project open on a drone used to raise the
+/// picker's banner each time one of them went there.
+fn is_record_message(message: &Message) -> bool {
+    matches!(
+        message,
+        Message::ForgetProject { .. }
+            | Message::UpdateProject { .. }
+            | Message::LocateProject { .. }
+            | Message::OpenedProject { .. }
+            | Message::RefreshProject { .. }
+    )
+}
+
 /// A window's connection to every host it is attached to.
 ///
 /// Replaces the `ubiq_proto::bus::Client` field `AppState` used to hold. `local` takes over
@@ -310,10 +325,15 @@ impl Bus {
         {
             return *host;
         }
-        if let Some(project_id) = message.project_id()
-            && let Some(host) = self.projects.borrow().get(&project_id)
-        {
-            return *host;
+        if let Some(project_id) = message.project_id() {
+            // The record's own half goes to whoever owns the *row* (`D132`): a drone serving a
+            // locally-owned project holds no catalogue, and refuses all five.
+            if is_record_message(message) {
+                return self.row_owner(project_id);
+            }
+            if let Some(host) = self.projects.borrow().get(&project_id) {
+                return *host;
+            }
         }
         self.active
     }
@@ -565,6 +585,15 @@ impl Bus {
             .collect()
     }
 
+    /// How many panes this window knows `host` reported.
+    pub fn pane_count(&self, host: HostRef) -> usize {
+        self.panes
+            .borrow()
+            .values()
+            .filter(|owner| **owner == host)
+            .count()
+    }
+
     /// Every project this window knows of that some host other than `host` reported.
     ///
     /// What keeps one host's catalogue answer from erasing another's: a `ProjectList` is the whole
@@ -706,6 +735,17 @@ impl crate::app::AppState {
     /// read as local — the catalogue they came from is the local one by construction.
     pub fn project_host(&self, project: ProjectId) -> HostRef {
         self.bus.project_host(project)
+    }
+
+    /// How many panes the live connections to saved remote `save_id` hold — what detaching it
+    /// would close. Zero when it is not attached.
+    pub fn saved_remote_panes(&self, save_id: &str) -> usize {
+        self.bus
+            .remote_conns()
+            .iter()
+            .filter(|conn| conn.save_id == save_id)
+            .map(|conn| self.bus.pane_count(HostRef::Remote(conn.id)))
+            .sum()
     }
 }
 
@@ -1257,6 +1297,25 @@ mod tests {
         // And the local host re-listing does not take the folder back off the drone.
         bus.note_project(pinned, HostRef::Local);
         assert_eq!(bus.project_host(pinned), HostRef::Remote(drone));
+
+        // The record's own messages go to the row's owner; the folder's go to the drone.
+        assert_eq!(
+            bus.resolve(&Message::OpenedProject { project_id: pinned }),
+            HostRef::Local
+        );
+        assert_eq!(
+            bus.resolve(&Message::RefreshProject { project_id: pinned }),
+            HostRef::Local
+        );
+        assert_eq!(
+            bus.resolve(&Message::ListWork { project_id: pinned }),
+            HostRef::Remote(drone)
+        );
+        // A drone's own row is the drone's, record and all.
+        assert_eq!(
+            bus.resolve(&Message::OpenedProject { project_id: theirs }),
+            HostRef::Remote(drone)
+        );
     }
 
     /// A drone going away is not the catalogue forgetting anything: the row it was serving stays,
