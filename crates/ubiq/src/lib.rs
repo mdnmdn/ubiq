@@ -10,6 +10,7 @@
 pub mod app;
 pub mod ext;
 pub mod state;
+pub mod devtools;
 pub mod theme;
 pub mod ui;
 pub mod version;

@@ -195,25 +195,54 @@ impl AppState {
                 if let (Some(path), Some(browse)) =
                     (picked.into_iter().next(), self.host_browse.take())
                 {
-                    self.adding = true;
-                    self.bus.send_to(
-                        browse.host,
-                        Message::AddProject {
-                            path,
-                            name: None,
-                            colour: None,
-                            custom_colour: None,
-                            temporary: !browse.persistent,
-                            // A folder taken straight from the host browser never passed the
-                            // creation panel, which is the one place the mode is chosen.
-                            storage: StorageMode::default(),
-                        },
-                    );
+                    // A drone serves a folder and keeps no catalogue: the folder becomes a
+                    // *local* project pinned to the carrier that reached it (`D132`), and opening
+                    // it is what launches the drone that serves it.
+                    match self.drone_origin_for(browse.host, &path) {
+                        Some(Ok(origin)) => {
+                            self.adding = true;
+                            self.bus.send_to(
+                                HostRef::Local,
+                                Message::AddProject {
+                                    path,
+                                    name: None,
+                                    colour: None,
+                                    custom_colour: None,
+                                    temporary: !browse.persistent,
+                                    storage: StorageMode::default(),
+                                    runs_on: Some(origin),
+                                },
+                            );
+                        }
+                        Some(Err(refusal)) => {
+                            self.workbench.project_error = Some(refusal);
+                        }
+                        None => self.add_host_project(browse.host, path, browse.persistent),
+                    }
                 }
             }
         }
         self.close_host_browse();
         cx.notify();
+    }
+
+    /// A folder picked on a full host joins *that* host's catalogue.
+    fn add_host_project(&mut self, host: HostRef, path: String, persistent: bool) {
+        self.adding = true;
+        self.bus.send_to(
+            host,
+            Message::AddProject {
+                path,
+                name: None,
+                colour: None,
+                custom_colour: None,
+                temporary: !persistent,
+                // A folder taken straight from the host browser never passed the creation panel,
+                // which is the one place the mode is chosen.
+                storage: StorageMode::default(),
+                runs_on: None,
+            },
+        );
     }
 
     /// Raise the picker over the open project's explorer tree, to be answered into one composer.

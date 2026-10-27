@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: The design for bringing the database-explorer proof into the base as an opt-in rail mode after IDE — a fifth crate `ubiq-db` (the engine, drivers behind a feature), a database message family scoped by project, host-side sessions on worker threads with three read-only layers, connections in a tracked `db.toml` with passwords AES-256-GCM encrypted under a per-install key kept in the OS keychain, three new panel kinds (explorer left, table tabs centre, SQL tabs bottom), a Databases section in project settings, and the ordered work packages that build it.
 read_when: you are building any part of the DB rail mode — the `ubiq-db` crate, the database message family, the host's sessions or secrets, the explorer, table or SQL panels, or the Databases settings section
-updated: 2026-10-01
+updated: 2026-10-26
 verified: 2026-10-01
 code_anchors: [crates/ubiq/src/ui/rail.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/kb/mod.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-proto/src/messages.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/connectors/store.rs]
 depends_on: [tech-architecture, tech-transport, feat-workbench, tech-decisions, wip-kb]
@@ -323,7 +323,7 @@ connection), and a confirm before a write statement runs.
 
 **The Databases section.** `crates/ubiq/src/ui/sink/project.rs` gains `ext_ids::PROJECT_DB` and a
 `databases` section, `SectionGate::WithRecord`, drawn like `kb`: one row per connection — name, kind,
-host/database or file, read-only marker, `saved`/`not saved`/`session` — with Test, Edit and Remove,
+host/database or file, read-only marker, `saved`/`not saved`/`session` — with Test, Edit and Remove (icon actions with tooltips),
 a keystore warning row when `DbKeystore::Unavailable`, and **Add connection**. Add and Edit raise
 `ui/db/conn_form.rs`, a `kit::modal` painted at the window root like `ui/kb/source_form.rs` and under
 its three-layer dismissal guard: kind, a connection-string field and Parse (`conn::parse_connection_string`,

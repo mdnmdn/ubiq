@@ -135,7 +135,10 @@ pub fn modes(reg: &mut Registry<RailModeSpec>) {
             slug: "sink",
             icon: || Icon::new(UbiqIcon::ModeSink),
             ui_id: uid::RAIL_MODE_SINK,
-            availability: Availability::Always,
+            // Dev furniture: on the rail only while `Enable dev settings` is (`Tier::Dev`).
+            availability: Availability::When(|app, _| {
+                app.offers(crate::state::settings::Tier::Dev)
+            }),
             has_pane_region: false,
             needs_project: false,
             opens_left: false,

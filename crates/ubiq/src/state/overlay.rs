@@ -94,6 +94,8 @@ pub enum Layer {
     /// The About modal. Beside the feedback modal on its terms: raised from the titlebar, over
     /// whatever is already up.
     About,
+    /// The Tools dialog. Raised from the titlebar like About, and painted just after it.
+    Devtools,
     /// An agent's question to the user. Above the feedback modal on the same terms — it is raised
     /// from the transcript, and from the host at any moment — and it is the one modal that is
     /// never raised over another: an ask arriving while anything is up leaves a notification and
@@ -136,6 +138,9 @@ pub enum Layer {
     ThemeNaming,
     /// The terminal tab's Close confirm.
     ClosePane,
+    /// An origin carrier's question (`ext::origin::OriginConfirm`) — raised while a project is
+    /// opened, so at the window root on the pane Close's footing.
+    OriginConfirm,
     /// The chat tab's Close confirm.
     EndConversation,
     /// The document-ownership question: reassign a bound document to the agent that asked?
@@ -157,6 +162,12 @@ pub enum Layer {
     /// Any dropdown a form keeps open on its own state — a picker inside a modal is painted above
     /// every modal, so it is the top rung whatever raised it.
     Dropdown,
+    /// The onboarding wizard's dialog — only while it is on screen. Above every dialog and
+    /// dropdown because it is raised over whatever the window was showing at launch or on a mode
+    /// switch, and closes only through its own navigation: Escape is swallowed here rather than
+    /// handed down. A step that highlights a place on the screen steps the dialog aside, and the
+    /// rung goes with it — the window is meant to be used then.
+    Onboarding,
     /// In-place help's targeting mode, above every other rung in the window.
     ///
     /// **Deliberately the top, and the one layer that is not a dialog.** Everything below is

@@ -20,10 +20,12 @@ use gpui_component::Icon;
 use crate::app::AppState;
 use crate::state::editor::ViewerKind;
 use crate::state::navigator::subsequence;
+use crate::state::ui_id;
 use crate::state::vim::VimMode;
 use crate::state::{MenuId, RailMode};
 use crate::theme;
 use crate::ui::board::status_colour;
+use crate::ui::ident::Identified as _;
 use crate::ui::kit::{Picker, PickerStyle, UbiqIcon, icon_button, mono};
 use crate::ui::work::bucket_colour;
 use crate::ui::{handler, indexed, size};
@@ -108,7 +110,8 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
         .gap_4()
         .bg(theme::pane_bg())
         .border_t_1()
-        .border_color(theme::border());
+        .border_color(theme::border())
+        .ui_id(ui_id::STATUS_BAR);
 
     // A window holding no project has one fact to report, and reports only that. A config root
     // pointed anywhere but the usual place still says so: it is true whatever is open.

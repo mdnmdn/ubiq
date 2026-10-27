@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
@@ -20,6 +21,7 @@ use ubiq_proto::messages::Message;
 use super::jobs::{self, Job};
 use super::secrets::Secrets;
 use super::store;
+use super::tunnel::{self, SshLookup, Tunnel};
 
 /// What a session knows about where it came from. Everything a job needs that is not the
 /// connection itself.
@@ -36,9 +38,21 @@ pub struct Origin {
     pub files: store::Files,
     pub secrets: Arc<Secrets>,
     pub runs: Arc<Runs>,
+    /// The SSH profiles a connection may tunnel through.
+    pub ssh: SshLookup,
+    /// Ubiq's config root, where the askpass helper finds a profile's secret.
+    pub config_root: PathBuf,
+    /// Set when the [`Session`] handle is dropped — a disconnect, a closed tab, a gone window. A
+    /// dial still in flight (a tunnel takes up to 20 s) then ends silently rather than announcing
+    /// a `Connected` nobody asked for any more.
+    pub closed: Arc<AtomicBool>,
 }
 
 impl Origin {
+    fn closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
     pub fn say(&self, message: Message) {
         self.reply.send(message);
     }
@@ -184,15 +198,24 @@ pub struct Session {
     /// When a job was last queued on it: an agent's session is dropped once idle long enough.
     pub used: Instant,
     jobs: flume::Sender<Job>,
+    closed: Arc<AtomicBool>,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.closed.store(true, Ordering::Release);
+    }
 }
 
 impl Session {
     pub fn spawn(origin: Origin) -> Self {
         let (tx, rx) = flume::unbounded();
         let conn = origin.conn;
+        let closed = origin.closed.clone();
         let worker = Worker {
             origin,
             conn: None,
+            tunnel: None,
             server: String::new(),
         };
         let started = std::thread::Builder::new()
@@ -206,6 +229,7 @@ impl Session {
             conn,
             used: Instant::now(),
             jobs: tx,
+            closed,
         }
     }
 
@@ -218,6 +242,9 @@ impl Session {
 struct Worker {
     origin: Origin,
     conn: Option<Box<dyn Connection>>,
+    /// The SSH forward `conn` was dialled through, if its connection names a profile. Replaced on
+    /// every dial and dropped — killing the `ssh` — when the worker ends.
+    tunnel: Option<Tunnel>,
     /// The server's version string, as of the last connect.
     server: String,
 }
@@ -229,6 +256,8 @@ impl Worker {
                 Some(conn) => (conn, false),
                 None => match self.connect() {
                     Ok(conn) => (conn, true),
+                    // Closed while dialling: whatever is still queued comes to nothing.
+                    Err(_) if self.origin.closed() => break,
                     Err(failure) => {
                         if let Some(message) = job.refuse(&self.origin, failure) {
                             self.origin.say(message);
@@ -257,8 +286,21 @@ impl Worker {
     /// not an error: `NeedsPassword`.
     fn connect(&mut self) -> Result<Box<dyn Connection>, DbFailure> {
         let o = &self.origin;
+        if o.closed() {
+            return Err(closed());
+        }
         o.state(DbConnState::Connecting);
-        let result = dial(o);
+        // A redial after a lost connection gets a fresh forward; the old one goes first.
+        self.tunnel = None;
+        let result = dial(o).map(|(conn, tunnel, server)| {
+            self.tunnel = tunnel;
+            (conn, server)
+        });
+        if o.closed() {
+            // Dropping the connection and the tunnel is the whole of it; nobody is told.
+            self.tunnel = None;
+            return Err(closed());
+        }
         match &result {
             Ok((_, server)) => {
                 self.server = server.clone();
@@ -275,7 +317,13 @@ impl Worker {
     }
 }
 
-fn dial(o: &Origin) -> Result<(Box<dyn Connection>, String), DbFailure> {
+type Dialled = (Box<dyn Connection>, Option<Tunnel>, String);
+
+fn closed() -> DbFailure {
+    DbFailure::new(DbFailureKind::Disconnected, "the session was closed")
+}
+
+fn dial(o: &Origin) -> Result<Dialled, DbFailure> {
     let root = Some(o.project_path.as_path()).filter(|p| !p.as_os_str().is_empty());
     let stored = store::load(&o.files, root)
         .map_err(|e| DbFailure::new(DbFailureKind::Config, e.to_string()))?
@@ -297,6 +345,10 @@ fn dial(o: &Origin) -> Result<(Box<dyn Connection>, String), DbFailure> {
     }
     let asked_none =
         config.password.is_none() && config.kind != DbKind::Sqlite && !config.integrated_auth;
+    let tunnel = tunnel::route(&mut config, stored.ssh, &o.ssh, &o.config_root)?;
+    if o.closed() {
+        return Err(closed());
+    }
     let mut conn = driver::connect(&config).map_err(|e| {
         let mut failure = jobs::failure(&e);
         // A server that wants a password the host never held is a prompt, not a dead end.
@@ -309,7 +361,7 @@ fn dial(o: &Origin) -> Result<(Box<dyn Connection>, String), DbFailure> {
         failure
     })?;
     let server = version(&mut *conn);
-    Ok((conn, server))
+    Ok((conn, tunnel, server))
 }
 
 /// The server's version string, first line of it; empty when it will not say.

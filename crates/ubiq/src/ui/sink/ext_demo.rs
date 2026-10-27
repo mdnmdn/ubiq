@@ -44,6 +44,8 @@ pub fn settings_section(reg: &mut Registry<SettingsSectionSpec>) {
             label: "Extensions demo",
             icon: || UbiqIcon::ModeSink.into(),
             gate: SectionGate::Always,
+            tier: crate::ext::settings::Tier::Dev,
+            keywords: &["extensions", "demo", "sink", "contribution", "example"],
             count: None,
             on_show: None,
             render: render_section,
@@ -99,7 +101,9 @@ pub fn rail_mode(reg: &mut Registry<RailModeSpec>) {
             slug: "ext-demo",
             icon: || UbiqIcon::ModeSink.into(),
             ui_id: ui_id::RAIL_MODE_EXT_DEMO,
-            availability: Availability::When(|app, _cx| app.sink.ext_demo_on),
+            availability: Availability::When(|app, _cx| {
+                app.sink.ext_demo_on && app.offers(crate::state::settings::Tier::Dev)
+            }),
             has_pane_region: false,
             needs_project: false,
             opens_left: false,

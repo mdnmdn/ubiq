@@ -24,6 +24,8 @@ use ubiq_proto::ids::ProjectId;
 
 use super::{Registry, SlotId, Slotted, ids};
 use crate::app::AppState;
+pub use crate::state::settings::Tier;
+use crate::state::settings::UiSettings;
 use crate::ui::sink::project::Form;
 
 /// Which of the two containers a section belongs to. A field rather than a second type: the two
@@ -119,6 +121,12 @@ pub struct SettingsSectionSpec {
     /// belongs in the process-wide resolved list.
     pub icon: fn() -> Icon,
     pub gate: SectionGate,
+    /// How settled the feature behind the section is. A tier the Experimental section has off
+    /// leaves the nav entirely — not greyed, gone — and the nav will not move to it.
+    pub tier: Tier,
+    /// What the search box matches besides the label: other names for the section and words from
+    /// what it says. Case-insensitive substring; every section declares some.
+    pub keywords: &'static [&'static str],
     /// The count the nav prints beside the row. `None` prints none.
     pub count: Option<fn(&SectionCtx<'_>, &App) -> Option<usize>>,
     /// Run when the nav arrives at this section — the asks that are only worth making because the
@@ -131,6 +139,25 @@ pub struct SettingsSectionSpec {
 impl Slotted for SettingsSectionSpec {
     fn id(&self) -> SlotId {
         self.id
+    }
+}
+
+impl SettingsSectionSpec {
+    /// Whether the search box's `query` finds this section: a case-insensitive substring of the
+    /// label or of any keyword. An empty (or blank) query finds every section.
+    pub fn matches(&self, query: &str) -> bool {
+        let query = query.trim().to_lowercase();
+        query.is_empty()
+            || self.label.to_lowercase().contains(&query)
+            || self
+                .keywords
+                .iter()
+                .any(|word| word.to_lowercase().contains(&query))
+    }
+
+    /// Whether the nav lists this section for `ui`'s switches and `query`.
+    pub fn listed(&self, ui: &UiSettings, query: &str) -> bool {
+        ui.offers(self.tier) && self.matches(query)
     }
 }
 

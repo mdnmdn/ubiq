@@ -562,7 +562,7 @@ fn host_settings(host: &ubiq_proto::settings::HostSettings) -> Reply {
 }
 
 /// Now, in epoch milliseconds — the unit a stored credential's own expiry is in.
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -953,8 +953,20 @@ impl Coordinator {
         let armed = Arc::new(crate::armed::Armed::new());
         // The database family, built here so the SQL servers can be handed a handle on it: they run
         // on the listener's own threads and reach the same sessions and editors a window does
-        // (`D202`).
-        let db = crate::db::Db::new(root.path.clone());
+        // (`D202`). Settings are shared from here so a connection's SSH profile is read from them at
+        // dial time.
+        let settings = Arc::new(settings);
+        let ssh_settings = settings.clone();
+        let db = crate::db::Db::new(
+            root.path.clone(),
+            Arc::new(move |id| {
+                ssh_settings
+                    .host()
+                    .ssh_profiles
+                    .into_iter()
+                    .find(|profile| profile.id == id)
+            }),
+        );
         let mcp = crate::mcp::start(
             mcp_agents.clone(),
             host.voice(),
@@ -1024,7 +1036,6 @@ impl Coordinator {
         if let Err(error) = agents.ensure_default_definitions() {
             tracing::warn!("the default agent definitions could not be written: {error:#}");
         }
-        let settings = Arc::new(settings);
         let connectors = Connectors::new(settings.clone(), &root.path);
         let repos = Repos::new(settings.clone(), connectors.store());
         // The task-source sync worker: the **third** holder of the work handle, after this thread
@@ -1754,10 +1765,18 @@ impl Coordinator {
                 custom_colour,
                 temporary,
                 storage,
+                runs_on,
             } => {
-                let replies =
-                    self.projects
-                        .add(&path, name, colour, custom_colour, temporary, storage);
+                let replies = match runs_on {
+                    Some(origin) => {
+                        self.projects
+                            .add_far(&path, name, colour, custom_colour, temporary, origin)
+                    }
+                    None => {
+                        self.projects
+                            .add(&path, name, colour, custom_colour, temporary, storage)
+                    }
+                };
                 self.answer(client, replies);
             }
             Message::ForgetProject { project_id } => {
@@ -4945,6 +4964,8 @@ impl Coordinator {
             .map(|(n, prompt)| ConvUpdate::UserChunk {
                 content: ubiq_proto::conversation::ConvContent::Text(prompt.text),
                 message_id: Some(format!("restored-{n}")),
+                // The time the prompt was written down as sent, not the time it is redrawn.
+                at: Some(prompt.at),
             })
             .chain(std::iter::once(ConvUpdate::TurnEnded {
                 stop_reason: if error.is_some() {

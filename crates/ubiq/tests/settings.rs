@@ -59,6 +59,9 @@ fn a_blob_survives_the_round_trip() {
         excalidraw_theme: ubiq::state::web_panel::WebTheme::Light,
         drawio_theme: ubiq::state::web_panel::WebTheme::Dark,
         archify: Default::default(),
+        devtools_clipboard: false,
+        experimental: true,
+        dev_settings: true,
     };
     let back = settings::decode(&settings::encode(&settings)).expect("decodes");
     assert_eq!(back, settings);
@@ -92,6 +95,9 @@ fn missing_fields_open_on_defaults() {
     // native wire is the better one (`D95`), so the second id for a tool is opt-in and an absent
     // field is the same answer as an unticked box.
     assert!(back.acp_enabled.is_empty());
+    // A blob written before the Experimental section existed opens with both switches off.
+    assert!(!back.experimental);
+    assert!(!back.dev_settings);
 }
 
 #[test]
@@ -2265,4 +2271,30 @@ fn locating_a_registry_agent_writes_its_command_and_adds_it(cx: &mut TestAppCont
             .any(|message| matches!(message, Message::CheckAcpRegistry)),
         "the registry is asked again so the row reflects the new command"
     );
+}
+
+#[test]
+fn a_cloned_ssh_profile_gets_a_new_id_and_no_secret() {
+    use ubiq_proto::ids::SshProfileId;
+    use ubiq_proto::settings::{SshAuth, SshProfile};
+    let original = SshProfile {
+        id: SshProfileId::generate(),
+        name: "box".into(),
+        host: "h".into(),
+        port: 22,
+        user: "u".into(),
+        auth: SshAuth::KeyFile {
+            path: "~/.ssh/k".into(),
+            has_passphrase: true,
+        },
+        initial_command: Some("tmux a".into()),
+        terminal_enabled: true,
+    };
+    let copy = original.cloned();
+    assert_ne!(copy.id, original.id);
+    assert_eq!(copy.name, "box copy");
+    assert_eq!(copy.initial_command, original.initial_command);
+    assert!(copy.terminal_enabled);
+    assert!(!copy.auth.has_secret());
+    assert!(original.auth.has_secret());
 }

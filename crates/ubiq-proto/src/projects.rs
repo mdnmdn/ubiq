@@ -233,11 +233,22 @@ impl ProjectRecord {
 /// [`crate::settings::HostSettings::ssh_profiles`], whose secret is the host's and reaches `ssh`
 /// through the askpass helper, so a catalogue is still a file a user could read out loud.
 ///
+/// **Two ways to reach the machine, exactly one of them set.** [`profile`] is the base's own SSH
+/// carrier; [`via`] names a carrier an edition contributes (`ubiq::ext::origin`). A record naming
+/// neither cannot launch anything, and says so on its row rather than guessing.
+///
 /// [`profile`]: Self::profile
+/// [`via`]: Self::via
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DroneOrigin {
-    /// The saved SSH profile that reaches the machine.
-    pub profile: SshProfileId,
+    /// The saved SSH profile that reaches the machine, or `None` when [`Self::via`] does.
+    ///
+    /// An `Option` only since `via` existed. Every record written before then carries the field
+    /// and reads back `Some`. The reverse is not true — a build from before `via` cannot read an
+    /// origin without a profile — so a catalogue holding one is written at the next version, and
+    /// an SSH-only catalogue keeps the old one (`ubiq-host`'s `store::file`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<SshProfileId>,
     /// The folder on *that* machine, as the drone is launched with `--root`. It is the far
     /// machine's path, never resolvable here, which is why it is a plain string.
     pub root: String,
@@ -249,6 +260,59 @@ pub struct DroneOrigin {
     /// never said otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linger_secs: Option<u64>,
+    /// A contributed carrier that reaches the machine in place of an SSH profile. Purely
+    /// additive: absent on every record that has a `profile`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<OriginVia>,
+}
+
+/// Why an origin cannot be used: it must name exactly one way in, a `profile` or a `via`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OriginShape {
+    /// Neither a profile nor a contributed carrier.
+    Neither,
+    /// Both at once — which one launches would be a guess.
+    Both,
+}
+
+impl std::fmt::Display for OriginShape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Neither => "the drone origin names no way to reach its machine",
+            Self::Both => "the drone origin names both an SSH profile and another carrier",
+        })
+    }
+}
+
+impl DroneOrigin {
+    /// Whether this origin names exactly one way in. The host refuses an add or an update whose
+    /// origin fails this, and a catalogue row that fails it loads as running here.
+    pub fn check(&self) -> Result<(), OriginShape> {
+        match (self.profile.is_some(), self.via.is_some()) {
+            (true, false) | (false, true) => Ok(()),
+            (false, false) => Err(OriginShape::Neither),
+            (true, true) => Err(OriginShape::Both),
+        }
+    }
+
+    /// Whether this origin and another name the same folder through the same carrier. The linger
+    /// and the preset are the project's choice about the drone, not where it is, so they do not
+    /// enter; the folder is compared whitespace-insensitively because the string is the user's.
+    pub fn same_place(&self, other: &DroneOrigin) -> bool {
+        self.profile == other.profile
+            && self.via == other.via
+            && self.root.trim() == other.root.trim()
+    }
+}
+
+/// A carrier an edition contributes, as a [`DroneOrigin`] names it: which kind of carrier, and
+/// which of that kind's targets. Both are opaque here — the kind is the registered carrier's own
+/// key, the target an id into whatever that carrier keeps — so a catalogue still holds no
+/// credential material and no carrier this build lacks fails to load.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct OriginVia {
+    pub kind: String,
+    pub target: String,
 }
 
 /// What an update does to a project's drone origin.
@@ -441,10 +505,11 @@ mod tests {
 
     fn origin() -> DroneOrigin {
         DroneOrigin {
-            profile: SshProfileId::generate(),
+            profile: Some(SshProfileId::generate()),
             root: "/srv/work".into(),
             preset: DronePreset::Session,
             linger_secs: Some(60),
+            via: None,
         }
     }
 
@@ -520,6 +585,60 @@ mod tests {
         let raw = serde_json::to_string(&record).expect("a record serialises");
         let back: ProjectRecord = serde_json::from_str(&raw).expect("and reads back");
         assert_eq!(back.runs_on, Some(origin));
+    }
+
+    /// An origin written before `via` existed — a bare profile, in the catalogue's own TOML —
+    /// reads back with that profile and no contributed carrier; one written through a carrier
+    /// writes no profile at all and round-trips its `via`.
+    #[test]
+    fn an_origin_reads_old_profiles_and_round_trips_a_contributed_carrier() {
+        let profile = SshProfileId::generate();
+        let old = format!("profile = \"{profile}\"\nroot = \"/srv/work\"\npreset = \"session\"\n");
+        let back: DroneOrigin = toml::from_str(&old).expect("an old origin still loads");
+        assert_eq!(back.profile, Some(profile));
+        assert_eq!(back.via, None);
+
+        let carried = DroneOrigin {
+            profile: None,
+            via: Some(OriginVia {
+                kind: "example".into(),
+                target: "t1".into(),
+            }),
+            ..origin()
+        };
+        let raw = toml::to_string(&carried).expect("a carried origin serialises");
+        assert!(!raw.contains("profile"), "no profile is written: {raw}");
+        let back: DroneOrigin = toml::from_str(&raw).expect("and reads back");
+        assert_eq!(back, carried);
+        assert!(back.same_place(&DroneOrigin {
+            root: " /srv/work ".into(),
+            linger_secs: None,
+            ..carried.clone()
+        }));
+        assert!(!back.same_place(&origin()));
+    }
+
+    /// Exactly one way in: a profile or a carrier, never both and never neither.
+    #[test]
+    fn an_origin_names_exactly_one_way_in() {
+        let via = Some(OriginVia {
+            kind: "example".into(),
+            target: "t1".into(),
+        });
+        assert_eq!(origin().check(), Ok(()));
+        let carried = DroneOrigin {
+            profile: None,
+            via: via.clone(),
+            ..origin()
+        };
+        assert_eq!(carried.check(), Ok(()));
+        let both = DroneOrigin { via, ..origin() };
+        assert_eq!(both.check(), Err(OriginShape::Both));
+        let neither = DroneOrigin {
+            profile: None,
+            ..origin()
+        };
+        assert_eq!(neither.check(), Err(OriginShape::Neither));
     }
 
     /// The same additive rule `runs_on` follows: a record that says nothing about storage writes

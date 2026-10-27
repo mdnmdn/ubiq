@@ -158,8 +158,20 @@ impl WindowRegistry {
             .iter()
             .filter_map(|id| self.projects.remove(id).map(|p| (*id, p)))
             .collect();
-        for project in projects {
-            kept.entry(project.record.id).or_insert(project);
+        for mut project in projects {
+            keep_far_mark(self.projects.get(&project.record.id), &mut project);
+            match kept.get_mut(&project.record.id) {
+                // A kept row this answer also names is a drone serving a local record: the
+                // record stays the local one, and the liveness is the drone's — which is what
+                // clears the "not attached" a previous drone left on it.
+                Some(row) => {
+                    row.health = project.health;
+                    row.open_panes = project.open_panes;
+                }
+                None => {
+                    kept.insert(project.record.id, project);
+                }
+            }
         }
         self.projects = kept;
         let known: Vec<ProjectId> = self.projects.keys().copied().collect();
@@ -170,7 +182,8 @@ impl WindowRegistry {
     }
 
     /// Apply one snapshot, whether it is new or a change to one already held.
-    pub fn apply(&mut self, project: ProjectSnapshot) {
+    pub fn apply(&mut self, mut project: ProjectSnapshot) {
+        keep_far_mark(self.projects.get(&project.record.id), &mut project);
         self.projects.insert(project.record.id, project);
     }
 
@@ -333,6 +346,24 @@ fn matches_needle(snapshot: &ProjectSnapshot, needle: &str) -> bool {
     needle.is_empty()
         || snapshot.record.name.to_lowercase().contains(needle)
         || snapshot.record.path.to_lowercase().contains(needle)
+}
+
+/// Keep the sentence a drone-served row was marked with when its *record's* owner answers.
+///
+/// The local host cannot see a far folder, so its snapshot of a `runs_on` row always reads healthy;
+/// letting that overwrite an `Unreadable` the drone's dial (or its absence) put there would hide the
+/// one thing the row has to say. Only a drone's own listing clears the mark — the kept-row path of
+/// [`WindowRegistry::replace_all_except`] — or an origin that changed, which is a new question.
+fn keep_far_mark(old: Option<&ProjectSnapshot>, incoming: &mut ProjectSnapshot) {
+    let Some(old) = old else { return };
+    if incoming.record.runs_on.is_some()
+        && incoming.record.runs_on == old.record.runs_on
+        && matches!(old.health, ProjectHealth::Unreadable(_))
+        && incoming.health == ProjectHealth::Ok
+    {
+        incoming.health = old.health.clone();
+        incoming.open_panes = old.open_panes;
+    }
 }
 
 /// Remove a project from one slot, keeping `active` on a project that still exists.

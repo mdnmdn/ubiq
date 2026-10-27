@@ -21,8 +21,43 @@ use super::project_dir::ProjectDirs;
 use super::{BoardRecord, PreferenceStore, ProjectStore, SettingsStore, StoreError, TaskStore};
 use crate::atomic::{preserve_aside, write_atomic};
 
-/// The catalogue format this Ubiq writes and understands.
-pub const CATALOGUE_VERSION: u32 = 1;
+/// The newest catalogue format this Ubiq writes and understands: a drone origin may name a
+/// contributed carrier (`via`) instead of an SSH profile.
+pub const CATALOGUE_VERSION: u32 = 2;
+
+/// The format written while no record needs [`CATALOGUE_VERSION`]. A build from before `via`
+/// cannot read an origin without a `profile`, and a file it cannot parse it moves aside and
+/// replaces with an empty one; a version it does not know it leaves alone. So the version moves
+/// only when a record's origin uses `via`, and an SSH-only catalogue stays readable by the builds
+/// that wrote it.
+pub const CATALOGUE_VERSION_PLAIN: u32 = 1;
+
+/// The version a catalogue holding these records is written as.
+fn catalogue_version_for(records: &[ProjectRecord]) -> u32 {
+    let carried = records
+        .iter()
+        .any(|record| record.runs_on.as_ref().is_some_and(|o| o.via.is_some()));
+    if carried {
+        CATALOGUE_VERSION
+    } else {
+        CATALOGUE_VERSION_PLAIN
+    }
+}
+
+/// A row whose origin names no way in, or two, is loaded as running here and logged — one bad
+/// origin is not a reason to lose the catalogue.
+fn drop_malformed_origins(records: &mut [ProjectRecord]) {
+    for record in records {
+        if let Some(Err(shape)) = record.runs_on.as_ref().map(|o| o.check()) {
+            tracing::warn!(
+                "project {} ({}): {shape}; it is loaded as running here",
+                record.name,
+                record.id
+            );
+            record.runs_on = None;
+        }
+    }
+}
 
 /// The whole file. `version` is at the top so a future migration has a hook to read.
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -179,7 +214,7 @@ impl FileProjectStore {
         let mut table = toml::Table::new();
         table.insert(
             "version".to_string(),
-            toml::Value::Integer(i64::from(CATALOGUE_VERSION)),
+            toml::Value::Integer(i64::from(catalogue_version_for(&records))),
         );
         if !rows.is_empty() {
             table.insert("project".to_string(), toml::Value::Array(rows));
@@ -248,7 +283,8 @@ impl ProjectStore for FileProjectStore {
         }
 
         match toml::from_str::<CatalogueFile>(&raw) {
-            Ok(file) => {
+            Ok(mut file) => {
+                drop_malformed_origins(&mut file.projects);
                 *self.records.write().unwrap_or_else(|e| e.into_inner()) = file.projects.clone();
                 Ok(file.projects)
             }

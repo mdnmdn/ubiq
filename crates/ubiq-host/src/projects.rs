@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use ubiq_proto::ids::ProjectId;
 use ubiq_proto::projects::{
-    DroneChange, IndexChange, LanePref, MissionTermChange, ProjectRecord, ProjectSnapshot, Scope,
-    StorageMode,
+    DroneChange, DroneOrigin, IndexChange, LanePref, MissionTermChange, ProjectHealth,
+    ProjectRecord, ProjectSnapshot, Scope, StorageMode,
 };
 use ubiq_proto::tools::ToolDef;
 
@@ -234,7 +234,12 @@ impl Projects {
 
     fn snapshot(&self, record: &ProjectRecord) -> ProjectSnapshot {
         ProjectSnapshot {
-            health: probe(Path::new(&record.path)),
+            // A project that runs on a drone has its folder on that machine: probing this one
+            // says nothing about it. Its row says what the drone's dial says instead.
+            health: match record.runs_on {
+                Some(_) => ProjectHealth::Ok,
+                None => probe(Path::new(&record.path)),
+            },
             open_panes: self.open_panes.get(&record.id).copied().unwrap_or(0),
             workarea: self.reserve_workarea(record.id),
             ephemeral: self.ephemeral(record),
@@ -499,6 +504,72 @@ impl Projects {
         replies
     }
 
+    /// Take a folder on a drone's machine into the catalogue, pinned to the origin that reaches it.
+    ///
+    /// [`Self::add`]'s far twin, and deliberately smaller: the folder is not on this machine, so
+    /// nothing is canonicalised or checked and no `.ubiq/` is made — the record is Ubiq-managed
+    /// whatever it is. The far path is the uniqueness key together with the carrier, so the same
+    /// folder picked twice through the same carrier resolves to the project that is there.
+    pub fn add_far(
+        &mut self,
+        path: &str,
+        name: Option<String>,
+        colour: Option<usize>,
+        custom_colour: Option<u32>,
+        temporary: bool,
+        mut origin: DroneOrigin,
+    ) -> Vec<Reply> {
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            return vec![Reply::Asker(message_error(None, "no folder was named"))];
+        }
+        if let Err(shape) = origin.check() {
+            return vec![Reply::Asker(message_error(None, shape.to_string()))];
+        }
+        origin.root = path.clone();
+        if let Some(existing) = self
+            .records
+            .iter()
+            .find(|r| r.runs_on.as_ref().is_some_and(|o| o.same_place(&origin)))
+        {
+            return vec![Reply::Asker(ubiq_proto::messages::Message::ProjectAdded {
+                project: self.snapshot(existing),
+            })];
+        }
+
+        let record = ProjectRecord {
+            id: ProjectId::generate(),
+            name: name.unwrap_or_else(|| far_leaf(&path)),
+            path,
+            colour: if temporary {
+                0
+            } else {
+                colour.unwrap_or_else(|| self.next_colour())
+            },
+            custom_colour: if temporary { None } else { custom_colour },
+            temporary,
+            created_at: Utc::now(),
+            last_opened_at: None,
+            search_excludes: Vec::new(),
+            index: None,
+            mission_term: None,
+            managed_repos: Vec::new(),
+            tools: Vec::new(),
+            lanes: Vec::new(),
+            runs_on: Some(origin),
+            initials: String::new(),
+            storage: StorageMode::UbiqManaged,
+            definitions_use_global: true,
+            definitions_allowed: Vec::new(),
+        };
+        let snapshot = self.snapshot(&record);
+        let mut replies = vec![Reply::Everyone(
+            ubiq_proto::messages::Message::ProjectAdded { project: snapshot },
+        )];
+        replies.extend(self.keep(record));
+        replies
+    }
+
     /// Turn a temporary project into a durable one: the single path that clears the flag.
     ///
     /// Naming a temporary project in the settings dialog is what keeps it, and both the settings
@@ -652,6 +723,12 @@ impl Projects {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
         };
+        // An origin names exactly one way in; one that names none, or two, changes nothing.
+        if let Some(DroneChange::Set(origin)) = &runs_on
+            && let Err(shape) = origin.check()
+        {
+            return vec![Reply::Asker(message_error(Some(id), shape.to_string()))];
+        }
         // Naming a temporary project in the settings dialog is what keeps it, and this is where
         // that happens — there is deliberately no separate promote message.
         if record.temporary {
@@ -825,6 +902,14 @@ impl Projects {
         let Some(record) = self.find(id) else {
             return vec![Reply::Asker(message_error(Some(id), "no such project"))];
         };
+        // A drone-served project's folder is on the drone's machine: a folder on this one is not
+        // where it went, and re-pointing the record at it would cut it off from its drone.
+        if record.runs_on.is_some() {
+            return vec![Reply::Asker(message_error(
+                Some(id),
+                "this project runs on a drone: its folder is located on that machine, not this one",
+            ))];
+        }
         let mut record = record.clone();
 
         let canonical = match std::fs::canonicalize(request_path(path)) {
@@ -1035,6 +1120,17 @@ impl Projects {
 }
 
 /// The folder's own name, which is what a project is called until it is renamed.
+/// A far folder's leaf. Split on both separators, because the far machine may be Windows while
+/// this one is not, and `Path` only knows this machine's.
+fn far_leaf(path: &str) -> String {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|leaf| !leaf.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
 fn leaf(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())

@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: The GPUI rendering model, the complete theme token set and the rule that no colour escapes it, how a palette is switched, the shape every surface, modal and dialog is drawn in, the page every primitive is looked at on, and the design assets screens are built against.
 read_when: you are building or restyling a screen, adding a colour or a size, switching or extending a palette, raising a modal or the file picker, looking at a primitive on the style reference, or looking for the wireframe a layout came from
-updated: 2026-10-11
-verified: 2026-10-11
-code_anchors: [crates/ubiq/src/theme.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
+updated: 2026-10-27
+verified: 2026-10-26
+code_anchors: [crates/ubiq/src/theme.rs, crates/ubiq/src/ui/onboarding/mod.rs, assets/icons/icons.yaml, _tools/icons.py, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/mod.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/board/mod.rs, crates/ubiq/src/state/board.rs, crates/ubiq/src/ui/kit/mod.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/ui/kit/colour.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/kit/menu.rs, crates/ubiq/src/ui/kit/canvas.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/overlay.rs, crates/ubiq/src/state/overlay.rs, crates/ubiq/src/ui/kit/ribbon.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/src/ui/kit/popover.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/tests/dismiss.rs, crates/ubiq/src/ui/remote_hosts.rs]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -318,6 +318,8 @@ restyling the shell should be one file to visit.
 | `MODAL_WIDTH`, `MODAL_MAX_HEIGHT` | A modal: one width, because a modal is one question, and the fraction of the window's height its body scrolls inside |
 | `CHAT_FOCUS_RATIO` | The fraction of the window, each way, a chat in focus mode takes — a ratio, so nothing scales it |
 | `LOGIN_MODAL_WIDTH`, `LOGIN_MODAL_HEIGHT` | The one modal that is not one question: a running harness login, sized through `kit::modal_sized`'s fill mode so a full-screen TUI (`opencode`, `grok`) gets a real terminal instead of the ~50×16 a one-question modal would give it |
+| `ONBOARDING_WIDTH`, `ONBOARDING_HEIGHT` | The onboarding dialog: fixed, so a markdown step scrolls inside it and moving between steps never resizes the panel |
+| `ONBOARDING_CALLOUT_WIDTH`, `ONBOARDING_CALLOUT_ROOM`, `ONBOARDING_DOT`, `ONBOARDING_GLOW` | The card a highlight step shows beside its target, the height the placement arithmetic assumes for it (as `HELP_BALLOON_ROOM` does for the help balloon), a progress dot's side, and the width of the pulsing ring around a highlight's outline |
 | `SETTINGS_WIDTH`, `SETTINGS_HEIGHT`, `SETTINGS_NAV_WIDTH` | A settings page overlay: a fixed-size panel with a nav, not a one-question modal and not a resizable dialog. Both containers — application settings and the project dialog — take all three, because one component draws the nav-and-body split for both |
 | `A2UI_IMAGE_ICON`, `A2UI_IMAGE_AVATAR`, `A2UI_IMAGE_SMALL`, `A2UI_IMAGE_MEDIUM`, `A2UI_IMAGE_LARGE`, `A2UI_IMAGE_HEADER_H` | The six sizes an A2UI `Image` variant maps onto. The catalog names the variant and this file decides how big it is, because a payload Ubiq did not write must not be able to state a size |
 | `A2UI_SVG_MAX` | The box an agent-authored picture is fitted into, aspect preserved — the ceiling on how much of a surface one drawing may take |
@@ -546,7 +548,19 @@ Every other step keeps `kit::modal`'s ordinary `MODAL_WIDTH` and scrolling body;
 hosts a pane still follows every rule above, only what fills the body changes. The About modal
 (`ui/about.rs`, `Layer::About` just above `Layer::Feedback`) is the other fixed-size one: a
 `kit::tab_strip` of three tabs in a panel that keeps its size whichever tab is up, its package list a
-`uniform_list` of equal rows inside the filled body.
+`uniform_list` of equal rows inside the filled body. The Tools dialog (`ui/devtools.rs`,
+`Layer::Devtools` just above `Layer::About`) is a page overlay on the settings page's frame —
+`SETTINGS_WIDTH`/`SETTINGS_HEIGHT` and `kit::settings_split` — rather than a modal; its icon,
+`titlebar-tools`, is Lucide's wrench adopted into the titlebar set.
+
+**A walk the user leaves only through its own buttons is `kit::modal_locked`.** It is `modal_sized` with no
+× and a backdrop click that does nothing — a private `Dismissal` enum in `ui/kit/overlay.rs` picks
+the header and the scrim's behaviour for the three — and the caller's footer must always offer a way out. The
+onboarding dialog (`ui/onboarding/mod.rs`) is its one caller, at `ONBOARDING_WIDTH` by
+`ONBOARDING_HEIGHT`. Its rung is `Layer::Onboarding`, between the dropdowns and the help target:
+the rung is reported only while the dialog is on screen, `cancel_dialog` swallows Escape there
+rather than handing it to what the dialog covers, and a highlight step, which hides the dialog,
+takes no rung. The feature is [`onboarding.md`](../features/onboarding.md).
 
 **The header has a second slot, beside the title's close.** `modal_sized`'s `actions:
 Option<AnyElement>` draws before the dismiss button — nearly every caller passes `None`, since
@@ -898,6 +912,18 @@ the same way, through `kit::elided`. A control's meaning lives in a word somewhe
 never in the icon alone. `G294` names where the tree still falls short of this — the titlebar's
 region toggles and a handful of others draw no tooltip yet.
 
+**A list row's verbs are icons, one per verb, through `kit::row_action`.** A settings list whose
+rows can be tested, edited, renamed, cloned or deleted draws each of those as `row_action(id,
+RowAction::…, on_click)`: a 24px square sized for a one-line row, whose icon and tooltip are fixed
+by the `RowAction` — `Test` (Lucide `Play`), `StopTest` (`action-stop`), `Edit` (`action-edit`),
+`Rename` (`action-rename`), `Clone` (`action-clone`), `Delete` (`action-delete`, the glyph turning
+`danger()` on hover). The same verb therefore looks the same in every list. A row that words a verb
+otherwise keeps the icon and changes only the tooltip — `.tip("Remove")`, `"Forget"`,
+`"Disconnect"` are all `Delete` — and `.enabled(false)` draws a verb that is unavailable faint
+and inert, tooltip kept. The order on a row is fixed: `Test`/`StopTest` · `Edit` · `Rename` ·
+`Clone` · `Delete`, so `Delete` is always last. What stays a text button is what is not a row's
+verb: a section's `Add …`, and a one-off action a page offers once (`Save`, `Clear URL override`).
+
 **Some surfaces are painted, not laid out.** Flexbox and `gpui-component` cover almost everything;
 what is left is geometry a box model cannot express — a dotted ground, a cubic connector between two
 points, a dashed outline, a trail of grains, a ring at a percentage. Those go through GPUI's
@@ -1113,3 +1139,4 @@ that no component has an opinion about theming.
 - [`architecture.md`](./architecture.md) — why the UI holds no process and no pseudo-terminal
 - [`diagram-format.md`](./diagram-format.md) — how the wireframes are authored and rendered
 - [`../features/panes-and-terminals.md`](../features/panes-and-terminals.md) — what a pane shows and how focus behaves
+- [`../features/onboarding.md`](../features/onboarding.md) — the one `kit::modal_locked` caller

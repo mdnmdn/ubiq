@@ -53,6 +53,10 @@ pub struct Provisioned {
     /// `session/new`, so its bridge needs the value after provisioning has
     /// already happened.
     pub model: Option<String>,
+    /// The reasoning level this run asked for — copied from
+    /// [`crate::spec::RunSpec::thinking`] for the same reason as [`Self::model`]: a registry ACP
+    /// adapter takes no effort flag and has it set over the wire after `session/new`.
+    pub thinking: Option<String>,
     /// The run's MCP servers, in-process ones already hosted, for an ACP adapter whose only
     /// per-run MCP route is `session/new`'s `mcpServers` (`D194`). A harness opts in by handing
     /// them to [`crate::io::AcpBridge::with_mcp_servers`] from its
@@ -78,6 +82,7 @@ impl Clone for Provisioned {
             resume: self.resume.clone(),
             fork: self.fork,
             model: self.model.clone(),
+            thinking: self.thinking.clone(),
             mcp_servers: self.mcp_servers.clone(),
         }
     }
@@ -157,6 +162,7 @@ pub fn provision(
             resume: spec.resume.clone(),
             fork: spec.fork,
             model: spec.model.clone(),
+            thinking: spec.thinking.clone(),
             mcp_servers: Vec::new(),
             inproc_servers,
         })
@@ -176,6 +182,7 @@ pub fn provision(
             resume: spec.resume.clone(),
             fork: spec.fork,
             model: spec.model.clone(),
+            thinking: spec.thinking.clone(),
             mcp_servers: Vec::new(),
         })
     }
@@ -266,6 +273,7 @@ fn provision_shared_home(
         resume: spec.resume.clone(),
         fork: spec.fork,
         model: spec.model.clone(),
+        thinking: spec.thinking.clone(),
         // An `InProcess` left here (the feature off) was already refused by any harness that
         // sends MCP over the wire.
         mcp_servers: effective_spec

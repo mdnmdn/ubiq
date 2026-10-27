@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Sink mode — the application's own test bench, twelve pages of fixtures with nothing behind them — a buffer, one page per special viewer, the style reference, the file picker in each shape a screen can ask for, the two settings layouts, a live conversation beside its bus traffic, the A2UI surface, the script scratchpad and the teamsim testbed.
 read_when: you are changing the kitchen sink's pages or fixtures, the A2UI renderer, the script scratchpad, the teamsim testbed, or looking for a surface to try a primitive on
-updated: 2026-09-26
-verified: 2026-09-26
+updated: 2026-10-25
+verified: 2026-10-27
 code_anchors: [crates/ubiq/src/state/sink.rs, crates/ubiq/src/app/sink.rs, crates/ubiq/src/ui/sink/mod.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/sink/docs.rs, crates/ubiq/src/ui/sink/style.rs, crates/ubiq/src/ui/sink/files.rs, crates/ubiq/src/ui/sink/settings.rs, crates/ubiq/src/ui/sink/script.rs, crates/ubiq/src/ui/sink/teamsim.rs, crates/ubiq/src/ui/sink/a2ui.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/state/script.rs, crates/ubiq/src/state/teamsim.rs, crates/ubiq/src/state/a2ui.rs, crates/ubiq/src/state/a2ui/value.rs, crates/ubiq/src/state/a2ui/eval.rs, crates/ubiq/src/state/a2ui/action.rs, crates/ubiq/src/state/a2ui/live.rs, crates/ubiq/src/state/a2ui/svg.rs, crates/ubiq/src/state/a2ui/path.rs, crates/ubiq/src/state/a2ui/ubiq-catalog.json, crates/ubiq/src/ui/a2ui.rs, crates/ubiq/src/ui/a2ui/registry.rs, crates/ubiq/src/ui/a2ui/svg.rs, crates/ubiq/src/ui/a2ui/path.rs, crates/ubiq/src/ui/kit/blocks.rs, crates/ubiq/src/ui/kit/menu.rs, _tools/teamsim/FORMAT.md, crates/ubiq/tests/a2ui.rs, crates/ubiq/tests/script.rs, crates/ubiq/tests/sink.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -24,7 +24,9 @@ can be looked at and judged without arranging a project to produce one.
 ## Behaviour
 
 **The kitchen sink is the application's own test bench, and the one screen with nothing behind it.**
-It is under `APP` because it is about Ubiq rather than about a folder: it opens on a first run with an
+It is on the rail only while Settings › Experimental › *Enable dev settings* is on (`Tier::Dev`,
+`Availability::When`; off by default — see the workbench's settings overlay). It is under `APP`
+because it is about Ubiq rather than about a folder: it opens on a first run with an
 empty catalogue, it asks the host for nothing, and it looks the same in every window. Twelve pages,
 selected by a strip along the top — the plain buffer, one per special viewer, the style reference,
 the file picker, the two settings layouts composed from the kit, one live conversation beside the
@@ -56,6 +58,8 @@ question, a form, and something irreversible — told apart by what their edge s
 of the confirming button. Both buttons dismiss and neither claims anything: a fixture that pretended
 to close a pane would be the one thing a screen with nothing behind it must not draw. The shape a
 modal is drawn in belongs to the UI-and-design document, linked below, with every other surface's.
+A fourth trigger, **A locked walk**, is the one exception to "nothing behind them": it raises the
+real onboarding wizard (`AppState::open_onboarding`), the only caller of `kit::modal_locked`.
 
 **The A2UI page draws a surface an agent could send, from the JSON beside it.** A2UI is a protocol
 Ubiq does not own — `_docs/references/a2ui-protocol.md` is its wire and

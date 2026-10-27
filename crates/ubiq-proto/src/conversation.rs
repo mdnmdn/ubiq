@@ -449,6 +449,9 @@ pub enum ConvUpdate {
     UserChunk {
         content: ConvContent,
         message_id: Option<String>,
+        /// When it was said, unix milliseconds UTC, on the same rules as an agent chunk's.
+        #[serde(default)]
+        at: Option<i64>,
     },
     /// Assistant prose. Chunks sharing a `message_id` are one message; a
     /// change of id starts a new one.
@@ -458,6 +461,12 @@ pub enum ConvUpdate {
         /// Which spawned subagent said it; `None` is the conversation itself.
         #[serde(default)]
         subagent: Option<Subagent>,
+        /// When it was said, unix milliseconds UTC: the moment the host heard a live chunk, or
+        /// the source's own time for a replayed one. **`None` where the source keeps no time** —
+        /// a history replayed now is never stamped with now, which would date every old message
+        /// to the moment it was reloaded. A message's time is its first chunk's.
+        #[serde(default)]
+        at: Option<i64>,
     },
     /// Reasoning, drawn as a thinking block.
     ThoughtChunk {
@@ -517,10 +526,26 @@ mod tests {
             content: ConvContent::Text("hello".to_string()),
             message_id: Some("m1".to_string()),
             subagent: None,
+            at: Some(1_767_225_600_000),
         };
         let json = serde_json::to_string(&update).unwrap();
         let back: ConvUpdate = serde_json::from_str(&json).unwrap();
         assert_eq!(back, update);
+    }
+
+    /// A chunk written before messages carried a time still reads, as one with no time.
+    #[test]
+    fn a_chunk_without_a_time_reads_as_none() {
+        let json = r#"{"UserChunk":{"content":{"Text":"hi"},"message_id":null}}"#;
+        let back: ConvUpdate = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            back,
+            ConvUpdate::UserChunk {
+                content: ConvContent::Text("hi".to_string()),
+                message_id: None,
+                at: None,
+            }
+        );
     }
 
     /// A patch that names only a status must not claim to clear a title.

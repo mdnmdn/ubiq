@@ -280,10 +280,17 @@ pub const TITLEBAR_FEEDBACK: UiId = UiId::new("titlebar.feedback");
 pub const TITLEBAR_HELP: UiId = UiId::new("titlebar.help");
 pub const TITLEBAR_ABOUT: UiId = UiId::new("titlebar.about");
 pub const TITLEBAR_POINT_AT: UiId = UiId::new("titlebar.point-at");
+/// The Tools dialog's wrench.
+pub const TITLEBAR_TOOLS: UiId = UiId::new("titlebar.tools");
 /// Settings, and the chevron beside it holding the rest of the occasional commands.
 pub const TITLEBAR_SETTINGS: UiId = UiId::new("titlebar.settings");
 pub const TITLEBAR_OVERFLOW: UiId = UiId::new("titlebar.overflow");
 pub const TITLEBAR_THEME: UiId = UiId::new("titlebar.theme");
+
+/// The strip along the window's foot.
+pub const STATUS_BAR: UiId = UiId::new("statusbar");
+/// The centre of the window: the docked panels and the mode's own screen between rail and edge.
+pub const WORKSPACE: UiId = UiId::new("workspace");
 
 /// Every name the interface knows.
 ///
@@ -327,9 +334,12 @@ pub const CATALOGUE: &[UiId] = &[
     TITLEBAR_HELP,
     TITLEBAR_ABOUT,
     TITLEBAR_POINT_AT,
+    TITLEBAR_TOOLS,
     TITLEBAR_SETTINGS,
     TITLEBAR_OVERFLOW,
     TITLEBAR_THEME,
+    STATUS_BAR,
+    WORKSPACE,
 ];
 
 /// Whether a name is in the [`CATALOGUE`].
@@ -639,6 +649,14 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         },
     ),
     (
+        TITLEBAR_TOOLS,
+        TargetInfo {
+            label: "Tools",
+            blurb: "Base64, JWT, dates, URL encoding, hashes, UUIDs, placeholder text and a text \
+                    diff — and a Smart field that tells you which one a pasted value needs.",
+        },
+    ),
+    (
         TITLEBAR_SETTINGS,
         TargetInfo {
             label: "Settings",
@@ -658,6 +676,22 @@ const DESCRIPTIONS: &[(UiId, TargetInfo)] = &[
         TargetInfo {
             label: "Light and dark",
             blurb: "Switch the whole window between the light and the dark colours.",
+        },
+    ),
+    (
+        STATUS_BAR,
+        TargetInfo {
+            label: "Status bar",
+            blurb: "What the window is doing at a glance — the mode's counts, the update, the \
+                    size control and the build.",
+        },
+    ),
+    (
+        WORKSPACE,
+        TargetInfo {
+            label: "Workspace",
+            blurb: "Where the work happens: the mode's screen in the middle and the panels docked \
+                    around it, each one movable.",
         },
     ),
 ];

@@ -355,6 +355,21 @@ pub fn render(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> im
                             .build(window, cx)
                     }),
                 )
+                // Tools: encoders, decoders, converters and a diff, in a dialog laid out like
+                // settings. Beside settings because both open a page over the window.
+                .child(
+                    icon_button(
+                        "devtools",
+                        UbiqIcon::TitlebarTools,
+                        app.workbench.devtools.is_some(),
+                        cx.listener(|this, _, window, cx| this.toggle_devtools(window, cx)),
+                    )
+                    .h_full()
+                    .ui_id(ui_id::TITLEBAR_TOOLS)
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Tools").build(window, cx)
+                    }),
+                )
                 // Settings and the overflow chevron, one split button: settings is the thing in
                 // there that is reached often enough to stand on the strip, and the chevron holds
                 // the rest — remote hosts and connect, web export, window capture, help. See

@@ -119,6 +119,7 @@ pub(super) fn cmd_login(id: &str, harness_key: &str) -> Result<()> {
         home: Some(home.clone()),
         resume: None,
         model: None,
+        thinking: None,
         fork: false,
         mcp_servers: Vec::new(),
         #[cfg(feature = "inproc-mcp")]

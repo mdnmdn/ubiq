@@ -18,7 +18,9 @@ use crate::app::{
 };
 use crate::state::RailMode;
 use crate::state::git::GitConfirm;
+use crate::state::ui_id;
 use crate::theme;
+use crate::ui::ident::Identified as _;
 use crate::ui::sink::project as project_settings;
 use crate::ui::{
     catalog, git, handler, kit, new_agent, new_mission, rail, remote_connect, remote_hosts, ribbon,
@@ -169,7 +171,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                             (app.workbench.rail_mode == RailMode::GIT && app.project(cx).is_some())
                                 .then(|| git::toolbar(app, cx)),
                         )
-                        .child(app.dock().clone()),
+                        .child(app.dock().clone())
+                        .ui_id(ui_id::WORKSPACE),
                 ),
         )
         .child(status_bar::render(app, window, cx))
@@ -430,6 +433,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .as_ref()
                 .map(|_| crate::ui::about::render(app, window, cx)),
         )
+        // The Tools dialog, after About on the same terms: both are raised from the titlebar.
+        .children(
+            app.workbench
+                .devtools
+                .as_ref()
+                .map(|_| crate::ui::devtools::overlay(app, window, cx)),
+        )
         // An agent's question, over the feedback modal on the same terms — except that it is
         // never actually raised over anything: an ask arriving while any layer is up leaves a
         // notification and a transcript entry instead, and the entry's button is what raises it
@@ -533,6 +543,8 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
                 .confirm_close_pane
                 .map(|_| close_pane_confirm(app, window, cx)),
         )
+        // An origin carrier's question, raised while a project is opened.
+        .children(crate::ext::origin::confirm(app, window, cx))
         // The chat tab's Close, asked before it is done — and painted here for exactly the reason
         // the pane's is. It used to hang off the conversation panel, which works for the
         // three-dots menu (the panel is still up) but not for the tab's own ×: that path takes
@@ -631,6 +643,10 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // The bell's list, painted last of the overlays: it is reached from the titlebar, which
         // is above every screen, so it has to be above every dialog a screen raised.
         .child(crate::ui::notifications::render(app, window, cx))
+        // The onboarding wizard: its dialog, or — on a step that points at a place — the outline
+        // and the callout beside it. After every dialog, because it is raised over whatever the
+        // window was showing; under in-place help, which can point at the wizard's own controls.
+        .child(crate::ui::onboarding::render(app, window, cx))
         // In-place help's targeting mode, painted after every other overlay — including the
         // bell's list, which is otherwise the last of them. It is the one layer that is not a
         // dialog: the reader is pointing at the window rather than answering it, and a dialog's
@@ -842,6 +858,7 @@ fn overlaid(app: &AppState) -> bool {
         || workbench.theme_editor.is_some()
         || workbench.theme_prompt.is_some()
         || workbench.confirm_close_pane.is_some()
+        || workbench.origin_confirm.is_some()
         || workbench.confirm_end_conversation.is_some()
         || workbench.doc_conflict.is_some()
         || workbench.remote_manager.open
@@ -852,5 +869,7 @@ fn overlaid(app: &AppState) -> bool {
         // A child webview is stacked over the window by the platform, so it would sit on top of
         // the targeting overlay and take the mouse moves it lives on.
         || workbench.help_target.is_some()
+        // The wizard's dialog and its callout alike: a child webview would sit over either.
+        || workbench.onboarding.is_some()
         || app.file_picker.is_some()
 }

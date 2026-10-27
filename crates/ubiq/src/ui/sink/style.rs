@@ -30,11 +30,12 @@ use ubiq_proto::notifications::{Family, NotificationRequest, UbiqLink};
 use crate::state::sink::{CHOICES, FACETS, MENU_ITEMS, SinkModal};
 use crate::theme;
 use crate::ui::kit::{
-    ContextItem, MultiPicker, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, Tab, badge, card,
-    check_box, choice_pill, colour_picker, context_panel, disclosure, file_row, filter_bar,
-    ghost_button, hint_row, icon_button, kind_icon, label_hint, meter, mono, panel_header, pill,
-    primary_button, progress_ring, progress_ring_pair, quota_ring, removable_tag, ribbon, row_font,
-    section_label, slab, state_chip, status_dot, stepper, tab_strip, tag, toggle_pill, view_switch,
+    ContextItem, MultiPicker, Picker, PickerStyle, RIBBON_SIZE, RibbonCorner, RowAction, Tab,
+    badge, card, check_box, choice_pill, colour_picker, context_panel, disclosure, file_row,
+    filter_bar, ghost_button, hint_row, icon_button, kind_icon, label_hint, meter, mono,
+    panel_header, pill, primary_button, progress_ring, progress_ring_pair, quota_ring,
+    removable_tag, ribbon, row_action, row_font, section_label, slab, state_chip, status_dot,
+    stepper, tab_strip, tag, toggle_pill, view_switch,
 };
 use crate::ui::kit::{Slider, UbiqIcon};
 use crate::ui::{handler, hsv, indexed};
@@ -432,6 +433,42 @@ fn controls(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                     true,
                     |_, _, _| {},
                 ))
+                .into_any_element(),
+        ),
+        // A settings row's verbs in their canonical order, then the two variations a list may
+        // ask for: a reworded tooltip and a verb that is not available right now.
+        labelled(
+            "row_action",
+            div()
+                .flex()
+                .items_center()
+                .children(
+                    [
+                        RowAction::Test,
+                        RowAction::StopTest,
+                        RowAction::Edit,
+                        RowAction::Rename,
+                        RowAction::Clone,
+                        RowAction::Delete,
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, action)| {
+                        row_action(
+                            ElementId::Name(format!("sink-row-action-{index}").into()),
+                            action,
+                            |_, _, _| {},
+                        )
+                    }),
+                )
+                .child(div().w(px(12.)))
+                .child(
+                    row_action("sink-row-action-forget", RowAction::Delete, |_, _, _| {})
+                        .tip("Forget"),
+                )
+                .child(
+                    row_action("sink-row-action-off", RowAction::Edit, |_, _, _| {}).enabled(false),
+                )
                 .into_any_element(),
         ),
         labelled(
@@ -1013,7 +1050,7 @@ pub fn textarea_on(state: &Entity<TextareaState>, window: &Window, cx: &App) -> 
 
 /// The three shapes a modal comes in, each raised by its own trigger.
 fn modals(cx: &mut Context<AppState>) -> AnyElement {
-    let triggers: Vec<AnyElement> = [
+    let mut triggers: Vec<AnyElement> = [
         (SinkModal::Confirm, "A question"),
         (SinkModal::Form, "A form"),
         (SinkModal::Danger, "Something irreversible"),
@@ -1029,11 +1066,24 @@ fn modals(cx: &mut Context<AppState>) -> AnyElement {
         .into_any_element()
     })
     .collect();
+    // `kit::modal_locked`, as the onboarding wizard draws it — the real one, raised by hand.
+    triggers.push(
+        ghost_button(
+            "sink-modal-locked",
+            Some(IconName::Inspector),
+            "A locked walk",
+            cx.listener(|this, _, _, cx| {
+                this.open_onboarding(crate::state::onboarding::WELCOME, cx)
+            }),
+        )
+        .into_any_element(),
+    );
 
     group(
         "Modals",
         "One question, over the window. Dismissed by a click outside it or by its own close; the \
-         scrim is a token, so both palettes dim by what their ground needs.",
+         scrim is a token, so both palettes dim by what their ground needs. A locked modal has \
+         neither and leaves only through its footer.",
         vec![row(triggers)],
     )
 }

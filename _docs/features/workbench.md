@@ -3,11 +3,11 @@ id: feat-workbench
 title: The workbench
 kind: feature
 status: draft
-summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
-read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, remote hosts, the file picker, vim mode, or the status bar
-updated: 2026-10-25
-verified: 2026-10-23
-code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/ui/search.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/updates.rs, crates/ubiq/src/app/updates.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs, crates/ubiq/src/state/about.rs, crates/ubiq/src/app/about.rs, crates/ubiq/src/ui/about.rs]
+summary: The window's shell — the activity rail and the ten modes it selects between, the dock of movable panels the user arranges around the centre, the titlebar and its navigator, the projects a window holds and the empty state one with none shows, the picker that adds, clones and opens them, project and application settings, the Tools dialog, the file picker any screen raises, and the status bar that reports on all of it. Each mode's own screen has a document of its own.
+read_when: you are changing the window layout, the rail, the dock, where a panel may sit or when it is drawn, the titlebar, the navigator, the project picker, cloning a project, project or application settings, the Tools dialog, remote hosts, the file picker, vim mode, or the status bar
+updated: 2026-10-27
+verified: 2026-10-27
+code_anchors: [crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/onboarding.rs, crates/ubiq/src/state/onboarding.rs, crates/ubiq/src/ui/search.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/state/mod.rs, crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/windows.rs, crates/ubiq/src/state/when.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/tests/prefs.rs, crates/ubiq-host/src/projects.rs, crates/ubiq/src/ui/shell.rs, crates/ubiq/src/ui/ribbon.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/ui/dock/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/ui/tab_menu.rs, crates/ubiq/src/ui/menus.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/ui/overflow_menu.rs, crates/ubiq/src/ui/new_project_menu.rs, crates/ubiq/src/ui/run_tool_menu.rs, crates/ubiq/src/ui/hidden_agents_menu.rs, crates/ubiq/tests/new_project.rs, crates/ubiq/tests/dock.rs, crates/ubiq/tests/mode_restore.rs, crates/ubiq/src/ui/terminal.rs, crates/ubiq/src/ui/logs.rs, crates/ubiq/src/ui/outline.rs, crates/ubiq/src/ui/rail.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/tests/rail_container.rs, crates/ubiq/src/ui/project_face.rs, crates/ubiq/src/ui/titlebar.rs, crates/ubiq/src/ui/project_menu.rs, crates/ubiq/src/ui/all_projects.rs, crates/ubiq/src/ui/empty.rs, crates/ubiq/src/ui/status_bar.rs, crates/ubiq/src/state/updates.rs, crates/ubiq/src/app/updates.rs, crates/ubiq/src/ui/size.rs, crates/ubiq/src/app/size.rs, crates/ubiq/src/ui/kit/controls.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ui/sink/ext_demo.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/app/settings.rs, crates/ubiq/src/state/settings.rs, crates/ubiq/src/ui/kit/settings.rs, crates/ubiq/tests/settings.rs, crates/ubiq/tests/settings_container.rs, crates/ubiq/src/state/catalog.rs, crates/ubiq/src/app/catalog.rs, crates/ubiq/src/ui/catalog.rs, crates/ubiq/tests/catalog.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq-host/src/cli_shortcut.rs, crates/ubiq-host/src/shell_integration.rs, crates/ubiq/src/state/file_picker.rs, crates/ubiq/src/ui/file_picker.rs, crates/ubiq/tests/file_picker.rs, crates/ubiq/src/state/vim/mod.rs, crates/ubiq/src/state/vim/step.rs, crates/ubiq/src/state/vim/motion.rs, crates/ubiq/src/state/vim/object.rs, crates/ubiq/src/state/vim/search.rs, crates/ubiq/src/app/vim.rs, crates/ubiq/tests/vim.rs, crates/ubiq/src/state/nav.rs, crates/ubiq/src/state/nav/text.rs, crates/ubiq/src/state/navigator.rs, crates/ubiq/src/app/nav.rs, crates/ubiq/src/ui/navigator.rs, crates/ubiq/tests/nav.rs, crates/ubiq/tests/nav_text.rs, crates/ubiq/tests/bookmarks.rs, crates/ubiq/tests/navigator.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/clone.rs, crates/ubiq/src/app/clone.rs, crates/ubiq/src/ui/clone.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/repos/list.rs, crates/ubiq-host/src/repos/clone.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/state/run_picker.rs, crates/ubiq/src/state/about.rs, crates/ubiq/src/app/about.rs, crates/ubiq/src/ui/about.rs, crates/ubiq/src/state/devtools.rs, crates/ubiq/src/app/devtools.rs, crates/ubiq/src/ui/devtools.rs, crates/ubiq/src/devtools/mod.rs, crates/ubiq/src/devtools/codec.rs, crates/ubiq/src/devtools/detect.rs, crates/ubiq/src/devtools/diff.rs, crates/ubiq/src/devtools/hash.rs, crates/ubiq/src/devtools/jwt.rs, crates/ubiq/src/devtools/lorem.rs, crates/ubiq/src/devtools/time.rs, crates/ubiq/src/devtools/uuids.rs]
 depends_on: [tech-ui]
 review_cycle: monthly
 ---
@@ -266,7 +266,10 @@ remote project — sit between "open in another window" and History: what is alr
 what has piled up, drawn last. **History shows at most nine rows.** Past that it hands off to an
 "Others…" row — styled like Add, Clone and the rest, opening the **All projects** modal: every
 project in the catalogue, filtered the same way, with the same open-here, open-in-a-new-window and
-Forget actions on each row, in a list that scrolls rather than a menu that keeps growing.
+Forget actions on each row, in a list that scrolls rather than a menu that keeps growing. **Acting on
+a row clears the picker's filter first** — opening it, Locate, Take into this window, Open in a new
+window, Close in this window or Forget each empty the search field before they run, so the list the
+user returns to is the whole one. The All projects modal's Forget empties its own search the same way.
 
 **The same three ways in are also reached without opening the picker.** A `+` sits in the titlebar
 after the project's own controls (settings, web link, run tools), past a rule, and runs Add directly — the same folder chooser the picker's own Add row
@@ -282,7 +285,9 @@ worth nothing once the name it is meant to distinguish has been truncated to fit
 name shows the full path as a tooltip whether or not the row had room to print it. A row
 whose folder is missing, is not a directory, or cannot be read prints that path in the warning
 colour with a mark beside it, and offers **Locate** — which re-points the record through the system
-folder chooser and keeps the id, the colour and the history. A record is never removed because its
+folder chooser and keeps the id, the colour and the history. A row that runs on a drone offers no
+Locate: its folder is on the far machine, and opening the row again is what re-dials. A record is
+never removed because its
 folder went: an unplugged drive and a worktree mid-rebase are both temporary, and forgetting is
 always the user's action.
 
@@ -330,7 +335,8 @@ remote host attached it opens the "Connect to a remote host" modal instead of a 
 row is the only place a first-time user learns the feature exists at all. With one remote it raises
 the file picker walking that host's own filesystem, rooted at whatever `BrowseHostDir { path: None
 }` answers with; choosing a folder there sends `AddProject` to that host rather than to the local
-one. **With more than one remote attached it opens the one application settings' Hosts section has
+one — unless the host is a drone, which keeps no catalogue: then the folder becomes a local project
+pinned to the drone's carrier ([`drone.md`](./drone.md)). **With more than one remote attached it opens the one application settings' Hosts section has
 active** — `AppState::preferred_remote_host()` reads `Bus::active` and falls back to the first
 remote attached when `active` is Local (the common case, since nothing points it anywhere else
 until the Hosts dropdown, below, is used), so the row never refuses to act just because a second
@@ -383,13 +389,13 @@ the project dialog's (`ubiq.project.skills`, `ubiq.project.mcp-servers`, gated o
 same component with that project as the layer and, below the project's own rows, a `From the
 application` group with no actions, on which an entry the project shadows by id says so. Arriving at
 any of the four asks `ListCatalog` for the layers it draws. **Skills** lists a layer's skills (id,
-origin badge `Installed` / `Linked` / `Folder`, description elided, `Remove` — absent on a `Folder`
+origin badge `Installed` / `Linked` / `Folder`, description elided, a Remove icon action — absent on a `Folder`
 one, which leaves with the folder entry under `Scanned folders`), with `Add skill folder…` and `Add
 skills directory…` (Ubiq's host folder picker, `PickerOwner::SkillFolder`, answered with `AddSkill`)
 and `Browse repositories…`, a modal that searches the configured sources (`SearchSkills`, source
-pills, `Install`). The application page alone also lists the sources with `Remove` and `Add source…`
+pills, `Install`). The application page alone also lists the sources with a Remove icon action and `Add source…`
 (a git address and an optional path; `SaveSkillSources`). **MCP servers** lists a layer's servers
-(id, `Local` / `HTTP` / `SSE` badge, command or URL elided, `Edit`, `Remove`) with `Add MCP server`
+(id, `Local` / `HTTP` / `SSE` badge, command or URL elided, Edit and Remove icon actions) with `Add MCP server`
 and `Search registry…`. The form takes Local (command, arguments and `KEY=VALUE` lines) or Remote
 (URL, HTTP or SSE, `Name: value` header lines), an optional description, and a paste box whose `Fill
 from paste` asks the host to read it (`ParseMcpConfig`): one server fills the form, several are
@@ -402,12 +408,13 @@ definition form.
 **Agent definitions is the project's own nav item, and it opens on `Use the global agents`.**
 Ticked is the default and means every global is on offer at a start aimed here. The list below
 is drawn either way — while ticked the globals show ticked and read-only, and unticking lets each
-be ticked on its own. This project's own setups, each with `Clone`, `Edit` (the same definition
-form the application's own section opens, saving back into the project), `Disable`/`Enable` (a
-save with only the off switch flipped) and `Delete` (behind a confirm, `DeleteAgentDefinition`),
+be ticked on its own. This project's own setups, each with Edit (the same definition
+form the application's own section opens, saving back into the project), Clone and Delete (behind
+a confirm, `DeleteAgentDefinition`) as icon actions, and `Disable`/`Enable` (a
+save with only the off switch flipped),
 any refusal the host sends drawn as a banner above them, `Add agent`
 above them under the same no-harness guard the application section's carries, and then the
-globals, each with **its own tick**, a `Clone to project` and `Delete` (behind a confirm that warns
+globals, each with **its own tick**, a `Clone to project` and a Delete icon action (behind a confirm that warns
 projects using it lose it). Unticking a global takes it out of what a start in this project is offered and
 changes it nowhere else; `Clone to project` copies it into the project under a free name, which is how
 a global is taken in and edited here, because a global itself is still edited where it was written. A
@@ -781,7 +788,8 @@ is consulted when a connection is in question, not every session, and the strip 
 Then the theme switch, and last of all **About** (`UbiqIcon::TitlebarAbout`, the Ubiq mark), the strip's right-most control. The overflow chevron lights while its own menu is open, the rule
 every menu-raising control in this strip follows; the bell lights while its list is up, carries a
 badge of what has not been read, and flashes when something arrives —
-[`notifications.md`](./notifications.md) owns all of it.
+[`notifications.md`](./notifications.md) owns all of it. The overflow menu's **Show onboarding** restarts
+the first-run walk, which [`onboarding.md`](./onboarding.md) owns.
 Settings are interface-wide, so the overlay opens with no project.
 
 **The network button's modal opens on a pick between two carriers**, a pair of pills reading `crate::state::remote::ConnectMode` — **Ubiq host**, a socket dial taking a pasted connection string
@@ -839,7 +847,7 @@ each stays routed to the host that owns it, exactly as `D81` has every unaddress
 against whichever host `active` names. Picking a saved-but-unattached or failed row instead raises
 the same connect modal described above, address prefilled and the token left blank — a token is
 never kept, so a reconnect always asks for it again. Below the dropdown, a "Saved hosts" list shows
-every remembered host with a per-entry **Forget**, which drops the record and nothing else — a live
+every remembered host with a per-entry **Forget** icon action, which drops the record and nothing else — a live
 connection under that address, if this window still has one, is untouched. Each row carries a chip
 saying which of attached, saved and last-attempt-failed it is, and an attached row gains a
 **Disconnect** beside Forget: it closes every pane that host was running and drops the socket while
@@ -985,6 +993,34 @@ as a virtualised list: name and version (a click opens the repository or homepag
 expression (a click opens the package's licence file, else the SPDX page) and the attribution — the
 copyright line, else the authors. Escape closes it before the feedback modal.
 
+**The wrench beside settings opens Tools**, a page overlay on settings' own terms —
+`SETTINGS_WIDTH` by `SETTINGS_HEIGHT` and `kit::settings_split`, so switching sections never resizes
+it — drawn always, project or none, peeled by Escape one rung above About (`Layer::Devtools`).
+Nine sections, every computed value with a copy button: **Smart** (the default) is one field to
+paste into or drop a file on, which says what the text looks like — a JWT, a UUID, a hex digest of
+a known length, a Unix timestamp in seconds or milliseconds, a written date, a URL with or without
+`%XX` escapes, URL-encoded text, JSON, Base64 that decodes to readable text — and offers each as a
+chip that opens its section with the text already in it; a paste or drop with exactly one match
+opens it without the click, typing never does. On open the dialog also reads the clipboard and,
+when its text is one of those, offers it in a strip ("Clipboard looks like a JWT — open in the JWT
+decoder"); **Analyse clipboard automatically** switches that off, persisted as
+`UiSettings::devtools_clipboard` (on by default). **Base64** encodes (standard padded, or URL-safe
+unpadded) and decodes either alphabet with or without padding; **JWT** shows header and payload as
+pretty JSON and `iat`/`nbf`/`exp` as dates with an expired / not-yet / within-window verdict, and
+says the signature is not verified; **Date & time** reads seconds, milliseconds, micro- and
+nanoseconds by magnitude, RFC 3339, RFC 2822 and common written forms (a zone-less one in local
+time) and writes every shape back out, with *Now*; **URL** percent-encodes a component or a whole
+URL and decodes, optionally reading `+` as a space; **Hash** shows MD5, SHA-1, SHA-256, SHA-384 and
+SHA-512 at once and marks the one a pasted digest matches; **UUID** generates v4, v7, v1 (random
+node) or v5 (namespace and name), up to a hundred, in either case with or without hyphens, and
+inspects a pasted one; **Lorem ipsum** writes paragraphs, sentences or words; **Diff** takes two
+texts — pasted, dropped, or loaded through the platform's chooser — and draws their line diff
+through the same `ui::viewer::diff` renderer a file's Git change uses, unified or side by side. The
+arithmetic is pure and lives in `crates/ubiq/src/devtools/` (named so because "tools" is already the
+runnable-tools catalogue); a dropped or chosen file is read through the same guest-file reader a file
+dropped on the editor uses, since such a path is by construction on the window's machine — no
+message crosses to the host for any of it.
+
 **Application settings is a page overlay, not a one-question modal.** It is `SETTINGS_WIDTH` by
 `SETTINGS_HEIGHT`, clamped to the viewport, with a left nav and a body that both scroll —
 `kit::settings_split`, the one component the project dialog draws too; switching
@@ -997,7 +1033,32 @@ with the project settings dialog's own nav; the container owns the panel, the na
 scroll, and a section owns only what is inside it. The order is by declared group — interface,
 agents, connectivity, system — and never by an integer a section carries.
 
-Sixteen sections ship: **Appearance** (the rail's common-mode tiles, app-wide, below; the palette
+**Both navs open with a search box, and a section is found by its keywords.** Every spec declares
+`keywords` — other names for it and words from what it says — and the box keeps the rows whose
+label or any keyword contains the query, case-insensitively (`SettingsSectionSpec::matches`); an
+empty query lists everything and no match says so in the nav. The text is
+`SettingsState::filter` (`project_filter` for the project dialog), fed by the window's
+`settings_search` / `project_settings_search` fields and kept across opens, since the box still
+shows it. The kitchen sink's fixture copy of the project dialog has no box.
+
+**A section carries a `Tier`, and the Experimental section's two switches decide which tiers are
+offered** (`UiSettings::experimental`, `UiSettings::dev_settings`, both off by default and off for a
+blob that predates them). A section of a tier switched off is not in the nav, is not drawn when the
+nav stands on it, and `set_settings_nav()` / `set_sink_project_nav()` refuse to move to it. The
+same answer — `AppState::offers(Tier)` — is what a rail predicate or a menu block asks, base or
+second edition. **Off hides the ways in, never what is running**: an attached host or a serving drone
+keeps going.
+
+- *Enable experimental settings* (`Tier::Experimental`): **Connectors**, **Hosts** and **Drones**
+  here, **Remote** in the project dialog, the overflow menu's *Remote hosts* and *Connect to a
+  remote host*, the new-project menu's and project picker's *Open remote project…*, and
+  `open_remote_manager()` / `open_remote_connect()` / `open_remote_project_picker()` themselves.
+  **SSH profiles** stays stable: a database connection's tunnel dials them too.
+- *Enable dev settings* (`Tier::Dev`): the **Sink** rail mode (`Availability::When`), the
+  **Extensions demo** section and the demo rail mode it gates. Switching a tier off with the window
+  in a mode that leaves the rail moves the window to the first mode still on it.
+
+These sections ship: **Appearance** (the rail's common-mode tiles, app-wide, below; the palette
 family as one pill per family — labelled by the member whose ground is in use, so picking one keeps
 the ground; the ground itself, the same flip the titlebar offers, within the family; the accent as a
 row of swatches, the palette's own first and then the six the build ships, each named on its
@@ -1062,7 +1123,9 @@ same unsaved-files-and-running-agents question the quit confirm asks
 same state, and its Releases tab lists what every channel publishes), **Shell integration** on Windows only (*Open in Ubiq* on
 Explorer's right-click menu), and **Extensions demo** — the kitchen sink's own contribution
 (`X11`, `D186`), registered through `ext::settings::register` with nothing in this list's own
-module touched to add it, and the switch that gates the rail's own demo mode below. The kitchen
+module touched to add it, and the switch that gates the rail's own demo mode below — then
+**Experimental**, last in System, with the two tier switches above; stable itself, so the way back
+on is never hidden. The kitchen
 sink still draws the larger
 fixture nav; that page is how the furniture is looked at, not how the application is configured.
 
@@ -1148,7 +1211,7 @@ folded into the settings the interface holds, and `ListAgentTypes` re-asked so e
 availability reflects it — when the field is closed and when **Save** is pressed; an emptied field
 removes the override.
 
-**An account is drawn as one block per identity: its name, and Rename and Delete.** An account is a
+**An account is drawn as one block per identity: its name, and Rename and Delete icon actions.** An account is a
 set of credential references — environment-variable names, a base URL, a key helper — written as a
 file; no credential and no path reaches the interface, because neither crosses the bus. The list is
 asked for on every open, so an account written elsewhere appears without a restart. Deleting is the
@@ -1159,11 +1222,12 @@ section, in the same warning shape a project's own row confirmations use, and cl
 next time the user opens a dialog, starts a sign-in, or dismisses it by hand.
 
 **Under the name, one row per harness the account is signed in to.** The harness's name, the status
-of its login when it has been asked for, and three controls: **Check**, which asks the host what the
-login says about its own expiry and writes the answer in place — `valid`, `expires`, `expired`,
-`unknown`, `missing` — without a modal; **Re-authenticate**, the same login flow with the harness
-and the identity already known, so it skips the picker; and **Sign out**, which removes that one
-harness's home behind a confirmation and leaves the account and its other harnesses alone. The rows
+of its login when it has been asked for, and three controls: **Re-authenticate**, the same login
+flow with the harness and the identity already known, so it skips the picker; **Sign out**, which
+removes that one harness's home behind a confirmation and leaves the account and its other
+harnesses alone; and, last, the Test icon (tooltip *Check*), which asks the host what the login
+says about its own expiry and writes the answer in place — `valid`, `expires`, `expired`,
+`unknown`, `missing` — without a modal. The rows
 come from `AccountInfo::logged_in`, which carries harness ids and nothing else — not the home, not
 the login, not a path. A `Check` that reads `missing` on a machine where the harness is plainly
 signed in is the honest answer to a question asked of the wrong store: on macOS the login may be in
@@ -1232,7 +1296,7 @@ faint, the same way a harness type is in the New-agent menu, because a definitio
 that cannot run it; a switched-off one reads faint for the same reason, being listed and not on
 offer. A definition carrying `AgentDefinition::description` draws it on a second line under the
 name, elided to one rather than wrapped — the field is written for another agent to read (`tech/transport-contract.md`), and the row is a summary, not the form it can be
-read in full from. Each row carries `Clone`, `Edit` and `Delete` (behind a confirm), and `+ Add agent` opens
+read in full from. Each row carries Edit, Clone and Delete icon actions (Delete behind a confirm), and `+ Add agent` opens
 the same form empty. Changing the name in an edited definition renames it (`SaveAgentDefinition::replaces`), refused when the new name is taken.
 
 **Nothing here signs in.** A login is the account's (`D194`), not the definition's, so the way in
@@ -1662,6 +1726,7 @@ saying no file is open, because the files are panels of their own:
 | Add KB source form | `ui/kb/source_form.rs` | A modal over the whole window, above the project settings overlay that raises it | `MODAL_WIDTH`; its body scrolls inside it | `WorkbenchState::kb_source`, one `KbSourceForm` |
 | Database connection form | `ui/db/conn_form.rs` | A modal over the whole window, above the project settings overlay that raises it, under its own `Layer::DbForm` dismissal guard | `MODAL_WIDTH`; its body scrolls inside it | `DbState::form`, one `DbConnForm` |
 | About modal | `ui/about.rs` | A modal over the whole window, above the feedback modal, under its own `Layer::About` dismissal rung | `ABOUT_WIDTH` by `ABOUT_HEIGHT`, fixed; the Open source list is a `uniform_list` of `PACKAGE_ROW` rows | `WorkbenchState::about`, one `AboutState` (`state/about.rs`; `app/about.rs` mutates it), over `WorkbenchState::updates` |
+| Tools dialog | `ui/devtools.rs` | A page overlay over the whole window, above About, under its own `Layer::Devtools` dismissal rung | `SETTINGS_WIDTH` by `SETTINGS_HEIGHT`, fixed; nav and body scroll (`kit::settings_split`) | `WorkbenchState::devtools`, one `DevtoolsState` (`state/devtools.rs`; `app/devtools.rs` mutates it) holding its own fields and their subscriptions; `UiSettings::devtools_clipboard` |
 | Plan editor | `ui/plan.rs` over `ui/document.rs` | A surface over the whole window, raised from a mission's task panel — **a dialog by decision**, and the one frame of the shared annotation surface that is one | `DOC_WIDTH` + `RAIL_WIDTH` by `DOC_HEIGHT`; the document's `MdView` (its minimap inside it, on the side `UiSettings::md_minimap_side` names) and the thread rail each scroll inside it | `WorkbenchState::plan`, one `DocumentEditor`, its `md` view over the window's `plan_editor` buffer; the minimap's own show/hide is `UiSettings::md_minimap` |
 | File picker | `ui/file_picker.rs` | Over the whole window, wherever it was raised | `DEFAULT_WIDTH` by `DEFAULT_HEIGHT`, resized from its corner grip and floored at `MIN_WIDTH`/`MIN_HEIGHT` | `AppState::file_picker`, and the window's `picker_filter` |
 | Stats screen | `ui/stats.rs` | The centre panel in Control mode, project or no project | Fills it; its page strip takes the tab strip's own height, and its table scrolls both ways | `StatsState`, on the window rather than on a project |
@@ -1777,9 +1842,13 @@ project is opened by asking for its preferences and its work in two independent 
 throw away a tab the blob was right about — the same guard `settle_persistent_chat` makes. The tab menu's handlers are `open_tab_menu()`,
 `pick_tab_menu()`, the four `close_editor_tabs*` helpers — each of which skips a pinned file
 outright, at the one place every bulk close routes through — `save_file()`, `open_rename_tab()`,
-`toggle_tab_pin()` and `dismiss_tab_menu()`. `ui::tab_menu::rows(kind, pinned)` is read by both the
-frame that draws the menu and the pick that resolves it, so Pin/Unpin and a suppressed Close row
-never disagree about what row an index means.
+`toggle_tab_pin()` and `dismiss_tab_menu()`. `ui::tab_menu::rows(kind, pinned, restartable,
+formattable)` is read by both the frame that draws the menu and the pick that resolves it, so
+Pin/Unpin and a suppressed Close row never disagree about what row an index means. **Format** (after
+Save) is offered only on a JSON, YAML or XML text tab (`tab_formattable`); `format_editor_tab()`
+pretty-prints through `state/format.rs` (2-space indent) as one `replace_all` — one undo step,
+dirtied, never saved — and on a parse error leaves the buffer alone and raises a `Files`
+notification. YAML re-emit drops comments; JSON Lines is not offered.
 
 `open_project_window` in `crates/ubiq/src/app/mod.rs` is the only place a window is created, so the
 first window and "open in a new window" reach the same code. It seeds the registry, allocates the
@@ -1830,7 +1899,8 @@ own menus over all of it: the tab menu, the new-pane menu, the new-agent menu an
 overflow menu. Those are painted here rather than by the surface that opened them, because more than one surface
 opens them and what there is to offer is the window's answer, not a page's — the new-agent menu is
 `ui::agents::new_agent_menu`, raised by the agents screen's `+`, the IDE chat strip's and the
-kitchen sink's bench alike. The New agent modal is painted here too, on the same terms and above
+kitchen sink's bench alike. The onboarding dialog and its highlight callout are painted here too,
+before the help-target layer ([`onboarding.md`](./onboarding.md)). The New agent modal is painted here too, on the same terms and above
 the settings overlay: it is opened from the workbench, and a question left under an open page is a
 question the user cannot see. The mark is drawn by `rail::mark`
 in that first row so it sits in the corner above the rail rather than inside it. It fixes no
@@ -1976,6 +2046,13 @@ picker calls the kind and which icon marks its rows. The base seeds `make`, `jus
 a runner no kind was registered for is drawn with a generic icon, not dropped. The registry is
 `ubiq_app::Contributions::runner_kinds`, installed beside the other three before the first window.
 
+**A drone-served project's carriers are a container too: the origin carriers** (`ext::origin`). An
+`OriginCarrierSpec` gives a carrier's kind — what a project origin's `via` names — the targets the
+project dialog's Remote panel lists beside the SSH profiles, which saved remote it claims as one of
+its drones (so a folder picked on that drone becomes a local project pinned to it), and the hook that
+launches or adopts the drone when such a project opens. The base registers none; the registry is
+`ubiq_app::Contributions::origin_carriers`. [`drone.md`](./drone.md) owns what an origin is.
+
 The rest is one module per area: `rail.rs`, `titlebar.rs`, `project_menu.rs`, `status_bar.rs`,
 `size.rs`, `explorer.rs`, `editor.rs`, `terminal.rs`, `empty.rs`, `chat/`, `agents/`, `teams/`
 and `board/`, with `work.rs` beside them for the one thing all three of the last draw. The project picker is
@@ -2081,7 +2158,7 @@ the conventions behind that split are `tech/ui-and-design.md`'s.
 
 The providers under the Assistance row are `ai_providers()`, one `ai_provider_row()` each: the name
 and the kind, a badge saying whether a key is filed and another saying no model is chosen, and Test,
-Edit and Remove. `ai_form()` is both the add and the edit — a `kit::modal` rather than a
+Edit and Remove icon actions. `ai_form()` is both the add and the edit — a `kit::modal` rather than a
 `prompt_modal`, because it asks several questions — and its boxes are `form_field()`, `app_form()`'s
 own field shape lifted into a free function because a provider's fields are built in two places and
 a closure holding the render context cannot live across both. An add asks for kind, name, endpoint and key
@@ -2303,6 +2380,7 @@ field's, instead of landing in the middle of the centred row and covering the te
 - [`workbench-sink.md`](./workbench-sink.md) — Sink mode: the kitchen sink and its fixtures
 - [`panes-and-terminals.md`](./panes-and-terminals.md) — what a terminal panel actually is
 - [`chat.md`](./chat.md) — the chat tabs, which survive every mode switch
+- [`onboarding.md`](./onboarding.md) — the first-run walk over the shell, and its restart in the overflow menu
 - [`stats.md`](./stats.md) — the Control screen the rail fills the centre with, and the usage meter
 - [`../tech/ui-and-design.md`](../tech/ui-and-design.md) — the tokens and the component conventions
 - [`../tech/architecture.md`](../tech/architecture.md) — who owns which state, and why the interface holds no truth

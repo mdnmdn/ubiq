@@ -56,7 +56,8 @@ use crate::plan::{
     SaveOrigin,
 };
 use crate::projects::{
-    DroneChange, IndexChange, LanePref, MissionTermChange, ProjectSnapshot, Scope, StorageMode,
+    DroneChange, DroneOrigin, IndexChange, LanePref, MissionTermChange, ProjectSnapshot, Scope,
+    StorageMode,
 };
 use crate::quota::{QuotaSnapshot, QuotaSource};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
@@ -1201,6 +1202,15 @@ pub enum Message {
         /// Ignored for a `temporary` folder, which is never written down at all.
         #[serde(default, skip_serializing_if = "StorageMode::is_default")]
         storage: StorageMode,
+        /// A folder on a drone's machine rather than this one: `path` is the far path, and the
+        /// record is written with this origin. Nothing is checked on disk here — the folder is
+        /// not on this machine to check — and the mode is always Ubiq-managed, since there is no
+        /// `.ubiq/` this host could make. A folder already pinned to the same place through the
+        /// same carrier resolves to the project that is there.
+        ///
+        /// Additive: absent is the local add every caller before this field meant.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        runs_on: Option<DroneOrigin>,
     },
     /// Drop the record and the project's own directory in Ubiq's config. Nothing inside the
     /// project's folder is touched — which is why the word in the interface is "Forget". A
@@ -2084,6 +2094,10 @@ pub enum Message {
         remember: bool,
         /// `None` keeps what is saved.
         agent: Option<DbAgentSettings>,
+        /// The SSH profile to tunnel through, by reference; `None` is a direct connection. Always
+        /// the whole choice, unlike `agent`: the form that saves is the form that picks it.
+        #[serde(default)]
+        ssh: Option<SshProfileId>,
     },
     /// What shared query editors this project has. Answered with [`Message::DbEditorsListed`].
     DbEditors {
@@ -2111,6 +2125,9 @@ pub enum Message {
         id: Option<DbConnId>,
         config: Box<ConnectionConfig>,
         password: SecretEdit,
+        /// The SSH profile the Test tunnels through, as the form has it now; `None` dials direct.
+        #[serde(default)]
+        ssh: Option<SshProfileId>,
     },
     /// The password for a connection that answered [`DbConnState::NeedsPassword`]. Answered with
     /// [`Message::DbConnectionState`].

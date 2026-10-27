@@ -119,6 +119,8 @@ reads the accessor** — `theme::titlebar_height()`, `theme::explorer_width()`,
 | `COLUMN_WIDTH` / `COLUMN_SHUT` / `TASK_PANEL_WIDTH` | 320 / 44 / 420 | Columns and the task panel |
 | `MODAL_WIDTH` / `MODAL_MAX_HEIGHT` | 460 / 0.8 | One question; the fraction of window height its body scrolls inside |
 | `LOGIN_MODAL_WIDTH` / `LOGIN_MODAL_HEIGHT` | 960 / 720 | The one modal that is not one question — a full-screen harness login TUI |
+| `ONBOARDING_WIDTH` / `ONBOARDING_HEIGHT` | 560 / 440 | The onboarding dialog, fixed so steps never resize it |
+| `ONBOARDING_CALLOUT_WIDTH` / `ONBOARDING_CALLOUT_ROOM` / `ONBOARDING_DOT` / `ONBOARDING_GLOW` | 360 / 190 / 7 / 4 | A highlight step's card, the height placement assumes for it, a progress dot, the pulsing ring around the outline |
 | `SETTINGS_WIDTH` / `SETTINGS_HEIGHT` | 820 / 560 | The settings page overlay |
 
 `MdWidth` (`Readable`/`Wide`/`Full`), `MdDensity` (`Comfortable`/`Compact`) and `MdMinimapSide`
@@ -159,6 +161,7 @@ a harness is a small secondary tag, never where one is being *chosen*.
 | `removable_tag(...)` | `tag` plus a `×` that drops it. Built from `tag`, so the two never drift |
 | `check_box(...)` | A row chosen where several may be |
 | `icon_button(...)`, `ghost_button(...)`, `primary_button(...)` | Icon-only (30px, tooltip carries the label), inline label, and the screen's single obvious action |
+| `row_action(id, RowAction, on_click)` → `RowActionButton` (`.tip(..)`, `.enabled(..)`) | A list row's verb, icon-only, 24px: `Test`, `StopTest`, `Edit`, `Rename`, `Clone`, `Delete` — fixed icon and tooltip each, in that order on a row |
 | `elided(...)`, `elided_with(...)` | Truncate with the system ellipsis, whole string as tooltip — takes an element id |
 | `meter(fraction, colour)` | The flat meter |
 | `progress_ring(pct, diameter)`, `progress_ring_in(pct, diameter, fill)` | A canvas ring; `_in` takes its own fill token |
@@ -216,7 +219,9 @@ typed survives a redraw; `confirm_enabled: false` dims at `.opacity(0.5)` — th
 disabled style). `modal_sized`'s header takes an `actions: Option<AnyElement>` beside the title,
 drawn before the dismiss — nearly every caller passes `None` (`modal(...)` does, for all of them);
 `ui/board/detail.rs::popup()` is the one that passes something, the empty-fields eye a task panel
-loses when drawn centred instead of docked (`T-263`, `G375`).
+loses when drawn centred instead of docked (`T-263`, `G375`). `modal_locked(...)` is `modal_sized`
+with no × and no backdrop dismissal (a private `Dismissal` enum picks the behaviour); its footer
+must always offer a way out — the onboarding dialog is the one caller.
 
 ### `menu.rs` — one dropdown mechanism for every menu in the window
 

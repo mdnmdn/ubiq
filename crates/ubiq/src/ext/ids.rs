@@ -66,6 +66,8 @@ pub const UPDATES: SlotId = SlotId::new("ubiq.settings.updates");
 pub const COMMAND_LINE: SlotId = SlotId::new("ubiq.settings.command-line");
 /// Registered on Windows only — the one platform whose context menu Ubiq knows how to join.
 pub const SHELL_INTEGRATION: SlotId = SlotId::new("ubiq.settings.shell-integration");
+/// The two switches every `Tier` asks: experimental features and dev furniture.
+pub const EXPERIMENTAL: SlotId = SlotId::new("ubiq.settings.experimental");
 
 // ── The project dialog's own sections ───────────────────────────────
 
@@ -144,6 +146,12 @@ pub const RUNNER_KIND: SlotId = SlotId::new("runner-kind");
 pub const RUNNER_MAKE: SlotId = SlotId::new("ubiq.runner.make");
 pub const RUNNER_JUST: SlotId = SlotId::new("ubiq.runner.just");
 pub const RUNNER_MISE: SlotId = SlotId::new("ubiq.runner.mise");
+
+// ── The origin-carrier container ────────────────────────────────────
+
+/// The carriers a drone-served project can be reached through besides the base's own SSH — one
+/// group, and empty in the base. See `ext::origin`.
+pub const ORIGIN_CARRIER: SlotId = SlotId::new("origin-carrier");
 
 // ── The viewer container (`D204`) ───────────────────────────────────
 

@@ -147,6 +147,7 @@ impl AppState {
         password: SecretEdit,
         remember: bool,
         agent: ubiq_proto::db::DbAgentSettings,
+        ssh: Option<ubiq_proto::ids::SshProfileId>,
     ) {
         config.password = None;
         self.bus.send(Message::SaveDbConnection {
@@ -156,6 +157,7 @@ impl AppState {
             password,
             remember,
             agent: Some(agent),
+            ssh,
         });
     }
 
@@ -170,13 +172,15 @@ impl AppState {
     }
 
     /// Try a configuration without saving it, and answer with the probe to look the result up by
-    /// in `DbState::probes`. `id` with `Keep` means the saved password, used host-side.
+    /// in `DbState::probes`. `id` with `Keep` means the saved password, used host-side; `ssh` is
+    /// the profile the host tunnels the Test through.
     pub fn test_db_connection(
         &mut self,
         project: ProjectId,
         id: Option<DbConnId>,
         mut config: ConnectionConfig,
         password: SecretEdit,
+        ssh: Option<ubiq_proto::ids::SshProfileId>,
     ) -> DbProbeId {
         config.password = None;
         let probe = DbProbeId::generate();
@@ -186,6 +190,7 @@ impl AppState {
             id,
             config: Box::new(config),
             password,
+            ssh,
         });
         probe
     }

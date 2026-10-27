@@ -812,6 +812,19 @@ impl AppState {
             .new_agent_project
             .filter(|id| self.projects.contains_key(id))
             .or_else(|| self.project(cx))?;
+        // A drone has no harness library (`R7`): say so here, with the form left up, rather than
+        // sending a start the far side can only fail.
+        if self.bus.project_host(project_id) != HostRef::Local {
+            self.workbench.project_error =
+                Some("agents are not available on a drone yet (R7)".to_string());
+            self.workbench.open_menu = Some(MenuId::Project);
+            cx.notify();
+            return None;
+        }
+        if self.bus.is_pinned_unserved(project_id) {
+            self.show_remote_not_attached(cx);
+            return None;
+        }
         // `form.prompt` is the chosen definition's own agent prompt, seeded by the pick and never
         // edited on a start — it is what the preamble folds.
         let form = self.workbench.new_agent.take()?;

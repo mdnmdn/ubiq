@@ -121,7 +121,31 @@ impl AppState {
         else {
             return;
         };
-        if self.drone_attached(&origin) {
+        // An origin naming no way in, or two, has nothing to dial; the row says which.
+        if let Err(shape) = origin.check() {
+            cx.global_mut::<WindowRegistry>()
+                .mark_unreadable(project, shape.to_string());
+            cx.notify();
+            return;
+        }
+        // A contributed carrier launches, or adopts, its own drone — see `ext::origin`.
+        if let Some(via) = &origin.via {
+            match crate::ext::origin::carrier(&via.kind) {
+                Some(spec) => (spec.launch)(self, project, &origin, cx),
+                None => {
+                    cx.global_mut::<WindowRegistry>().mark_unreadable(
+                        project,
+                        format!(
+                            "this project runs through a `{}` carrier, which this build does not have",
+                            via.kind
+                        ),
+                    );
+                    cx.notify();
+                }
+            }
+            return;
+        }
+        if self.drone_attached(project, &origin) {
             return;
         }
         self.dial_project_drone(project, origin, cx);
@@ -144,7 +168,7 @@ impl AppState {
         let id = self.window_id;
         self.ensure_drone(project, cx);
         cx.global_mut::<WindowRegistry>().activate(id, project);
-        self.bus.send(Message::OpenedProject {
+        self.send_record(Message::OpenedProject {
             project_id: project,
         });
         // The window now points somewhere else: its tree, its tabs and its terminals are the new
@@ -189,7 +213,7 @@ impl AppState {
         // way while the tree and the tabs are being built.
         self.ensure_drone(project, cx);
         // The host decides what opening a project means, and stamps it.
-        self.bus.send(Message::OpenedProject {
+        self.send_record(Message::OpenedProject {
             project_id: project,
         });
         // Everything the project brings with it — its furniture, its pane, its tree — is the
@@ -800,6 +824,14 @@ impl AppState {
         .detach();
     }
 
+    /// Empty the project picker's filter, so an operation on a row leaves the full list behind it.
+    pub fn clear_project_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workbench.project_filter.clear();
+        let search = self.project_search.clone();
+        search.update(cx, |state, cx| state.set_value("", window, cx));
+        cx.notify();
+    }
+
     /// Drop the record and everything Ubiq remembers about it. Nothing inside the project's own
     /// folder is touched, which is why the word is "Forget".
     pub fn forget_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
@@ -812,7 +844,7 @@ impl AppState {
 
     /// Look at a project's folder again — the action a row marked missing offers.
     pub fn refresh_project(&mut self, project: ProjectId, cx: &mut Context<Self>) {
-        self.bus.send(Message::RefreshProject {
+        self.send_record(Message::RefreshProject {
             project_id: project,
         });
         cx.notify();
@@ -853,6 +885,7 @@ impl AppState {
             custom_colour: custom,
             temporary,
             storage,
+            runs_on: None,
         });
         cx.notify();
     }
@@ -1250,14 +1283,23 @@ impl AppState {
         value: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let Some(blob) = value else { return };
+        let Some(blob) = value else {
+            // Nothing stored is an answer too — a first run's — and onboarding waits for one.
+            if matches!(scope, Scope::Interface) {
+                self.workbench.prefs_loaded = true;
+                self.check_onboarding(cx);
+            }
+            return;
+        };
 
         match scope {
             Scope::Interface => {
+                self.workbench.prefs_loaded = true;
                 if let Some((prefs, upgraded)) =
                     prefs::decode_upgraded::<prefs::InterfacePrefs>(&blob)
                 {
                     self.workbench.interface_rest = prefs.rest;
+                    self.workbench.onboarding_done = prefs.onboarding_done;
                     self.workbench.last_start = prefs.last_start;
                     self.workbench.last_start_by_project = prefs.last_start_by_project;
                     self.workbench.size_presets = prefs.size_presets;
@@ -1355,6 +1397,9 @@ impl AppState {
                 }
             }
         }
+        // Either scope can be what makes a flow due: the interface's says which are done, a
+        // project's says which mode the window is in.
+        self.check_onboarding(cx);
         cx.notify();
     }
 

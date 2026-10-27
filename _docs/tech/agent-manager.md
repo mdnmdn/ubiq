@@ -5,9 +5,9 @@ kind: tech
 status: draft
 summary: What the embedded harness-management library owns, what Ubiq owns, how the application consumes it, and the rule that keeps the two from growing into each other.
 read_when: you are about to write code that launches a harness, drives one as a conversation, names a harness config path, or touches accounts, skills or MCP servers
-updated: 2026-10-24
-verified: 2026-10-24
-code_anchors: [crates/ubiq-host/src/catalog.rs, crates/agent-manager/src/harness/claude.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
+updated: 2026-10-26
+verified: 2026-10-26
+code_anchors: [crates/ubiq-host/src/catalog.rs, crates/agent-manager/src/harness/claude.rs, crates/agent-manager/src/harness/registry.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/agent.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-host/src/environment.rs, crates/agent-manager/src/lib.rs, crates/agent-manager/src/main.rs, crates/agent-manager/src/session.rs, crates/agent-manager/src/harness/mod.rs, crates/agent-manager/src/quota.rs, crates/agent-manager/src/credentials/mod.rs, crates/agent-manager/src/provision.rs, crates/agent-manager/src/spec.rs, crates/agent-manager/src/resolve.rs, crates/agent-manager/src/profile.rs, crates/agent-manager/src/isolate.rs, crates/agent-manager/examples/confined_shell_probe.rs, crates/agent-manager/src/io/structured.rs, crates/ubiq-app/src/lib.rs, crates/agent-manager/src/io/mod.rs, crates/agent-manager/src/io/acp.rs, crates/agent-manager/src/io/acp_caps.rs, crates/agent-manager/src/io/acp_client.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [tech-structure]
 review_cycle: monthly
 ---
@@ -330,7 +330,15 @@ instead. The same module refreshes a stale cache on a thread of its own, at boot
 `Harness` driving the executable over `AcpBridge`, with no config home, account, skill or hook of
 the library's — it inherits the user's own environment, and registry-supplied command and
 environment values pass safety filters. Its isolation grants (`run_grants()` in
-`isolate.rs`) are the per-id config homes read-write and the install prefix read-only. **`initialize` is the only discovery an ACP agent offers, so the bridge takes all of it**: `io/acp_caps.rs` reads that answer once into an `AcpCapabilities` and `IoBridge::acp_capabilities` hands it to a type-erased caller, `None` for every bridge on a wire of its own — `_docs/tech/transport-contract.md` owns what Ubiq does with it. **Two things ACP does not say, the bridge says for it.** `from_acp` is a pure per-notification
+`isolate.rs`) are the per-id config homes read-write and the install prefix read-only. **Its models
+and thinking levels are read before any run** (`T-401`): an ACP agent states them on `session/new`
+and nowhere else, so `discover_models`/`discover_thinking` open one unprompted session in the probe
+directory (`acp_client::probe_config`, memoised per id and version so the pair spawns once) and read
+the model option's choices, with the thinking option's levels (`category` `thought_level`, or Mistral
+Vibe's `thinking`) under the current model only. A picked level reaches the run as
+`Provisioned::thinking` and `AcpBridge::apply_thinking` sets it over the wire after the handshake, as
+the requested model already is. Modes are not probed — `Harness::modes` is a fixed list — so a
+registry agent's mode picker still arrives with its session. **`initialize` is the only discovery an ACP agent offers, so the bridge takes all of it**: `io/acp_caps.rs` reads that answer once into an `AcpCapabilities` and `IoBridge::acp_capabilities` hands it to a type-erased caller, `None` for every bridge on a wire of its own — `_docs/tech/transport-contract.md` owns what Ubiq does with it. **Two things ACP does not say, the bridge says for it.** `from_acp` is a pure per-notification
 mapping, so the pieces of the `AgentEvent::UsageUpdate` and `Origin` contracts that need memory live
 in `AcpBridge`'s reader instead. ACP states `cost.amount` as a session-cumulative figure while
 `UsageUpdate.cost` is contractually a per-report delta, so the reader subtracts the running total —
@@ -378,6 +386,19 @@ child session id, then the heuristic — and the cumulative-cost memo is keyed b
 so a child's context window and spend cannot move the parent's ring. `G212` names the heuristic's
 ceiling, which now only applies to an adapter that ignores the capability: two delegates open at once
 collapse onto the most recent one.
+
+**Mistral Vibe's subagents bypass both paths** (`T-401`, `vibe_subagent`). Vibe takes no capability
+and its children never stream: they run in the background while the parent keeps talking, so the
+open-delegate heuristic would hand the parent's own chunks to them. Everything on the wire is a
+parent tool call whose `_meta.tool_name` is `subagent.<verb>`, and the bridge keys on that prefix
+alone. `subagent.spawn` (`kind: "think"`, titled `Starting <name>`, the type in `_meta.agent`)
+becomes the `ToolKind::Delegate` block and stays the parent's; its completion only means *started*,
+so it is held in progress. `subagent.wait`, `send_message` and `stop` name the child in
+`rawInput.agentName` and are filed under the spawn's id — the child's transcript. A message reopens
+the spawn; a wait that returns the child's report (`rawOutput.structured_content.value`) closes it
+and replays the report as the child's prose; a stop closes it for good. The child's own tool calls
+and chunks never reach the parent session, so its transcript is what the parent said to it and what
+it reported back.
 
 **An option's picker and its setter are two questions.** The bridge publishes what a `session/new`
 result names — a compliant agent's `configOptions` and `modes`, or the vendor blocks Grok sends in

@@ -974,6 +974,7 @@ mod tests {
             home: None,
             resume: None,
             model: None,
+            thinking: None,
             fork: false,
             mcp_servers: Vec::new(),
             #[cfg(feature = "inproc-mcp")]
@@ -1044,6 +1045,7 @@ cat > /dev/null"#;
                 resume: resume.map(str::to_string),
                 fork: false,
                 model: None,
+                thinking: None,
                 mcp_servers: vec![server.clone()],
                 #[cfg(feature = "inproc-mcp")]
                 inproc_servers: Vec::new(),

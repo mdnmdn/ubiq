@@ -1,10 +1,11 @@
 //! The Databases section of the project settings dialog.
 //!
 //! One row per connection — name, engine, where it points, a read-only marker, what the host holds
-//! for its password — with Test, Edit and Remove, a warning row when this install cannot keep a
-//! password, and *Add connection*, which raises [`conn_form`] (a modal painted at the window root,
-//! like the knowledge base's source form). **Remove is asked in the row**: the row turns into the
-//! question, so no second modal is stacked over the page.
+//! for its password — with Test, Edit and Remove (icon-only `row_action`s with tooltips), a
+//! warning row when this install cannot keep a password, and *Add connection*, which raises
+//! [`conn_form`] (a modal painted at the window root, like the knowledge base's source form).
+//! **Remove is asked in the row**: the row turns into the question, so no second modal is stacked
+//! over the page.
 //!
 //! The section hangs off a record, as the knowledge base's does: the sink's fixture page and the
 //! create form draw nothing here.
@@ -20,7 +21,7 @@ use crate::app::AppState;
 use crate::state::db::DbState;
 use crate::state::workbench::ProjectSettingsMode;
 use crate::theme::{self, Family, Role};
-use crate::ui::kit::{elided, ghost_button, heading, mono, primary_button};
+use crate::ui::kit::{RowAction, elided, ghost_button, heading, mono, primary_button, row_action};
 use crate::ui::sink::project::Form;
 
 #[path = "conn_form.rs"]
@@ -185,26 +186,26 @@ fn connection_row(db: &DbState, conn: &DbConnection, cx: &mut Context<AppState>)
             .flex()
             .items_center()
             .gap_1()
-            .child(ghost_button(
+            .child(row_action(
                 crate::ui::eid("project-db-test", id),
-                None,
-                "Test",
+                RowAction::Test,
                 cx.listener(move |this, _, _, cx| this.test_db_row(id, cx)),
             ))
-            .child(ghost_button(
+            .child(row_action(
                 crate::ui::eid("project-db-edit", id),
-                None,
-                "Edit",
+                RowAction::Edit,
                 cx.listener(move |this, _, window, cx| {
                     this.open_db_conn_form(Some(id), window, cx)
                 }),
             ))
-            .child(ghost_button(
-                crate::ui::eid("project-db-remove", id),
-                None,
-                "Remove",
-                cx.listener(move |this, _, _, cx| this.ask_remove_db(Some(id), cx)),
-            )),
+            .child(
+                row_action(
+                    crate::ui::eid("project-db-remove", id),
+                    RowAction::Delete,
+                    cx.listener(move |this, _, _, cx| this.ask_remove_db(Some(id), cx)),
+                )
+                .tip("Remove"),
+            ),
     };
 
     let mut text = div()
@@ -267,6 +268,7 @@ mod tests {
             config,
             password,
             agent: Default::default(),
+            ssh: None,
         }
     }
 

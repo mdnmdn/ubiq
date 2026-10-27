@@ -556,9 +556,30 @@ impl AppState {
     /// a destination that names a place is navigated to, the web and mail are handed to the
     /// operating system, and anything else is nothing at all.
     pub fn follow_link(&mut self, base: &str, target: &str, cx: &mut Context<Self>) {
-        let dest = self
-            .project(cx)
-            .and_then(|project| crate::state::nav::resolve_relative(project, base, target));
+        self.follow_link_from(self.project(cx), base, target, cx);
+    }
+
+    /// Follow transcript links from the agent's project, including in a cross-project Teams view.
+    /// An expired conversation supplies no project for relative links.
+    pub fn follow_agent_link(&mut self, agent: AgentId, target: &str, cx: &mut Context<Self>) {
+        let project = self.project_of_agent(agent, cx).filter(|project| {
+            self.projects
+                .get(project)
+                .is_some_and(|open| open.conversations.contains_key(&agent))
+        });
+        self.follow_link_from(project, "", target, cx);
+    }
+
+    fn follow_link_from(
+        &mut self,
+        project: Option<ProjectId>,
+        base: &str,
+        target: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let dest = project
+            .and_then(|project| crate::state::nav::resolve_relative(project, base, target))
+            .or_else(|| crate::state::nav::parse_link(target, None).ok());
         match dest {
             Some(dest) => self.navigate(dest, cx),
             None => {
@@ -1026,7 +1047,9 @@ impl AppState {
         self.workbench.tab_menu = None;
         let pinned = self.tab_pinned(&kind, cx);
         let restartable = self.tab_restartable(&kind, cx);
-        let Some(&row) = ui::tab_menu::rows(&kind, pinned, restartable).get(index) else {
+        let formattable = self.tab_formattable(&kind, cx);
+        let Some(&row) = ui::tab_menu::rows(&kind, pinned, restartable, formattable).get(index)
+        else {
             return;
         };
         match &kind {
@@ -1049,6 +1072,7 @@ impl AppState {
                     "Reveal in Explorer" => self.reveal_tab_in_explorer(&key, cx),
                     "Refresh" => self.refresh_editor_tab(&key, cx),
                     "Save" => self.save_file(&key, window, cx),
+                    "Format" => self.format_editor_tab(&key, window, cx),
                     "Word Wrap" => self.toggle_editor_wrap(window, cx),
                     "Pin" | "Unpin" => self.toggle_tab_pin(kind, cx),
                     _ => {}
@@ -1177,6 +1201,47 @@ impl AppState {
         if let Some(project) = self.project(cx) {
             self.navigate(Destination::new(project, View::Explorer { path: rel }), cx);
         }
+    }
+
+    /// Whether a file tab's menu offers Format: a text buffer in JSON, YAML or XML.
+    pub fn tab_formattable(&self, kind: &PanelKind, cx: &App) -> bool {
+        let PanelKind::File(key) = kind else {
+            return false;
+        };
+        self.file(key, cx).is_some_and(|file| {
+            file.buffer().is_some() && crate::state::format::can_format(file.language)
+        })
+    }
+
+    /// Format a tab's buffer in place: one `replace_all` (so one undo step, and the change event
+    /// dirties it), never a save. A parse error leaves the buffer alone and raises a notification.
+    fn format_editor_tab(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(file) = self.file(key, cx) else {
+            return;
+        };
+        let (Some(buffer), language) = (file.buffer().cloned(), file.language) else {
+            return;
+        };
+        let name = file.path.to_string();
+        let text = buffer.read(cx).value().to_string();
+        match crate::state::format::format_text(language, &text) {
+            None => {}
+            Some(Ok(formatted)) => {
+                if formatted != text {
+                    buffer.update(cx, |state, cx| state.replace_all(formatted, window, cx));
+                }
+            }
+            Some(Err(reason)) => {
+                self.raise_notification(
+                    ubiq_proto::notifications::NotificationRequest::error(
+                        ubiq_proto::notifications::Family::Files,
+                        format!("Cannot format {name}: {reason}"),
+                    )
+                    .with_category("format"),
+                );
+            }
+        }
+        cx.notify();
     }
 
     /// Refresh a tab: re-read its file from disk. A buffer holding unsaved edits asks first, in

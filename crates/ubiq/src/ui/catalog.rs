@@ -27,8 +27,8 @@ use crate::state::catalog::{SkillBrowse, kind_label, mcp_ready, mcp_summary};
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    badge, choice_pill, elided, field, ghost_button, heading, label_block, modal, modal_note,
-    primary_button, section_label,
+    RowAction, badge, choice_pill, elided, field, ghost_button, heading, label_block, modal,
+    modal_note, primary_button, row_action, section_label,
 };
 
 /// The most result rows a browser draws. A source with more says so and asks for a narrower query.
@@ -104,7 +104,7 @@ fn path_row(
             theme::text_muted(),
             theme::font(Family::Chrome, Role::Label),
         ))
-        .child(ghost_button(remove_id, None, "Remove", on_remove))
+        .child(row_action(remove_id, RowAction::Delete, on_remove).tip("Remove"))
         .into_any_element()
 }
 
@@ -363,12 +363,12 @@ fn skill_row(
                 })),
         )
         .children(removable.then(|| {
-            ghost_button(
+            row_action(
                 ElementId::Name(format!("{prefix}-skill-{}-remove", skill.id).into()),
-                None,
-                "Remove",
+                RowAction::Delete,
                 cx.listener(move |this, _, _, cx| this.remove_skill(scope, id.clone(), cx)),
             )
+            .tip("Remove")
         }))
         .into_any_element()
 }
@@ -852,22 +852,23 @@ fn mcp_row(
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(ghost_button(
+                .child(row_action(
                     ElementId::Name(format!("{prefix}-mcp-{}-edit", mcp.id).into()),
-                    None,
-                    "Edit",
+                    RowAction::Edit,
                     cx.listener(move |this, _, window, cx| {
                         this.open_mcp_form(scope, Some(edit.clone()), window, cx)
                     }),
                 ))
-                .child(ghost_button(
-                    ElementId::Name(format!("{prefix}-mcp-{}-remove", mcp.id).into()),
-                    None,
-                    "Remove",
-                    cx.listener(move |this, _, _, cx| {
-                        this.remove_catalog_mcp(scope, drop.clone(), cx)
-                    }),
-                )),
+                .child(
+                    row_action(
+                        ElementId::Name(format!("{prefix}-mcp-{}-remove", mcp.id).into()),
+                        RowAction::Delete,
+                        cx.listener(move |this, _, _, cx| {
+                            this.remove_catalog_mcp(scope, drop.clone(), cx)
+                        }),
+                    )
+                    .tip("Remove"),
+                ),
         )
         .into_any_element()
 }

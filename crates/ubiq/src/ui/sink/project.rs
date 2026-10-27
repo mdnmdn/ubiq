@@ -24,7 +24,8 @@ use ubiq_proto::work::Status;
 
 use crate::app::AppState;
 use crate::ext::settings::{
-    self as ext_settings, SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, register,
+    self as ext_settings, SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, Tier,
+    register,
 };
 use crate::ext::{Registry, SlotId, ids};
 use crate::state::git::head_label;
@@ -40,8 +41,8 @@ use crate::theme::{Family, Role};
 use crate::ui::board::status_colour;
 use crate::ui::hsv;
 use crate::ui::kit::{
-    UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono, nav_item,
-    primary_button, section_label, setting_row, settings_split, toggle_pill,
+    RowAction, UbiqIcon, check_box, choice_pill, elided, ghost_button, heading, icon_button, mono,
+    nav_item, primary_button, row_action, section_label, setting_row, settings_split, toggle_pill,
 };
 use crate::ui::rail::mode_icon;
 use crate::ui::sink::style::{framed_active, input_on, textarea_on};
@@ -228,7 +229,7 @@ fn dialog(
         .child(header(app, form, colour, cx))
         .child(settings_split(
             prefix,
-            nav(app, form, cx),
+            nav(app, form, window, cx),
             body(app, window, cx, form),
         ))
         .child(footer(app, form, cx))
@@ -320,7 +321,7 @@ fn header(
 
 /// The dialog's nav rows. The column and its scroll are [`settings_split`]'s, shared with the
 /// application overlay.
-fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Vec<AnyElement> {
+fn nav(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -> Vec<AnyElement> {
     let current = match form {
         Form::Sink => app.sink.project.nav,
         Form::Live => app
@@ -347,12 +348,24 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Vec<AnyElement
         form,
         project: project_of(app),
     };
-    ext_settings::project_sections()
+    // The live dialog has a search box and follows the Experimental switches; the sink's fixture
+    // answers to everything, so it has neither.
+    let settings = &app.workbench.settings;
+    let mut rows = Vec::new();
+    if form == Form::Live {
+        rows.push(crate::ui::settings::settings_search(
+            &app.project_settings_search,
+            window,
+            cx,
+        ));
+    }
+    let listed: Vec<AnyElement> = ext_settings::project_sections()
         .iter()
         // A fixture-only section is not a row the live dialog greys out — it is a row the live
         // dialog does not have (`T-231`). `SectionGate::SinkOnly` already says "never offered by
         // the live dialog"; drawing it there anyway was two rows the user could only ever look at.
         .filter(|spec| form == Form::Sink || spec.gate != SectionGate::SinkOnly)
+        .filter(|spec| form == Form::Sink || spec.listed(&settings.ui, &settings.project_filter))
         .map(|spec| {
             let item = ProjectNav(spec.id);
             // Tasks, Remote and the knowledge base are on Tools' footing exactly: all four attach
@@ -370,7 +383,12 @@ fn nav(app: &AppState, form: Form, cx: &mut Context<AppState>) -> Vec<AnyElement
                 cx.listener(move |this, _, _, cx| this.set_sink_project_nav(item, cx)),
             )
         })
-        .collect()
+        .collect();
+    if listed.is_empty() {
+        rows.push(crate::ui::settings::no_match());
+    }
+    rows.extend(listed);
+    rows
 }
 
 /// The dialog's own eight sections, registered into the settings container (`D180`).
@@ -390,6 +408,20 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::PROJECT_GENERAL,
             "General",
+            &[
+                "name",
+                "about",
+                "colour",
+                "color",
+                "project path",
+                "folder",
+                "rail initials",
+                "storage",
+                "project data",
+                "repositories",
+                "git",
+                "modes",
+            ],
             || Icon::new(IconName::Settings),
             |ctx, window, cx| general(ctx.app, window, cx, ctx.form),
         ),
@@ -401,6 +433,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_TOOLS,
                 "Tools",
+                &["runners", "commands", "scripts", "run"],
                 || Icon::new(IconName::Play),
                 |ctx, _, cx| project_tools(ctx.app, cx, ctx.form),
             )
@@ -413,6 +446,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_AGENT_DEFINITIONS,
                 "Agent definitions",
+                &["agents", "setups", "use the global agents", "inherited"],
                 // The rail's own Agents mark, the same one the app-wide section wears.
                 || Icon::new(UbiqIcon::ModeAgents),
                 |ctx, window, cx| agent_definitions(ctx.app, ctx.form, window, cx),
@@ -427,6 +461,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_SKILLS,
                 "Skills",
+                &["catalog", "catalogue", "agent skills"],
                 || Icon::new(IconName::BookOpen),
                 |ctx, _, cx| project_catalog(ctx, CatalogPage::Skills, cx),
             )
@@ -440,6 +475,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_MCP_SERVERS,
                 "MCP servers",
+                &["mcp", "tools", "servers", "catalog", "catalogue"],
                 || Icon::new(IconName::Network),
                 |ctx, _, cx| project_catalog(ctx, CatalogPage::Mcp, cx),
             )
@@ -452,6 +488,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_TASKS,
                 "Tasks",
+                &[
+                    "board",
+                    "boards",
+                    "tasks",
+                    "kanban",
+                    "mission term",
+                    "index",
+                ],
                 // The rail's own Tasks mark, so the row that configures the board and the rail
                 // that opens it read as the same thing — `Kb` below takes its icon for the same
                 // reason.
@@ -464,9 +508,20 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         ids::SETTINGS_PROJECT_CORE,
         SettingsSectionSpec {
             gate: SectionGate::WithRecord,
+            // Which machine the folder is on: a drone origin, so experimental with the drones.
+            tier: Tier::Experimental,
             ..section(
                 ids::PROJECT_REMOTE,
                 "Remote",
+                &[
+                    "remote",
+                    "drone",
+                    "where this folder is",
+                    "reached through",
+                    "machine",
+                    "lifetime",
+                    "ssh",
+                ],
                 // Borrowed, not drawn. `Network` is already Integrations', and the question this
                 // panel asks is *which machine*, which is the globe's.
                 || Icon::new(IconName::Globe),
@@ -488,6 +543,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_KB,
                 "Knowledge base",
+                &["knowledge base", "kb", "documents", "sources", "notes"],
                 // The rail's own KB mark, so the row that configures the screen and the rail that
                 // opens it read as the same thing.
                 || Icon::new(UbiqIcon::ModeKb),
@@ -505,6 +561,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_DB,
                 "Databases",
+                &[
+                    "database",
+                    "databases",
+                    "sql",
+                    "connections",
+                    "postgres",
+                    "sqlite",
+                ],
                 // The rail's own DB mark, for `Kb`'s reason.
                 || Icon::new(UbiqIcon::ModeDb),
                 |ctx, window, cx| crate::ui::db::settings::render(ctx.app, ctx.form, window, cx),
@@ -519,6 +583,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_DOCUMENTATION,
                 "Documentation",
+                &["docs", "documentation", "pages"],
                 || Icon::new(IconName::BookOpen),
                 |_, _, _| documentation(),
             )
@@ -532,6 +597,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::PROJECT_INTEGRATIONS,
                 "Integrations",
+                &["integrations", "services", "network"],
                 || Icon::new(IconName::Network),
                 |_, _, _| integrations(),
             )
@@ -544,6 +610,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
 fn section(
     id: SlotId,
     label: &'static str,
+    keywords: &'static [&'static str],
     icon: fn() -> Icon,
     render: fn(&SectionCtx<'_>, &Window, &mut Context<AppState>) -> AnyElement,
 ) -> SettingsSectionSpec {
@@ -554,6 +621,8 @@ fn section(
         label,
         icon,
         gate: SectionGate::Always,
+        tier: Tier::Stable,
+        keywords,
         count: None,
         on_show: None,
         render,
@@ -584,10 +653,13 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>, form: Form)
         project: project_of(app),
     };
     match nav.spec() {
-        Some(spec) => (spec.render)(&ctx, window, cx),
+        // The live dialog draws no section whose tier is switched off; the fixture draws all.
+        Some(spec) if form == Form::Sink || app.workbench.settings.ui.offers(spec.tier) => {
+            (spec.render)(&ctx, window, cx)
+        }
         // Nothing is registered under the nav's id — a second edition removed the section the
         // dialog was left on. Draws nothing rather than falling back to another page.
-        None => div().into_any_element(),
+        _ => div().into_any_element(),
     }
 }
 
@@ -1078,14 +1150,16 @@ fn search_excludes_row(
                         mono(pattern.clone(), theme::text())
                             .text_size(theme::font(Family::Chrome, Role::Body)),
                     )
-                    .child(icon_button(
-                        ElementId::Name(format!("project-exclude-remove-{index}").into()),
-                        IconName::Close,
-                        false,
-                        cx.listener(move |this, _, _, cx| {
-                            this.remove_project_search_exclude(project, removed.clone(), cx)
-                        }),
-                    ))
+                    .child(
+                        row_action(
+                            ElementId::Name(format!("project-exclude-remove-{index}").into()),
+                            RowAction::Delete,
+                            cx.listener(move |this, _, _, cx| {
+                                this.remove_project_search_exclude(project, removed.clone(), cx)
+                            }),
+                        )
+                        .tip("Remove"),
+                    )
                     .into_any_element()
             })
             .collect()
@@ -1208,12 +1282,16 @@ fn kb(app: &AppState, form: Form, window: &Window, cx: &mut Context<AppState>) -
                                     .text_color(colour)
                                     .child(SharedString::from(word))
                             }))
-                            .child(icon_button(
-                                crate::ui::eid("project-kb-remove", id),
-                                IconName::Close,
-                                false,
-                                cx.listener(move |this, _, _, cx| this.remove_kb_source(id, cx)),
-                            )),
+                            .child(
+                                row_action(
+                                    crate::ui::eid("project-kb-remove", id),
+                                    RowAction::Delete,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.remove_kb_source(id, cx)
+                                    }),
+                                )
+                                .tip("Remove"),
+                            ),
                     )
                     // What Ubiq may do to this source, visible without opening anything: a row
                     // that does not say it is one the reader has to remember for. Protection is
@@ -1631,6 +1709,16 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
             .unwrap_or_default(),
     };
     let profiles = app.workbench.settings.host.ssh_profiles.clone();
+    // Every contributed carrier's targets, beside the profiles (`ext::origin`).
+    let targets: Vec<(&'static str, crate::ext::origin::OriginTarget)> =
+        crate::ext::origin::carriers()
+            .iter()
+            .flat_map(|spec| {
+                (spec.targets)(app, cx)
+                    .into_iter()
+                    .map(move |target| (spec.kind, target))
+            })
+            .collect();
     let prefix = form.prefix();
 
     let where_row = setting_row(
@@ -1662,7 +1750,7 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
     let mut rows = div().flex().flex_col().child(where_row);
 
     if field.on_drone {
-        let picker: AnyElement = if profiles.is_empty() {
+        let picker: AnyElement = if profiles.is_empty() && targets.is_empty() {
             div()
                 .text_size(theme::font(Family::Chrome, Role::Label))
                 .text_color(theme::text_faint())
@@ -1684,12 +1772,29 @@ fn remote(app: &AppState, cx: &mut Context<AppState>, form: Form) -> AnyElement 
                         cx.listener(move |this, _, _, cx| this.set_project_drone_profile(id, cx)),
                     )
                 }))
+                .children(targets.into_iter().map(|(kind, target)| {
+                    let via = ubiq_proto::projects::OriginVia {
+                        kind: kind.to_string(),
+                        target: target.target,
+                    };
+                    let picked = field.via.as_ref() == Some(&via);
+                    choice_pill(
+                        ElementId::Name(
+                            format!("{prefix}-drone-via-{}-{}", via.kind, via.target).into(),
+                        ),
+                        target.label,
+                        picked,
+                        cx.listener(move |this, _, _, cx| {
+                            this.set_project_drone_via(via.clone(), cx)
+                        }),
+                    )
+                }))
                 .into_any_element()
         };
         rows = rows.child(setting_row(
             "Reached through",
-            "One of the saved SSH profiles. The profile says where and how to connect; the \
-             secret stays the host's and never reaches this dialog.",
+            "One of the saved SSH profiles, or a target another carrier offers. Either says \
+             where and how to connect; the secret stays the host's and never reaches this dialog.",
             picker,
         ));
 
@@ -1934,34 +2039,20 @@ fn boards_section(
                             this.set_board_enabled(project, toggle_id.clone(), !enabled, cx)
                         }),
                     ))
-                    .child(if count == 0 {
-                        ghost_button(
+                    .child(
+                        row_action(
                             ("project-board-delete", ix),
-                            Some(IconName::Delete),
-                            "Delete",
+                            RowAction::Delete,
                             cx.listener(move |this, _, _, cx| {
                                 this.delete_board(project, id.clone(), cx)
                             }),
                         )
-                        .into_any_element()
-                    } else {
-                        div()
-                            .id(("project-board-delete", ix))
-                            .h(px(26.))
-                            .px_2()
-                            .flex()
-                            .items_center()
-                            .text_size(theme::font(Family::Chrome, Role::Body))
-                            .text_color(theme::text_faint())
-                            .child("Delete")
-                            .tooltip(|window, cx| {
-                                gpui_component::tooltip::Tooltip::new(
-                                    "A board that holds tasks cannot be deleted",
-                                )
-                                .build(window, cx)
-                            })
-                            .into_any_element()
-                    });
+                        .enabled(count == 0)
+                        .tip(match count {
+                            0 => "Delete",
+                            _ => "A board that holds tasks cannot be deleted",
+                        }),
+                    );
             }
             div()
                 .flex()

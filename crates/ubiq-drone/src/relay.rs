@@ -28,6 +28,7 @@ use ubiq_proto::bus::{ClientId, FromClient, HostEnd, To};
 use ubiq_proto::ids::{PaneId, ProjectId, SearchId};
 use ubiq_proto::messages::{Message, WorkspaceInfo};
 use ubiq_proto::projects::{ProjectRecord, ProjectSnapshot};
+use ubiq_proto::stats::HostStats;
 
 use crate::linger::Live;
 use crate::scrollback::Scrollback;
@@ -123,6 +124,8 @@ pub struct Relay {
     /// Absent when the stream *is* the session — `--stdio`, where a client leaving is the end of
     /// everything this drone was for.
     holding: Option<Holding>,
+    /// When this relay was built, for the uptime a stats reading reports.
+    started: Instant,
 }
 
 impl Relay {
@@ -164,6 +167,7 @@ impl Relay {
             search: Search::start(),
             active_searches: HashMap::new(),
             meta: host_meta::start(scratch.clone()),
+            started: Instant::now(),
             records,
             scratch,
             panes: HashMap::new(),
@@ -656,6 +660,38 @@ impl Relay {
                     tracing::info!(search = %search_id, project = %project_id, "search cancelled");
                 }
             }
+
+            // What the window asks on every attach and every project open. A drone keeps no meter,
+            // no work and no missions, so the honest answers are the machine's own readings and
+            // empty lists — not a warning per ask.
+            Message::ListStats => {
+                let meta = self.meta.lock().ok().map(|guard| guard.clone());
+                let stats = HostStats {
+                    uptime_secs: self.started.elapsed().as_secs(),
+                    open_projects: self.records.len(),
+                    sessions_count: self.panes.len(),
+                    cpu_load_pct: meta.as_ref().and_then(|meta| meta.cpu_load_pct),
+                    mem_free_bytes: meta.as_ref().and_then(|meta| meta.mem_free_bytes),
+                    mem_total_bytes: meta.as_ref().and_then(|meta| meta.mem_total_bytes),
+                    disk_free_bytes: meta.as_ref().and_then(|meta| meta.disk_free_bytes),
+                    ..HostStats::default()
+                };
+                host.send(To::Client(client), Message::Stats { stats });
+            }
+            Message::ListBoards { project_id } => host.send(
+                To::Client(client),
+                Message::Boards {
+                    project_id,
+                    boards: Vec::new(),
+                },
+            ),
+            Message::ListMissions { project_id } => host.send(
+                To::Client(client),
+                Message::MissionList {
+                    project_id,
+                    missions: Vec::new(),
+                },
+            ),
 
             // A stop or a close of something that never started: nothing to answer.
             Message::DbCancel { .. } | Message::DbCloseSession { .. } => {}

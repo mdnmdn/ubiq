@@ -18,7 +18,7 @@ use ubiq_proto::bus::FromClient;
 use ubiq_proto::ids::{ProjectId, SshProfileId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::projects::{
-    DroneChange, DroneOrigin, ProjectHealth, ProjectRecord, ProjectSnapshot,
+    DroneChange, DroneOrigin, OriginVia, ProjectHealth, ProjectRecord, ProjectSnapshot,
 };
 use ubiq_proto::settings::DronePreset;
 
@@ -27,10 +27,11 @@ const PATIENCE: Duration = Duration::from_millis(500);
 
 fn origin(profile: SshProfileId, root: &str) -> DroneOrigin {
     DroneOrigin {
-        profile,
+        profile: Some(profile),
         root: root.to_string(),
         preset: DronePreset::Session,
         linger_secs: None,
+        via: None,
     }
 }
 
@@ -120,6 +121,50 @@ fn a_dropped_drone_leaves_the_row_unreadable_rather_than_gone() {
         ProjectHealth::Unreadable("the drone build box is not attached".to_string())
     );
     assert!(row.record.runs_on.is_some(), "and it is still pinned");
+
+    // A drone that comes back and names the folder again clears the sentence, and still leaves
+    // the record the local one.
+    registry.replace_all_except(vec![snapshot(pinned, "proj", None)], &[pinned]);
+    let row = registry.project(pinned).expect("the row is still there");
+    assert_eq!(row.health, ProjectHealth::Ok);
+    assert_eq!(row.record.name, "the pinned one");
+}
+
+/// The record's owner cannot see a far folder, so its answers always read healthy: neither its
+/// `OpenedProject` reply nor its catalogue listing may take a drone's "not attached" off the row.
+/// A drone's listing still does, and so does an origin that changed.
+#[test]
+fn the_local_hosts_answer_keeps_a_far_rows_mark() {
+    let profile = SshProfileId::generate();
+    let pinned = ProjectId::generate();
+    let pin = origin(profile, "/srv/proj");
+    let mut registry = WindowRegistry::default();
+    registry.replace_all(vec![snapshot(pinned, "the pinned one", Some(pin.clone()))]);
+    let mark = ProjectHealth::Unreadable("the drone build box is not attached".to_string());
+    registry.mark_unreadable(pinned, "the drone build box is not attached".to_string());
+
+    // The local host's reply to `OpenedProject`/`RefreshProject`.
+    registry.apply(snapshot(pinned, "the pinned one", Some(pin.clone())));
+    assert_eq!(registry.project(pinned).unwrap().health, mark);
+    // The local host's own listing, which does not keep the row it owns.
+    registry.replace_all_except(
+        vec![snapshot(pinned, "the pinned one", Some(pin.clone()))],
+        &[],
+    );
+    assert_eq!(registry.project(pinned).unwrap().health, mark);
+
+    // A drone naming the folder clears it.
+    registry.replace_all_except(vec![snapshot(pinned, "proj", None)], &[pinned]);
+    assert_eq!(registry.project(pinned).unwrap().health, ProjectHealth::Ok);
+
+    // So does an origin the user changed: the old sentence was about the old one.
+    registry.mark_unreadable(pinned, "gone".to_string());
+    registry.apply(snapshot(
+        pinned,
+        "the pinned one",
+        Some(origin(profile, "/srv/elsewhere")),
+    ));
+    assert_eq!(registry.project(pinned).unwrap().health, ProjectHealth::Ok);
 }
 
 /// The three states an `UpdateProject` can carry about a drone, off the form that writes them.
@@ -151,9 +196,75 @@ fn the_form_says_set_local_or_nothing_at_all() {
     let half = DroneField {
         on_drone: true,
         profile: None,
+        via: None,
         preset: DronePreset::Managed,
     };
     assert_eq!(half.change("/srv/proj", None), None);
+
+    // A contributed carrier's target names the origin in place of a profile.
+    let via = OriginVia {
+        kind: "example".to_string(),
+        target: "t1".to_string(),
+    };
+    let carried = DroneField {
+        via: Some(via.clone()),
+        ..half
+    };
+    assert_eq!(
+        carried.change("/srv/proj", None),
+        Some(DroneChange::Set(DroneOrigin {
+            profile: None,
+            via: Some(via),
+            preset: DronePreset::Managed,
+            ..origin(profile, "/srv/proj")
+        }))
+    );
+}
+
+/// The picker's banner goes when Dismiss is *clicked* — through the drawn button, not the method
+/// behind it — and stays gone.
+#[gpui::test]
+fn the_project_banner_dismisses_on_click(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext as _;
+
+    let (hub, _host) = ubiq_proto::bus::hub();
+    cx.update(|cx| {
+        gpui_component::init(cx);
+        ubiq::theme::set_mode(ubiq::app::boot_theme(), cx);
+        BusHub::install(hub, cx);
+        WindowRegistry::install(cx);
+        ubiq::app::install_key_bindings(cx);
+    });
+    let held: std::rc::Rc<std::cell::RefCell<Option<gpui::Entity<AppState>>>> = Default::default();
+    let taken = held.clone();
+    let handle = cx.add_window(move |window, cx| {
+        let state = cx.new(|cx| AppState::for_project(None, 'A', window, cx));
+        *taken.borrow_mut() = Some(state.clone());
+        gpui_component::Root::new(state, window, cx)
+    });
+    cx.run_until_parked();
+    let state = held
+        .borrow_mut()
+        .take()
+        .expect("the window built its state");
+
+    state.update(cx, |state, cx| {
+        state.workbench.project_error = Some("this host is a drone".to_string());
+        state.workbench.open_menu = Some(ubiq::state::MenuId::Project);
+        cx.notify();
+    });
+    cx.run_until_parked();
+
+    let mut vcx = gpui::VisualTestContext::from_window(handle.into(), cx);
+    let bounds = vcx
+        .debug_bounds("project-error-dismiss")
+        .expect("the banner draws its Dismiss");
+    vcx.simulate_click(bounds.center(), gpui::Modifiers::none());
+    vcx.run_until_parked();
+
+    state.read_with(&vcx, |state, _| {
+        assert_eq!(state.workbench.project_error, None, "Dismiss did nothing");
+    });
 }
 
 /// The Remote arm of the nav, and the enablement rule it had to learn. The knowledge base joined
@@ -217,7 +328,9 @@ fn the_remote_nav_needs_a_record_to_attach_to(cx: &mut gpui::TestAppContext) {
             ProjectNav::default()
         );
 
-        // Editing an existing project, it opens.
+        // Editing an existing project, it opens — once experimental settings are on, since the
+        // Remote section is `Tier::Experimental`.
+        state.workbench.settings.ui.experimental = true;
         state.workbench.project_settings = Some(ProjectSettings {
             mode: ProjectSettingsMode::Edit {
                 project: ProjectId::generate(),

@@ -692,6 +692,10 @@ enum Outbound {
 impl AppState {
     /// Raise the connect modal, with both fields empty.
     pub fn open_remote_connect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Remote hosts and drones are experimental: with the switch off there is no way in.
+        if !self.offers(crate::state::settings::Tier::Experimental) {
+            return;
+        }
         self.clear_remote_connect_inputs(window, cx);
         self.workbench.remote_connect = Some(RemoteConnectState::default());
         cx.notify();
@@ -1040,7 +1044,7 @@ impl AppState {
         let root = root.trim();
         WindowRegistry::read(cx).all().find_map(|snapshot| {
             let origin = snapshot.record.runs_on.as_ref()?;
-            (origin.profile == profile && origin.root.trim() == root)
+            (origin.profile == Some(profile) && origin.root.trim() == root)
                 .then_some((snapshot.record.id, origin.linger_secs))
         })
     }
@@ -1103,22 +1107,29 @@ impl AppState {
     /// The live connection carries a saved entry's id, and the saved entry carries the carrier,
     /// so the match runs through `remote_hosts` rather than through a field on `RemoteConn`:
     /// how a connection's bytes arrive is the saved host's business, not the live one's.
-    pub(super) fn drone_attached(&self, origin: &DroneOrigin) -> bool {
+    ///
+    /// **And is serving `project`.** The same profile and folder is not enough: a drone dialled
+    /// from the folder browser carries no `--root-id`, so it announces the folder under an id of
+    /// its own and the project would stay routed to the local host. Only a connection whose own
+    /// catalogue named this project's id is adopted; otherwise a fresh drone is dialled.
+    pub(super) fn drone_attached(&self, project: ProjectId, origin: &DroneOrigin) -> bool {
         self.bus.remote_conns().iter().any(|conn| {
-            self.workbench
-                .settings
-                .host
-                .remote_hosts
-                .iter()
-                .any(|saved| {
-                    saved.id == conn.save_id
-                        && matches!(
-                            &saved.carrier,
-                            RemoteCarrier::Ssh { profile, root, .. }
-                                if *profile == origin.profile
-                                    && root.trim() == origin.root.trim()
-                        )
-                })
+            self.bus.project_host(project) == HostRef::Remote(conn.id)
+                && self
+                    .workbench
+                    .settings
+                    .host
+                    .remote_hosts
+                    .iter()
+                    .any(|saved| {
+                        saved.id == conn.save_id
+                            && matches!(
+                                &saved.carrier,
+                                RemoteCarrier::Ssh { profile, root, .. }
+                                    if origin.profile == Some(*profile)
+                                        && root.trim() == origin.root.trim()
+                            )
+                    })
         })
     }
 
@@ -1142,7 +1153,7 @@ impl AppState {
             .host
             .ssh_profiles
             .iter()
-            .find(|profile| profile.id == origin.profile)
+            .find(|profile| Some(profile.id) == origin.profile)
             .cloned()
         else {
             // The profile was deleted out from under the project. Said on the row rather than
@@ -1156,13 +1167,14 @@ impl AppState {
         };
         let label = profile.name.clone();
         let address = profile.host.clone();
+        let profile_id = profile.id;
         let params = ssh_connect::SshDialParams {
             profile,
             root: origin.root.clone(),
             preset: origin.preset,
             root_id: Some(project),
             linger_secs: origin.linger_secs,
-            drone_path: self.saved_drone_path(origin.profile, &origin.root),
+            drone_path: self.saved_drone_path(profile_id, &origin.root),
             config_root: self.workbench.config_root.clone(),
         };
 
@@ -1170,7 +1182,7 @@ impl AppState {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let outcome = outcome.await;
             let _ = this.update(cx, |this, cx| {
-                this.land_project_drone(project, origin, label, address, outcome, cx)
+                this.land_project_drone(project, profile_id, origin, label, address, outcome, cx)
             });
         })
         .detach();
@@ -1186,6 +1198,7 @@ impl AppState {
     fn land_project_drone(
         &mut self,
         project: ProjectId,
+        profile_id: SshProfileId,
         origin: DroneOrigin,
         label: String,
         address: String,
@@ -1215,7 +1228,7 @@ impl AppState {
                     RemoteScheme::Http,
                     false,
                     RemoteCarrier::Ssh {
-                        profile: origin.profile,
+                        profile: profile_id,
                         root: origin.root,
                         preset: origin.preset,
                         drone_path,

@@ -194,7 +194,11 @@ fn row(entry: &ProjectSnapshot, in_this_window: bool, cx: &mut Context<AppState>
             format!("all-projects-forget-{project}"),
             IconName::Delete,
             "Forget",
-            cx.listener(move |this, _, _, cx| this.forget_project(project, cx)),
+            cx.listener(move |this, _, window, cx| {
+                let search = this.all_projects_search.clone();
+                search.update(cx, |state, cx| state.set_value("", window, cx));
+                this.forget_project(project, cx)
+            }),
         ))
         .into_any_element()
 }

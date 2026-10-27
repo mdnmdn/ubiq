@@ -6,7 +6,8 @@
 //! they drew before, so the rows and their order are pinned here rather than left to be noticed.
 
 use ubiq::ext::ids;
-use ubiq::ext::settings::{SectionGate, SettingsContainer, app_sections, project_sections};
+use ubiq::ext::settings::{SectionGate, SettingsContainer, Tier, app_sections, project_sections};
+use ubiq::state::settings::UiSettings;
 use ubiq::ui::sink::project::Form;
 
 #[test]
@@ -41,6 +42,7 @@ fn the_overlay_draws_the_same_rows_in_the_same_order() {
     if cfg!(windows) {
         expected.push("Shell integration");
     }
+    expected.push("Experimental");
     expected.push("Extensions demo");
     expected.push("Diagrams");
     assert_eq!(rows, expected);
@@ -199,4 +201,82 @@ fn only_the_project_dialogs_last_three_rows_carry_a_count() {
         ]
     );
     assert!(app_sections().iter().all(|spec| spec.count.is_none()));
+}
+
+/// Every section declares search keywords, and the search box finds a section by its label or by
+/// any of them, case-insensitively; a blank query finds everything.
+#[test]
+fn every_section_has_keywords_and_the_search_finds_by_them() {
+    for spec in app_sections().iter().chain(project_sections()) {
+        assert!(
+            !spec.keywords.is_empty(),
+            "`{}` declares no keywords",
+            spec.label
+        );
+        assert!(
+            spec.matches(""),
+            "`{}`: a blank query finds everything",
+            spec.label
+        );
+        assert!(
+            spec.matches(&spec.label.to_uppercase()),
+            "`{}` by its label",
+            spec.label
+        );
+        assert!(
+            spec.matches(spec.keywords[0]),
+            "`{}` by a keyword",
+            spec.label
+        );
+    }
+    let found: Vec<&str> = app_sections()
+        .iter()
+        .filter(|spec| spec.matches("VIM"))
+        .map(|spec| spec.label)
+        .collect();
+    assert_eq!(found, ["Editor"]);
+}
+
+/// With both switches off — the default — the experimental and dev sections leave the nav; each
+/// switch brings back its own tier and no other.
+#[test]
+fn the_tier_switches_decide_which_sections_are_listed() {
+    let listed = |ui: &UiSettings| -> Vec<&str> {
+        app_sections()
+            .iter()
+            .chain(project_sections())
+            .filter(|spec| spec.listed(ui, ""))
+            .map(|spec| spec.label)
+            .collect()
+    };
+    let gated = ["Connectors", "Hosts", "Drones", "Remote", "Extensions demo"];
+    let mut ui = UiSettings::default();
+    assert!(!ui.experimental && !ui.dev_settings);
+    let off = listed(&ui);
+    for label in gated {
+        assert!(
+            !off.contains(&label),
+            "`{label}` is listed with both switches off"
+        );
+    }
+    // The switches themselves are never hidden.
+    assert!(off.contains(&"Experimental"));
+    assert!(off.contains(&"SSH profiles"));
+
+    ui.experimental = true;
+    let on = listed(&ui);
+    for label in ["Connectors", "Hosts", "Drones", "Remote"] {
+        assert!(
+            on.contains(&label),
+            "`{label}` comes back with experimental on"
+        );
+    }
+    assert!(!on.contains(&"Extensions demo"));
+
+    ui.experimental = false;
+    ui.dev_settings = true;
+    let dev = listed(&ui);
+    assert!(dev.contains(&"Extensions demo"));
+    assert!(!dev.contains(&"Hosts"));
+    assert!(ui.offers(Tier::Dev) && !ui.offers(Tier::Experimental) && ui.offers(Tier::Stable));
 }

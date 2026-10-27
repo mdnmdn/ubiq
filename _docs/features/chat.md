@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: Editor-like chat tabs — many, movable to any dockable region, each a view onto a host-owned conversation or onto none, drawn by the composer, transcript and tool blocks the whole window shares.
 read_when: you are changing a chat tab, the control that starts or attaches a conversation, or which conversation a tab shows
-updated: 2026-10-24
-verified: 2026-10-23
+updated: 2026-10-26
+verified: 2026-10-26
 code_anchors: [crates/ubiq/src/ui/chat/mod.rs, crates/ubiq/src/ui/chat/sidebar.rs, crates/ubiq/src/state/chat.rs, crates/ubiq/src/state/dock.rs, crates/ubiq/src/app/chat.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/app/picker.rs, crates/ubiq/src/app/panels.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/shell.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/src/ui/conversation/info.rs, crates/ubiq/src/ui/acp_capabilities.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/state/work.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/dock/skin.rs, crates/ubiq/src/state/prefs.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/state/ask.rs, crates/ubiq/src/app/ask.rs, crates/ubiq/src/ui/ask.rs, crates/ubiq-proto/src/ask.rs]
 depends_on: [feat-workbench]
 review_cycle: monthly
@@ -102,10 +102,12 @@ ordinary state of a fresh one.
 
 **Every chat tab draws from the shared conversation view**, `crates/ubiq/src/ui/conversation`: the
 transcript, tool blocks, footer and composer every live-agent surface shares (run pill, context ring, quota
-ring, token cost, launch-time model and thinking pickers). **A link in a rendered reply goes where it
-points**: the transcript hands `ui::on_link` to its `TextView`; a relative path (resolved from the project
-root) or a `ubiq://` link opens in the window, `http`, `https` and `mailto` reach the OS, anything else does
-nothing ([`workbench.md`](./workbench.md)). A path merely mentioned in prose is text.
+ring, token cost, launch-time model and thinking pickers). **A link in a rendered reply or sent message
+goes where it points**: a relative path (resolved from the agent's project root) or a `ubiq://` link opens
+in the window, `http`, `https` and `mailto` reach the OS, anything else does nothing
+([`workbench.md`](./workbench.md)). The agent's project also supplies `ubiq://./` links, including when
+the window displays another project. A deleted conversation supplies no project for relative links;
+web, mail and explicitly named project links still work. A path merely mentioned in prose is text.
 
 **A surface resolves the agent's own project, never the window's active one.** `AppState::project_of_agent`,
 with the readers `teams_conversation` and `teams_agent`, is what a chat tab, an agents column and the Teams
@@ -331,7 +333,9 @@ delegate from `subagents`, saying its name, its model (`short_model_label`, wher
 - **Every other row** shows `state::status::delegate_status` (main agent: `conversation_status`) as
   `Status::label()`: `Working · Tools`, `Ended · Done`. A delegate whose spawning call is not in the
   transcript reads `Starting`; one whose call reached `Completed` reads `Ended · Done` and leaves the
-  `active` count.
+  `active` count. A Mistral Vibe delegate is named by its spawn (`ChefAssistant_Maria`), reads running
+  from its spawn until it reports back or is stopped, and its transcript holds what the parent said to it
+  and its report — its own steps never reach the parent session (`T-401`, [`agent-manager.md`](../tech/agent-manager.md)).
 - Clicking a row switches the transcript to that agent and closes the panel; the main agent's row only
   closes it. The `AGENT` block that spawned an agent is the same door, inert until that agent has said
   something.
@@ -407,6 +411,13 @@ warning and `@path` on send.
 **A sent turn's prose is markdown**, through the same `TextView` path as an agent body (fences get the same
 code-block treatment). Each single newline outside a fence becomes a hard break (`user_markdown`), so typed
 line breaks stay visible; Copy still copies the raw text.
+
+**A message shows its time on hover, beside Copy.** A user turn and an agent message (`ConvBlock::User`,
+`ConvBlock::Agent`) keep the `at` their first chunk arrived with, and `copyable` draws it left of the copy
+button in the same hover — local `HH:MM`, muted, whose own tooltip is the full local
+`YYYY-MM-DD HH:MM:SS ±HH:MM` (`message_time`). A message the host left undated — an ACP history replay —
+shows no time rather than a guessed one; a thinking block has none. Where `at` comes from is the
+transport contract's.
 
 **A sent turn keeps its chips; clicking one previews the file.** They are drawn inside the turn's accent
 surface under the prose, without `×` (the harness has the file). The echo is one string of `@path` mentions,
@@ -493,6 +504,14 @@ first echo also precedes its `Started`, but its send accounts for it, so it stay
 host sends itself is not counted: its late echo still reopens, and a Claude Code agent the host
 autostarts reads idle from its `Started` until its first output.
 
+**One echo per send, whatever the harness does** (`T-401`). The ACP bridge synthesises the echo
+because most agents never send one, but Mistral Vibe also echoes the live prompt as a
+`user_message_chunk` — a second user block, preamble and all, since the first had spent it. The bridge
+keeps the text it sent and drops the agent's echo of it (`take_echo` in `io/acp_client.rs`):
+whitespace-collapsed, either in ordered pieces or as one chunk containing the whole of it with the
+agent's own text around it. Anything else forgives the debt and passes, and a turn's end forgives it
+too, so a `session/load` replay — no turn in flight — is always shown.
+
 **The glyph says the state; the word lives in its tooltip.** `state::status::conversation_status` reads
 `launched`, `run`, `stop_reason`, `pending`, `blocks`, `accepts_input` and `config` into a `Status` — **a
 pair**: a `Lifecycle` (Starting, Ready, Idle, Working, Waiting, Unloaded, Ended) and a `Doing` (Queued,
@@ -521,6 +540,11 @@ for them all. A question through `ubiq-ask` speaks that family's `AskUser`/`Answ
 and is filed as an `AskRecord` beside the conversation.
 
 ## Implementation
+
+**Transcript links** (`crates/ubiq/src/ui/conversation/mod.rs`, `on_agent_link`). Both user and agent
+`TextView` bodies call `AppState::follow_agent_link` in `crates/ubiq/src/app/editor.rs`. It resolves the
+conversation's owning project at click time, then uses the same destination routing and external-scheme
+policy as `follow_link`. `crates/ubiq/tests/chat.rs` covers cross-project, expired and project-less clicks.
 
 **Dock** (`crates/ubiq/src/state/dock.rs`). `ChatId` is a locally minted counter, `Display` and `FromStr` so
 it round-trips through the dock's payload like a pane id. `PanelKind::Chat(ChatId)`'s `class` is `Free`,

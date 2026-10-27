@@ -7,7 +7,7 @@
 //! input and output have, and portable in a way a unix socket pair is not.
 //!
 //! The families a drone refuses and that have **no error variant to refuse with** are not covered
-//! here because there is nothing to assert: `ListStats`, `ListNotifications` and the rest of the
+//! here because there is nothing to assert: `ListNotifications` and the rest of the
 //! notification family, `CliShortcut`, `ShellIntegration`, and every host→UI answer that arrives at
 //! the wrong end of the wire. Those are logged and dropped — see the catch-all in
 //! `relay::dispatch`.
@@ -291,4 +291,30 @@ fn the_end_of_the_stream_kills_every_pane() {
         !marker.exists(),
         "a pane outlived the session that owned it"
     );
+}
+
+/// The asks a window makes on every attach and project open are answered, not warned about.
+#[test]
+fn the_quiet_asks_are_answered() {
+    let project = tempfile::tempdir().expect("a project folder");
+    let session = Session::open(vec![Root::new(project.path().to_path_buf())]);
+    session.say(Message::ListProjects);
+    let project_id = session.wait_for("ProjectList", |message| match message {
+        Message::ProjectList { projects } => Some(projects[0].id()),
+        _ => None,
+    });
+
+    session.say(Message::ListStats);
+    session.wait_for("Stats", |message| {
+        matches!(message, Message::Stats { .. }).then_some(())
+    });
+    session.say(Message::ListBoards { project_id });
+    session.wait_for("Boards", |message| {
+        matches!(message, Message::Boards { boards, .. } if boards.is_empty()).then_some(())
+    });
+    session.say(Message::ListMissions { project_id });
+    session.wait_for("MissionList", |message| {
+        matches!(message, Message::MissionList { missions, .. } if missions.is_empty())
+            .then_some(())
+    });
 }

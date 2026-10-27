@@ -10,6 +10,7 @@
 //! `crates/ubiq/src/state/windows.rs`, and the catalogue it projects belongs to the host.
 
 use chrono::Utc;
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, Context, ElementId, Focusable, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Window, WindowId, anchored, deferred, div, px,
@@ -219,7 +220,11 @@ fn panel(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyElem
     body = body
         .child(add_row(cx))
         .child(clone_row(cx))
-        .child(remote_row(app, cx));
+        // Remote hosts are experimental (`Tier::Experimental`): no row while the switch is off.
+        .when(
+            app.offers(crate::state::settings::Tier::Experimental),
+            |body| body.child(remote_row(app, cx)),
+        );
 
     if !empty {
         let mut history_rows: Vec<AnyElement> = groups
@@ -361,13 +366,18 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         ),
     };
 
-    // A project whose folder has gone offers the two actions that can help.
-    if !healthy {
+    // A project whose folder has gone offers the two actions that can help. Not a drone-served
+    // one: its folder is on the drone's machine, and a folder picked on this one would re-point
+    // the record at the wrong disk — opening it again is what re-dials.
+    if !healthy && entry.record.runs_on.is_none() {
         line = line.child(action(
             format!("project-locate-{project}"),
             IconName::FolderOpen,
             "Locate",
-            cx.listener(move |this, _, _, cx| this.choose_folder(Some(project), cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.choose_folder(Some(project), cx)
+            }),
         ));
     }
 
@@ -377,7 +387,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             format!("project-take-{project}"),
             IconName::ArrowLeft,
             "Take into this window",
-            cx.listener(move |this, _, _, cx| this.take_project(project, cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.take_project(project, cx)
+            }),
         ));
     }
 
@@ -388,7 +401,10 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             format!("project-window-{project}"),
             IconName::ExternalLink,
             "Open in a new window",
-            cx.listener(move |_, _, _, cx| open_project_window(Some(project), cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                open_project_window(Some(project), cx)
+            }),
         ));
     }
 
@@ -397,14 +413,18 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
             format!("project-close-{project}"),
             IconName::Close,
             "Close in this window",
-            cx.listener(move |this, _, _, cx| this.close_project(project, false, cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.close_project(project, false, cx)
+            }),
         ));
     } else {
         line = line.child(action(
             format!("project-forget-{project}"),
             IconName::Delete,
             "Forget",
-            cx.listener(move |this, _, _, cx| {
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
                 this.set_row_action(Some((project, RowAction::ConfirmForget)), cx)
             }),
         ));
@@ -412,13 +432,16 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
 
     // Clicking the row does the obvious thing for where it sits: point this window at it, go to the
     // window that has it, or open it here.
-    let click = cx.listener(move |this, _, _, cx| match group {
-        Group::Here => this.activate_project(project, cx),
-        Group::Elsewhere(_, id) => {
-            this.close_menu(cx);
-            focus_window(id, cx);
+    let click = cx.listener(move |this, _, window, cx| {
+        this.clear_project_filter(window, cx);
+        match group {
+            Group::Here => this.activate_project(project, cx),
+            Group::Elsewhere(_, id) => {
+                this.close_menu(cx);
+                focus_window(id, cx);
+            }
+            Group::History => this.take_project(project, cx),
         }
-        Group::History => this.take_project(project, cx),
     });
 
     line.on_click(click).into_any_element()
@@ -518,7 +541,10 @@ fn forget_row(
             "forget-confirm",
             "Forget",
             theme::danger(),
-            cx.listener(move |this, _, _, cx| this.forget_project(project, cx)),
+            cx.listener(move |this, _, window, cx| {
+                this.clear_project_filter(window, cx);
+                this.forget_project(project, cx)
+            }),
         ))
         .into_any_element()
 }
@@ -684,12 +710,15 @@ fn banner(error: String, cx: &mut Context<AppState>) -> impl IntoElement {
                 .text_color(theme::text())
                 .child(error),
         )
-        .child(small_button(
-            "project-error-dismiss",
-            "Dismiss",
-            theme::text_muted(),
-            cx.listener(|this, _, _, cx| this.dismiss_project_error(cx)),
-        ))
+        .child(
+            small_button(
+                "project-error-dismiss",
+                "Dismiss",
+                theme::text_muted(),
+                cx.listener(|this, _, _, cx| this.dismiss_project_error(cx)),
+            )
+            .debug_selector(|| "project-error-dismiss".into()),
+        )
 }
 
 /// A window's letter, in the small outlined square the picker prints beside every open project.
@@ -742,7 +771,7 @@ fn small_button(
     label: &'static str,
     colour: gpui::Rgba,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
-) -> impl IntoElement {
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .h(px(22.))

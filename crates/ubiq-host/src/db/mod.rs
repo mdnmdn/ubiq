@@ -11,6 +11,7 @@
 //! - `secrets` — the sealed passwords
 //! - `session` — one worker thread per table or SQL tab, and one meta session per
 //!   `(window, connection)` for the tree; the cancel registry
+//! - `tunnel` — the SSH local forward a connection naming an SSH profile is dialled through
 //! - `jobs` — each message turned into a job, and the three read-only layers
 //! - `agent` — [`AgentDb`], the blocking handle the SQL MCP servers reach the family through
 //! - `editors` — the shared query editors, in memory
@@ -23,6 +24,7 @@ pub mod jobs;
 pub mod secrets;
 pub mod session;
 pub mod store;
+pub mod tunnel;
 
 #[cfg(test)]
 mod tests;
@@ -38,7 +40,7 @@ use ubiq_proto::bus::{ClientId, Mailbox};
 use ubiq_proto::db::{
     DbAgentSettings, DbConnState, DbConnection, DbFailure, DbFailureKind, SecretEdit,
 };
-use ubiq_proto::ids::{DbConnId, DbProbeId, DbSessionId, ProjectId};
+use ubiq_proto::ids::{DbConnId, DbProbeId, DbSessionId, ProjectId, SshProfileId};
 use ubiq_proto::messages::Message;
 
 use crate::connectors::store::Store;
@@ -50,6 +52,7 @@ use jobs::Job;
 use secrets::{KeySource, Secrets};
 use session::{Origin, Runs, Session};
 use store::StoredConnection;
+pub use tunnel::SshLookup;
 
 /// Where to answer, and what the project's folder is: everything the coordinator knows that a
 /// message of the family needs.
@@ -98,18 +101,24 @@ struct Inner {
     sessions: Mutex<HashMap<Key, Session>>,
     runs: Arc<Runs>,
     editors: Editors,
+    /// The SSH profiles a connection may tunnel through, as the host's settings hold them.
+    ssh: SshLookup,
 }
 
 impl Db {
     /// The service under `root`, its key kept in the OS keychain through the connector family's
-    /// secret store. Constructing does no I/O.
-    pub fn new(root: PathBuf) -> Self {
+    /// secret store, its SSH profiles found through `ssh`. Constructing does no I/O.
+    pub fn new(root: PathBuf, ssh: SshLookup) -> Self {
         let keys: Arc<dyn KeySource> = Arc::new(Store::open(&root));
-        Self::with_keys(root, keys)
+        Self::with_parts(root, keys, ssh)
     }
 
-    /// The same, with the key kept somewhere else — a test's, in memory.
+    /// The same, with the key kept somewhere else — a test's, in memory — and no SSH profiles.
     pub fn with_keys(root: PathBuf, keys: Arc<dyn KeySource>) -> Self {
+        Self::with_parts(root, keys, tunnel::no_profiles())
+    }
+
+    fn with_parts(root: PathBuf, keys: Arc<dyn KeySource>, ssh: SshLookup) -> Self {
         install_crypto_provider();
         let inner = Arc::new(Inner {
             root: root.clone(),
@@ -118,6 +127,7 @@ impl Db {
             sessions: Mutex::new(HashMap::new()),
             runs: Arc::new(Runs::default()),
             editors: Editors::default(),
+            ssh,
         });
         let (admin, queue) = flume::unbounded::<Admin>();
         let worker = inner.clone();
@@ -147,6 +157,7 @@ impl Db {
                 password,
                 remember,
                 agent,
+                ssh,
             } => self.on_admin(move |db| {
                 let edit = Edit {
                     id,
@@ -154,6 +165,7 @@ impl Db {
                     password,
                     remember,
                     agent,
+                    ssh,
                 };
                 db.save(project_id, &ctx.project_path, edit);
                 ctx.everyone.send(db.listed(project_id, &ctx.project_path));
@@ -168,7 +180,8 @@ impl Db {
                 id,
                 config,
                 password,
-            } => self.test(ctx, project_id, probe, id, *config, password),
+                ssh,
+            } => self.test(ctx, project_id, probe, id, *config, password, ssh),
             Message::DbPassword {
                 project_id,
                 conn,
@@ -378,7 +391,9 @@ impl Db {
     }
 
     /// A Test dials on a thread of its own: it may take as long as a connect does, and must not
-    /// queue the connection list behind it.
+    /// queue the connection list behind it. A named SSH profile tunnels it, and the tunnel goes
+    /// with the thread.
+    #[allow(clippy::too_many_arguments)]
     fn test(
         &self,
         ctx: Ctx,
@@ -387,8 +402,11 @@ impl Db {
         id: Option<DbConnId>,
         mut config: ConnectionConfig,
         edit: SecretEdit,
+        ssh: Option<SshProfileId>,
     ) {
         let secrets = self.inner.secrets.clone();
+        let lookup = self.inner.ssh.clone();
+        let config_root = self.inner.root.clone();
         let spawned = std::thread::Builder::new()
             .name("ubiq-db-test".into())
             .spawn(move || {
@@ -400,9 +418,12 @@ impl Db {
                 };
                 let root = Some(ctx.project_path.as_path()).filter(|p| !p.as_os_str().is_empty());
                 store::absolutise(&mut config, root);
-                let result = driver::connect(&config)
-                    .and_then(|mut conn| conn.ping().map(|()| session::version(&mut *conn)))
-                    .map_err(|e| jobs::failure(&e));
+                let result =
+                    tunnel::route(&mut config, ssh, &lookup, &config_root).and_then(|_tunnel| {
+                        driver::connect(&config)
+                            .and_then(|mut conn| conn.ping().map(|()| session::version(&mut *conn)))
+                            .map_err(|e| jobs::failure(&e))
+                    });
                 ctx.asker.send(Message::DbTested {
                     project_id: project,
                     probe,
@@ -488,6 +509,9 @@ impl Inner {
             files: this.files(project),
             secrets: this.secrets.clone(),
             runs: this.runs.clone(),
+            ssh: this.ssh.clone(),
+            config_root: this.root.clone(),
+            closed: Default::default(),
         };
         for _ in 0..2 {
             let sent = {
@@ -556,6 +580,7 @@ impl Inner {
                     config: stored.config,
                     password,
                     agent: stored.agent,
+                    ssh: stored.ssh,
                 })
                 .collect(),
             keystore: self.secrets.keystore(),
@@ -592,6 +617,7 @@ impl Inner {
             password,
             remember,
             agent,
+            ssh,
         } = edit;
         let existing = id.is_some();
         let id = id.unwrap_or_else(DbConnId::generate);
@@ -612,6 +638,7 @@ impl Inner {
         if let Some(agent) = agent {
             list[index].agent = agent;
         }
+        list[index].ssh = ssh;
         // The saved one's invariants first, so a default it cannot hold clears nobody else's.
         store::normalise(std::slice::from_mut(&mut list[index]));
         if list[index].agent.default {
@@ -662,6 +689,7 @@ struct Edit {
     password: SecretEdit,
     remember: bool,
     agent: Option<DbAgentSettings>,
+    ssh: Option<SshProfileId>,
 }
 
 fn root_of(project_path: &Path) -> Option<&Path> {

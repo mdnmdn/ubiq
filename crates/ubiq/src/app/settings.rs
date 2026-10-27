@@ -3,7 +3,7 @@ use super::ssh_connect::{self, DroneState, HostCheck};
 use super::*;
 use crate::state::file_picker::PickerRequest;
 use crate::state::new_agent::{NewAgentForm, Purpose};
-use crate::state::settings::{DroneStopConfirm, FeedbackTest, ShellIntegration};
+use crate::state::settings::{DroneStopConfirm, FeedbackTest, ShellIntegration, Tier};
 use ubiq_proto::messages::ShellIntegrationAction;
 use ubiq_proto::tools::{ToolDef, parse_env};
 
@@ -37,6 +37,7 @@ impl AppState {
             custom_themes: self.workbench.custom_themes.clone(),
             last_start: self.workbench.last_start.clone(),
             last_start_by_project: self.workbench.last_start_by_project.clone(),
+            onboarding_done: self.workbench.onboarding_done.clone(),
             // Whatever the blob carried that this build does not name, put back as it was found.
             rest: self.workbench.interface_rest.clone(),
         };
@@ -165,6 +166,14 @@ impl AppState {
     /// Detach a saved remote if it is attached (closing its panes, stopping its reconnect loop)
     /// and delete the entry — [`Self::forget_remote_host`] after a disconnect.
     pub fn forget_saved_remote(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.disconnect_saved_remote(id, cx);
+        self.forget_remote_host(id.to_string(), cx);
+    }
+
+    /// Detach every live connection to the saved remote `id` — closing its panes and stopping its
+    /// reconnect loop — and keep the entry, so a later [`Self::connect_saved_remote`] dials it
+    /// again.
+    pub fn disconnect_saved_remote(&mut self, id: &str, cx: &mut Context<Self>) {
         let attached: Vec<_> = self
             .bus
             .remote_conns()
@@ -175,7 +184,6 @@ impl AppState {
         for host in attached {
             self.disconnect_host(host, cx);
         }
-        self.forget_remote_host(id.to_string(), cx);
     }
 
     /// Rename a saved host. The id, address, scheme and keychain token are untouched — a name is
@@ -425,6 +433,13 @@ impl AppState {
     }
 
     pub fn set_settings_nav(&mut self, nav: SettingsSection, cx: &mut Context<Self>) {
+        // A section whose tier is switched off is not a place the nav can stand.
+        if nav
+            .spec()
+            .is_some_and(|spec| !self.workbench.settings.ui.offers(spec.tier))
+        {
+            return;
+        }
         self.workbench.settings.nav = nav;
         // What used to be a chain of `if nav == …` is the section's own `on_show` (`D180`): a
         // contributed section gets the same on-arrival refresh the base's own do, and the base
@@ -653,6 +668,38 @@ impl AppState {
         }
         self.remember_host_settings();
         self.bus.send(Message::ListAgentTypes);
+        cx.notify();
+    }
+
+    /// Whether a feature of `tier` is offered in this window — the seam an extension's rail
+    /// predicate, menu rows or origin carrier reads to follow the Experimental section's switches.
+    pub fn offers(&self, tier: Tier) -> bool {
+        self.workbench.settings.ui.offers(tier)
+    }
+
+    /// `Enable experimental settings`.
+    pub fn toggle_experimental(&mut self, cx: &mut Context<Self>) {
+        let ui = &mut self.workbench.settings.ui;
+        ui.experimental = !ui.experimental;
+        self.tier_switched(cx);
+    }
+
+    /// `Enable dev settings`.
+    pub fn toggle_dev_settings(&mut self, cx: &mut Context<Self>) {
+        let ui = &mut self.workbench.settings.ui;
+        ui.dev_settings = !ui.dev_settings;
+        self.tier_switched(cx);
+    }
+
+    /// After a tier switch: written down, and a window standing in a rail mode that just left the
+    /// rail moves to the first one still on it. Nothing running is stopped.
+    fn tier_switched(&mut self, cx: &mut Context<Self>) {
+        self.remember_settings();
+        if !self.mode_enabled(self.workbench.rail_mode, cx)
+            && let Some(next) = RailMode::every().find(|m| self.mode_enabled(*m, cx))
+        {
+            self.enter_rail_mode(next, false, cx);
+        }
         cx.notify();
     }
 
@@ -2807,8 +2854,19 @@ impl AppState {
             .as_ref()
             .map_or(SshMethod::Agent, |profile| SshMethod::of(&profile.auth));
         self.set_ssh_form_fields(held.as_ref(), window, cx);
-        self.workbench.settings.ssh_form = Some(SshProfileForm { id, method });
+        self.workbench.settings.ssh_form = Some(SshProfileForm {
+            id,
+            method,
+            terminal: held.as_ref().is_some_and(|profile| profile.terminal_enabled),
+        });
         self.workbench.settings.error = None;
+        cx.notify();
+    }
+
+    pub fn toggle_ssh_terminal(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.workbench.settings.ssh_form {
+            form.terminal = !form.terminal;
+        }
         cx.notify();
     }
 
@@ -2837,6 +2895,7 @@ impl AppState {
         let port = self.ssh_port_input.read(cx).value().trim().to_string();
         let user = self.ssh_user_input.read(cx).value().trim().to_string();
         let key_path = self.ssh_key_path_input.read(cx).value().trim().to_string();
+        let typed_command = self.ssh_initial_command_input.read(cx).value().trim().to_string();
         // Trimmed, because a passphrase pasted with a newline around it is not a different one.
         let secret = self.ssh_secret_input.read(cx).value().trim().to_string();
         let Some(form) = self.workbench.settings.ssh_form.take() else {
@@ -2877,6 +2936,17 @@ impl AppState {
         // carried into the record either — a stale port on a row that cannot use one is a lie.
         let alias = form.method == SshMethod::ConfigAlias;
         let id = form.id.unwrap_or_else(SshProfileId::generate);
+        // Unchecked hides the command box without wiping what it held.
+        let initial_command = if form.terminal {
+            Some(typed_command).filter(|command| !command.is_empty())
+        } else {
+            form.id.and_then(|id| {
+                self.workbench
+                    .settings
+                    .ssh_profile(id)
+                    .and_then(|profile| profile.initial_command.clone())
+            })
+        };
         let profile = SshProfile {
             id,
             name,
@@ -2884,6 +2954,8 @@ impl AppState {
             port: if alias { 22 } else { port },
             user: if alias { String::new() } else { user },
             auth,
+            initial_command,
+            terminal_enabled: form.terminal,
         };
         let profiles = &mut self.workbench.settings.host.ssh_profiles;
         match profiles.iter_mut().find(|held| held.id == id) {
@@ -2901,6 +2973,37 @@ impl AppState {
         }
         self.set_ssh_form_fields(None, window, cx);
         cx.notify();
+    }
+
+    /// Copy a profile under a fresh id and "<name> copy". The secret is not copied (see
+    /// [`SshProfile::cloned`]), so the copy has none filed until the user types one.
+    pub fn clone_ssh_profile(&mut self, id: SshProfileId, cx: &mut Context<Self>) {
+        let Some(copy) = self.workbench.settings.ssh_profile(id).map(SshProfile::cloned) else {
+            return;
+        };
+        self.workbench.settings.host.ssh_profiles.push(copy);
+        self.remember_host_settings();
+        cx.notify();
+    }
+
+    /// Open an interactive `ssh` terminal to a profile in the bottom region. Any password or
+    /// passphrase is asked for in the terminal itself.
+    pub fn open_ssh_terminal(&mut self, id: SshProfileId, cx: &mut Context<Self>) {
+        let Some(args) = self
+            .workbench
+            .settings
+            .ssh_profile(id)
+            .and_then(ubiq_proto::ssh::terminal_args)
+        else {
+            return;
+        };
+        self.reveal_pane_region(cx);
+        self.spawn_pane(
+            Some("ssh".to_string()),
+            args,
+            ubiq_proto::messages::AgentPicks::default(),
+            cx,
+        );
     }
 
     pub fn close_ssh_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2931,7 +3034,11 @@ impl AppState {
             Some(SshAuth::KeyFile { path, .. }) => path.clone(),
             _ => String::new(),
         };
+        let initial = held
+            .and_then(|profile| profile.initial_command.clone())
+            .unwrap_or_default();
         for (input, value) in [
+            (&self.ssh_initial_command_input, initial.as_str()),
             (&self.ssh_name_input, name.as_str()),
             (&self.ssh_host_input, host.as_str()),
             (&self.ssh_port_input, port.as_str()),
@@ -3086,11 +3193,21 @@ impl AppState {
         outcome: Result<HostCheck, ConnectFailure>,
         cx: &mut Context<Self>,
     ) {
-        self.workbench.settings.ssh_check_busy.remove(&profile_id);
+        // A check stopped from the profile row has nothing waiting for it: drop the late answer.
+        if !self.workbench.settings.ssh_check_busy.remove(&profile_id) {
+            return;
+        }
         self.workbench
             .settings
             .ssh_checks
             .insert(profile_id, outcome.map_err(|failure| failure.to_string()));
+        cx.notify();
+    }
+
+    /// Stop waiting for a running check: the `ssh` is left to finish on its own, its answer is
+    /// dropped by [`Self::land_ssh_check`], and the profile's row goes back to offering Test.
+    pub fn stop_ssh_test(&mut self, profile_id: SshProfileId, cx: &mut Context<Self>) {
+        self.workbench.settings.ssh_check_busy.remove(&profile_id);
         cx.notify();
     }
 

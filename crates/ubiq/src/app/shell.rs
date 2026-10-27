@@ -357,6 +357,8 @@ impl AppState {
         // Entering a project moves the reader's context as much as a mode switch does, so follow
         // mode swaps the help page here too — see `Self::sync_help_follow`.
         self.sync_help_follow(cx);
+        // A project arriving can be what makes its mode's onboarding flow due.
+        self.check_onboarding(cx);
         cx.notify();
     }
 
@@ -822,6 +824,8 @@ impl AppState {
             on_enter(self, cx);
         }
         self.sync_help_follow(cx);
+        // The first visit to a mode with a flow of its own starts it.
+        self.check_onboarding(cx);
         cx.notify();
     }
 
@@ -1057,6 +1061,7 @@ impl AppState {
                     .is_some_and(|f| !f.capturing && f.shot_edit.is_some()),
             ),
             (Layer::About, w.about.is_some()),
+            (Layer::Devtools, w.devtools.is_some()),
             (Layer::Ask, w.ask.is_some()),
             (Layer::AllProjects, w.all_projects.is_some()),
             (Layer::FileDialog, w.file_dialog.is_some()),
@@ -1064,6 +1069,7 @@ impl AppState {
             (Layer::ThemeEditor, w.theme_editor.is_some()),
             (Layer::ThemeNaming, w.theme_prompt.is_some()),
             (Layer::ClosePane, w.confirm_close_pane.is_some()),
+            (Layer::OriginConfirm, w.origin_confirm.is_some()),
             (Layer::EndConversation, w.confirm_end_conversation.is_some()),
             (Layer::DocConflict, w.doc_conflict.is_some()),
             (
@@ -1101,6 +1107,11 @@ impl AppState {
                 self.permission_dialog_target().is_some(),
             ),
             (Layer::Dropdown, dropdown),
+            // Only while the dialog is on screen: a highlight step leaves the window to be used.
+            (
+                Layer::Onboarding,
+                w.onboarding.as_ref().is_some_and(|run| !run.hidden()),
+            ),
             (Layer::HelpTarget, w.help_target.is_some()),
         ]
         .into_iter()
@@ -1142,6 +1153,17 @@ impl AppState {
         // it is up rather than "close what I was doing".
         if self.workbench.help_target.is_some() {
             self.close_help_target(cx);
+            return;
+        }
+        // The onboarding dialog closes only through its own navigation, so Escape is swallowed
+        // while it is up — not handed down to whatever it covers. A highlight step has stepped the
+        // dialog aside, and Escape then means what it means without it.
+        if self
+            .workbench
+            .onboarding
+            .as_ref()
+            .is_some_and(|run| !run.hidden())
+        {
             return;
         }
         // A menu is drawn over whatever raised it, so it is peeled before anything else.
@@ -1222,6 +1244,9 @@ impl AppState {
             // Escape is the answer a destructive confirm should be easiest of all to give, which
             // is why both sit this high.
             self.dismiss_end_conversation_confirm(cx);
+        } else if self.workbench.origin_confirm.is_some() {
+            // Painted between the two closes, so peeled between them.
+            self.dismiss_origin_confirm(cx);
         } else if self.workbench.confirm_close_pane.is_some() {
             self.dismiss_close_pane_confirm(cx);
         } else if self.workbench.theme_prompt.is_some() {
@@ -1273,6 +1298,9 @@ impl AppState {
             // the ask's own record, and the transcript entry reopens it. Dismissing is not
             // answering, so the harness is still parked and the entry is still there to say so.
             self.close_ask(window, cx);
+        } else if self.workbench.devtools.is_some() {
+            // Drawn after About, so peeled before it.
+            self.close_devtools(cx);
         } else if self.workbench.about.is_some() {
             // Drawn after feedback, so peeled before it.
             self.close_about(cx);

@@ -218,6 +218,94 @@ fn an_agent(id: AgentId, name: &str) -> WorkAgent {
     }
 }
 
+#[gpui::test]
+fn transcript_links_follow_the_agents_project(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let agent = AgentId::generate();
+    fixture.started(an_agent(agent, "link author"), cx);
+    let other = a_project();
+    let other_id = other.record.id;
+    cx.update(|cx| cx.global_mut::<WindowRegistry>().apply(other));
+    fixture.state.update(cx, |state, cx| {
+        state.take_project(other_id, cx);
+        assert_eq!(state.project(cx), Some(other_id));
+        state.follow_agent_link(agent, "src/lib.rs#L12", cx);
+        assert_eq!(state.project(cx), Some(fixture.project));
+        let file = state.file("src/lib.rs", cx).expect("agent's file opens");
+        assert_eq!(file.path, "src/lib.rs");
+        state.activate_project(other_id, cx);
+        state.follow_agent_link(agent, "ubiq://./git", cx);
+        assert_eq!(state.project(cx), Some(fixture.project));
+        assert_eq!(state.workbench.rail_mode, RailMode::GIT);
+    });
+}
+
+/// A target with any URI scheme but `ubiq` is somewhere else, never a path in the project: a live
+/// agent's link to it opens no tab and moves nothing.
+#[gpui::test]
+fn transcript_links_with_foreign_schemes_open_nothing(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let agent = AgentId::generate();
+    fixture.started(an_agent(agent, "scheme author"), cx);
+    fixture.state.update(cx, |state, cx| {
+        let mode = state.workbench.rail_mode;
+        for target in [
+            "javascript:alert(1)",
+            "vscode://file/a.rs",
+            "file:///etc/passwd",
+            "UBIQ://./git",
+        ] {
+            state.follow_agent_link(agent, target, cx);
+            assert_eq!(state.project(cx), Some(fixture.project));
+            assert_eq!(state.workbench.rail_mode, mode, "{target}");
+        }
+        assert!(state.file("javascript:alert(1)", cx).is_none());
+        assert!(state.file("vscode://file/a.rs", cx).is_none());
+        assert!(state.file("file:///etc/passwd", cx).is_none());
+        assert!(state.file("etc/passwd", cx).is_none());
+    });
+}
+
+#[gpui::test]
+fn expired_transcript_links_do_not_use_another_project(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let agent = AgentId::generate();
+    fixture.started(an_agent(agent, "expired author"), cx);
+    fixture.deleted(agent, cx);
+    fixture.state.update(cx, |state, cx| {
+        state.follow_agent_link(agent, "src/expired.rs", cx);
+        assert!(state.file("src/expired.rs", cx).is_none());
+        let mode = state.workbench.rail_mode;
+        state.follow_agent_link(agent, "ubiq://./git", cx);
+        assert_eq!(state.workbench.rail_mode, mode);
+        // A named destination needs no surviving conversation to supply its project.
+        state.follow_agent_link(agent, &format!("ubiq://{}/git", fixture.project), cx);
+        assert_eq!(state.workbench.rail_mode, RailMode::GIT);
+    });
+}
+
+#[gpui::test]
+fn transcript_links_with_explicit_destinations_need_no_project(cx: &mut TestAppContext) {
+    let fixture = Fixture::open(cx);
+    let unknown = AgentId::generate();
+    fixture.state.update(cx, |state, cx| {
+        state.close_project(fixture.project, true, cx);
+        assert_eq!(state.project(cx), None);
+        state.follow_agent_link(unknown, "https://example.com/docs", cx);
+    });
+    assert_eq!(cx.opened_url().as_deref(), Some("https://example.com/docs"));
+    fixture.state.update(cx, |state, cx| {
+        state.follow_agent_link(unknown, "javascript:alert(1)", cx);
+        state.follow_agent_link(unknown, "src/missing.rs", cx);
+        assert_eq!(state.project(cx), None);
+        // A named destination is parsed without a project, but `navigate` only activates a
+        // project the window holds: a closed one is not reopened by a link.
+        state.follow_agent_link(unknown, &format!("ubiq://{}/git", fixture.project), cx);
+        assert_eq!(state.project(cx), None);
+    });
+    assert_eq!(cx.opened_url().as_deref(), Some("https://example.com/docs"));
+}
+
 /// A fresh project's window opens with one chat tab already there — the default arrangement's own
 /// — attached to nothing, so `+` is never the only way to get one.
 #[gpui::test]

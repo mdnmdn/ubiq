@@ -770,6 +770,19 @@ pub struct WorkbenchState {
     /// The About modal, while it is up. Raised from the titlebar's mark, over anything, like
     /// `feedback`.
     pub about: Option<crate::state::about::AboutState>,
+    /// The Tools dialog, while it is up. Raised from the titlebar's wrench, over anything, like
+    /// `about`.
+    pub devtools: Option<crate::state::devtools::DevtoolsState>,
+    /// The onboarding wizard, while a run is open — dialog or highlight. See
+    /// `crate::state::onboarding`.
+    pub onboarding: Option<crate::state::onboarding::OnboardingRun>,
+    /// The onboarding flows finished or skipped, by id. Read from and written to the interface's
+    /// preferences (`InterfacePrefs::onboarding_done`).
+    pub onboarding_done: std::collections::BTreeSet<String>,
+    /// Whether the interface's preferences have been answered — with a blob or with nothing. An
+    /// onboarding flow never starts before this, or a returning user would see the welcome for
+    /// the frames before the host replies.
+    pub prefs_loaded: bool,
     /// Which agent's question is on screen, while the ask dialog is up. Only the view: what has
     /// been filled in lives on the conversation's own record, which is what lets the dialog be
     /// closed and reopened with the drafts intact. See `crate::state::ask`.
@@ -973,6 +986,8 @@ pub struct WorkbenchState {
     /// Only the *destructive* close asks. Hide takes the tab away and leaves the harness running,
     /// so there is nothing to warn about and nothing to confirm.
     pub confirm_close_pane: Option<PaneId>,
+    /// An origin carrier's question, when one is up (`ext::origin::OriginConfirm`).
+    pub origin_confirm: Option<crate::ext::origin::OriginConfirm>,
     /// The shells the host says this machine has, in the order the menu offers them. Empty until
     /// the host answers — a window asks as it attaches and again every time the menu opens, so a
     /// shell installed since is offered without a restart.
@@ -1090,6 +1105,10 @@ impl Default for WorkbenchState {
             feedback_offer: ubiq_proto::feedback::FeedbackOffer::default(),
             updates: crate::state::updates::UpdatesState::default(),
             about: None,
+            devtools: None,
+            onboarding: None,
+            onboarding_done: Default::default(),
+            prefs_loaded: false,
             ask: None,
             all_projects: None,
             image_zoom: None,
@@ -1138,6 +1157,7 @@ impl Default for WorkbenchState {
             confirm_end_conversation: None,
             chat_focus: None,
             confirm_close_pane: None,
+            origin_confirm: None,
             shells: Vec::new(),
             agent_types: Vec::new(),
             mcps: Vec::new(),

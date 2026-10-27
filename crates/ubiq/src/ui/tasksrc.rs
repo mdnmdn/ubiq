@@ -99,6 +99,16 @@ pub fn settings_section(reg: &mut Registry<SettingsSectionSpec>) {
             // A folder not yet in the catalogue has no board to bind, on Tools' and Tasks' own
             // footing.
             gate: SectionGate::WithRecord,
+            tier: crate::ext::settings::Tier::Stable,
+            keywords: &[
+                "task sync",
+                "tracker",
+                "github",
+                "jira",
+                "issues",
+                "binding",
+                "board",
+            ],
             count: Some(|ctx, _| {
                 let n = ctx.app.tasksrc.links.len();
                 (n > 0).then_some(n)

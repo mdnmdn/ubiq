@@ -1050,6 +1050,11 @@ pub struct AppState {
     /// two can be on screen in the same window at once — the modal is raised over the picker
     /// row that opened it — and one field drawn twice is one field in two places.
     pub all_projects_search: Entity<InputState>,
+    /// The application settings overlay's search box; its text is `SettingsState::filter`.
+    pub settings_search: Entity<InputState>,
+    /// The project dialog's search box; its text is `SettingsState::project_filter`. Separate
+    /// from the overlay's because the sink draws the project fixture while the overlay can be up.
+    pub project_settings_search: Entity<InputState>,
     /// The one buffer every `kit::Picker` that opts into search types into — a menu is one at a
     /// time, so one field suffices. Cleared and focused on open.
     pub picker_search: Entity<InputState>,
@@ -1272,6 +1277,8 @@ pub struct AppState {
     pub ssh_port_input: Entity<InputState>,
     pub ssh_user_input: Entity<InputState>,
     pub ssh_key_path_input: Entity<InputState>,
+    /// The SSH form's optional command to run on connect.
+    pub ssh_initial_command_input: Entity<InputState>,
     // ponytail: this kit has no masked field, so a typed passphrase is on screen until the modal
     // closes — the same ceiling `ai_key_input` has, and the same fix.
     pub ssh_secret_input: Entity<InputState>,
@@ -1439,6 +1446,7 @@ pub use hosts::{
     RemoteHostMeta, host_menu_rows, host_row_label, preferred_remote,
 };
 mod db;
+mod devtools;
 mod image_edit;
 pub use db::{DbPageRequest, DbQueryReply, DbQueryRequest};
 mod kb;
@@ -1449,6 +1457,7 @@ mod nav;
 mod new_agent;
 mod new_mission;
 mod notifications;
+mod onboarding;
 mod panels;
 mod picker;
 mod plan;

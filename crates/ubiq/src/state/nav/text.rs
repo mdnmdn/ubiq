@@ -360,6 +360,16 @@ fn decode(text: &str) -> Result<String, NotALink> {
     String::from_utf8(out).map_err(|_| NotALink)
 }
 
+/// Whether `target` opens with a URI scheme (`^[A-Za-z][A-Za-z0-9+.-]*:`).
+fn has_scheme(target: &str) -> bool {
+    let mut chars = target.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars
+            .take_while(|c| *c != ':')
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+        && target.contains(':')
+}
+
 /// A link written *inside a document*, resolved against that document.
 ///
 /// **`..` pops here, where the host refuses it.** That is not an inconsistency: the host only ever
@@ -374,12 +384,9 @@ pub fn resolve_relative(project: ProjectId, doc_path: &str, target: &str) -> Opt
         // it, and it is the only project a document being read in this window could be about.
         return parse_link(target, Some(project)).ok();
     }
-    let lower = target.to_ascii_lowercase();
-    // Somewhere else entirely. The caller hands these to the operating system.
-    if ["http:", "https:", "mailto:"]
-        .iter()
-        .any(|scheme| lower.starts_with(scheme))
-    {
+    // Any other URI scheme is somewhere else entirely, never a path in this project. The caller
+    // hands the web and mail to the operating system; `javascript:`, `file:` and the rest are nothing.
+    if has_scheme(target) {
         return None;
     }
     if let Some(frag) = target.strip_prefix('#') {

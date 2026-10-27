@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use gpui::ScrollHandle;
 use ubiq_proto::ids::SshProfileId;
-use ubiq_proto::projects::{DroneChange, DroneOrigin};
+use ubiq_proto::projects::{DroneChange, DroneOrigin, OriginVia};
 use ubiq_proto::settings::DronePreset;
 use ubiq_proto::work::AgentId;
 
@@ -630,7 +630,11 @@ pub struct DroneField {
     /// `profile.is_some()`, so switching back to "runs here" leaves the profile and the folder on
     /// screen to switch back to.
     pub on_drone: bool,
+    /// The saved SSH profile that reaches the drone. Exactly one of this and [`Self::via`] is set
+    /// once a carrier is picked: picking one clears the other.
     pub profile: Option<SshProfileId>,
+    /// A contributed carrier's target that reaches the drone instead (`ext::origin`).
+    pub via: Option<OriginVia>,
     pub preset: DronePreset,
 }
 
@@ -640,7 +644,8 @@ impl DroneField {
         match origin {
             Some(origin) => Self {
                 on_drone: true,
-                profile: Some(origin.profile),
+                profile: origin.profile,
+                via: origin.via.clone(),
                 preset: origin.preset,
             },
             None => Self::default(),
@@ -656,14 +661,16 @@ impl DroneField {
     /// The linger override rides through untouched: the panel picks a lifetime preset, and a
     /// per-project override in seconds is a value only a record carries.
     pub fn change(&self, root: &str, current: Option<&DroneOrigin>) -> Option<DroneChange> {
-        let wanted = match (self.on_drone, self.profile) {
-            (true, Some(profile)) => Some(DroneOrigin {
-                profile,
+        let named = self.profile.is_some() || self.via.is_some();
+        let wanted = match (self.on_drone, named) {
+            (true, true) => Some(DroneOrigin {
+                profile: self.profile,
                 root: root.trim().to_string(),
                 preset: self.preset,
                 linger_secs: current.and_then(|origin| origin.linger_secs),
+                via: self.via.clone(),
             }),
-            (true, None) => return None,
+            (true, false) => return None,
             (false, _) => None,
         };
         if wanted.as_ref() == current {

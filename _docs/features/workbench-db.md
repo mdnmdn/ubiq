@@ -5,9 +5,9 @@ kind: feature
 status: draft
 summary: The rail's opt-in DB mode — the project's saved database connections (PostgreSQL, MySQL/MariaDB, SQLite, SQL Server) and the Databases section that edits them, the explorer tree, table tabs that page, filter and edit rows, SQL tabs with a timer, Stop, Explain and a read-only guard enforced in three layers by the host, the DBML export, where `db.toml` and the sealed passwords live, and the `ubiq-db` engine and host sessions behind it.
 read_when: you are changing the DB mode — the explorer, a table or SQL tab, the connection form, the Databases settings section, the host's database sessions, how a password is kept, or the `ubiq-db` engine
-updated: 2026-10-04
-verified: 2026-10-04
-code_anchors: [crates/ubiq-db/src/lib.rs, crates/ubiq-db/src/sql/readonly.rs, crates/ubiq-db/src/edit.rs, crates/ubiq-db/src/driver/mod.rs, crates/ubiq-db/src/dbml.rs, crates/ubiq-db/src/driver/structure.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-host/src/db/mod.rs, crates/ubiq-host/src/db/session.rs, crates/ubiq-host/src/db/jobs.rs, crates/ubiq-host/src/db/store.rs, crates/ubiq-host/src/db/secrets.rs, crates/ubiq-host/src/db/agent.rs, crates/ubiq-host/src/db/editors.rs, crates/ubiq/src/state/db/mod.rs, crates/ubiq/src/state/db/tree.rs, crates/ubiq/src/state/db/table.rs, crates/ubiq/src/state/db/sql.rs, crates/ubiq/src/state/db/pending.rs, crates/ubiq/src/app/db/mod.rs, crates/ubiq/src/app/db/table.rs, crates/ubiq/src/app/db/sql.rs, crates/ubiq/src/ui/db/mod.rs, crates/ubiq/src/ui/db/explorer.rs, crates/ubiq/src/ui/db/table.rs, crates/ubiq/src/ui/db/sql.rs, crates/ubiq/src/ui/db/conn_form.rs, crates/ubiq/src/ui/db/settings.rs]
+updated: 2026-10-26
+verified: 2026-10-26
+code_anchors: [crates/ubiq-db/src/lib.rs, crates/ubiq-db/src/sql/readonly.rs, crates/ubiq-db/src/edit.rs, crates/ubiq-db/src/driver/mod.rs, crates/ubiq-db/src/dbml.rs, crates/ubiq-db/src/driver/structure.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-host/src/db/mod.rs, crates/ubiq-host/src/db/session.rs, crates/ubiq-host/src/db/jobs.rs, crates/ubiq-host/src/db/store.rs, crates/ubiq-host/src/db/secrets.rs, crates/ubiq-host/src/db/agent.rs, crates/ubiq-host/src/db/editors.rs, crates/ubiq-host/src/db/tunnel.rs, crates/ubiq/src/state/db/mod.rs, crates/ubiq/src/state/db/tree.rs, crates/ubiq/src/state/db/table.rs, crates/ubiq/src/state/db/sql.rs, crates/ubiq/src/state/db/pending.rs, crates/ubiq/src/app/db/mod.rs, crates/ubiq/src/app/db/table.rs, crates/ubiq/src/app/db/sql.rs, crates/ubiq/src/ui/db/mod.rs, crates/ubiq/src/ui/db/explorer.rs, crates/ubiq/src/ui/db/table.rs, crates/ubiq/src/ui/db/sql.rs, crates/ubiq/src/ui/db/conn_form.rs, crates/ubiq/src/ui/db/settings.rs]
 depends_on: [feat-workbench, tech-transport, tech-ui, tech-architecture]
 review_cycle: monthly
 ---
@@ -37,10 +37,11 @@ bottom. Opening a project in DB asks the host for its connection list once.
 host, port, database, user and password; SQLite takes a file. A connection may be flagged read-only,
 and carries a SSL choice. The Databases section of project settings lists them — name, engine,
 where it points, a read-only marker, and whether a password is `saved`, `not saved` or held for the
-`session` only — each with Test, Edit and Remove (Remove asks in the row itself), and an **Add
+`session` only — each with Test, Edit and Remove as icon actions with tooltips (Remove asks in the row itself), and an **Add
 connection** button. A warning row says so when this install cannot keep a password. Add and Edit
 raise one modal form: the engine, a box that takes a pasted connection string and fills the
-fields, the per-engine fields, SSL, read-only, an **Agents** section (access `None` / `Read-only` /
+fields, the per-engine fields, SSL, an **SSH tunnel** choice for a server (`None` or one of the
+SSH hosts saved in Settings; a profile since deleted is named as gone), read-only, an **Agents** section (access `None` / `Read-only` /
 `Read-write` — read-write is unavailable while the connection is read-only, and flagging it
 read-only drops an `rw` choice to `ro` — a **Default for agents** checkbox, disabled at `None`, a
 one-line description, and on SQL Server a warning that read-only is best-effort so the login should
@@ -48,6 +49,13 @@ hold read-only rights; Save always sends these), and Test with its answer inline
 chosen through the host browse picker, or created with **New database…**, which picks a folder and
 asks for a file name. The explorer's header carries the same two entry points, **+** and a gear
 that opens the settings dialog on the Databases section.
+
+**A server connection may go through an SSH tunnel.** One naming an SSH profile is dialled — by a
+session and by Test alike — through the system `ssh` with `-N -L 127.0.0.1:<free port>:<host>:<port>`,
+built from the profile by the same argv the drone dial uses (`ubiq_proto::ssh`): `BatchMode=yes`
+unless a secret is filed, which the askpass helper supplies. The host and port in the form are as
+the SSH machine sees them. The driver dials the local end; the `ssh` lives as long as the session's
+connection, or the Test's thread, and is killed when it goes. A SQLite connection ignores it.
 
 **A password is typed and never read back.** The form's password field is empty on open even when
 one is saved; beside it a word says `saved` or `not saved`. Saving with nothing typed keeps the
@@ -138,6 +146,7 @@ The messages, ids and failure kinds are the database family of
 | Connection list | `<data dir>/db.toml`, tracked, no secret — follows the project's storage mode (`D173`) |
 | Sealed passwords | `<config root>/projects/<ulid>/local/db-secrets.toml`, per machine, never tracked |
 | Agent settings | `description` in `db.toml` (omitted when empty); `access` (`none`, `ro`, `rw`) and `default` in `<config root>/projects/<ulid>/local/db-agents.toml`, `[[agent]] id, access, default`, per machine, never tracked — a connection it does not name has no agent access |
+| SSH tunnel | `ssh = "<SSH profile id>"` on the same `[[agent]]` row of `db-agents.toml` — a profile is this machine's app setting — absent is a direct connection; the record and `SaveDbConnection` / `TestDbConnection` carry it as `ssh` |
 | Agent invariants | on every save and load: a read-only connection's `rw` reads `ro`; `none` is never the default; saving a default clears every other; several defaults on disk — the first in `db.toml`'s order wins |
 | Shared editors | host memory only, keyed `(agent, name)` per project; `rev` bumped per change of text, identical text no change |
 | Password key | one per install, 32 bytes, in the OS keychain as `db` / `secrets-key` |
@@ -171,7 +180,9 @@ each holding one driver connection and a job queue, connecting on its first job;
 runs on one ordered admin thread, and Test and file creation on one-off threads. `jobs.rs` turns
 each message into a job and applies the read-only layers. A cancel publishes the running query's
 handle and `DbCancel` fires it on a one-off thread. `Db::client_gone`, closing a session, a
-disconnect and a saved edit or removal of a connection drop its sessions. `ubiq-drone` is built
+disconnect and a saved edit or removal of a connection drop its sessions. `tunnel.rs` opens a
+connection's SSH forward before the driver dials (`route` rewrites the config to the local end) and
+kills it on drop; the profile is looked up in the host settings at dial time. `ubiq-drone` is built
 without the `db` feature and answers the whole family `Unavailable`.
 
 **The agents' half of the host.** `store.rs`'s `split` and `join` are the one place that says
@@ -313,6 +324,11 @@ Views, sequences, triggers and check constraints are never written. The DBML's r
 | A connection is removed or edited | Its sessions close and its open tabs are closed |
 | A window closes | Its sessions are dropped |
 | `db-agents.toml` is unreadable | Every connection reads as closed to agents, and it is logged |
+| The SSH profile is gone, or `ssh` exits or is not up in 20 s | The connect or Test fails with `Config` or `Connect`, carrying `ssh`'s own error output |
+| A SQL Server named instance with no port is tunnelled | Refused with `Config`: a tunnel needs the port |
+| SSL `Verify` with an SSH tunnel | Refused with `Config` (the driver would check the certificate against `127.0.0.1`); the form warns when both are picked — use `Require` |
+| A disconnect, closed tab or gone window while a tunnel is coming up | The dial ends silently: no `Connected` follows, and the tunnel is killed |
+| The application quits, or its main thread panics | Every live tunnel's `ssh` is killed (`kill_all_tunnels`); a `SIGKILL` still leaves them running |
 | A user's editor edit started from an older `rev` | Refused; that window is sent the editor as it stands |
 
 ## Related docs
@@ -326,6 +342,5 @@ Views, sequences, triggers and check constraints are never written. The DBML's r
 ## Next steps
 
 1. Per-person connections that stay out of a project-managed project's shared `db.toml`.
-2. SSH tunnels, reusing the profiles the remote family files secrets for.
-3. Server-side cursors for results past the row cap, in place of a cut and a truncated flag.
-4. Closing idle sessions.
+2. Server-side cursors for results past the row cap, in place of a cut and a truncated flag.
+3. Closing idle sessions.

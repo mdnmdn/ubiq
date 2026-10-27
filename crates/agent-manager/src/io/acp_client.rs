@@ -283,6 +283,19 @@ enum ConfigSource {
     Mode,
 }
 
+/// Mistral Vibe's live subagents, by the name every later `subagent.*` tool
+/// call addresses them with (`rawInput.agentName`).
+#[derive(Debug, Default)]
+struct VibeSubagents {
+    /// Agent name → the `subagent.spawn` call's id (which is the subagent's
+    /// instance id from then on) and the agent type it was spawned as.
+    children: HashMap<String, (String, Option<String>)>,
+    /// Open `subagent.wait`/`send_message`/`stop` call id → the agent name its
+    /// call frame addressed. The completion frame carries `rawInput: null`, so
+    /// this is the only way back to the child.
+    calls: HashMap<String, String>,
+}
+
 /// What the reader thread has to remember across notifications, because ACP
 /// does not carry it on the wire.
 ///
@@ -309,6 +322,9 @@ struct ReaderState {
     /// #1992): the child's `sessionId` and the `name` it was spawned under.
     /// Exact attribution, where `delegates` only guesses.
     subagents: HashMap<String, String>,
+    /// Mistral Vibe's background subagents, which no other memo here can hold:
+    /// see [`vibe_subagent`].
+    vibe: VibeSubagents,
     /// The last `cost.amount` seen, per session id — ACP states it as a
     /// session-cumulative figure, subtracted to get the per-report delta the
     /// event contracts for. Keyed because a subagent session reports its own
@@ -335,6 +351,11 @@ struct ReaderState {
     /// [`super::jsonl`]'s own `windows` map: a model with no window here
     /// reports `(0, 0)` rather than a ratio against an invented denominator.
     windows: HashMap<String, u64>,
+    /// The turn in flight's own prompt text, whitespace-collapsed, still owed
+    /// an echo — see [`take_echo`]. The bridge already showed it as a
+    /// synthesised user chunk, so an agent that *also* echoes the prompt live
+    /// (Mistral Vibe does) must not draw it twice. `None` between turns.
+    echo: Option<String>,
 }
 
 /// Everything the bridge, its reader thread and every [`AcpInputSink`] share.
@@ -652,6 +673,94 @@ impl AcpBridge {
     /// caller holding the bridge type-erased, which is every caller.
     pub fn capabilities(&self) -> &AcpCapabilities {
         &self.capabilities
+    }
+
+    /// Put the session on the reasoning level the run asked for — the thinking
+    /// twin of the model the handshake already applied, for an adapter whose
+    /// command line takes no effort flag. The same three silences as the model:
+    /// nothing asked, already current, or not on offer (a `warn!`, and the
+    /// agent's own level). Which option is the thinking one is
+    /// [`is_thinking_option`]'s answer.
+    pub fn apply_thinking(&self, requested: Option<&str>) {
+        let Some(requested) = requested.filter(|level| !level.is_empty()) else {
+            return;
+        };
+        let target = state_of(&self.shared)
+            .config
+            .iter()
+            .find(|(option, _)| is_thinking_option(option))
+            .and_then(|(option, _)| match &option.value {
+                ConfigValue::Select {
+                    current_value,
+                    options,
+                } => Some((
+                    option.id.clone(),
+                    current_value == requested,
+                    options.iter().any(|choice| choice.value == requested),
+                )),
+                ConfigValue::Boolean { .. } => None,
+            });
+        let Some((config_id, current, offered)) = target else {
+            tracing::debug!(%requested, "acp agent advertises no thinking option");
+            return;
+        };
+        if current {
+            return;
+        }
+        if !offered {
+            tracing::warn!(%requested, "acp agent does not offer the requested thinking level");
+            return;
+        }
+        match set_config_option(
+            &self.shared,
+            &config_id,
+            &ConfigSetting::Text(requested.to_string()),
+        ) {
+            Ok(Some(ev)) => {
+                emit(&self.shared.tx, ev, None);
+            }
+            Ok(None) => {}
+            Err(err) => tracing::warn!(%requested, %err, "setting the thinking level failed"),
+        }
+    }
+
+    /// Every config option the handshake stated, as the interface would see
+    /// them — for a probe that opens a session only to read its pickers.
+    fn handshake_config(&self) -> Vec<ConfigOption> {
+        let mut options = Vec::new();
+        while let Ok(Some((ev, _))) = self.events.try_recv() {
+            if let AgentEvent::ConfigOptionUpdate { options: stated } = ev {
+                options = stated;
+            }
+        }
+        options
+    }
+}
+
+/// The pickers an ACP agent offers, read by opening a session and closing it
+/// unprompted: `initialize` + `session/new`, every event the handshake stated,
+/// then the bridge's own teardown. No turn is sent, so no model is called.
+///
+/// For a harness that has no other way to name its models before a run — an
+/// ACP agent states them on `session/new` and nowhere else.
+pub fn probe_config(child: Child, cwd: &Path) -> crate::Result<Vec<ConfigOption>> {
+    let bridge = AcpBridge::new(child, cwd, None, None)?;
+    Ok(bridge.handshake_config())
+}
+
+/// Whether `option` is a reasoning-level picker. ACP's own category is
+/// `thought_level`; Mistral Vibe publishes `category: "thinking"`, id
+/// `thinking` — both are read as the same knob.
+pub fn is_thinking_option(option: &ConfigOption) -> bool {
+    match &option.category {
+        Some(ConfigCategory::ThoughtLevel) => true,
+        Some(ConfigCategory::Other(category)) => {
+            matches!(
+                category.as_str(),
+                "thinking" | "effort" | "reasoning_effort"
+            )
+        }
+        _ => option.id == "thinking",
     }
 }
 
@@ -1304,6 +1413,10 @@ fn write_input(shared: &Shared, input: AgentInput) -> crate::Result<()> {
                 *slot = Some(id);
                 id
             };
+            // Owed before the write, so an echo can never outrun its record.
+            let sent: Vec<&str> = content.iter().filter_map(Content::as_text).collect();
+            let owed = collapse_whitespace(&sent.join("\n"));
+            state_of(shared).echo = (!owed.is_empty()).then_some(owed);
             let caps = shared.prompt_caps.get().copied().unwrap_or_default();
             let params = json!({
                 "sessionId": session_id,
@@ -1321,9 +1434,10 @@ fn write_input(shared: &Shared, input: AgentInput) -> crate::Result<()> {
                 {
                     *slot = None;
                 }
+                state_of(shared).echo = None;
                 return Err(err);
             }
-            // ACP's live turns never echo the prompt back: opencode sends
+            // Most ACP live turns never echo the prompt back: opencode sends
             // `user_message_chunk` only while *replaying* a loaded or forked
             // session, and a resumed conversation's replay is that history,
             // not the turn that just went out (§"a turn with no user on the
@@ -1332,7 +1446,9 @@ fn write_input(shared: &Shared, input: AgentInput) -> crate::Result<()> {
             // actually reaches the agent — the same call `super::jsonl` makes
             // for Claude Code, which verified the same silence live. Without
             // it, a turn would open with nothing and the whole session would
-            // read as the agent muttering to itself.
+            // read as the agent muttering to itself. An agent that *does* echo
+            // live (Mistral Vibe replays its own user entry) has that echo
+            // dropped against `echo`, recorded above — see [`take_echo`].
             for text in content.iter().filter_map(Content::as_text) {
                 if !emit(
                     &shared.tx,
@@ -1983,6 +2099,9 @@ fn deliver_response(shared: &Shared, id: &Value, value: &Value, raw: &Arc<str>) 
         // an agent may legally end a turn (`cancelled`, `refusal`) without
         // waiting for a parked permission answer, and those ids die with it.
         drop_outstanding(shared, "the turn ended");
+        // An echo still owed now never comes: a later user chunk is not this
+        // turn's, and must not be measured against it.
+        state_of(shared).echo = None;
         if let Some(ev) = turn_spend(shared, value) {
             emit(&shared.tx, ev, None);
         }
@@ -2540,8 +2659,135 @@ fn session_update(shared: &Shared, params: &Value) -> Option<AgentEvent> {
     }
     let ev = super::from_acp(&update)?;
     let ev = attribute(shared, params, &update, ev);
+    let ev = vibe_subagent(shared, &update, ev);
     let ev = user_chunk(shared, params, ev)?;
     todo_update(shared, ev)
+}
+
+/// Mistral Vibe's subagents, mapped onto the transcript shape a Claude `Task`
+/// gives: a `ToolKind::Delegate` call in the parent, and the child's lines
+/// tagged with that call's id.
+///
+/// Vibe's children run in the background and never stream: everything on the
+/// wire is a parent tool call whose `_meta.tool_name` is `subagent.<verb>`
+/// (`_data/vibe.subagents.jsonl`), so the generic open-delegate heuristic in
+/// [`attribute`] would be wrong here — the parent keeps talking while a child
+/// runs — and Vibe's calls are kept out of it entirely:
+/// - `subagent.spawn` (`kind: "think"`, titled `Starting <name>`) is the
+///   delegate. Its completion only means *started*, so it is held in progress
+///   while the child works;
+/// - `subagent.wait` / `send_message` / `stop` name the child in
+///   `rawInput.agentName` and are filed in its transcript. A message reopens
+///   the spawn, a wait that returns the child's report
+///   (`rawOutput.structured_content.value`) closes it and shows the report as
+///   the child's prose, and a stop closes it for good.
+///
+/// Keyed on the `subagent.` tool name alone, which no other harness sends.
+fn vibe_subagent(shared: &Shared, update: &Value, mut ev: AgentEvent) -> AgentEvent {
+    let Some(verb) = update
+        .get("_meta")
+        .and_then(|meta| meta.get("tool_name"))
+        .and_then(Value::as_str)
+        .and_then(|tool| tool.strip_prefix("subagent."))
+    else {
+        return ev;
+    };
+    let mut extra = Vec::new();
+    {
+        let mut state = state_of(shared);
+        let vibe = &mut state.vibe;
+        match (&mut ev, verb) {
+            (AgentEvent::ToolCall { call }, "spawn") => {
+                call.kind = ToolKind::Delegate;
+                // The block's title is what the subagent switcher calls it.
+                call.title = vibe_name(&call.title);
+                let name = call.title.clone();
+                let kind = super::acp::meta_string(update, &["agent"]).or_else(|| {
+                    call.raw_input
+                        .as_ref()
+                        .and_then(|raw| str_any(raw, &["agent"]))
+                });
+                vibe.children.insert(name, (call.id.clone(), kind));
+            }
+            (AgentEvent::ToolCallUpdate { update: patch }, "spawn") => {
+                patch.kind = Some(ToolKind::Delegate);
+                patch.title = patch.title.as_deref().map(vibe_name);
+                if patch.status == Some(ToolStatus::Completed) {
+                    patch.status = Some(ToolStatus::InProgress);
+                }
+            }
+            (AgentEvent::ToolCall { call }, _) => {
+                let child = call
+                    .raw_input
+                    .as_ref()
+                    .and_then(|raw| str_any(raw, &["agentName"]))
+                    .and_then(|name| Some((vibe.children.get(&name)?.clone(), name)));
+                if let Some(((spawn, kind), name)) = child {
+                    call.origin.parent_tool_use_id = Some(spawn.clone());
+                    call.origin.subagent_type = kind;
+                    vibe.calls.insert(call.id.clone(), name);
+                    if verb == "send_message" {
+                        extra.push(AgentEvent::ToolCallUpdate {
+                            update: ToolCallUpdate::finished(spawn, ToolStatus::InProgress),
+                        });
+                    }
+                }
+            }
+            (AgentEvent::ToolCallUpdate { update: patch }, _) => {
+                let closed = matches!(
+                    patch.status,
+                    Some(ToolStatus::Completed | ToolStatus::Failed)
+                );
+                if closed && let Some(name) = vibe.calls.remove(&patch.id) {
+                    let child = vibe.children.get(&name).cloned();
+                    let done = patch.status == Some(ToolStatus::Completed);
+                    let report = (verb == "wait" && done)
+                        .then(|| {
+                            patch
+                                .raw_output
+                                .as_ref()?
+                                .get("structured_content")?
+                                .get("value")?
+                                .as_str()
+                                .map(String::from)
+                        })
+                        .flatten();
+                    if let Some((spawn, kind)) = child {
+                        if let Some(text) = &report {
+                            extra.push(AgentEvent::AgentMessageChunk {
+                                content: Content::text(text.clone()),
+                                message_id: Some(patch.id.clone()),
+                                origin: Origin {
+                                    parent_tool_use_id: Some(spawn.clone()),
+                                    subagent_type: kind,
+                                    ..Origin::default()
+                                },
+                            });
+                        }
+                        if report.is_some() || (verb == "stop" && done) {
+                            extra.push(AgentEvent::ToolCallUpdate {
+                                update: ToolCallUpdate::finished(spawn, ToolStatus::Completed),
+                            });
+                        }
+                    }
+                    if verb == "stop" && done {
+                        vibe.children.remove(&name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for event in extra {
+        emit(&shared.tx, event, None);
+    }
+    ev
+}
+
+/// The agent name out of a Vibe spawn's title, `Starting <name>` — the only
+/// place the spawn states the name its later `subagent.*` calls address.
+fn vibe_name(title: &str) -> String {
+    title.strip_prefix("Starting ").unwrap_or(title).to_string()
 }
 
 /// The one event that cannot be attributed, and therefore sometimes cannot be
@@ -2554,6 +2800,11 @@ fn session_update(shared: &Shared, params: &Value) -> Option<AgentEvent> {
 /// - a chunk that is wholly a `<system-reminder>` block is the harness talking
 ///   to the model (Grok announces a finished background subagent that way).
 ///   A block wrapped around real text is stripped and the rest kept.
+///
+/// And one drop for a turn that *was* taken: a chunk that is the live echo of
+/// the prompt this bridge just sent, which [`write_input`] already showed as a
+/// synthesised user chunk ([`take_echo`]). A replay has no turn in flight, so
+/// it owes no echo and every chunk of it passes.
 fn user_chunk(shared: &Shared, params: &Value, ev: AgentEvent) -> Option<AgentEvent> {
     let AgentEvent::UserMessageChunk {
         content,
@@ -2572,13 +2823,50 @@ fn user_chunk(shared: &Shared, params: &Value, ev: AgentEvent) -> Option<AgentEv
         });
     };
     let stripped = strip_system_reminder(text);
-    if stripped.is_empty() {
+    if stripped.is_empty() || take_echo(&mut state_of(shared).echo, &stripped) {
         return None;
     }
     Some(AgentEvent::UserMessageChunk {
         content: Content::Text { text: stripped },
         message_id,
     })
+}
+
+/// Whether `chunk` is the agent echoing the prompt still `owed` one, spending
+/// what it matched.
+///
+/// Compared whitespace-collapsed, because an agent may re-wrap what it echoes.
+/// Two shapes count:
+/// - **a piece of it, in order** — a chunked echo: the matched front is spent
+///   and the rest stays owed for the next chunk;
+/// - **the whole of it with more around it** — an agent that folds text of its
+///   own into the user turn (a system preamble, an expanded mention). The
+///   user's own words were already shown, and the agent's additions are not
+///   the user's.
+///
+/// Anything else is not an echo: the debt is forgiven, so one unexpected chunk
+/// cannot make a later real one vanish.
+fn take_echo(owed: &mut Option<String>, chunk: &str) -> bool {
+    let Some(rest) = owed.as_deref() else {
+        return false;
+    };
+    let said = collapse_whitespace(chunk);
+    if said.is_empty() {
+        return false;
+    }
+    if let Some(after) = rest.strip_prefix(said.as_str()) {
+        let after = after.trim_start();
+        *owed = (!after.is_empty()).then(|| after.to_string());
+        return true;
+    }
+    let echoed = said.contains(rest);
+    *owed = None;
+    echoed
+}
+
+/// `text` with every run of whitespace as one space, and none at either end.
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// An opencode `todowrite` completion as a [`AgentEvent::Plan`], beside the
@@ -3465,6 +3753,79 @@ mod tests {
         };
         assert_eq!(call.kind, ToolKind::Delegate);
         assert_eq!(call.origin, Default::default());
+    }
+
+    /// Mistral Vibe's subagents, off frames of `_data/vibe.subagents.jsonl`
+    /// (long strings trimmed): the `subagent.spawn` call is the delegate and
+    /// stays the parent's, the `subagent.*` calls addressing the child by name
+    /// are filed under it, its report becomes its prose, and the spawn is held
+    /// open from "started" until a report or a stop. The todo frames beside
+    /// them keep mapping as before — one `Plan`, no delegate.
+    #[test]
+    fn vibe_subagent_calls_map_onto_a_delegate_and_its_transcript() {
+        let (shared, _written, events) = test_shared(&temp_root("vibe-subagents"));
+        let mut out = Vec::new();
+        for line in include_str!("../../tests/fixtures/vibe-acp/subagents.ndjson").lines() {
+            let frame = parse(line);
+            let ev = session_update(&shared, &frame["params"]);
+            while let Ok(Some((extra, _))) = events.try_recv() {
+                out.push(extra);
+            }
+            out.extend(ev);
+        }
+        const SPAWN: &str = "effect-e2adead5-adeb-5923-92fc-75a03d43de5f";
+        let mine = |origin: &Origin| {
+            origin.parent_tool_use_id.as_deref() == Some(SPAWN)
+                && origin.subagent_type.as_deref() == Some("generic")
+        };
+        let spawn_status = |ev: &AgentEvent| match ev {
+            AgentEvent::ToolCallUpdate { update } if update.id == SPAWN => update.status,
+            _ => None,
+        };
+        let mut it = out.iter();
+        let mut next = || it.next().expect("more events");
+
+        // The todo list: tool call, plan, completion — untouched.
+        assert!(matches!(next(), AgentEvent::ToolCall { call }
+            if call.kind != ToolKind::Delegate && call.origin == Origin::default()));
+        assert!(matches!(next(), AgentEvent::Plan { entries } if entries.len() == 8));
+        assert!(matches!(next(), AgentEvent::ToolCallUpdate { .. }));
+
+        // The spawn: a delegate in the parent's transcript, still running once started.
+        let AgentEvent::ToolCall { call } = next() else {
+            panic!("expected the spawn");
+        };
+        assert_eq!((call.id.as_str(), call.kind), (SPAWN, ToolKind::Delegate));
+        assert_eq!(call.title, "ChefAssistant_Maria");
+        assert_eq!(call.origin, Origin::default());
+        let AgentEvent::ToolCallUpdate { update } = next() else {
+            panic!("expected the spawn's completion");
+        };
+        assert_eq!(update.kind, Some(ToolKind::Delegate));
+        assert_eq!(update.title.as_deref(), Some("ChefAssistant_Maria"));
+        assert_eq!(update.status, Some(ToolStatus::InProgress));
+
+        // The wait is the child's; its report is the child's prose and closes the spawn.
+        assert!(matches!(next(), AgentEvent::ToolCall { call } if mine(&call.origin)));
+        assert!(
+            matches!(next(), AgentEvent::AgentMessageChunk { origin, content: Content::Text { text }, .. }
+            if mine(origin) && text.starts_with("All my tasks are done"))
+        );
+        assert_eq!(spawn_status(next()), Some(ToolStatus::Completed));
+        assert!(matches!(next(), AgentEvent::ToolCallUpdate { update }
+            if update.status == Some(ToolStatus::Completed)));
+
+        // A message reopens it; the message's completion changes nothing.
+        assert_eq!(spawn_status(next()), Some(ToolStatus::InProgress));
+        assert!(matches!(next(), AgentEvent::ToolCall { call } if mine(&call.origin)));
+        assert!(matches!(next(), AgentEvent::ToolCallUpdate { update } if update.id != SPAWN));
+
+        // A stop closes it for good.
+        assert!(matches!(next(), AgentEvent::ToolCall { call } if mine(&call.origin)));
+        assert_eq!(spawn_status(next()), Some(ToolStatus::Completed));
+        assert!(matches!(next(), AgentEvent::ToolCallUpdate { update } if update.id != SPAWN));
+        assert!(it.next().is_none());
+        assert!(state_of(&shared).vibe.children.is_empty());
     }
 
     /// ACP states `cost.amount` cumulatively; the event contracts for a
@@ -4856,6 +5217,80 @@ mod tests {
 
         drop(written);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Mistral Vibe *does* echo a live prompt as `user_message_chunk` — the
+    /// synthesised block already showed it, so the echo is dropped (T-401: a
+    /// preamble-folded first turn was drawn twice). The next, unrelated user
+    /// chunk still passes, and so does every chunk once the turn has ended.
+    #[test]
+    fn a_live_echo_of_the_sent_prompt_is_dropped() {
+        let root = temp_root("liveecho");
+        let (shared, _written, events) = test_shared(&root);
+        let _ = shared.session_id.set("main".to_string());
+        let chunk = |text: &str| {
+            session_update(
+                &shared,
+                &json!({"sessionId": "main", "update": {
+                    "sessionUpdate": "user_message_chunk",
+                    "content": {"type": "text", "text": text},
+                }}),
+            )
+        };
+
+        let sent = "**IMPORTANT: RUN AT MOST 3 SUBAGENTS AT THE SAME TIME.**\n\nhi";
+        write_input(
+            &shared,
+            AgentInput::Prompt {
+                content: vec![Content::text(sent)],
+            },
+        )
+        .unwrap();
+        while events.try_recv().is_ok() {}
+        // Re-wrapped and chunked, it is still the echo.
+        assert!(chunk("**IMPORTANT: RUN AT MOST 3 SUBAGENTS").is_none());
+        assert!(chunk(" AT THE SAME TIME.**\nhi").is_none());
+        assert!(chunk("something else").is_some());
+
+        // A turn's end forgives what it still owed: a replay chunk afterwards
+        // is history, shown whatever it says.
+        *shared.turn.lock().unwrap() = None;
+        write_input(
+            &shared,
+            AgentInput::Prompt {
+                content: vec![Content::text("again")],
+            },
+        )
+        .unwrap();
+        let id = shared.turn.lock().unwrap().unwrap();
+        let response = json!({"jsonrpc": "2.0", "id": id, "result": {"stopReason": "end_turn"}});
+        deliver_response(&shared, &json!(id), &response, &raw_of(&response));
+        assert!(chunk("again").is_some());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn take_echo_spends_pieces_and_accepts_a_wrapped_whole() {
+        let mut owed = Some("fix the bug".to_string());
+        assert!(take_echo(&mut owed, "fix "));
+        assert_eq!(owed.as_deref(), Some("the bug"));
+        assert!(take_echo(&mut owed, "the  bug"));
+        assert_eq!(owed, None);
+        assert!(
+            !take_echo(&mut owed, "fix the bug"),
+            "nothing owed, nothing dropped"
+        );
+
+        // The agent folded text of its own around the user's words.
+        let mut owed = Some("fix the bug".to_string());
+        assert!(take_echo(&mut owed, "System: be terse.\n\nfix the bug"));
+        assert_eq!(owed, None);
+
+        // Not the echo: shown, and the debt forgiven.
+        let mut owed = Some("fix the bug".to_string());
+        assert!(!take_echo(&mut owed, "an unrelated note"));
+        assert_eq!(owed, None);
     }
 
     /// opencode's only todo-list transport (the capture's "a todo list with no

@@ -5,8 +5,8 @@ kind: tech
 status: draft
 summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
-updated: 2026-10-24
-verified: 2026-10-24
+updated: 2026-10-27
+verified: 2026-10-26
 code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
@@ -136,7 +136,7 @@ recolour and a move on disk.
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `ListProjects` | UI → host | — | `ProjectList` |
-| `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary`, `storage` | `ProjectAdded` or `ProjectError` |
+| `AddProject` | UI → host | `path`, `name?`, `colour?`, `custom_colour?`, `temporary`, `storage`, `runs_on?` | `ProjectAdded` or `ProjectError` |
 | `ForgetProject` | UI → host | `project_id` | `ProjectForgotten` |
 | `UpdateProject` | UI → host | `project_id`, `name?`, `colour?`, `custom_colour?`, `search_excludes?`, `index?`, `mission_term?`, `tools?`, `managed_repos?`, `lanes?`, `runs_on?`, `definitions_use_global?`, `definitions_allowed?` | `ProjectChanged` |
 | `SetProjectInitials` | UI → host | `project_id`, `initials` | `ProjectChanged` |
@@ -374,7 +374,11 @@ neither field says anything about them. `AddProject` carries neither: a new proj
 globals, and narrowing it is a settings gesture.
 
 **`AddProject` never creates a folder.** A path that does not exist is a `ProjectError`. A folder
-already in the catalogue answers with the project that is there, so no duplicate appears.
+already in the catalogue answers with the project that is there, so no duplicate appears. **With
+`runs_on` the path is a far one**: the folder is on a drone's machine, so nothing is checked on this
+disk, the record is written with that origin (its `root` the path) and is always Ubiq-managed, and a
+folder already pinned to the same place through the same carrier answers with the project that is
+there.
 
 **The two colour fields travel together.** `colour` is an index into the theme's swatches and
 `custom_colour` is a packed `0x00RRGGBB` that wins over it, which is what lets project settings
@@ -913,9 +917,9 @@ tab, so a reply for a closed tab is discarded by id; `DbQueryId` — minted by t
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
 | `DbConnections` | UI → host | `project_id` | `DbConnectionsListed` |
-| `SaveDbConnection` | UI → host | `project_id`, `id?`, `config` (password `None`), `password` (`SecretEdit`), `remember`, `agent?` (`DbAgentSettings`; `None` keeps what is saved) | `DbConnectionsListed` |
+| `SaveDbConnection` | UI → host | `project_id`, `id?`, `config` (password `None`), `password` (`SecretEdit`), `remember`, `agent?` (`DbAgentSettings`; `None` keeps what is saved), `ssh?` (`SshProfileId` to tunnel through; `None` is direct, always the whole choice) | `DbConnectionsListed` |
 | `DeleteDbConnection` | UI → host | `project_id`, `id` | `DbConnectionsListed`; its sessions close and its sealed password goes |
-| `TestDbConnection` | UI → host | `project_id`, `probe`, `id?`, `config`, `password` (`Keep` = the saved one) | `DbTested` |
+| `TestDbConnection` | UI → host | `project_id`, `probe`, `id?`, `config`, `password` (`Keep` = the saved one), `ssh?` (the profile the Test tunnels through) | `DbTested` |
 | `DbPassword` | UI → host | `project_id`, `conn`, `password` (`Secret`), `remember` | `DbConnectionState` |
 | `DbTree` | UI → host | `project_id`, `conn`, `node` (`DbNode`) | `DbTreeListing` |
 | `DbExportDbml` | UI → host | `project_id`, `conn`, `request` (`DbExportId`), `database?` (`None` = the session's current one), `scope` (`StructureScope`) — runs on the window's tree session, catalog reads only | `DbDbmlReady` |
@@ -949,7 +953,7 @@ goes to the asker only.
 
 | Record | Shape |
 |---|---|
-| `DbConnection` | `id`, `config` (`ConnectionConfig`, `password` always `None`), `password` (`PasswordState`), `agent` (`DbAgentSettings`, serde default) |
+| `DbConnection` | `id`, `config` (`ConnectionConfig`, `password` always `None`), `password` (`PasswordState`), `agent` (`DbAgentSettings`, serde default), `ssh` (`SshProfileId?`, serde default — absent is a direct connection) |
 | `DbAgentSettings` | `access` (`DbAgentAccess`), `default` (the connection an agent gets when it names none; at most one per project, never at `none`), `description` |
 | `DbAgentAccess` | `none` (default) · `ro` · `rw` — serialised lowercase |
 | `DbEditor` | `name`, `session` (`DbSessionId`), `conn`, `database?`, `text`, `rev` (bumped per change), `agent_key?`, `agent_title?` — a shared query editor, in the host's memory |
@@ -1627,6 +1631,16 @@ context that ran out, so an ACP harness emits nothing here and a divider is neve
 falling `UsageRecord.used`: a fresh turn lowers that too, and a guessed boundary is worse than
 none — the same rule that keeps a context ring off a harness that names no window (`G96`).
 
+**`UserChunk` and `AgentChunk` carry `at?`, when the message was said — unix milliseconds, UTC,
+`#[serde(default)]`.** `agent_manager::io::AgentEvent` dates nothing — no bridge parses a
+per-line time (Claude Code's on-disk transcript has one, and nothing reads that file) — so the
+pump stamps a live chunk with the moment it hears it (`stamp` in
+`ubiq-host/src/conversation.rs`); a message's time is its first chunk's, which is the window's to
+keep. **A replay is never dated with now.** An ACP `session/load` replays the history ahead of
+the handshake's `Started`, so on an ACP bridge every chunk before that event goes out with `at`
+absent; the saved prompts a failed or id-less ACP restore draws (`replay_saved_prompts`) carry the
+time each was written down. Claude Code and Codex replay nothing on resume. `ThoughtChunk` is undated: reasoning is not something a reader asks the time of.
+
 **Ubiq's own naming of a conversation is an `AgentChanged`, not a message of its own and not a
 `ConvUpdate`.** It takes no place in the sequence an interface checks for gaps: the naming is not
 something the harness said, and the pump that owns that sequence is not what produced it — the
@@ -1871,7 +1885,7 @@ Forty-seven records travel inside payloads.
 | `WorkAgent` | `id`, `session`, `task?`, `parent?`, `name`, `title?`, `definition?`, `summary?`, `activity`, `branch`, `tokens`, `harness`, `model`, `context_pct`, `persistent`, `restorable`, `accept_all`, `debug_dump?`, `run_dir?`, `config_dir?`, `thread[]` |
 | `Turn` | `from`, `text` |
 
-| `ConvUpdate` | one of: `Started`, `UserChunk`, `AgentChunk`, `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |
+| `ConvUpdate` | one of: `Started`, `UserChunk` (`content`, `message_id?`, `at?`), `AgentChunk` (`content`, `message_id?`, `subagent?`, `at?`), `ThoughtChunk`, `ToolCall`, `ToolCallUpdate`, `Plan`, `ConfigOptions`, `ModeChanged`, `Title`, `Usage`, `RateLimit`, `PermissionRequest`, `TurnEnded`, `Compacted` |
 | `ToolCallRecord` | `id`, `title`, `kind`, `status`, `content[]`, `locations[]` |
 | `ToolCallPatch` | `id`, and `title?`, `kind?`, `status?`, `content?`, `locations?` — absent is unchanged |
 | `ToolLocation` | `path`, `line?` |
@@ -2055,12 +2069,22 @@ attached by path, so nothing new crosses the bus for it. On the MCP side `manage
 `create_task` and `update_task` both take `attachments` — a bare string or a `{target, label}`
 object — and every task the task servers answer carries them, each tagged `kb` or `file`.
 
-`ProjectRecord.runs_on` is an `Option<DroneOrigin>` — an SSH profile id, the folder on the far
-machine, a `DronePreset` and an optional linger in seconds — and names the drone a project's folder
-lives behind; absent is a project that runs where Ubiq does. It rides `UpdateProject` as a
-`DroneChange` — `Local` or `Set(origin)` — for the reason `IndexChange` is one. The field is purely
-additive, so `CATALOGUE_VERSION` does not move: a catalogue written before it reads back with
-`runs_on: None`, which is the answer such a record already meant. The coordinator stores it and
+`ProjectRecord.runs_on` is an `Option<DroneOrigin>` — what reaches the machine, the folder on the
+far machine, a `DronePreset` and an optional linger in seconds — and names the drone a project's
+folder lives behind; absent is a project that runs where Ubiq does. What reaches the machine is
+exactly one of `profile`, an SSH profile id, and `via`, an `OriginVia { kind, target }` naming a
+carrier an edition registers (`ubiq::ext::origin`) and one of its targets; `profile` became an
+`Option` when `via` arrived, and every record written before then carries it, so it reads back
+unchanged. An origin naming both or neither (`DroneOrigin::check`, `OriginShape`) is refused on
+`AddProject` and `UpdateProject` with a `ProjectError`, and loads from the catalogue as no origin. A
+row whose origin is a drone's reports `ProjectHealth::Ok` from the host, which has no folder of its
+own to probe for it, and `LocateProject` on one is a `ProjectError`. It rides `UpdateProject` as a
+`DroneChange` — `Local` or `Set(origin)` — for the reason `IndexChange` is one. The field is
+additive: a catalogue written before it reads back with `runs_on: None`, which is the answer such a
+record already meant. **`via` is not additive for older builds**, which cannot parse an origin
+without a `profile` and would set the whole catalogue aside, so a catalogue holding one is written
+at `CATALOGUE_VERSION` 2 — an older build leaves a newer version alone — and one without stays at
+`CATALOGUE_VERSION_PLAIN` 1; both load. The coordinator stores it and
 rebroadcasts `ProjectChanged`, and does nothing else with it — under `D116` a drone attaches as an
 ordinary host, so the coordinator never learns one exists. Launching the drone, and keeping the row
 on screen while it is down, are the interface's (`D132`).

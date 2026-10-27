@@ -11,7 +11,7 @@ use gpui::{
     deferred, div, point, px,
 };
 use gpui_component::input::Input;
-use gpui_component::{Icon, IconName};
+use gpui_component::{Icon, IconName, Sizable as _};
 use ubiq_proto::assist::{AiProviderInfo, AiProviderKind, AssistProvider, ModelRole};
 use ubiq_proto::connectors::{
     AuthKind, CertReason, Connection, InstanceNeed, OAUTH_REDIRECT, OauthApp, ProviderId,
@@ -28,7 +28,7 @@ use ubiq_proto::settings::{AgentHome, RemoteCarrier, SshAuth, SshProfile};
 use crate::app::ssh_connect::DroneState;
 use crate::app::{AppState, HostEntry, HostId, HostRef, host_menu_rows, host_row_label};
 use crate::ext::settings::{
-    SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, register,
+    SectionCtx, SectionGate, SettingsContainer, SettingsSectionSpec, Tier, register,
 };
 use crate::ext::{Registry, SlotId, ids};
 use crate::state::Layer;
@@ -40,10 +40,11 @@ use crate::state::settings::{
 use crate::theme;
 use crate::theme::{Family, Role};
 use crate::ui::kit::{
-    UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
-    ghost_button, heading, icon_button, label_block, menu::Picker, meter, modal, modal_note,
-    modal_sized, mono, nav_item, primary_button, prompt_modal, quota_ring as kit_quota_ring,
-    removable_tag, section_label, setting_row, settings_split, slab, state_chip, status_dot,
+    RowAction, UbiqIcon, badge, card, check_box, choice_pill, column, confirm_modal, elided, field,
+    ghost_button, heading, icon_button, icon_button_tip, label_block, menu::Picker, meter, modal,
+    modal_note, modal_sized, mono, nav_item, primary_button, prompt_modal,
+    quota_ring as kit_quota_ring, removable_tag, row_action, section_label, setting_row,
+    settings_split, slab, state_chip, status_dot,
 };
 use crate::ui::sink::project::Form;
 use crate::ui::size;
@@ -109,7 +110,7 @@ fn dialog(
         .child(header(cx))
         .child(settings_split(
             "app-settings",
-            nav(app, cx),
+            nav(app, window, cx),
             body(app, window, cx),
         ))
 }
@@ -141,10 +142,13 @@ fn header(cx: &mut Context<AppState>) -> AnyElement {
 
 /// The overlay's nav rows. The column they are drawn in — and the scroll that keeps a nav longer
 /// than the panel reachable — is [`settings_split`]'s, shared with the project dialog.
-fn nav(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
+fn nav(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> Vec<AnyElement> {
     let current = app.workbench.settings.nav;
-    crate::ext::settings::app_sections()
+    let settings = &app.workbench.settings;
+    let mut rows = vec![settings_search(&app.settings_search, window, cx)];
+    let listed: Vec<AnyElement> = crate::ext::settings::app_sections()
         .iter()
+        .filter(|spec| spec.listed(&settings.ui, &settings.filter))
         .map(|spec| {
             let item = SettingsSection(spec.id);
             nav_item(
@@ -163,7 +167,52 @@ fn nav(app: &AppState, cx: &mut Context<AppState>) -> Vec<AnyElement> {
                 }),
             )
         })
-        .collect()
+        .collect();
+    if listed.is_empty() {
+        rows.push(no_match());
+    }
+    rows.extend(listed);
+    rows
+}
+
+/// The search box at the top of either settings nav: a field over `input`, whose text the nav
+/// filters its sections by (`SettingsSectionSpec::matches`). Shared by the overlay and the
+/// project dialog rather than a kit primitive — it is settings furniture, not a control.
+pub(crate) fn settings_search(
+    input: &gpui::Entity<gpui_component::input::InputState>,
+    window: &Window,
+    cx: &gpui::App,
+) -> AnyElement {
+    let focused = input.read(cx).focus_handle(cx).is_focused(window);
+    field(theme::accent(), focused)
+        .h(px(30.))
+        .flex_none()
+        .gap_2()
+        .mb_1()
+        .child(
+            Icon::new(IconName::Search)
+                .with_size(gpui_component::Size::XSmall)
+                .text_color(theme::text_faint()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(theme::font(Family::Chrome, Role::Body))
+                .child(Input::new(input).appearance(false)),
+        )
+        .into_any_element()
+}
+
+/// What the nav says when the search box matches no section.
+pub(crate) fn no_match() -> AnyElement {
+    div()
+        .px_2()
+        .py_1()
+        .text_size(theme::font(Family::Chrome, Role::Meta))
+        .text_color(theme::text_faint())
+        .child("No section matches")
+        .into_any_element()
 }
 
 /// The overlay's own seventeen sections — eighteen on Windows, where Shell integration joins the
@@ -186,6 +235,24 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::APPEARANCE,
             "Appearance",
+            &[
+                "theme",
+                "palette",
+                "dark",
+                "light",
+                "ground",
+                "accent",
+                "colour",
+                "color",
+                "text brightness",
+                "themes",
+                "open projects in the rail",
+                "capture the window",
+                "screenshot",
+                "cache token ring",
+                "teams arrangement",
+                "rail modes",
+            ],
             || IconName::Palette.into(),
             |ctx, _, cx| appearance(ctx.app, cx),
         ),
@@ -195,6 +262,19 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::SIZE,
             "Size",
+            &[
+                "font",
+                "zoom",
+                "scale",
+                "interface size",
+                "text size",
+                "presets",
+                "chrome text",
+                "conversation text",
+                "content text",
+                "density",
+                "reset",
+            ],
             || UbiqIcon::SizeInterfaceLarge.into(),
             |ctx, _, cx| size_section(ctx.app, cx),
         ),
@@ -204,6 +284,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::FILE_EXPLORER,
             "File explorer",
+            &[
+                "files",
+                "tree",
+                "folders",
+                "preview",
+                "hidden files",
+                "dotfiles",
+            ],
             || IconName::Folder.into(),
             |ctx, _, cx| file_explorer(ctx.app, cx),
         ),
@@ -213,6 +301,17 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::EDITOR,
             "Editor",
+            &[
+                "code",
+                "markdown",
+                "vim",
+                "closing a tab",
+                "terminal tab",
+                "agent chat tab",
+                "restore conversations",
+                "board",
+                "mission term",
+            ],
             || IconName::File.into(),
             |ctx, _, cx| editor(ctx.app, cx),
         ),
@@ -222,6 +321,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::SEARCH,
             "Search",
+            &[
+                "find",
+                "grep",
+                "excluded paths",
+                "index",
+                "fallback tools",
+                "ripgrep",
+            ],
             || IconName::Search.into(),
             |ctx, _, cx| search(ctx.app, cx),
         ),
@@ -237,6 +344,19 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::HARNESSES,
                 "Harnesses",
+                &[
+                    "claude",
+                    "codex",
+                    "gemini",
+                    "opencode",
+                    "copilot",
+                    "acp",
+                    "registry",
+                    "identities",
+                    "accounts",
+                    "login",
+                    "quota",
+                ],
                 || UbiqIcon::HarnessAny.into(),
                 |ctx, _, cx| harnesses(ctx.app, cx),
             )
@@ -247,6 +367,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::AGENT_DEFINITIONS,
             "Agent definitions",
+            &["agents", "setups", "model", "permission mode", "profiles"],
             // The rail's own Agents mark, so the section that writes a setup and the screen that
             // runs one read as the same thing.
             || UbiqIcon::ModeAgents.into(),
@@ -260,6 +381,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::SKILLS,
                 "Skills",
+                &["catalog", "catalogue", "agent skills"],
                 || IconName::BookOpen.into(),
                 |ctx, _, cx| crate::ui::catalog::skills_page(ctx.app, None, "app-skills", cx),
             )
@@ -272,6 +394,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::MCP_SERVERS,
                 "MCP servers",
+                &["mcp", "tools", "servers", "catalog", "catalogue"],
                 || IconName::Network.into(),
                 |ctx, _, cx| crate::ui::catalog::mcp_page(ctx.app, None, "app-mcp", cx),
             )
@@ -282,6 +405,13 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::ISOLATION,
             "Isolation",
+            &[
+                "sandbox",
+                "confine agents to their project",
+                "agent home",
+                "grants",
+                "permissions",
+            ],
             || UbiqIcon::Isolation.into(),
             |ctx, _, cx| isolation(ctx.app, cx),
         ),
@@ -293,6 +423,15 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::ASSIST,
                 "Assistance",
+                &[
+                    "assistance",
+                    "ai providers",
+                    "api",
+                    "suggestions",
+                    "name conversations",
+                    "models",
+                    "llm",
+                ],
                 || IconName::Cpu.into(),
                 |ctx, _, cx| assist(ctx.app, cx),
             )
@@ -303,9 +442,18 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         ids::SETTINGS_APP_CONNECTIVITY,
         SettingsSectionSpec {
             on_show: Some(AppState::on_show_connectors),
+            tier: Tier::Experimental,
             ..section(
                 ids::CONNECTORS,
                 "Connectors",
+                &[
+                    "connections",
+                    "oauth",
+                    "app registrations",
+                    "trusted certificates",
+                    "integrations",
+                    "accounts",
+                ],
                 || UbiqIcon::FamilyConnectors.into(),
                 |ctx, _, cx| connectors(ctx.app, cx),
             )
@@ -313,31 +461,48 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
     );
     add(
         ids::SETTINGS_APP_CONNECTIVITY,
-        section(
-            ids::HOSTS,
-            "Hosts",
-            || UbiqIcon::HostRemote.into(),
-            |ctx, _, cx| hosts_section(ctx.app, cx),
-        ),
+        SettingsSectionSpec {
+            tier: Tier::Experimental,
+            ..section(
+                ids::HOSTS,
+                "Hosts",
+                &[
+                    "remote",
+                    "remote hosts",
+                    "saved hosts",
+                    "serve",
+                    "connect",
+                    "network",
+                ],
+                || UbiqIcon::HostRemote.into(),
+                |ctx, _, cx| hosts_section(ctx.app, cx),
+            )
+        },
     );
     add(
         ids::SETTINGS_APP_CONNECTIVITY,
         section(
             ids::SSH,
             "SSH profiles",
+            &["ssh", "keys", "profiles", "tunnel", "remote"],
             || IconName::Network.into(),
             |ctx, _, cx| ssh_profiles(ctx.app, cx),
         ),
     );
     add(
         ids::SETTINGS_APP_CONNECTIVITY,
-        section(
-            ids::DRONES,
-            "Drones",
-            // A drone is unattended by design — the same mark the titlebar's own agent menu wears.
-            || IconName::Bot.into(),
-            |ctx, _, cx| drones_section(ctx.app, cx),
-        ),
+        SettingsSectionSpec {
+            tier: Tier::Experimental,
+            ..section(
+                ids::DRONES,
+                "Drones",
+                &["drone", "remote", "ubiq-drone", "ssh", "unattended"],
+                // A drone is unattended by design — the same mark the titlebar's own agent menu
+                // wears.
+                || IconName::Bot.into(),
+                |ctx, _, cx| drones_section(ctx.app, cx),
+            )
+        },
     );
 
     add(
@@ -347,6 +512,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::TOOLS,
                 "Tools",
+                &["runners", "commands", "scripts", "run", "system tools"],
                 || IconName::Play.into(),
                 |ctx, _, cx| crate::ui::tools::panel(ctx.app, cx, ToolEditScope::System),
             )
@@ -359,6 +525,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::COMMAND_LINE,
                 "Command line",
+                &["cli", "path", "shortcut", "ubiq command", "terminal"],
                 || IconName::SquareTerminal.into(),
                 |ctx, _, cx| command_line(ctx.app, cx),
             )
@@ -372,6 +539,7 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
             ..section(
                 ids::FEEDBACK,
                 "Feedback",
+                &["report", "bug", "intake url", "key"],
                 || IconName::Inbox.into(),
                 |ctx, window, cx| feedback(ctx.app, window, cx),
             )
@@ -382,6 +550,14 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
         section(
             ids::UPDATES,
             "Updates",
+            &[
+                "version",
+                "channel",
+                "check for updates",
+                "download",
+                "upgrade",
+                "release",
+            ],
             || UbiqIcon::GitFetch.into(),
             |ctx, _, cx| updates(ctx.app, cx),
         ),
@@ -398,20 +574,84 @@ pub fn sections(reg: &mut Registry<SettingsSectionSpec>) {
                 ..section(
                     ids::SHELL_INTEGRATION,
                     "Shell integration",
+                    &[
+                        "explorer",
+                        "context menu",
+                        "open in ubiq",
+                        "windows",
+                        "right-click",
+                    ],
                     || IconName::FolderOpen.into(),
                     |ctx, _, cx| shell_integration(ctx.app, cx),
                 )
             },
         );
     }
+    // Last, so the switches that bring sections back are where a reader looks for what is
+    // missing. Stable itself: hiding the way to turn things back on would be a trap.
+    add(
+        ids::SETTINGS_APP_SYSTEM,
+        section(
+            ids::EXPERIMENTAL,
+            "Experimental",
+            &[
+                "experimental",
+                "dev",
+                "developer",
+                "flags",
+                "features",
+                "preview",
+                "remote",
+                "drone",
+                "connectors",
+                "sink",
+            ],
+            || IconName::TriangleAlert.into(),
+            |ctx, _, cx| experimental(ctx.app, cx),
+        ),
+    );
+}
+
+/// The two switches every [`Tier`] asks. Turning one off hides the ways in, never what is running.
+fn experimental(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
+    let ui = &app.workbench.settings.ui;
+    column(vec![
+        heading(
+            "Experimental",
+            "Features still being shaped, and the application's own test furniture. Off hides \
+             their settings sections, rail modes and menu rows; nothing already running is \
+             stopped.",
+        ),
+        setting_row(
+            "Enable experimental settings",
+            "Remote hosts, drones, connectors, and any feature an edition marks experimental.",
+            check_box(
+                "app-settings-experimental",
+                ui.experimental,
+                cx.listener(|this, _, _, cx| this.toggle_experimental(cx)),
+            )
+            .into_any_element(),
+        ),
+        setting_row(
+            "Enable dev settings",
+            "The kitchen sink rail mode, and any developer screen an edition contributes.",
+            check_box(
+                "app-settings-dev",
+                ui.dev_settings,
+                cx.listener(|this, _, _, cx| this.toggle_dev_settings(cx)),
+            )
+            .into_any_element(),
+        ),
+    ])
 }
 
 /// One overlay section, with the fields the overlay never varies already filled in: it is always
-/// offered, it prints no count, and it asks nothing on arrival. `group` is a placeholder that
-/// `sections`' own `add` stamps over.
+/// offered and stable, it prints no count, and it asks nothing on arrival. `group` is a placeholder
+/// that `sections`' own `add` stamps over.
 fn section(
     id: SlotId,
     label: &'static str,
+    keywords: &'static [&'static str],
     icon: fn() -> Icon,
     render: fn(&SectionCtx<'_>, &Window, &mut Context<AppState>) -> AnyElement,
 ) -> SettingsSectionSpec {
@@ -422,6 +662,8 @@ fn section(
         label,
         icon,
         gate: SectionGate::Always,
+        tier: Tier::Stable,
+        keywords,
         count: None,
         on_show: None,
         render,
@@ -435,10 +677,13 @@ fn body(app: &AppState, window: &Window, cx: &mut Context<AppState>) -> AnyEleme
         project: None,
     };
     match app.workbench.settings.nav.spec() {
-        Some(spec) => (spec.render)(&ctx, window, cx),
+        // A section whose tier is switched off is not drawn even when the nav stands on it.
+        Some(spec) if app.workbench.settings.ui.offers(spec.tier) => {
+            (spec.render)(&ctx, window, cx)
+        }
         // The nav stands on a section nothing is registered under — a second edition removed it
         // while the overlay was open. Draws nothing rather than falling back to another page.
-        None => div().into_any_element(),
+        _ => div().into_any_element(),
     }
 }
 
@@ -1733,24 +1978,24 @@ fn ai_provider_row(info: &AiProviderInfo, cx: &mut Context<AppState>) -> AnyElem
             .child(badge(chip, colour))
             // Warning rather than danger: nothing is wrong, something is not finished.
             .children(unset.then(|| badge("no model", theme::warning())))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-ai-{id}-test").into()),
-                None,
-                "Test",
+                RowAction::Test,
                 cx.listener(move |this, _, _, cx| this.open_ai_test(id, cx)),
             ))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-ai-{id}-edit").into()),
-                None,
-                "Edit",
+                RowAction::Edit,
                 cx.listener(move |this, _, window, cx| this.open_ai_form(Some(id), window, cx)),
             ))
-            .child(ghost_button(
-                ElementId::Name(format!("app-settings-ai-{id}-remove").into()),
-                None,
-                "Remove",
-                cx.listener(move |this, _, _, cx| this.open_remove_ai_provider(id, cx)),
-            ))
+            .child(
+                row_action(
+                    ElementId::Name(format!("app-settings-ai-{id}-remove").into()),
+                    RowAction::Delete,
+                    cx.listener(move |this, _, _, cx| this.open_remove_ai_provider(id, cx)),
+                )
+                .tip("Remove"),
+            )
             .into_any_element(),
     )
 }
@@ -2012,10 +2257,11 @@ fn grant_chips(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
                 .px_2()
                 .child(Input::new(&app.grant_path_input).appearance(false)),
         )
-        .child(icon_button(
+        .child(icon_button_tip(
             "app-settings-grant-add",
             IconName::Plus,
-            false,
+            "Add grant",
+            true,
             cx.listener(|this, _, window, cx| this.add_extra_grant(window, cx)),
         ))
         .into_any_element()
@@ -3074,28 +3320,9 @@ pub(crate) fn definition_row(
                 .flex_none()
                 .items_center()
                 .gap_1()
-                .child(ghost_button(
-                    ElementId::Name(
-                        format!("app-settings-definition-{}-clone", definition.id).into(),
-                    ),
-                    None,
-                    "Clone",
-                    cx.listener(move |this, _, _, cx| {
-                        this.clone_definition(clone_id.clone(), scope, cx)
-                    }),
-                ))
-                .child(ghost_button(
-                    ElementId::Name(
-                        format!("app-settings-definition-{}-edit", definition.id).into(),
-                    ),
-                    None,
-                    "Edit",
-                    cx.listener(move |this, _, window, cx| {
-                        this.open_definition_form(Some(edit.clone()), None, window, cx)
-                    }),
-                ))
                 // A project's own row also switches off from here; a global has its off switch
-                // in the form. Both delete, in the scope the row lives in.
+                // in the form. Both delete, in the scope the row lives in. The text verb comes
+                // before the icons.
                 .when(scope.is_some(), |row| {
                     let toggle = definition.clone();
                     row.child(ghost_button(
@@ -3113,12 +3340,29 @@ pub(crate) fn definition_row(
                         }),
                     ))
                 })
-                .child(ghost_button(
+                .child(row_action(
+                    ElementId::Name(
+                        format!("app-settings-definition-{}-edit", definition.id).into(),
+                    ),
+                    RowAction::Edit,
+                    cx.listener(move |this, _, window, cx| {
+                        this.open_definition_form(Some(edit.clone()), None, window, cx)
+                    }),
+                ))
+                .child(row_action(
+                    ElementId::Name(
+                        format!("app-settings-definition-{}-clone", definition.id).into(),
+                    ),
+                    RowAction::Clone,
+                    cx.listener(move |this, _, _, cx| {
+                        this.clone_definition(clone_id.clone(), scope, cx)
+                    }),
+                ))
+                .child(row_action(
                     ElementId::Name(
                         format!("app-settings-definition-{}-delete", definition.id).into(),
                     ),
-                    None,
-                    "Delete",
+                    RowAction::Delete,
                     {
                         let delete_id = definition.id.clone();
                         cx.listener(move |this, _, _, cx| {
@@ -3205,18 +3449,16 @@ fn account_block(
                     .flex()
                     .items_center()
                     .gap_1()
-                    .child(icon_button(
+                    .child(row_action(
                         ElementId::Name(format!("app-settings-account-{id}-rename").into()),
-                        IconName::Replace,
-                        false,
+                        RowAction::Rename,
                         cx.listener(move |this, _, window, cx| {
                             this.open_rename_account(rename_id.clone(), window, cx)
                         }),
                     ))
-                    .child(icon_button(
+                    .child(row_action(
                         ElementId::Name(format!("app-settings-account-{id}-delete").into()),
-                        IconName::Delete,
-                        false,
+                        RowAction::Delete,
                         cx.listener(move |this, _, _, cx| {
                             this.open_delete_account(delete_id.clone(), cx)
                         }),
@@ -3332,18 +3574,6 @@ fn harness_row(
                 .items_center()
                 .gap_1()
                 .child(ghost_button(
-                    check_id,
-                    None,
-                    "Check",
-                    cx.listener({
-                        let account = account.to_string();
-                        let agent_type = agent_type.to_string();
-                        move |this, _, _, cx| {
-                            this.check_harness_login(agent_type.clone(), account.clone(), cx)
-                        }
-                    }),
-                ))
-                .child(ghost_button(
                     reauth_id,
                     None,
                     "Re-authenticate",
@@ -3366,7 +3596,21 @@ fn harness_row(
                             this.open_sign_out(agent_type.clone(), account.clone(), cx)
                         }
                     }),
-                )),
+                ))
+                .child(
+                    row_action(
+                        check_id,
+                        RowAction::Test,
+                        cx.listener({
+                            let account = account.to_string();
+                            let agent_type = agent_type.to_string();
+                            move |this, _, _, cx| {
+                                this.check_harness_login(agent_type.clone(), account.clone(), cx)
+                            }
+                        }),
+                    )
+                    .tip("Check"),
+                ),
         )
         .into_any_element()
 }
@@ -4633,12 +4877,14 @@ fn host_row(
                     }),
                 )
             }))
-            .child(ghost_button(
-                ElementId::Name(format!("app-settings-host-{address}-forget").into()),
-                None,
-                "Forget",
-                cx.listener(move |this, _, _, cx| this.forget_remote_host(save_id.clone(), cx)),
-            ))
+            .child(
+                row_action(
+                    ElementId::Name(format!("app-settings-host-{address}-forget").into()),
+                    RowAction::Delete,
+                    cx.listener(move |this, _, _, cx| this.forget_remote_host(save_id.clone(), cx)),
+                )
+                .tip("Forget"),
+            )
             .into_any_element(),
     )
 }
@@ -4681,7 +4927,11 @@ fn ssh_profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
         return column(rows);
     }
 
-    rows.extend(profiles.iter().map(|profile| ssh_profile_row(profile, cx)));
+    rows.extend(
+        profiles
+            .iter()
+            .map(|profile| ssh_profile_row(app, profile, cx)),
+    );
     column(rows)
 }
 
@@ -4691,8 +4941,10 @@ fn ssh_profiles(app: &AppState, cx: &mut Context<AppState>) -> AnyElement {
 /// The badge says what is true of *this* method rather than a shared word: an agent profile and
 /// a config alias have nothing to file, so they carry no badge at all — an empty one would read
 /// as something missing.
-fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyElement {
+fn ssh_profile_row(app: &AppState, profile: &SshProfile, cx: &mut Context<AppState>) -> AnyElement {
     let id = profile.id;
+    let testing = app.workbench.settings.ssh_check_busy.contains(&id);
+    let verdict = app.workbench.settings.ssh_checks.get(&id);
     let (method, address) = match &profile.auth {
         // The alias is the whole address: every other field on the record is left to the file
         // it names, so the row does not pretend to know a port or a user.
@@ -4728,7 +4980,31 @@ fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyEleme
         SshAuth::Agent | SshAuth::ConfigAlias => None,
     };
 
-    setting_row(
+    // The same Test the RDP targets carry: the button turns into "Stop test" while it runs, and
+    // the verdict is a line under the row.
+    let test_button = if testing {
+        row_action(
+            ElementId::Name(format!("app-settings-ssh-{id}-test").into()),
+            RowAction::StopTest,
+            cx.listener(move |this, _, _, cx| this.stop_ssh_test(id, cx)),
+        )
+    } else {
+        row_action(
+            ElementId::Name(format!("app-settings-ssh-{id}-test").into()),
+            RowAction::Test,
+            cx.listener(move |this, _, _, cx| this.check_picked_ssh_profile(id, cx)),
+        )
+    };
+    let verdict_line = if testing {
+        Some(note("Testing the connection\u{2026}", theme::text_faint()))
+    } else {
+        verdict.map(|result| match result {
+            Ok(_) => note("Test passed: the session connected.", theme::success()),
+            Err(why) => note(&format!("Test failed: {why}"), theme::danger()),
+        })
+    };
+
+    let row = setting_row(
         &format!("{} \u{b7} {method}", profile.name),
         &address,
         div()
@@ -4736,6 +5012,14 @@ fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyEleme
             .items_center()
             .gap_2()
             .children(chip.map(|(text, colour)| badge(text, colour)))
+            .children(profile.terminal_enabled.then(|| {
+                ghost_button(
+                    ElementId::Name(format!("app-settings-ssh-{id}-terminal").into()),
+                    None,
+                    "Open terminal",
+                    cx.listener(move |this, _, _, cx| this.open_ssh_terminal(id, cx)),
+                )
+            }))
             // Offered only where there is one to forget: a control that clears nothing is a
             // control that lies about what is filed.
             .children(filed.then(|| {
@@ -4746,20 +5030,36 @@ fn ssh_profile_row(profile: &SshProfile, cx: &mut Context<AppState>) -> AnyEleme
                     cx.listener(move |this, _, _, cx| this.forget_ssh_secret(id, cx)),
                 )
             }))
-            .child(ghost_button(
+            .child(test_button)
+            .child(row_action(
                 ElementId::Name(format!("app-settings-ssh-{id}-edit").into()),
-                None,
-                "Edit",
+                RowAction::Edit,
                 cx.listener(move |this, _, window, cx| this.open_ssh_form(Some(id), window, cx)),
             ))
-            .child(ghost_button(
-                ElementId::Name(format!("app-settings-ssh-{id}-remove").into()),
-                None,
-                "Remove",
-                cx.listener(move |this, _, _, cx| this.open_remove_ssh_profile(id, cx)),
+            .child(row_action(
+                ElementId::Name(format!("app-settings-ssh-{id}-clone").into()),
+                RowAction::Clone,
+                cx.listener(move |this, _, _, cx| this.clone_ssh_profile(id, cx)),
             ))
+            .child(
+                row_action(
+                    ElementId::Name(format!("app-settings-ssh-{id}-remove").into()),
+                    RowAction::Delete,
+                    cx.listener(move |this, _, _, cx| this.open_remove_ssh_profile(id, cx)),
+                )
+                .tip("Remove"),
+            )
             .into_any_element(),
-    )
+    );
+    match verdict_line {
+        Some(line) => div()
+            .flex()
+            .flex_col()
+            .child(row)
+            .child(div().pb_2().child(line))
+            .into_any_element(),
+        None => row,
+    }
 }
 
 /// The drones running on every saved ssh-carrier host, one sub-section per host.
@@ -5066,16 +5366,17 @@ fn connection_row(
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(ghost_button(
-                    ElementId::Name(format!("app-settings-connection-{id}-check").into()),
-                    None,
-                    "Check",
-                    cx.listener(move |this, _, _, cx| this.check_connection(id, cx)),
-                ))
-                .child(icon_button(
+                .child(
+                    row_action(
+                        ElementId::Name(format!("app-settings-connection-{id}-check").into()),
+                        RowAction::Test,
+                        cx.listener(move |this, _, _, cx| this.check_connection(id, cx)),
+                    )
+                    .tip("Check"),
+                )
+                .child(row_action(
                     ElementId::Name(format!("app-settings-connection-{id}-rename").into()),
-                    IconName::Replace,
-                    false,
+                    RowAction::Rename,
                     cx.listener({
                         let label = label.clone();
                         move |this, _, window, cx| {
@@ -5083,12 +5384,16 @@ fn connection_row(
                         }
                     }),
                 ))
-                .child(icon_button(
-                    ElementId::Name(format!("app-settings-connection-{id}-disconnect").into()),
-                    IconName::Delete,
-                    false,
-                    cx.listener(move |this, _, _, cx| this.open_disconnect(id, label.clone(), cx)),
-                )),
+                .child(
+                    row_action(
+                        ElementId::Name(format!("app-settings-connection-{id}-disconnect").into()),
+                        RowAction::Delete,
+                        cx.listener(move |this, _, _, cx| {
+                            this.open_disconnect(id, label.clone(), cx)
+                        }),
+                    )
+                    .tip("Disconnect"),
+                ),
         )
         .into_any_element()
 }
@@ -5164,12 +5469,14 @@ fn cert_row(app: &AppState, cert: &TrustedCert, cx: &mut Context<AppState>) -> A
                     if uses == 1 { "" } else { "s" }
                 ))),
         )
-        .child(ghost_button(
-            ElementId::Name(format!("app-settings-cert-{origin}-forget").into()),
-            None,
-            "Forget",
-            cx.listener(move |this, _, _, cx| this.open_forget_cert(origin.clone(), uses, cx)),
-        ))
+        .child(
+            row_action(
+                ElementId::Name(format!("app-settings-cert-{origin}-forget").into()),
+                RowAction::Delete,
+                cx.listener(move |this, _, _, cx| this.open_forget_cert(origin.clone(), uses, cx)),
+            )
+            .tip("Forget"),
+        )
         .into_any_element()
 }
 
@@ -5230,16 +5537,14 @@ fn oauth_row(entry: &OauthApp, cx: &mut Context<AppState>) -> AnyElement {
             .items_center()
             .gap_2()
             .child(badge(chip, colour))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-oauth-{id}-edit").into()),
-                None,
-                "Edit",
+                RowAction::Edit,
                 cx.listener(move |this, _, window, cx| this.open_app_form(Some(id), window, cx)),
             ))
-            .child(ghost_button(
+            .child(row_action(
                 ElementId::Name(format!("app-settings-oauth-{id}-delete").into()),
-                None,
-                "Delete",
+                RowAction::Delete,
                 cx.listener(move |this, _, _, cx| this.open_delete_app(id, name.clone(), cx)),
             ))
             .into_any_element(),
@@ -5964,6 +6269,30 @@ pub fn ssh_form(app: &AppState, window: &mut Window, cx: &mut Context<AppState>)
                  reference and rides the settings file; the key itself is never read here.",
                 &app.ssh_key_path_input,
                 focused(&app.ssh_key_path_input),
+            ))
+        })
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(check_box(
+                    "app-settings-ssh-terminal-enabled",
+                    form.terminal,
+                    cx.listener(|this, _, _, cx| this.toggle_ssh_terminal(cx)),
+                ))
+                .child(label_block(
+                    "Enable terminal",
+                    "Offer this profile as a terminal in the new-pane menu.",
+                )),
+        )
+        .when(form.terminal, |body| {
+            body.child(form_field(
+                "Initial command",
+                "Optional. Run on the far side when the terminal opens; the session stays at a \
+                 login shell afterwards.",
+                &app.ssh_initial_command_input,
+                focused(&app.ssh_initial_command_input),
             ))
         })
         .when(form.method.takes_secret(), |body| {

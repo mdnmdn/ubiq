@@ -63,6 +63,10 @@ message in `crates/ubiq-proto/src/messages.rs`. `just ui` enforces it.
   exactly one rail mode stays out of it — brought inline by that mode's own render function instead
   of given a `PanelKind`, so it can never be dragged loose or left on screen after the mode
   changes.
+- **A list row's verbs are `kit::row_action`, never text buttons.** `RowAction::{Test, StopTest,
+  Edit, Rename, Clone, Delete}` fixes icon and tooltip; `.tip("Forget")` rewords a `Delete`,
+  `.enabled(false)` greys one out. Order: Test/StopTest · Edit · Rename · Clone · Delete. A
+  section's `Add …` and a one-off page action stay `ghost_button`/`primary_button`.
 
 ## GPUI gotchas that bite
 
@@ -96,6 +100,7 @@ message in `crates/ubiq-proto/src/messages.rs`. `just ui` enforces it.
 | Modal | `kit::modal` | One question. `MODAL_WIDTH`, ≤`MODAL_MAX_HEIGHT`, body scrolls, `surface_raised`, coloured left edge (`accent`, or `danger` for the irreversible), over `scrim`. Painted at the window origin via `deferred`+`anchored`, dismissed by outside click and its own close, scrim occludes the mouse. |
 | Confirm / prompt | `kit::confirm_modal`, `kit::prompt_modal` | Built on `modal`. Never hand-roll these. |
 | Sized modal | `kit::modal_sized` | Fixed-size flex body instead of a scroller — for a modal hosting a live `TerminalView` (harness login), so `flex_1`/`min_h(0)` resolves against a real height. |
+| Locked modal | `kit::modal_locked` | `modal_sized` with no × and no outside click; the footer must always offer a way out. Only the onboarding dialog (`ui/onboarding/mod.rs`) uses it: `Layer::Onboarding` (between `Dropdown` and `HelpTarget`) exists only while the dialog is visible, and `cancel_dialog` swallows Escape there. A highlight step hides the dialog and takes no rung. |
 | Dialog | `ui/file_picker.rs` | A modal with work in it: corner-grip resize clamped to `state/file_picker.rs`'s four sizes, drag tracked on the full-window layer, outside-click dismissal is the caller's choice. |
 | Page overlay | `ui/settings.rs`, project settings | `SETTINGS_WIDTH`×`SETTINGS_HEIGHT`, a nav, does not resize; switching sections must not change the panel size. Furniture from `ui/kit/settings.rs`. |
 | Anchored list | `ui/navigator.rs`, `kit::menu` | **Not** a modal: `anchored()` with no `.position()`, child of its trigger, no scrim, no outside-click dismiss. Key context and handlers go on the **field**, not the panel. |

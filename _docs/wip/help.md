@@ -5,7 +5,7 @@ kind: wip
 status: draft
 summary: The mechanics of Ubiq's help system end to end — the content tree and its page frontmatter, the packer and the bundle it writes, how the app finds and unpacks it, how the panel renders and navigates a page, how a context key becomes a page, what the MCP server exposes, and what happens at every point where something is missing.
 read_when: you are writing a help page, changing the packer or the bundle, wiring a screen to contextual help, or debugging why the help panel shows the wrong thing
-updated: 2026-10-09
+updated: 2026-10-27
 verified: 2026-09-19
 code_anchors: [crates/ubiq/src/app/help.rs, crates/ubiq/src/app/help_images.rs, crates/ubiq/src/state/help.rs, crates/ubiq/src/ui/help/mod.rs, crates/ubiq-host/src/mcp/help.rs, _tools/helpbundle.py]
 depends_on: [inbox-help, feat-workbench, tech-ui, tech-transport, tech-operations, wip-kb]
@@ -71,6 +71,7 @@ Required on every page. It is read once, by the packer; no YAML is parsed at run
 | `related` | no | Ids drawn as a "see also" strip at the foot of the page |
 | `redirects` | no | Paths or ids this page used to answer to, so old links keep working |
 | `since` | no | The Ubiq version the page describes, surfaced when it is newer than the running build |
+| `hidden` | no | `true` for a page the help never shows: validated like any page, but out of the nav, the catalogue and the bundle, and nothing may route to it — no `context`, `targets`, `redirects`, `related` or `order`, no image, and no listed page may link to it. The onboarding wizard's pages (`help/onboarding/`) are the case: authored here, compiled into the interface (`features/onboarding.md`) |
 
 ```yaml
 ---
@@ -170,7 +171,7 @@ Validation is the whole value of the step, and it fails the build rather than wa
 - every `context` key is claimed exactly once, and names a real `PanelKind::name()`, `View` or
   `RailMode` — the packer reads those out of the Rust source, so a renamed variant fails here
   rather than silently unbinding a page
-- every page is reachable from `nav.order`
+- every page is reachable from `nav.order`, except a `hidden` one, which never is
 
 What it writes is the existing `UBIQBND1` format — deflated entries, a JSON index, a `u64` LE index
 offset, the magic — so the reader in `crates/ubiq/src/web_export/archive.rs` opens it with no

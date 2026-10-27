@@ -5,7 +5,7 @@ kind: help
 status: draft
 summary: The information architecture of the user manual — its sections in reading order and nav order, the five page types with a skeleton and an exemplar each, page ids and order, when a page splits, how context keys and element targets are allotted, and what the index page does.
 read_when: you are adding, moving or splitting a help page, or choosing its type, section, id or context key
-updated: 2026-10-25
+updated: 2026-10-27
 verified: 2026-10-09
 code_anchors: [help/manifest.toml, _tools/helpbundle.py]
 depends_on: [wip-help]
@@ -47,6 +47,10 @@ a single page by its file name:
 `["index.md", "getting-started.md", "philosophy/", "concepts/", "guides/", "how-to/", "agents/", "workbench/", "git/", "kb/", "db/", "tasks/", "teams/", "remote/", "settings/", "faq/", "troubleshooting.md"]`.
 A new folder joins the list in the same change that adds its first page; the packer leaves an
 unlisted folder out of the nav.
+
+One folder is deliberately off the list: `onboarding/` holds the onboarding wizard's pages, each
+`hidden: true` ([`../wip/help.md`](../wip/help.md) §2.1). They are written as help but compiled
+into the interface and never bundled, so no manual page links to them and they take no `context:`.
 
 ### 1.1 The reference folders
 

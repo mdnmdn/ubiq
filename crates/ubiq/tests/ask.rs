@@ -711,6 +711,7 @@ fn a_chunk(
                     model: None,
                     thinking: None,
                 }),
+                at: None,
             }),
             raw: None,
         },

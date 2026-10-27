@@ -114,6 +114,7 @@ impl Rig {
             password,
             remember: true,
             agent,
+            ssh: None,
         });
         self.listed()
     }
@@ -667,6 +668,7 @@ fn a_test_reports_the_server_and_a_new_file_is_created_once() {
         id: None,
         config: Box::new(rig.sqlite_config("probe", false)),
         password: SecretEdit::Keep,
+        ssh: None,
     });
     let tested = rig.next(|m| match m {
         Message::DbTested {

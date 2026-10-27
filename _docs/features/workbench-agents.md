@@ -6,7 +6,7 @@ status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
 updated: 2026-10-25
-verified: 2026-10-15
+verified: 2026-10-26
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -271,7 +271,10 @@ what it folded in; the harness echoes the turn it received, verbatim, and `Conve
 preamble back off that echo, so the harness reads the directive and the transcript never shows it.
 The preamble is taken rather than read — it belongs to exactly one turn — and it is spent whether
 or not it matched, so a harness that reformats its echo cannot leave it armed to cut the front off
-a message the user really did write.
+a message the user really did write. A turn with no armed preamble — a `session/load` replay of
+that first turn — still loses a leading subagent directive (`strip_subagent_directive`, any
+ceiling), because the directive is this interface's own words; the agent prompt half, which nothing
+recognises after the fact, stays on a replay.
 
 **The persistence checkbox is live for a start on a harness that keeps its sessions.** A conversation
 that survives a restart is built (`D97`). The flag lives on a row keyed by the conversation, which

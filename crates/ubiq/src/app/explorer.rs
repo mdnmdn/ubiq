@@ -170,6 +170,20 @@ impl AppState {
         }
     }
 
+    /// Ask the project's current host for its root listing again, dropping the loading mark a
+    /// request to the previous host left. Used when a drone starts serving an already-open project.
+    pub(super) fn ask_root_tree(&mut self, project: ProjectId) {
+        if let Some(open) = self.projects.get_mut(&project) {
+            open.explorer.set_loading("", true);
+        }
+        self.bus.send(Message::ProjectTree {
+            project_id: project,
+            rel_path: String::new(),
+            depth: EXPAND_DEPTH,
+            prefetch: false,
+        });
+    }
+
     fn ask_listing(&mut self, project: ProjectId, path: String, cx: &mut Context<Self>) {
         let Some(open) = self.projects.get_mut(&project) else {
             return;

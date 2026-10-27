@@ -14,7 +14,8 @@
 //! same one; the `access` and `default` are this machine's, in
 //! `<config root>/projects/<ulid>/local/db-agents.toml` ([`AGENTS_FILE`]), because what an agent
 //! on *this* machine may touch is not something a commit should hand a teammate. Folding them back into `db.toml` is a change to
-//! those two functions and [`Files`].
+//! those two functions and [`Files`]. The SSH profile a connection tunnels through rides the local
+//! half too: a profile is this machine's app setting, and its id means nothing on a teammate's.
 
 use std::path::{Path, PathBuf};
 
@@ -22,7 +23,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use ubiq_db::conn::ConnectionConfig;
 use ubiq_proto::db::{DbAgentAccess, DbAgentSettings};
-use ubiq_proto::ids::{DbConnId, ProjectId};
+use ubiq_proto::ids::{DbConnId, ProjectId, SshProfileId};
 
 use crate::atomic::{preserve_aside, write_atomic};
 use crate::store::StoreError;
@@ -44,6 +45,8 @@ pub struct StoredConnection {
     pub id: DbConnId,
     pub config: ConnectionConfig,
     pub agent: DbAgentSettings,
+    /// The SSH profile to tunnel through; `None` dials direct.
+    pub ssh: Option<SshProfileId>,
 }
 
 impl StoredConnection {
@@ -52,6 +55,7 @@ impl StoredConnection {
             id,
             config,
             agent: DbAgentSettings::default(),
+            ssh: None,
         }
     }
 }
@@ -97,6 +101,8 @@ struct LocalRow {
     access: DbAgentAccess,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     default: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ssh: Option<SshProfileId>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -116,11 +122,13 @@ struct AgentsFile {
 /// The one place that says which half of a connection goes in which file.
 fn split(connection: &StoredConnection) -> (SharedRow, Option<LocalRow>) {
     let agent = &connection.agent;
-    let local = (agent.access != DbAgentAccess::None || agent.default).then_some(LocalRow {
-        id: connection.id,
-        access: agent.access,
-        default: agent.default,
-    });
+    let local = (agent.access != DbAgentAccess::None || agent.default || connection.ssh.is_some())
+        .then_some(LocalRow {
+            id: connection.id,
+            access: agent.access,
+            default: agent.default,
+            ssh: connection.ssh,
+        });
     let shared = SharedRow {
         id: connection.id,
         description: agent.description.clone(),
@@ -139,6 +147,7 @@ fn join(shared: SharedRow, local: Option<&LocalRow>) -> StoredConnection {
             default: local.is_some_and(|l| l.default),
             description: shared.description,
         },
+        ssh: local.and_then(|l| l.ssh),
     }
 }
 
@@ -357,8 +366,15 @@ mod tests {
         let path = dir.path().join("db.toml");
         let mut cache = sqlite(Path::new(":memory:"));
         cache.agent = agent(DbAgentAccess::Rw, true, "the local cache");
+        let mut tunnelled = postgres();
+        tunnelled.ssh = Some(SshProfileId::generate());
         let plain = sqlite(Path::new("/elsewhere/plain.sqlite"));
-        save(&files(&path), None, &[cache.clone(), plain.clone()]).expect("save");
+        save(
+            &files(&path),
+            None,
+            &[cache.clone(), plain.clone(), tunnelled.clone()],
+        )
+        .expect("save");
 
         let shared = std::fs::read_to_string(&path).expect("shared");
         assert!(
@@ -366,7 +382,7 @@ mod tests {
             "{shared}"
         );
         assert!(
-            !shared.contains("access") && !shared.contains("default"),
+            !shared.contains("access") && !shared.contains("default") && !shared.contains("ssh"),
             "{shared}"
         );
         let local = std::fs::read_to_string(&files(&path).agents).expect("local");
@@ -379,9 +395,10 @@ mod tests {
             "{local}"
         );
 
+        assert!(local.contains("ssh = "), "{local}");
         assert_eq!(
             load(&files(&path), None).expect("load"),
-            vec![cache.clone(), plain]
+            vec![cache.clone(), plain, tunnelled]
         );
 
         // Without the local half, the description stays and the access goes.
@@ -391,6 +408,7 @@ mod tests {
             loaded[0].agent,
             agent(DbAgentAccess::None, false, "the local cache")
         );
+        assert_eq!(loaded[2].ssh, None, "no local half is a direct connection");
     }
 
     #[test]

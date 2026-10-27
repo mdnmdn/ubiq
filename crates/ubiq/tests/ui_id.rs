@@ -769,7 +769,8 @@ fn the_rail_and_titlebar_mark_every_name_phase_3a_claims(cx: &mut gpui::TestAppC
         ui_id::rail_mode(RailMode::TEAMS_ALL),
         ui_id::rail_mode(RailMode::KB),
         ui_id::rail_mode(RailMode::TASKS),
-        ui_id::rail_mode(RailMode::SINK),
+        // Not `RailMode::SINK`: the sink is dev furniture, on the rail only while
+        // `Enable dev settings` is, and the shell renders with the default (off).
         ui_id::TITLEBAR,
         ui_id::TITLEBAR_PROJECT,
         ui_id::TITLEBAR_NEW_PROJECT,

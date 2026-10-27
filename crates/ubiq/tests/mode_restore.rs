@@ -884,6 +884,38 @@ fn the_last_app_mode_survives_hiding_every_project_mode(cx: &mut TestAppContext)
     cx.run_until_parked();
 }
 
+/// The Experimental section's switches: the sink is on the rail only while `Enable dev settings`
+/// is, and switching it off with the window in the sink moves the window rather than leaving it in
+/// a mode the rail no longer draws. Remote hosts follow `Enable experimental settings` the same way.
+#[gpui::test]
+fn the_tier_switches_gate_the_sink_and_remote_hosts(cx: &mut TestAppContext) {
+    let fixture = Fixture::open_without_project(cx);
+    let state = fixture.state.clone();
+
+    state.update(cx, |state, cx| {
+        assert!(
+            !state.mode_enabled(RailMode::SINK, cx),
+            "dev settings default off"
+        );
+        state.toggle_dev_settings(cx);
+        assert!(state.workbench.settings.ui.dev_settings);
+        assert!(state.mode_enabled(RailMode::SINK, cx));
+        state.set_rail_mode(RailMode::SINK, cx);
+        assert_eq!(state.workbench.rail_mode, RailMode::SINK);
+        state.toggle_dev_settings(cx);
+        assert!(!state.mode_enabled(RailMode::SINK, cx));
+        assert_ne!(state.workbench.rail_mode, RailMode::SINK);
+
+        // Remote hosts: no manager while experimental settings are off.
+        state.open_remote_manager(cx);
+        assert!(!state.workbench.remote_manager.open);
+        state.toggle_experimental(cx);
+        state.open_remote_manager(cx);
+        assert!(state.workbench.remote_manager.open);
+    });
+    cx.run_until_parked();
+}
+
 /// T-353: an app-group mode that is `When`-available is still stored app-wide, and with no
 /// project open.
 #[gpui::test]
@@ -894,6 +926,9 @@ fn a_when_mode_in_the_app_group_is_stored_app_wide(cx: &mut TestAppContext) {
 
     state.update(cx, |state, cx| {
         state.sink.ext_demo_on = true;
+        // The demo is dev furniture: it also needs `Enable dev settings`.
+        assert!(!state.mode_enabled(demo, cx));
+        state.workbench.settings.ui.dev_settings = true;
         assert!(state.mode_enabled(demo, cx));
         state.toggle_mode(demo, cx);
         assert!(!state.mode_enabled(demo, cx));

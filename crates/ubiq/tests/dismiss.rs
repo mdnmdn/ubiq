@@ -151,6 +151,19 @@ fn escape_peels_one_layer_at_a_time(cx: &mut gpui::TestAppContext) {
         assert!(state.workbench.settings.open, "About took settings");
     });
 
+    // The Tools dialog, raised from the titlebar on About's terms, goes alone too.
+    handle
+        .update(cx, |_, window, cx| {
+            state.update(cx, |state, cx| state.open_devtools(window, cx));
+        })
+        .expect("the window is open");
+    cx.run_until_parked();
+    escape(&state, cx);
+    state.read_with(cx, |state, _| {
+        assert!(state.workbench.devtools.is_none());
+        assert!(state.workbench.settings.open, "Tools took settings");
+    });
+
     // The New agent modal, and its own picker above it: a list down over a form is peeled before
     // the form under it, which is the rung a picker inside a modal needs and `open_menu` cannot
     // give it.

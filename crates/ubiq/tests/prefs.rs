@@ -184,6 +184,7 @@ fn the_interface_blob_carries_the_palette() {
         custom_themes: Vec::new(),
         last_start: None,
         last_start_by_project: Default::default(),
+        onboarding_done: Default::default(),
         rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");
@@ -266,6 +267,7 @@ fn the_interface_blob_carries_the_last_start() {
         )]
         .into_iter()
         .collect(),
+        onboarding_done: Default::default(),
         rest: Default::default(),
     };
     let back: InterfacePrefs = prefs::decode(&prefs::encode(&prefs_in)).expect("decodes");

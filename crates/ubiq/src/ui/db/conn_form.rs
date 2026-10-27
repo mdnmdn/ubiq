@@ -4,7 +4,9 @@
 //!
 //! Top to bottom: the name, the engine, a box that takes a pasted connection string and fills the
 //! rest, the fields that engine has (a file and two ways to get one for SQLite; host, port,
-//! database, user and the password for a server), SSL, read-only, the Agents section (access, default, description), and the answer to the last Test.
+//! database, user and the password for a server), SSL, the SSH tunnel (none, or one of the saved SSH
+//! profiles — a server's only), read-only, the Agents section (access, default, description), and
+//! the answer to the last Test.
 //!
 //! **The password field is write-only.** It is empty on open, even when one is saved; what it says
 //! beside the field is `saved` / `not saved` from the list's `PasswordState`, and the form sends
@@ -16,6 +18,7 @@ use gpui_component::IconName;
 use gpui_component::input::{Input, InputState};
 
 use ubiq_proto::db::{DbAgentAccess, DbKeystore, DbKind, SslMode};
+use ubiq_proto::settings::SshProfile;
 
 use crate::app::AppState;
 use crate::state::db::form::{DbConnForm, DbFormInputs};
@@ -105,7 +108,13 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
             Some(_) => "Edit connection",
             None => "Add connection",
         },
-        body(form, db.keystore.as_ref(), window, cx),
+        body(
+            form,
+            db.keystore.as_ref(),
+            &app.workbench.settings.host.ssh_profiles,
+            window,
+            cx,
+        ),
         footer,
         crate::ui::dismiss(&view, Layer::DbForm, |this, _, cx| this.close_db_form(cx)),
         window,
@@ -115,6 +124,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
 fn body(
     form: &DbConnForm,
     keystore: Option<&DbKeystore>,
+    profiles: &[SshProfile],
     window: &mut Window,
     cx: &mut Context<AppState>,
 ) -> AnyElement {
@@ -347,6 +357,7 @@ fn body(
                 .child(modes)
                 .into_any_element(),
         ));
+        rows = rows.child(tunnel_row(form, profiles, cx));
     }
 
     // 5 ─ read-only, for either engine: the host holds every statement on the connection to it.
@@ -373,6 +384,66 @@ fn body(
     rows = rows.child(agents_section(form, inputs, window, cx));
 
     rows.into_any_element()
+}
+
+/// The SSH tunnel: none, or one of the saved SSH profiles. A profile the form names that is no
+/// longer saved is still drawn, so the person sees what the connection points at.
+fn tunnel_row(
+    form: &DbConnForm,
+    profiles: &[SshProfile],
+    cx: &mut Context<AppState>,
+) -> AnyElement {
+    let mut choices = div().flex().flex_wrap().gap_1().child(choice_pill(
+        ("db-form-ssh", 0usize),
+        "None",
+        form.ssh.is_none(),
+        cx.listener(|this, _, _, cx| this.edit_db_form(cx, |form| form.ssh = None)),
+    ));
+    for (ix, profile) in profiles.iter().enumerate() {
+        let id = profile.id;
+        choices = choices.child(choice_pill(
+            ("db-form-ssh", ix + 1),
+            profile.name.clone(),
+            form.ssh == Some(id),
+            cx.listener(move |this, _, _, cx| this.edit_db_form(cx, |form| form.ssh = Some(id))),
+        ));
+    }
+    let mut column = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap_1()
+        .w(px(CONTROL_WIDTH))
+        .child(choices);
+    let missing = form
+        .ssh
+        .is_some_and(|id| !profiles.iter().any(|profile| profile.id == id));
+    if missing {
+        column = column.child(
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::warning())
+                .child("The SSH profile this connection used is gone; pick another or None."),
+        );
+    }
+    if form.ssh.is_some() && form.config.ssl == SslMode::VerifyFull {
+        column = column.child(
+            div()
+                .text_size(theme::font(Family::Chrome, Role::Label))
+                .text_color(theme::warning())
+                .child(
+                    "Certificate host verification is not supported through an SSH tunnel; \
+                     use Require.",
+                ),
+        );
+    }
+    hint_row(
+        "db-form-ssh-hint",
+        "SSH tunnel",
+        "Reach the server through one of the SSH hosts in Settings: the host opens an ssh port \
+         forward and the host and port above are as that machine sees them.",
+        column.into_any_element(),
+    )
 }
 
 /// The Agents section: access, whether it is the default, and a description.

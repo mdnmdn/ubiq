@@ -6,7 +6,7 @@ status: draft
 summary: The rail's IDE mode — the project's file explorer and its right-click menu, the editor tabs each open file is a panel of, the viewer that draws one by kind, Markdown reading width and its minimap, diagrams and Excalidraw scenes, the image editor over any picture, and how a file is saved.
 read_when: you are changing the explorer tree, the editor tabs, what a file panel draws, which viewer draws it, how a diagram is rendered or cached, capturing the window, editing a picture, or saving a file
 updated: 2026-10-24
-verified: 2026-10-23
+verified: 2026-10-26
 code_anchors: [crates/ubiq/src/ui/explorer.rs, crates/ubiq/src/app/explorer.rs, crates/ubiq/src/state/explorer/mod.rs, crates/ubiq/src/state/explorer/tree.rs, crates/ubiq/src/state/explorer/rows.rs, crates/ubiq/src/state/explorer/menu.rs, crates/ubiq/tests/explorer.rs, crates/ubiq/tests/files_changed.rs, crates/ubiq/src/ui/kit/files.rs, crates/ubiq/src/ui/editor.rs, crates/ubiq/src/state/editor.rs, crates/ubiq/src/ui/mark.rs, crates/ubiq/src/app/mark.rs, crates/ubiq/src/ui/viewer/mod.rs, crates/ubiq/src/ui/viewer/diff.rs, crates/ubiq/src/ui/viewer/markdown.rs, crates/ubiq/src/ui/mdview/view.rs, crates/ubiq/src/ui/mdview/search.rs, crates/ubiq/src/ui/mdview/minimap.rs, crates/ubiq/src/ui/mdview/outline.rs, crates/ubiq/src/ui/mdview/blockedit.rs, crates/ubiq/src/ui/viewer/md_options.rs, crates/ubiq/src/ui/viewer/diagram.rs, crates/ubiq/src/ui/viewer/scene.rs, crates/ubiq/src/ui/viewer/viewport.rs, crates/ubiq/src/ui/viewer/image.rs, crates/ubiq/src/ui/viewer/image_edit.rs, crates/ubiq/src/ui/viewer/web.rs, crates/ubiq/src/app/capture.rs, crates/ubiq/src/app/feedback.rs, crates/ubiq/src/state/feedback.rs, crates/ubiq/src/ui/feedback.rs, crates/ubiq/src/app/image_edit.rs, crates/ubiq/src/state/image_edit.rs, crates/ubiq/tests/image_gestures.rs, crates/ubiq/src/app/clipboard.rs, crates/ubiq/src/state/diagrams.rs, crates/ubiq/src/state/viewport.rs, crates/ubiq/src/state/scene.rs, crates/ubiq-draw/src/model.rs, crates/ubiq-draw/src/excalidraw.rs, crates/ubiq-draw/src/drawio.rs, crates/ubiq/tests/diagrams.rs, crates/ubiq/tests/viewport.rs, crates/ubiq/tests/scene.rs, crates/ubiq/tests/viewer_kind.rs, crates/ubiq/src/ui/file_dialog.rs, crates/ubiq/src/ui/web_view.rs, crates/ubiq/src/app/web_panel.rs, crates/ubiq/src/state/web_panel.rs, crates/ubiq/src/ext/viewer.rs, crates/ubiq/tests/viewer_container.rs]
 depends_on: [feat-workbench, tech-ui]
 review_cycle: monthly
@@ -848,7 +848,9 @@ which `ExplorerState::free_name` and the host's `files::import` share.
 its state: `FileBody` is either `Loading`, the `Text` of a buffer with the bytes the host sent beside
 it, the `Diff` the host computed, `Binary`, or a `Failed` read. Dirtiness is that comparison against
 the host's bytes, cached off the buffer's own change event rather than recomputed per frame.
-`FileLanguage::of()` picks a highlighter from the path's extension, and anything it does not
+`FileLanguage::of()` picks a highlighter from the path's file name or extension (`Justfile`, `.env`, `Dockerfile`
+and the like by name), and where no grammar is bundled borrows a close one — JSON Lines as JSON, XML
+as HTML, INI as TOML, a Justfile as Make, a Dockerfile and `.env` as shell. Anything it does not
 recognise opens as plain text, which is the general case rather than a fallback. `Subject` is what a
 tab is looking at — the file, or a comparison made from it — and `tab_key()` and `from_tab_key()`
 are what keep those two tabs rather than one: the key is the path for the file itself and the path
