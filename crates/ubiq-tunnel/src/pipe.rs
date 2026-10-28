@@ -102,6 +102,7 @@ fn pump_up(
                         c.error(e.to_string());
                     }
                     stream.reset(Some(e.to_string()));
+                    crate::http::answer_refusal(&mut local, &e);
                     let _ = local.shutdown(Shutdown::Both);
                     return;
                 }

@@ -7,10 +7,12 @@
 //! `close write`), so an ack is never stuck behind a megabyte of someone else's bytes, and a
 //! half-close never overtakes the data before it.
 //!
-//! **Credit.** A stream's sender holds at most `window` unacknowledged bytes, and the link at most
-//! [`TUNNEL_LINK_IN_FLIGHT`] across every stream; [`TunnelStream::send`] blocks until both have
-//! room. The receiver's [`TunnelStream::ack`] returns the credit — the consumer calls it once the
-//! bytes have left (been written to its socket), so a slow socket slows its producer.
+//! **Credit.** A stream's sender holds at most `window` unacknowledged bytes;
+//! [`TunnelStream::send`] blocks until it has room. The receiver's [`TunnelStream::ack`] returns
+//! the credit — the consumer calls it once the bytes have left (been written to its socket), so a
+//! slow socket slows its producer. There is no link-wide credit: the windows already bound what a
+//! receiver holds, and a shared cap would let a few streams whose consumer stopped reading freeze
+//! every other stream on the link.
 
 use std::collections::HashMap;
 use std::io::{self, BufWriter, Read, Write};
@@ -21,8 +23,7 @@ use std::time::Duration;
 use parking_lot::{Condvar, Mutex};
 use ubiq_proto::ids::TunnelStreamId;
 use ubiq_proto::tunnel::{
-    self, TUNNEL_CHUNK_MAX, TUNNEL_LINK_IN_FLIGHT, TUNNEL_STREAM_WINDOW, TUNNEL_VERSION,
-    TunnelFrame, TunnelHalf,
+    self, TUNNEL_CHUNK_MAX, TUNNEL_STREAM_WINDOW, TUNNEL_VERSION, TunnelFrame, TunnelHalf,
 };
 use ubiq_proto::wire::WireError;
 
@@ -57,7 +58,7 @@ struct Entry {
     window: u32,
     /// What this side may still send before an ack.
     credit: u32,
-    /// Sent and not yet acknowledged — counted in the link's `in_flight`.
+    /// Sent and not yet acknowledged.
     sent_unacked: usize,
     /// Received and not yet acknowledged — what the peer is holding against its window.
     recv_unacked: usize,
@@ -70,15 +71,12 @@ struct Entry {
 
 struct State {
     streams: HashMap<TunnelStreamId, Entry>,
-    in_flight: usize,
     dead: Option<String>,
 }
 
 impl State {
     fn remove(&mut self, id: TunnelStreamId) -> Option<Entry> {
-        let entry = self.streams.remove(&id)?;
-        self.in_flight = self.in_flight.saturating_sub(entry.sent_unacked);
-        Some(entry)
+        self.streams.remove(&id)
     }
 }
 
@@ -167,7 +165,6 @@ impl Mux {
         let inner = Arc::new(Inner {
             state: Mutex::new(State {
                 streams: HashMap::new(),
-                in_flight: 0,
                 dead: None,
             }),
             credit: Condvar::new(),
@@ -318,8 +315,7 @@ impl TunnelStream {
         self.id
     }
 
-    /// Send `data`, split into chunks, blocking while the stream's window or the link's in-flight
-    /// cap is full.
+    /// Send `data`, split into chunks, blocking while the stream's window is full.
     pub fn send(&self, mut data: &[u8]) -> io::Result<()> {
         while !data.is_empty() {
             let n = self.inner.reserve(self.id, data.len())?;
@@ -438,15 +434,10 @@ impl Inner {
                 if entry.write_closed {
                     return Err(broken("the stream's sending half is closed".into()));
                 }
-                let room = TUNNEL_LINK_IN_FLIGHT.saturating_sub(st.in_flight);
-                let n = want
-                    .min(entry.credit as usize)
-                    .min(room)
-                    .min(TUNNEL_CHUNK_MAX);
+                let n = want.min(entry.credit as usize).min(TUNNEL_CHUNK_MAX);
                 if n > 0 {
                     entry.credit -= n as u32;
                     entry.sent_unacked += n;
-                    st.in_flight += n;
                     return Ok(n);
                 }
             }
@@ -515,12 +506,10 @@ impl Inner {
                 }
             }
             TunnelFrame::Ack { stream, bytes } => {
-                let mut guard = self.state.lock();
-                let st = &mut *guard;
+                let mut st = self.state.lock();
                 if let Some(entry) = st.streams.get_mut(&stream) {
                     let n = (bytes as usize).min(entry.sent_unacked);
                     entry.sent_unacked -= n;
-                    st.in_flight = st.in_flight.saturating_sub(n);
                     entry.credit = entry.credit.saturating_add(n as u32).min(entry.window);
                     self.credit.notify_all();
                 }
@@ -606,7 +595,6 @@ impl Inner {
             }
             tracing::debug!(target: "tunnel", "link down: {reason}");
             st.dead = Some(reason.clone());
-            st.in_flight = 0;
             std::mem::take(&mut st.streams)
         };
         *self.incoming.lock() = None;

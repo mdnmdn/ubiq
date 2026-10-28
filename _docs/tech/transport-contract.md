@@ -3417,15 +3417,18 @@ frames, internally tagged by `type`:
 `stream` is a `TunnelStreamId`, minted by the window that accepted the local socket. **Flow is
 credit-based:** `open.window` is the bytes the drone may send before an ack — `TUNNEL_STREAM_WINDOW`,
 64 KiB, by default — and a receiver returns `ack { bytes }` only once it has written them to its
-socket, so a slow consumer slows its producer. Across every stream a channel holds at most
-`TUNNEL_LINK_IN_FLIGHT` (256 KiB) unacknowledged; a chunk is at most `TUNNEL_CHUNK_MAX` (16 KiB), and
-`bytes` is `serde_bytes`. `hello.rate_bps` carries `SavedRemoteHost.tunnel_rate_bps`, `None`
+socket, so a slow consumer slows its producer. The window is the only credit: there is no
+channel-wide cap, since the windows already bound what a receiver holds and a shared one would let
+a few streams whose consumer stopped reading freeze every other stream. A chunk is at most
+`TUNNEL_CHUNK_MAX` (16 KiB), and `bytes` is `serde_bytes`. `hello.rate_bps` carries `SavedRemoteHost.tunnel_rate_bps`, `None`
 unlimited. `close { half: write }` is TCP's half-close, which an HTTP client that sends its request
 and waits for the answer depends on; `both` ends the stream. A frame naming a stream the far end
 does not hold is dropped. A drone that can serve the channel advertises `tunnel`.
 
 `crates/ubiq-tunnel` speaks it — the multiplexer, the window's listeners and the drone's dialer —
-over any duplex it is handed. **No carrier hands it one yet**: no channel or bridge exists, and
+over any duplex it is handed. An HTTP-kind listener is guarded against DNS rebinding: a request
+whose incoming `Host` is not `localhost`, `127.0.0.1` or `[::1]` (any port) is answered `403` and
+the stream reset, without a byte of the request crossing the channel. **No carrier hands it one yet**: no channel or bridge exists, and
 nothing outside that crate names it (`G462`).
 
 ## The carrier family

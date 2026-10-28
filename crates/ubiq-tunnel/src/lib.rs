@@ -5,9 +5,9 @@
 //! - [`Mux`] runs over any duplex — a pair of `Read` / `Write` halves: a Unix socket the `--rdp`
 //!   child bridges to the `ubiq::tunnel::v1` virtual channel, a second `ssh` exec's stdio. One
 //!   reader thread demultiplexes frames into streams, one writer thread drains two queues (control
-//!   frames first, then data). Each stream is credit-limited by its window, the link by
-//!   [`ubiq_proto::tunnel::TUNNEL_LINK_IN_FLIGHT`], and the sending side by a token bucket at the
-//!   lower of the two ends' `Hello.rate_bps`.
+//!   frames first, then data). Each stream is credit-limited by its window — and only by it, so a
+//!   stalled stream never holds up another — and the sending side by a token bucket at the lower
+//!   of the two ends' `Hello.rate_bps`.
 //! - [`TunnelManager`] is the window's half: a loopback listener per enabled
 //!   [`ubiq_proto::settings::TunnelSpec`], each accepted socket an `Open` on the attached mux. The
 //!   listeners outlive the link — with none attached they refuse, and [`TunnelManager::attach`]

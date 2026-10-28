@@ -3,12 +3,23 @@
 //! A streaming state machine over the bytes a browser sends. It parses a request head with
 //! `httparse`, writes it back with `Host` replaced (or added), then copies the body by its own
 //! framing — `Content-Length`, or `chunked` to its last-chunk and trailers — and parses the next
-//! head after it, so pipelined and keep-alive requests are each rewritten. After a head that asks
-//! for an upgrade (a websocket) or a `CONNECT`, the rest of the stream passes untouched.
+//! head after it, so pipelined and keep-alive requests are each rewritten. After a `CONNECT` the
+//! rest of the stream passes untouched. After a head that asks for an upgrade (a websocket) the
+//! server may still refuse and stay HTTP, and the response direction is never parsed to learn
+//! which: so the next bytes are still read as a request head, and only bytes that cannot start one
+//! — a websocket frame, an HTTP/2 preface — turn the stream raw. A client sends nothing after an
+//! upgrade request until the answer, so the first bytes after it are either the new protocol or
+//! the next request.
+//!
+//! **DNS rebinding.** Every request's incoming `Host` must name the loopback — `localhost`,
+//! `127.0.0.1` or `[::1]`, any port — or the stream is refused with a `403`: a page on a hostile
+//! name that resolves to `127.0.0.1` would otherwise reach the far service with the browser's
+//! blessing. A request with no `Host` (HTTP/1.0) passes.
 //!
 //! The response direction is never parsed: what comes back is the server's, byte for byte.
 
-use std::io;
+use std::io::{self, Write};
+use std::net::TcpStream;
 
 use httparse::Status;
 
@@ -25,6 +36,8 @@ enum State {
     /// The chunk's bytes plus its trailing CRLF.
     ChunkData(u64),
     ChunkTrailer,
+    /// After an upgrade request: a head if the bytes parse as one, [`State::Raw`] if they cannot.
+    Upgrading,
     /// An upgraded or `CONNECT` stream: no more HTTP.
     Raw,
 }
@@ -90,12 +103,15 @@ impl HostRewriter {
                         break;
                     };
                     let size = chunk_size(&rest[..end])?;
+                    let with_crlf = size
+                        .checked_add(2)
+                        .ok_or_else(|| invalid("a chunk size too large"))?;
                     out.extend_from_slice(&rest[..end + 2]);
                     pos += end + 2;
                     self.state = if size == 0 {
                         State::ChunkTrailer
                     } else {
-                        State::ChunkData(size + 2)
+                        State::ChunkData(with_crlf)
                     };
                 }
                 State::ChunkTrailer => {
@@ -108,9 +124,9 @@ impl HostRewriter {
                         self.state = State::Head;
                     }
                 }
-                State::Head => {
+                State::Head | State::Upgrading => {
                     // A stray CRLF between requests is allowed; pass it on.
-                    if rest.starts_with(b"\r\n") {
+                    if matches!(self.state, State::Head) && rest.starts_with(b"\r\n") {
                         out.extend_from_slice(b"\r\n");
                         pos += 2;
                         continue;
@@ -127,6 +143,10 @@ impl HostRewriter {
                         Ok(Status::Complete(n)) => {
                             self.state = write_head(&self.host, rest, &req, out)?;
                             pos += n;
+                        }
+                        // The server switched protocols: the rest is the new one's.
+                        Err(_) if matches!(self.state, State::Upgrading) => {
+                            self.state = State::Raw;
                         }
                         Err(e) => return Err(invalid(&format!("not an HTTP request: {e}"))),
                     }
@@ -167,6 +187,15 @@ fn write_head(
     for h in req.headers.iter() {
         let name = h.name;
         if name.eq_ignore_ascii_case("host") {
+            if !is_loopback_host(h.value) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "a request for {} was refused: only localhost may use a tunnel",
+                        String::from_utf8_lossy(h.value).trim()
+                    ),
+                ));
+            }
             if !wrote_host {
                 push_header(out, "Host", host.as_bytes());
                 wrote_host = true;
@@ -196,15 +225,58 @@ fn write_head(
         push_header(out, "Host", host.as_bytes());
     }
     out.extend_from_slice(b"\r\n");
-    Ok(
-        if req.method == Some("CONNECT") || (upgrade && connection_upgrade) {
-            State::Raw
-        } else if chunked {
-            State::ChunkSize
-        } else {
-            HostRewriter::after_body(length.unwrap_or(0))
+    Ok(if req.method == Some("CONNECT") {
+        State::Raw
+    } else if upgrade && connection_upgrade {
+        State::Upgrading
+    } else if chunked {
+        State::ChunkSize
+    } else {
+        HostRewriter::after_body(length.unwrap_or(0))
+    })
+}
+
+/// Whether an incoming `Host` names the loopback: `localhost`, `127.0.0.1` or `[::1]`, with or
+/// without a port.
+fn is_loopback_host(value: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(value) else {
+        return false;
+    };
+    let text = text.trim().to_ascii_lowercase();
+    let (host, port) = match text.strip_prefix('[') {
+        Some(v6) => match v6.split_once(']') {
+            Some((addr, port)) => (format!("[{addr}]"), port.to_string()),
+            None => return false,
         },
-    )
+        None => match text.split_once(':') {
+            Some((host, port)) => (host.to_string(), format!(":{port}")),
+            None => (text.clone(), String::new()),
+        },
+    };
+    let port_ok = port.is_empty()
+        || port
+            .strip_prefix(':')
+            .is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    port_ok
+        && matches!(
+            host.trim_end_matches('.'),
+            "localhost" | "127.0.0.1" | "[::1]"
+        )
+}
+
+/// Answer a request the rewriter refused for its `Host` with a `403`; any other error, nothing.
+pub(crate) fn answer_refusal(local: &mut TcpStream, error: &io::Error) {
+    if error.kind() != io::ErrorKind::PermissionDenied {
+        return;
+    }
+    let body = format!("ubiq tunnel: {error}\n");
+    let head = format!(
+        "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = local.write_all(head.as_bytes());
+    let _ = local.write_all(body.as_bytes());
 }
 
 fn push_header(out: &mut Vec<u8>, name: &str, value: &[u8]) {
@@ -262,7 +334,7 @@ GET /b HTTP/1.1\r\nHost: api.example.com\r\nAccept: */*\r\n\r\n";
 
     #[test]
     fn a_chunked_body_is_copied_to_its_trailer_then_the_next_head_parses() {
-        let input = b"POST /up HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n\
+        let input = b"POST /up HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n\
 5;ext=1\r\nHost:\r\n0\r\nX-Trailer: 1\r\n\r\nGET / HTTP/1.1\r\n\r\n";
         let want =
             b"POST /up HTTP/1.1\r\nHost: api.example.com\r\nTransfer-Encoding: chunked\r\n\r\n\
@@ -278,13 +350,89 @@ GET /b HTTP/1.1\r\nHost: api.example.com\r\nAccept: */*\r\n\r\n";
     #[test]
     fn an_upgrade_passes_the_rest_through() {
         let input =
-            b"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n\
-GET /not-a-request HTTP/1.1\r\nHost: x\r\n\r\n\x81\x05hello";
-        let out = run(input, 4);
+            b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n\
+\x81\x05hello GET /not-a-request HTTP/1.1\r\nHost: x\r\n\r\n";
         let head = b"GET /ws HTTP/1.1\r\nHost: api.example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
         let first = input.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
-        assert!(out.starts_with(head));
-        assert_eq!(&out[head.len()..], &input[first..]);
+        for step in [1, 4, input.len()] {
+            let out = run(input, step);
+            assert!(out.starts_with(head));
+            assert_eq!(&out[head.len()..], &input[first..]);
+        }
+    }
+
+    #[test]
+    fn a_refused_upgrade_keeps_rewriting_the_next_request() {
+        let input =
+            b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n\
+GET /b HTTP/1.1\r\nHost: localhost:3000\r\n\r\n";
+        let want = b"GET /ws HTTP/1.1\r\nHost: api.example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n\
+GET /b HTTP/1.1\r\nHost: api.example.com\r\n\r\n";
+        for step in [1, 4, input.len()] {
+            assert_eq!(
+                String::from_utf8_lossy(&run(input, step)),
+                String::from_utf8_lossy(want)
+            );
+        }
+        // And still guards it.
+        let mut r = HostRewriter::new("h".into());
+        let mut out = Vec::new();
+        r.feed(
+            b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+            &mut out,
+        )
+        .unwrap();
+        let e = r
+            .feed(b"GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n", &mut out)
+            .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn only_a_loopback_host_passes() {
+        for ok in [
+            "localhost",
+            "LocalHost:8080",
+            "localhost.",
+            "127.0.0.1",
+            "127.0.0.1:1",
+            "[::1]",
+            "[::1]:443",
+        ] {
+            assert!(is_loopback_host(ok.as_bytes()), "{ok}");
+        }
+        for bad in [
+            "evil.example",
+            "localhost.evil.example",
+            "127.0.0.1.nip.io",
+            "127.0.0.2",
+            "[::2]",
+            "localhost:x",
+            "localhost:",
+            "",
+        ] {
+            assert!(!is_loopback_host(bad.as_bytes()), "{bad}");
+        }
+        let mut r = HostRewriter::new("h".into());
+        let e = r
+            .feed(
+                b"GET / HTTP/1.1\r\nHost: rebound.example:8080\r\n\r\n",
+                &mut Vec::new(),
+            )
+            .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn a_chunk_size_that_would_overflow_is_refused() {
+        let mut r = HostRewriter::new("h".into());
+        let e = r
+            .feed(
+                b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\n",
+                &mut Vec::new(),
+            )
+            .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]

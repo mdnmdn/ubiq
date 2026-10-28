@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ubiq_proto::settings::{TunnelKind, TunnelSpec};
-use ubiq_proto::tunnel::{TUNNEL_LINK_IN_FLIGHT, TUNNEL_STREAM_WINDOW};
+use ubiq_proto::tunnel::TUNNEL_STREAM_WINDOW;
 use ubiq_tunnel::{AllowList, Mux, Recv, TunnelManager, serve};
 
 /// A connected socket pair, the duplex a carrier would hand over.
@@ -120,7 +120,7 @@ fn tcp_echoes_through_the_tunnel_past_many_windows() {
 }
 
 #[test]
-fn credit_holds_a_fast_sender_to_the_window_and_the_link_cap() {
+fn credit_holds_a_fast_sender_to_its_window() {
     let (window, drone) = link_pair(None);
     let incoming = drone.incoming().unwrap();
     // The drone accepts five streams and reads none of them yet.
@@ -147,14 +147,11 @@ fn credit_holds_a_fast_sender_to_the_window_and_the_link_cap() {
     let drone_streams = acceptor.join().unwrap();
     thread::sleep(Duration::from_millis(300));
     let stuck = sent.load(std::sync::atomic::Ordering::SeqCst);
-    // 5 × 64 KiB of windows, but the link holds 256 KiB at most.
-    assert!(
-        stuck <= TUNNEL_LINK_IN_FLIGHT,
-        "{stuck} bytes outran the link cap"
-    );
-    assert!(
-        stuck >= TUNNEL_STREAM_WINDOW as usize,
-        "only {stuck} bytes sent"
+    // Each stream fills its own window, and no more.
+    assert_eq!(
+        stuck,
+        5 * TUNNEL_STREAM_WINDOW as usize,
+        "the senders stopped at {stuck} bytes"
     );
 
     // Draining and acking releases every sender.
@@ -182,6 +179,61 @@ fn credit_holds_a_fast_sender_to_the_window_and_the_link_cap() {
     }
     let _streams: Vec<_> = senders.into_iter().map(|s| s.join().unwrap()).collect();
     assert_eq!(drained, 5 * 64 * 4096);
+}
+
+#[test]
+fn stalled_streams_never_block_another() {
+    let (window, drone) = link_pair(None);
+    let incoming = drone.incoming().unwrap();
+    // Eight streams whose consumer never reads — more windows than any link-wide cap would allow.
+    let acceptor = {
+        let incoming = incoming.clone();
+        thread::spawn(move || {
+            (0..8)
+                .map(|_| incoming.recv().unwrap().accept())
+                .collect::<Vec<_>>()
+        })
+    };
+    let stalled: Vec<_> = (0..8).map(|_| window.open("stalled", 1).unwrap()).collect();
+    let held = acceptor.join().unwrap();
+    let fillers: Vec<_> = stalled
+        .into_iter()
+        .map(|s| {
+            thread::spawn(move || {
+                // Fills the window, then blocks for good; the reset at the end frees it.
+                let _ = s.send(&vec![0u8; 2 * TUNNEL_STREAM_WINDOW as usize]);
+            })
+        })
+        .collect();
+    thread::sleep(Duration::from_millis(200));
+
+    // A ninth stream still moves a megabyte.
+    let acceptor = thread::spawn(move || incoming.recv().unwrap().accept());
+    let live = window.open("live", 1).unwrap();
+    let far = acceptor.join().unwrap();
+    let total = 1_000_000;
+    let reader = thread::spawn(move || {
+        let mut n = 0;
+        while n < total {
+            match far.recv() {
+                Recv::Data(b) => {
+                    n += b.len();
+                    far.ack(b.len());
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        far
+    });
+    let started = Instant::now();
+    live.send(&vec![9u8; total]).unwrap();
+    let _far = reader.join().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(10));
+
+    drop(held);
+    for f in fillers {
+        f.join().unwrap();
+    }
 }
 
 /// A server that records every byte of one connection and answers nothing.
@@ -219,6 +271,42 @@ GET /c HTTP/1.1\r\nUser-Agent: t\r\n\r\n";
 POST /b HTTP/1.1\r\nHost: api.example.com\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nHost: \r\n0\r\n\r\n\
 GET /c HTTP/1.1\r\nUser-Agent: t\r\nHost: api.example.com\r\n\r\n";
     assert_eq!(String::from_utf8_lossy(&got), String::from_utf8_lossy(want));
+}
+
+#[test]
+fn a_rebound_host_is_a_403_and_reaches_nothing() {
+    let (window, _drone) = served(None, AllowList::any());
+    let (target, recorded) = recording_server();
+    let spec = spec(TunnelKind::Http, target);
+    let manager = TunnelManager::start(std::slice::from_ref(&spec), Some(window));
+
+    let answer = round_trip(
+        spec.local_port,
+        b"GET /admin HTTP/1.1\r\nHost: rebound.example:8080\r\n\r\n",
+    );
+    let answer = String::from_utf8_lossy(&answer);
+    assert!(answer.starts_with("HTTP/1.1 403"), "{answer}");
+    assert!(answer.contains("only localhost"), "{answer}");
+    let got = recorded.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(got.is_empty(), "{}", String::from_utf8_lossy(&got));
+    assert!(
+        manager.status()[0]
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("only localhost")
+    );
+}
+
+#[test]
+fn a_stopped_manager_frees_its_ports_at_once() {
+    let spec = spec(TunnelKind::Tcp, free_port());
+    for _ in 0..5 {
+        let manager = TunnelManager::start(std::slice::from_ref(&spec), None);
+        assert!(manager.status()[0].listening, "{:?}", manager.status());
+        manager.stop();
+        drop(manager);
+    }
 }
 
 #[test]

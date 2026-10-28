@@ -3,7 +3,8 @@
 //! Listeners are bound once, at [`TunnelManager::start`], and survive the link: a connection
 //! accepted with no live mux under them is refused with a sentence — a `502` for the HTTP kind, a
 //! close for TCP — and recorded as the spec's last error, until [`TunnelManager::attach`] gives
-//! them a new one.
+//! them a new one. The HTTP kind answers `403` to a request whose `Host` is not the loopback — the
+//! DNS-rebinding guard in [`crate::http`].
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
@@ -61,6 +62,8 @@ struct Shared {
 pub struct TunnelManager {
     shared: Arc<Shared>,
     tunnels: Vec<Arc<Tunnel>>,
+    /// The accept loops, joined by [`Self::stop`] so the ports are free when it returns.
+    listeners: Mutex<Vec<thread::JoinHandle<()>>>,
 }
 
 impl TunnelManager {
@@ -73,6 +76,7 @@ impl TunnelManager {
             stop: AtomicBool::new(false),
         });
         let mut tunnels = Vec::new();
+        let mut listeners = Vec::new();
         for spec in specs.iter().filter(|s| s.enabled) {
             let tunnel = Arc::new(Tunnel {
                 spec: spec.clone(),
@@ -86,9 +90,12 @@ impl TunnelManager {
                     let spawned = thread::Builder::new()
                         .name(format!("ubiq-tunnel-listen-{}", spec.local_port))
                         .spawn(move || accept_loop(shared, tunnel, listener));
-                    if let Err(e) = spawned {
-                        tunnels.push(fail(spec, format!("could not start the listener: {e}")));
-                        continue;
+                    match spawned {
+                        Ok(handle) => listeners.push(handle),
+                        Err(e) => {
+                            tunnels.push(fail(spec, format!("could not start the listener: {e}")));
+                            continue;
+                        }
                     }
                 }
                 Err(e) => tunnel.counters.error(format!(
@@ -98,7 +105,11 @@ impl TunnelManager {
             }
             tunnels.push(tunnel);
         }
-        TunnelManager { shared, tunnels }
+        TunnelManager {
+            shared,
+            tunnels,
+            listeners: Mutex::new(listeners),
+        }
     }
 
     /// Put `mux` under every listener, closing the one it replaces.
@@ -141,10 +152,16 @@ impl TunnelManager {
             .collect()
     }
 
-    /// Stop listening and close the link. Connections in flight reset with it.
+    /// Stop listening and close the link. Connections in flight reset with it. Returns once every
+    /// listener is closed — within one [`ACCEPT_POLL`] — so a new manager can bind the same ports
+    /// straight away.
     pub fn stop(&self) {
         self.shared.stop.store(true, Ordering::Relaxed);
         self.detach();
+        let listeners = std::mem::take(&mut *self.listeners.lock());
+        for handle in listeners {
+            let _ = handle.join();
+        }
     }
 }
 

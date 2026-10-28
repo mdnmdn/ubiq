@@ -11,8 +11,8 @@
 //! [`crate::ids::TunnelStreamId`] and sends [`TunnelFrame::Open`]; the drone dials `host:port` on
 //! its side and answers `Opened` or `Refused`. Bytes then flow both ways as `Data`, each direction
 //! credit-limited: a receiver returns `Ack` once it has written the bytes to its socket, and a
-//! sender never has more than the stream's window — nor the channel more than
-//! [`TUNNEL_LINK_IN_FLIGHT`] — unacknowledged.
+//! sender never has more than the stream's window unacknowledged. There is no channel-wide cap:
+//! one would let streams whose consumer stopped reading starve every other stream.
 
 use std::io::{Read, Write};
 
@@ -32,9 +32,6 @@ pub const TUNNEL_CHUNK_MAX: usize = 16 * 1024;
 
 /// The default per-stream credit window, the `window` an `Open` offers.
 pub const TUNNEL_STREAM_WINDOW: u32 = 64 * 1024;
-
-/// The most unacknowledged bytes one tunnel channel holds across every stream.
-pub const TUNNEL_LINK_IN_FLIGHT: usize = 256 * 1024;
 
 /// Which half of a stream a [`TunnelFrame::Close`] ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
