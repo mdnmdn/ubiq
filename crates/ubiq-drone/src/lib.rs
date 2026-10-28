@@ -12,6 +12,8 @@
 //! - `carrier`: standard input and standard output wired into [`ubiq_host::carrier::pump`]
 //! - `search`: shelling out to `rg`, `ag` or `grep` for the search family — see its own doc for why
 //!   a drone never builds an index instead
+//! - `tools`: the remote-tool family (`D226`) — an agent's list, read, write, edit, glob, grep, info
+//!   and run, answered on a thread of its own
 //! - `held`: panes that outlive their link, served to whatever stream of links a transport yields
 //! - `socket`: the unix socket a **detached** drone is found again through, and the byte relay
 //!   that attaches to one
@@ -34,6 +36,7 @@ pub mod scrollback;
 pub mod search;
 pub mod socket;
 pub mod state;
+pub mod tools;
 
 /// What a **relay** drone advertises in its [`ubiq_proto::messages::Message::DroneHello`].
 ///
@@ -48,7 +51,7 @@ pub mod state;
 /// A set of strings rather than a bitfield, so this list can grow without a schema bump: a peer
 /// that has never heard of a name simply does not ask for it.
 pub fn capabilities() -> Vec<&'static str> {
-    let mut names = vec!["files"];
+    let mut names = vec!["files", ubiq_proto::carrier::CAP_TOOLS];
     if search::probe().is_some() {
         names.push("search");
     }

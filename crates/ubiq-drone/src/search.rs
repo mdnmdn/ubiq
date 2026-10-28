@@ -495,6 +495,54 @@ fn build_command(found: &Found, query: &Query, start: &Path) -> Command {
     command
 }
 
+impl Found {
+    /// The tool's plain `path:line:text` listing of `pattern` (a regex) under `start`, for the
+    /// remote-tool grep (`D226`) — a different shape from the streamed `--json` the search family
+    /// reads. Read back with [`parse_grep_line`].
+    pub fn grep_command(&self, pattern: &str, case_insensitive: bool, start: &Path) -> Command {
+        let mut command = Command::new(&self.program);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            command.creation_flags(0x0800_0000);
+        }
+        match self.tool {
+            Tool::Rg => {
+                command.args(["--no-heading", "--with-filename", "--line-number", "--color", "never"]);
+                if case_insensitive {
+                    command.arg("-i");
+                }
+            }
+            Tool::Ag => {
+                command.args(["--numbers", "--nocolor", "--nogroup"]);
+                if case_insensitive {
+                    command.arg("-i");
+                }
+            }
+            Tool::Grep => {
+                command.args(["-rnH", "-E", "--binary-files=without-match"]);
+                if case_insensitive {
+                    command.arg("-i");
+                }
+            }
+        }
+        // `ag` has no `-e`; its pattern is the first positional after `--`.
+        command.arg(if self.tool == Tool::Ag { "--" } else { "-e" });
+        command.arg(pattern);
+        if self.tool != Tool::Ag {
+            command.arg("--");
+        }
+        command.arg(start);
+        command
+    }
+}
+
+/// One `path:line:text` line from [`Found::grep_command`].
+pub fn parse_grep_line(line: &str) -> Option<(String, u64, String)> {
+    let hit = parse_text_line(line)?;
+    Some((hit.rel_path, hit.line as u64, hit.text))
+}
+
 /// One line of a tool's output, before it becomes a [`LineHit`].
 struct RawHit {
     rel_path: String,

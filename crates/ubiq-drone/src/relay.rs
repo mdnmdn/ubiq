@@ -33,6 +33,7 @@ use ubiq_proto::stats::HostStats;
 use crate::linger::Live;
 use crate::scrollback::Scrollback;
 use crate::search::{self, Cancel, Search};
+use crate::tools;
 
 /// One `--root`, and the id the interface already minted for it, if any.
 ///
@@ -664,6 +665,45 @@ impl Relay {
                     cancel.cancel();
                     tracing::info!(search = %search_id, project = %project_id, "search cancelled");
                 }
+            }
+
+            // ── the remote-tool family (D226) ────────────────────────
+            // Answered on a thread of its own: a `Run` lasts as long as its timeout, and the bus's
+            // thread is the one that answers every pane's input.
+            Message::RemoteToolCall {
+                call_id,
+                project_id,
+                root,
+                op,
+                ..
+            } => {
+                let roots: Vec<tools::Root> = self
+                    .records
+                    .iter()
+                    .map(|record| tools::Root {
+                        name: record.name.clone(),
+                        path: PathBuf::from(&record.path),
+                    })
+                    .collect();
+                let hostname = self
+                    .meta
+                    .lock()
+                    .ok()
+                    .and_then(|meta| meta.hostname.clone())
+                    .unwrap_or_default();
+                let reply_to = host.mailbox(To::Client(client));
+                std::thread::spawn(move || {
+                    let name = op.name();
+                    let result = tools::answer(&roots, root.as_deref(), &hostname, op);
+                    if let Err(error) = &result {
+                        tracing::info!(op = name, "remote tool refused: {error}");
+                    }
+                    reply_to.send(Message::RemoteToolResult {
+                        call_id,
+                        project_id,
+                        result,
+                    });
+                });
             }
 
             // What the window asks on every attach and every project open. A drone keeps no meter,
