@@ -62,6 +62,10 @@ pub const UBIQ_ASK: &str = "ubiq-ask";
 /// agent's own project folder. Not in a default set — a definition names it.
 pub const UBIQ_ARCHIFY: &str = "ubiq-archify";
 
+/// The slug of the browser server: drive the project's internal browser tabs in the window the
+/// agent belongs to — open, navigate, read, evaluate. Not in a default set — a definition names it.
+pub const UBIQ_BROWSER: &str = "ubiq-browser";
+
 /// The slug of the SQL server that only reads: every connection the user let agents use, run under
 /// the engine's read-only guard (`D202`). Not in a default set — a definition names it.
 pub const UBIQ_SQL_READ: &str = "ubiq-sql-read";
@@ -132,6 +136,15 @@ pub struct ServerSpec {
     pub description: &'static str,
     pub tools: &'static [ToolSpec],
 }
+
+/// The schema of a browser tool whose one argument is the optional tab.
+const BROWSER_TAB_ONLY: &str = r#"{
+    "type": "object",
+    "properties": {
+        "tab": {"type": "string", "description": "The tab id. Omit for the active browser tab."}
+    },
+    "additionalProperties": false
+}"#;
 
 /// The todo (sub-task) tools: written once and shared between `manage-ubiq-tasks` and `use-task`,
 /// which both route them to the same handlers in `tasks.rs`.
@@ -1545,6 +1558,111 @@ pub const SERVERS: &[ServerSpec] = &[
         ],
     },
     ServerSpec {
+        name: UBIQ_BROWSER,
+        title: "Browser",
+        description: "Drive the project's internal browser tabs in Ubiq, in the window the user is watching: open and navigate pages, go back and forward, read a page's text or HTML, run JavaScript in it, and wait for a load. `tab` is the id browser_list_tabs or browser_open gave; omit it for the active browser tab. Every call fails with 'no browser window' when no Ubiq window has this project open.",
+        tools: &[
+            ToolSpec {
+                name: "browser_list_tabs",
+                description: "The project's browser tabs: {tabs:[{tab, url, title, loading, active}]}.",
+                schema: r#"{"type": "object", "properties": {}, "additionalProperties": false}"#,
+            },
+            ToolSpec {
+                name: "browser_open",
+                description: "Open a URL: in the active browser tab, or in a new one when new_tab is true or there is none. Returns {tab, url, new_tab}. Returns once loading has started; call browser_wait_load to wait for it.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "The address to load."},
+                        "new_tab": {"type": "boolean", "default": false}
+                    },
+                    "required": ["url"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "browser_navigate",
+                description: "Load a URL in a browser tab. Returns {tab, url} once loading has started.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "The address to load."},
+                        "tab": {"type": "string", "description": "The tab id. Omit for the active browser tab."}
+                    },
+                    "required": ["url"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "browser_back",
+                description: "Go back one page in a browser tab. Returns {tab, url}.",
+                schema: BROWSER_TAB_ONLY,
+            },
+            ToolSpec {
+                name: "browser_forward",
+                description: "Go forward one page in a browser tab. Returns {tab, url}.",
+                schema: BROWSER_TAB_ONLY,
+            },
+            ToolSpec {
+                name: "browser_reload",
+                description: "Reload a browser tab. Returns {tab, url}.",
+                schema: BROWSER_TAB_ONLY,
+            },
+            ToolSpec {
+                name: "browser_stop",
+                description: "Stop a browser tab loading. Returns {tab, url}.",
+                schema: BROWSER_TAB_ONLY,
+            },
+            ToolSpec {
+                name: "browser_close",
+                description: "Close a browser tab. Returns {tab, closed}.",
+                schema: BROWSER_TAB_ONLY,
+            },
+            ToolSpec {
+                name: "browser_get_content",
+                description: "A browser tab's content: the rendered text (default) or the HTML. Returns {tab, url, title, format, content, truncated}.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "tab": {"type": "string", "description": "The tab id. Omit for the active browser tab."},
+                        "format": {"type": "string", "enum": ["text", "html"], "default": "text"}
+                    },
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "browser_eval",
+                description: "Run JavaScript in a browser tab's page and return its value as JSON: {tab, value}. A thrown exception is the tool's error.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "script": {"type": "string", "description": "The JavaScript to evaluate; its last expression's value is returned."},
+                        "tab": {"type": "string", "description": "The tab id. Omit for the active browser tab."}
+                    },
+                    "required": ["script"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "browser_info",
+                description: "A browser tab's state: {tab, url, title, loading, can_go_back, can_go_forward}.",
+                schema: BROWSER_TAB_ONLY,
+            },
+            ToolSpec {
+                name: "browser_wait_load",
+                description: "Wait until a browser tab has finished loading, then return its state as browser_info does plus waited_ms. Fails when timeout_ms passes first.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "tab": {"type": "string", "description": "The tab id. Omit for the active browser tab."},
+                        "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 120000, "default": 30000}
+                    },
+                    "additionalProperties": false
+                }"#,
+            },
+        ],
+    },
+    ServerSpec {
         name: UBIQ_ASK,
         title: "Ask the user",
         description: "Ask the person watching a structured question. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. The call returns instantly and cannot time out; the dialog is shown the moment your turn ends and their answer arrives as your next turn.",
@@ -1762,6 +1880,20 @@ mod tests {
         for set in [PLANNER_MCPS, WORKER_MCPS] {
             assert!(!set.contains(&UBIQ_SQL_READ) && !set.contains(&UBIQ_SQL_WRITE));
         }
+    }
+
+    #[test]
+    fn the_browser_server_is_in_no_default_set() {
+        for set in [
+            PLANNER_MCPS,
+            WORKER_MCPS,
+            DOC_MCPS,
+            LAUNCH_PLANNER_MCPS,
+            LAUNCH_WORKER_MCPS,
+        ] {
+            assert!(!set.contains(&UBIQ_BROWSER));
+        }
+        assert_eq!(server(UBIQ_BROWSER).unwrap().tools.len(), 12);
     }
 
     #[test]

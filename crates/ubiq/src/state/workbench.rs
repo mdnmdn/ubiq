@@ -459,6 +459,10 @@ pub enum MenuId {
     /// The editor top row's `⋯` (`D204`): "Open with ▸" and whatever the tab's viewer adds. Which
     /// tab, where, and which stage is `WorkbenchState::viewer_menu`.
     ViewerMore,
+    /// The browser tab's `⋯` menu: zoom. Which tab and where is `AppState::browser_more`.
+    BrowserMore,
+    /// The search-engine dropdown on the Browser settings page.
+    BrowserEngine,
 }
 
 /// The editor top row's `⋯`, while it is down.

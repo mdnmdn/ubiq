@@ -42,7 +42,8 @@ use ubiq_proto::bus::Voice;
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
 use super::{
-    ArchifyReach, AskReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach, WorkAccess,
+    ArchifyReach, AskReach, BrowserReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach,
+    WorkAccess,
 };
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
@@ -112,6 +113,7 @@ pub fn start(
     ask: Option<AskReach>,
     sql: Option<SqlReach>,
     archify: Option<ArchifyReach>,
+    browser: Option<BrowserReach>,
 ) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
@@ -138,6 +140,7 @@ pub fn start(
                 ask,
                 sql,
                 archify,
+                browser,
                 stop_thread,
             )
         })
@@ -170,6 +173,7 @@ fn serve(
     ask: Option<AskReach>,
     sql: Option<SqlReach>,
     archify: Option<ArchifyReach>,
+    browser: Option<BrowserReach>,
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::SeqCst) {
@@ -186,6 +190,7 @@ fn serve(
                 ask.as_ref(),
                 sql.as_ref(),
                 archify.as_ref(),
+                browser.as_ref(),
             ),
             Ok(None) => continue,
             Err(_) => break,
@@ -208,6 +213,7 @@ fn handle(
     ask: Option<&AskReach>,
     sql: Option<&SqlReach>,
     archify: Option<&ArchifyReach>,
+    browser: Option<&BrowserReach>,
 ) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
@@ -338,6 +344,46 @@ fn handle(
             });
         if let Err(error) = spawned {
             tracing::error!("a diagram call could not be served on a thread of its own: {error}");
+        }
+        return;
+    }
+
+    // A browser call waits on a window's reply, up to `BROWSER_TIMEOUT_SECS` (and a
+    // `browser_wait_load` for longer), so it is served on a thread of its own like the diagram
+    // calls, at most [`browser::MAX_CALLS`] at once; beyond that it is refused as busy, the SQL
+    // servers' rule (`D202`).
+    if spec.name == catalogue::UBIQ_BROWSER
+        && method == "tools/call"
+        && let Some(reach) = browser
+    {
+        let Some(slot) = reach.claim() else {
+            let busy = tool_error(&format!(
+                "busy: {} browser calls are already running; wait for one to finish and retry",
+                super::browser::MAX_CALLS
+            ));
+            let _ = request.respond(json_response(&envelope(&id, busy)));
+            return;
+        };
+        let reach = reach.clone();
+        let voice = voice.clone();
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let spawned = std::thread::Builder::new()
+            .name("ubiq-browser-call".to_string())
+            .spawn(move || {
+                let _slot = slot;
+                let result = super::browser::call(&name, &arguments, &facts, &voice, &reach);
+                let _ = request.respond(json_response(&envelope(&id, tool_result(result))));
+            });
+        if let Err(error) = spawned {
+            tracing::error!("a browser call could not be served on a thread of its own: {error}");
         }
         return;
     }
@@ -762,6 +808,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         (serving, hub, host)
@@ -783,6 +830,7 @@ mod tests {
             registry,
             host.voice(),
             Some(access),
+            None,
             None,
             None,
             None,
@@ -844,6 +892,7 @@ mod tests {
             host.voice(),
             None,
             Some(reach),
+            None,
             None,
             None,
             None,
@@ -1559,6 +1608,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         let _keep = (&hub, &host);
@@ -1675,6 +1725,7 @@ mod tests {
             host.voice(),
             None,
             Some(reach),
+            None,
             None,
             None,
             None,
@@ -1973,6 +2024,7 @@ mod tests {
             None,
             None,
             Some(reach),
+            None,
             None,
             None,
             None,
@@ -2308,6 +2360,7 @@ mod tests {
                 asks: Arc::clone(&asks),
                 armed: Arc::clone(&armed),
             }),
+            None,
             None,
             None,
         )

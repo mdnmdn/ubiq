@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: Every open question, known gap and deferred item across the project, in one register.
 read_when: you are planning the next piece of work, or you hit something unresolved and need somewhere to put it
-updated: 2026-10-26
+updated: 2026-10-28
 verified: 2026-10-09
 review_cycle: monthly
 ---
@@ -424,6 +424,12 @@ change what Ubiq does (here), or where a document lives (there)?
 | G452 | The SSH profile row's **Stop test** does not kill the `ssh` process. `AppState::stop_ssh_test()` (`app/settings.rs`) clears the busy mark and `land_ssh_check` drops the late answer, but the child runs until its own timeout, so a stalled host holds a process for that long. A stop followed by a new Test can also let the old answer land on the new check, since nothing tags a check with its generation. Closing it is keeping the child on the check and killing it on Stop, with a generation counter so a late answer cannot resolve a newer check | [`features/drone.md`](./features/drone.md) |
 | G453 | No shared kit primitive draws a Test / Stop test control with its verdict line. The SSH profile rows (`ui/settings.rs`, `ssh_profile_row()`) and the Check beside the Drones and connect-modal pickers each draw their own, and the Test controls in `features/workbench.md` (the knowledge-base source and the AI provider) and the RDP targets (Studio), the DB connection and the feedback tests are the same shape. Closing it is one `kit` primitive taking the run action, the busy state and the verdict, used by all of them | [`features/drone.md`](./features/drone.md), [`features/workbench.md`](./features/workbench.md), [`tech/ui-and-design.md`](./tech/ui-and-design.md) |
 | G454 | Reloading an ACP conversation in the same run replays it undated, so its messages lose the time they had shown: ACP updates carry no time, and a replay is never stamped with now. Closing it needs a time source the replay can read, or the window keeping each message's time across the reload | [`tech/transport-contract.md`](./tech/transport-contract.md) |
+| G455 | Browser tabs are not persisted across a restart. A `PanelKind::Browser` tab is not written by `dump()` and is not rebuilt, so the arrangement comes back without them and each tab's page, scroll and history are gone; only the project's address-field history survives, in `local/browser-history.json` | [`features/workbench.md`](./features/workbench.md) |
+| G456 | The browser does not track SPA navigation. A `history.pushState` or hash change moves the page without a load event, so the address field, the title and the history show the last full load until the next one | [`features/workbench.md`](./features/workbench.md) |
+| G457 | The browser cannot know whether Forward is possible. The webview exposes no history list, so the Forward button is always enabled and `Info` reports `can_go_forward` from what Ubiq saw rather than from the engine | [`features/workbench.md`](./features/workbench.md) |
+| G458 | The internal browser is untested on Windows, and a private profile's data directory there is under `%LOCALAPPDATA%`, outside the config root and the project's data directory, where nothing of Ubiq's own cleans it | [`features/workbench.md`](./features/workbench.md) |
+| G459 | Resetting a browser profile with tabs live clears the whole shared store, not that profile's: the platform webview keeps one store per process, so every open browser tab in the window loses its cookies and storage along with the project's | [`features/workbench.md`](./features/workbench.md) |
+| G460 | A remote-host project would send its browsing history to the remote host. `BrowserHistoryAdd` goes to whichever host owns the project, so the URLs a person visits in a browser tab are written to `local/browser-history.json` on that machine, not this one | [`tech/transport-contract.md`](./tech/transport-contract.md) |
 
 
 ## Related docs

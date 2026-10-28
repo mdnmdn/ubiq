@@ -160,6 +160,8 @@ impl AppState {
                 });
             }
         }
+        // Browser tabs are this window's: the webviews are native children of it.
+        self.close_project_browsers(&open.browser.tabs);
         if self.active_seen == Some(project) {
             self.active_seen = None;
         }
@@ -190,7 +192,17 @@ impl AppState {
     ) -> Option<HandedOffProject> {
         // Before the project leaves, so what it is carrying is what the user was last looking at.
         self.remember(project, cx);
-        let open = self.projects.remove(&project)?;
+        let mut open = self.projects.remove(&project)?;
+        // The webviews are this window's native children and cannot move: they close here, and
+        // the taking window rebuilds them at each tab's last address.
+        self.close_project_browsers(&open.browser.tabs);
+        for tab in &mut open.browser.tabs {
+            tab.input = None;
+            tab.subscription = None;
+            tab.loading = false;
+            tab.loading_since = None;
+            tab.pending_field = Some(tab.url.clone());
+        }
 
         let mut shown = Vec::new();
         for pane in &open.panes {
@@ -266,6 +278,7 @@ impl AppState {
             .map(|pane| (pane.id, pane.cols, pane.rows))
             .collect();
         self.projects.insert(project, open);
+        self.reopen_project_browsers(project, cx);
 
         for (pane_id, cols, rows) in panes {
             self.bus.note_pane(pane_id, host);
@@ -1848,6 +1861,7 @@ impl Render for AppState {
         self.attach_arrived_files(window, cx);
         self.attach_kb_docs(window, cx);
         self.build_db_widgets(window, cx);
+        self.settle_browser(window, cx);
         // Which document the annotation surface is pointed at follows the editor's active tab, so
         // it is settled before the buffer that document is read into.
         self.settle_annotation_document(cx);

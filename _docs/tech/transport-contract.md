@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, browser, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-10-28
-verified: 2026-10-26
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+verified: 2026-10-28
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/browser.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -898,6 +898,43 @@ every window, and both carry `project_id`, so a window that does not have the pr
 `ArchifyShow` asks a window to open, or focus, the diagram at `rel` in the diagram viewer.
 `ArchifyToolCall` is what the viewer's tab draws as a tool chip and a notice; `rel` is absent for a
 call that touched no diagram. The coordinator never receives either.
+
+## The browser family
+
+What the internal browser tab and the `ubiq-browser` MCP server say across the bus. Six variants,
+all project-scoped, none carrying a pane id; `BrowserHistory*` is the address field's history and
+`BrowserCommand`/`BrowserReply` is an agent's tool call carried out by a window. Records are in
+`crates/ubiq-proto/src/browser.rs`; the request id is `BrowserReqId`, minted host-side.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `BrowserHistoryGet` | UI → host | `project_id` | `BrowserHistory` to the asker only |
+| `BrowserHistoryAdd` | UI → host | `project_id`, `url`, `title` | `BrowserHistory` to every window |
+| `BrowserHistoryClear` | UI → host | `project_id` | `BrowserHistory`, empty, to every window |
+| `BrowserHistory` | host → UI | `project_id`, `entries` | — |
+| `BrowserCommand` | host → UI | `project_id`, `req_id`, `cmd` | `BrowserReply` |
+| `BrowserReply` | UI → host | `project_id`, `req_id`, `result` | — |
+
+**History is one row per URL**, most recent first, capped at `HISTORY_CAP` (1000) rows. An `Add` of a
+known URL bumps `visits`, refreshes a non-empty `title` and `last_visited`, and moves the row up; a
+blank URL is ignored and nothing is broadcast. It is persisted at `local/browser-history.json` by a
+worker thread (`crates/ubiq-host/src/browser.rs`, `crates/ubiq-host/src/store/browser_history.rs`).
+
+**A command goes to exactly one window, chosen by the host** (`D224`): the window that owns the
+calling agent's conversation or pane, else one that has the project open, else none, and the tool
+fails at once with `no browser window`. `cmd` is a `BrowserCmd` (`list_tabs`, `open`, `navigate`,
+`back`, `forward`, `reload`, `stop`, `close`, `get_content`, `eval`, `info`); `tab` is an opaque
+string the window mints and owns, and `None` means the project's active browser tab in that window.
+`Open` works in a window with no browser tab yet; every other command with no tab answers
+`Err("no browser tab")`.
+
+**`BrowserReply` carries `Result<String, String>`.** `Ok` is JSON text, handed to the agent as JSON
+when it parses; `Err` is a sentence shown as the tool's error. It echoes the command's `project_id`
+so a window attached to several hosts sends it back to the one that asked. The first reply for a
+`req_id` wins and a later one is dropped. The host waits `BROWSER_TIMEOUT_SECS` (30) and then fails
+the call with `the browser window did not answer within 30s`; a window that closes releases every
+command addressed to it. A navigation command replies once the navigation has *started*;
+`browser_wait_load` is host-side and polls `Info`. The server holds at most eight calls at once.
 
 ## The database family
 

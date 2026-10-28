@@ -5,9 +5,9 @@ kind: tech
 status: current
 summary: Every folder in the workspace, what belongs in it, what must never go in it, and the two crates' division of labour.
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
-updated: 2026-10-24
-verified: 2026-10-09
-code_anchors: [Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
+updated: 2026-10-28
+verified: 2026-10-28
+code_anchors: [crates/ubiq-proto/src/browser.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq/src/app/browser.rs, Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -338,6 +338,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-proto/src/log.rs` | The process-wide sink every subsystem writes to | Anything either half has to be handed |
 | `ubiq-proto/src/blocks.rs` | The mdast walk that splits a markdown document into annotatable blocks — shared logic rather than a message, because the host's index and the window's optimistic cache must split a document identically and neither half may depend on the other (`D163`) | A block id, a sidecar, or anything about what an annotation *says* |
 | `ubiq-proto/src/repos.rs` | A remote repository, a clone's request, its stages and its errors, and the one repository-URL parser both halves call | A token, a credential, or a `git2` type |
+| `ubiq-proto/src/browser.rs` | The browser records: `BrowserCmd`, `BrowserContentFormat`, `BrowserHistoryEntry` and the history and timeout constants | A webview type, or a reply's JSON shape beyond the command it answers |
 | `ubiq-proto/src/git.rs` | A project's repository as it crosses the bus: overview, working-tree map, errors | A `git2` type, a path on disk |
 | `ubiq-proto/src/drone/` | The generated manifest of cross-built drone binaries, the `uname -sm` → triple map, the local cache path and the hash verifier — here rather than in `ubiq-host` because `crates/ubiq` shells to `ssh` itself and cannot name that crate | A signature, a fetch, or a path on a remote machine |
 | `ubiq-host/src/coordinator.rs` | Spawn, supervise and reap harness processes; answer the bus | Rendering, layout, colour |
@@ -361,13 +362,15 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-host/src/work/` | A project's tasks as the host keeps them, and the sessions and agents it mocks over them | Where anything is drawn, or an invented reply from an agent |
 | `ubiq-host/src/watch/` | One `notify` watch per open project, debounced and coalesced, and the project-relative paths it reports | An absolute path on the wire, an opinion about what a reader should redraw |
 | `ubiq-host/src/agent.rs` | Agent-type definitions and the registry over them | Hard-coded harness knowledge that belongs in the library |
-| `ubiq-host/src/mcp/` | The MCP surface Ubiq exposes to the agents it hosts: one loopback listener, the built-in `test`, `project-info`, `manage-ubiq-tasks`, `use-task` and `ubiq-kb` servers, and the registry that says which agent is calling | Anything the hosted agent should not reach |
+| `ubiq-host/src/browser.rs` | The internal browser's host half: the history worker over `store/browser_history.rs` (`local/browser-history.json`), and the table an `ubiq-browser` command waits in until its window replies | A web view, or a choice of window — the coordinator addresses a command |
+| `ubiq-host/src/mcp/` | The MCP surface Ubiq exposes to the agents it hosts: one loopback listener, the built-in `test`, `project-info`, `manage-ubiq-tasks`, `use-task`, `ubiq-kb` and `ubiq-browser` servers, and the registry that says which agent is calling | Anything the hosted agent should not reach |
 | `ubiq/src/app/` | `AppState`: the panes, the focused pane, the dock and its panels, the workbench state, and window creation. `mod.rs` holds the struct, the free window functions and the key bindings; `boot.rs` the constructor; `shell.rs` chrome and the `Render` impl; `wire.rs` `receive()` and the pane calls; `panels.rs` the dock; and one file per screen — `explorer`, `editor`, `git`, `agents`, `graph`, `board`, `chat`, `sink`, `picker`, `projects`, `settings` | Process handles, PTY handles, disk |
 | `ubiq/src/app/hosts.rs` | `Bus`, the window's multiplexer over every host it is attached to; `HostRef`, the UI-local `HostId`, and the routing that resolves a message to one host | A `HostId` in a `Message`, or any knowledge that a host has of another host |
 | `ubiq/src/state/remote.rs` | The "Connect to a remote host" modal's state and steps, the `AttemptId` a stale dial result is checked against, and the pure `parse_connection_string` / `with_default_port` a test pins down with no socket | A socket, a thread, or any blocking call |
 | `ubiq/src/app/remote_connect.rs` | The client half of the remote-attach transport: dial, the `GET /attach` handshake, and the two pump threads that drive a dialled `TcpStream` through `bus::detached()` onto a `Client` the modal registers | A special case for any message family, or a GPUI type |
 | `ubiq/src/ui/remote_connect.rs` | The modal itself: its four steps drawn as the body and footer change | A socket call, or parsing of a connection string |
 | `ubiq/src/{state,app,ui}/db/` | DB mode, one folder per layer: the state on the open project, the handlers that are the only senders and receivers of the database family, and the explorer, table tab, SQL tab and connection form | A `ubiq_db::driver` name — the interface links the pure half only — or a decrypted password |
+| `ubiq/src/{state,app,ui}/browser.rs` | The internal browser, one file per layer: the tabs, history and address rules; the lifecycle and the API the MCP handler calls; the action bar over `ui/web_view.rs`'s native webview | A proto type outside the browser family, or a page served from `web_export` |
 | `ubiq/src/web_export/` | The on-demand local HTTP server that serves a project's own files read-only, for browsing in a web browser — its own project-root reads, its own `tiny_http` thread, no bus traffic | A proto message, a call into `ubiq-host` |
 | `ubiq/src/ui/` | One module per screen area: shell, titlebar, project menu, rail, explorer, editor, terminal, logs, status bar, empty page, settings overlay, `chat/`, `agents/`, `teams/`, `board/` | Anything that names the host |
 | `ubiq/src/ui/agents/` | The Agents screen: the sidebar of every agent the host reports, and one column per conversation — its tabs, its thread and its composer | Anything that ends an agent; a close that means more than benching one |

@@ -89,6 +89,12 @@ pub const PROJECT_INTEGRATIONS: SlotId = SlotId::new("ubiq.project.integrations"
 /// conversion of a former enum variant.
 pub const PROJECT_TASK_SYNC: SlotId = SlotId::new("ubiq.project.task-sync");
 
+/// The internal browser's application page: default search engine, common profile.
+pub const BROWSER_APP: SlotId = SlotId::new("ubiq.app.browser");
+
+/// The internal browser's project page: history, private profile.
+pub const PROJECT_BROWSER: SlotId = SlotId::new("ubiq.project.browser");
+
 // ── The rail container (`D184`) ─────────────────────────────────────
 
 /// The activity rail. One container; its groups are the two headings the rail draws.

@@ -193,6 +193,10 @@ pub enum PanelKind {
     /// One SQL editor tab, named by its session — `dbsql:<session id>`. A bottom-dock tab, several
     /// at once.
     DbSql(String),
+    /// One internal-browser tab, named by its key — `state/browser`'s `browser:<n>`. A centre tab,
+    /// several at once, in every rail mode. Never saved into a layout: a page is not something a
+    /// saved arrangement can put back.
+    Browser(String),
     /// One named task board (`T-360`), named by its slug. The default board is [`Self::Centre`] in
     /// Tasks mode, so this is only ever a *named* one. A centre tab beside it, never closable: a
     /// board is hidden or deleted from the project's settings, not from the strip.
@@ -256,6 +260,7 @@ impl PanelKind {
             | PanelKind::Kb(_)
             | PanelKind::DbTable(_)
             | PanelKind::DbSql(_)
+            | PanelKind::Browser(_)
             | PanelKind::Board(_)
             | PanelKind::MissionView(_) => PanelClass::Centre,
         }
@@ -279,6 +284,7 @@ impl PanelKind {
             | PanelKind::Kb(_)
             | PanelKind::DbTable(_)
             | PanelKind::DbSql(_)
+            | PanelKind::Browser(_)
             | PanelKind::Board(_)
             | PanelKind::MissionView(_) => Region::Centre,
             // Git panels default to left/right edges for IDE-like layout
@@ -339,6 +345,7 @@ impl PanelKind {
             PanelKind::DbExplorer => "ubiq.db.explorer",
             PanelKind::DbTable(_) => Self::DB_TABLE,
             PanelKind::DbSql(_) => Self::DB_SQL,
+            PanelKind::Browser(_) => "ubiq.browser",
             PanelKind::Board(_) => Self::BOARD,
             PanelKind::Task => "ubiq.task",
             PanelKind::AgentsExplorer => "ubiq.agents.explorer",
@@ -412,6 +419,14 @@ impl PanelKind {
     pub fn db_key(&self) -> Option<&str> {
         match self {
             PanelKind::DbTable(key) | PanelKind::DbSql(key) => Some(key.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The internal-browser tab this panel is, if it is one — its key.
+    pub fn browser_key(&self) -> Option<&str> {
+        match self {
+            PanelKind::Browser(key) => Some(key.as_str()),
             _ => None,
         }
     }
@@ -512,6 +527,9 @@ impl PanelKind {
             PanelKind::DbTable(_) | PanelKind::DbSql(_) => {
                 at.has_project && matches!(at.rail_mode, Some(RailMode::DB)) && at.file_open
             }
+            // A browser tab is drawn in every mode, while the project still holds it
+            // (`file_open` carries that, as for a database tab).
+            PanelKind::Browser(_) => at.has_project && at.file_open,
             // And again for the two screens that gained a side panel of their own: the board's
             // task and the agents list are their mode's furniture, and a project is what either
             // is about.
@@ -587,6 +605,7 @@ impl PanelKind {
                 | PanelKind::Kb(_)
                 | PanelKind::DbTable(_)
                 | PanelKind::DbSql(_)
+                | PanelKind::Browser(_)
                 | PanelKind::Logs
                 | PanelKind::Search
                 | PanelKind::Outline

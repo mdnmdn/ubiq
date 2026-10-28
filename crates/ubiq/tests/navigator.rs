@@ -212,8 +212,10 @@ fn a_repository_url_collapses_the_list_to_a_clone_row() {
     let project = ProjectId::generate();
     let found = ask("https://github.com/acme/router", project, &[], &[]);
 
-    assert_eq!(found.len(), 1);
+    // The clone leads; the same address is also offered as a page to open.
+    assert_eq!(found.len(), 2);
     assert_eq!(found[0].group, Group::Clone);
+    assert_eq!(found[1].group, Group::Browser);
     assert!(found[0].dest.is_none());
     assert_eq!(
         found[0].action,
@@ -253,5 +255,51 @@ fn a_query_is_offered_as_a_search_first() {
         ask("", project, &[], &[])
             .iter()
             .all(|row| row.group != Group::Search)
+    );
+}
+
+/// An address is offered as a page for the internal browser, ahead of the search; `browser` alone
+/// is the start page, and ordinary words are not an address.
+#[test]
+fn an_address_is_offered_to_the_internal_browser() {
+    let project = ProjectId::generate();
+
+    // A bare address that merely looks like one leaves Enter on the search.
+    let found = ask("example.com", project, &[], &[]);
+    assert_eq!(found[0].group, Group::Search);
+    assert_eq!(found[1].group, Group::Browser);
+    assert_eq!(
+        found[1].action,
+        Some(NavAction::OpenBrowser("example.com".to_string()))
+    );
+
+    let found = ask("https://example.com", project, &[], &[]);
+    assert_eq!(found[0].group, Group::Browser);
+
+    for plain in ["deploy.sh", "http_client.rs", "httpx", "http"] {
+        assert!(
+            ask(plain, project, &[], &[])
+                .iter()
+                .all(|row| row.group != Group::Browser),
+            "{plain}"
+        );
+    }
+
+    let found = ask("browser foo.com", project, &[], &[]);
+    assert_eq!(
+        found[0].action,
+        Some(NavAction::OpenBrowser("foo.com".to_string()))
+    );
+
+    let found = ask("browser", project, &[], &[]);
+    assert_eq!(
+        found[0].action,
+        Some(NavAction::OpenBrowser(String::new()))
+    );
+
+    assert!(
+        ask("router", project, &[], &[])
+            .iter()
+            .all(|row| row.group != Group::Browser)
     );
 }

@@ -384,3 +384,11 @@ ulid_id! {
     /// the **interface**, [`DbProbeId`]'s discipline: an answer nobody still waits for is dropped.
     DbExportId
 }
+
+ulid_id! {
+    /// One browser command, from the `BrowserCommand` an agent's `ubiq-browser` tool call sent to
+    /// the `BrowserReply` that ends it. Minted **host-side**, by the MCP listener that parks the
+    /// call — [`AskId`]'s discipline: a reply naming a command the host no longer holds (a second
+    /// reply, or one after the timeout) is discarded.
+    BrowserReqId
+}

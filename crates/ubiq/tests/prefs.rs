@@ -45,6 +45,8 @@ fn a_blob_survives_the_round_trip() {
         expanded: Vec::new(),
         hidden_modes: Vec::new(),
         opted_in_modes: Vec::new(),
+        browser_private: false,
+        browser_persist: true,
         selected: None,
         file_filter: "main".to_string(),
         content_font_size: Some(16.0),

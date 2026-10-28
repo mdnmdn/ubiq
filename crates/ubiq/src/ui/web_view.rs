@@ -62,13 +62,23 @@ mod platform {
         window: &mut Window,
         cx: &mut App,
     ) -> Result<(), String> {
+        open_with(key, wry::WebViewBuilder::new().with_url(url), window, cx)
+    }
+
+    /// [`open`] over a builder the caller already configured — the internal browser's, with its
+    /// handlers on.
+    pub(super) fn open_with(
+        key: &str,
+        builder: wry::WebViewBuilder<'_>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<(), String> {
         let id = window.window_handle().window_id();
         // Spelled out rather than called as a method: `Window` carries both gpui's own
         // `window_handle` and `raw-window-handle`'s, and the inherent one wins.
         let raw = raw_window_handle::HasWindowHandle::window_handle(window)
             .map_err(|err| format!("this window has no native handle: {err}"))?;
 
-        let builder = wry::WebViewBuilder::new().with_url(url);
         #[cfg(debug_assertions)]
         let builder = builder.with_devtools(true);
         let webview = builder
@@ -164,6 +174,392 @@ pub fn open(key: &str, url: &str, window: &mut Window, cx: &mut App) -> Result<(
     {
         let _ = (key, url, window, cx);
         Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
+/// What an internal-browser page reports. Pushed from the webview's handlers, which are `'static`
+/// and know nothing of the window, and drained on the UI thread by `AppState`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BrowserEvent {
+    Title(String),
+    LoadStarted(String),
+    LoadFinished(String),
+    Navigated(String),
+    /// A link the page wants somewhere else — `target=_blank`, `window.open`, ctrl/⌘-click.
+    NewTab(String),
+    /// A script run for a pending command finished: the token it was started under, and the
+    /// webview's JSON-encoded result.
+    Script { token: u64, raw: String },
+    /// A snapshot of the visible page, as PNG bytes; empty when it could not be taken.
+    Screenshot(Vec<u8>),
+}
+
+static EVENTS: std::sync::Mutex<Vec<(String, BrowserEvent)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn push(key: &str, event: BrowserEvent) {
+    if let Ok(mut events) = EVENTS.lock() {
+        events.push((key.to_string(), event));
+    }
+}
+
+/// What the pages of the tabs `mine` accepts have reported since the last call, oldest first.
+///
+/// The queue is process-wide but a window drains only its own tabs: another window's events stay
+/// queued for it. An event for a key with no live webview at all (a tab closed under a late
+/// callback) belongs to no one and is dropped.
+pub fn take_events(mine: impl Fn(&str) -> bool) -> Vec<(String, BrowserEvent)> {
+    let Ok(mut events) = EVENTS.lock() else {
+        return Vec::new();
+    };
+    let mut taken = Vec::new();
+    events.retain(|(key, event)| {
+        if mine(key) {
+            taken.push((key.clone(), event.clone()));
+            false
+        } else {
+            is_open(key)
+        }
+    });
+    taken
+}
+
+/// A newtab request is honoured only for a plain web address, and at most [`NEWTAB_BURST`] times a
+/// second per tab: any page script can post one, so neither the scheme nor the rate is the page's.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const NEWTAB_BURST: usize = 3;
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn newtab_allowed(
+    url: &str,
+    recent: &std::sync::Mutex<std::collections::VecDeque<std::time::Instant>>,
+) -> bool {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return false;
+    }
+    let Ok(mut recent) = recent.lock() else {
+        return false;
+    };
+    let now = std::time::Instant::now();
+    while recent
+        .front()
+        .is_some_and(|at| now.duration_since(*at) > std::time::Duration::from_secs(1))
+    {
+        recent.pop_front();
+    }
+    if recent.len() >= NEWTAB_BURST {
+        return false;
+    }
+    recent.push_back(now);
+    true
+}
+
+/// Catches a ctrl/⌘-click (or a middle click) on a link, cancels it, and hands the address to the
+/// host through the ipc handler: the page would otherwise open it in a window nobody asked for.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+const NEW_TAB_SCRIPT: &str = r#"
+(function () {
+  function hit(e) {
+    if (!e.isTrusted) return;
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.ipc.postMessage('newtab:' + a.href);
+  }
+  document.addEventListener('click', function (e) {
+    if (e.ctrlKey || e.metaKey) hit(e);
+  }, true);
+  document.addEventListener('auxclick', function (e) {
+    if (e.button === 1) hit(e);
+  }, true);
+})();
+"#;
+
+/// Open an internal-browser webview for `key` at `url`: a raw webview with handlers that report
+/// into [`take_events`]. Idempotent, like [`open`].
+pub fn open_browser(
+    key: &str,
+    url: &str,
+    profile: crate::state::browser::Profile,
+    persist: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        if platform::is_open(key) {
+            return Ok(());
+        }
+        let (k_title, k_load, k_nav, k_win, k_ipc) = (
+            key.to_string(),
+            key.to_string(),
+            key.to_string(),
+            key.to_string(),
+            key.to_string(),
+        );
+        let recent = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let recent_win = recent.clone();
+        let builder = profiled_builder(profile, persist)
+            .with_url(url)
+            .with_initialization_script(NEW_TAB_SCRIPT)
+            .with_document_title_changed_handler(move |title| {
+                push(&k_title, BrowserEvent::Title(title))
+            })
+            .with_on_page_load_handler(move |event, url| {
+                push(
+                    &k_load,
+                    match event {
+                        wry::PageLoadEvent::Started => BrowserEvent::LoadStarted(url),
+                        wry::PageLoadEvent::Finished => BrowserEvent::LoadFinished(url),
+                    },
+                )
+            })
+            .with_navigation_handler(move |url| {
+                push(&k_nav, BrowserEvent::Navigated(url));
+                true
+            })
+            .with_new_window_req_handler(move |url, _| {
+                if newtab_allowed(&url, &recent_win) {
+                    push(&k_win, BrowserEvent::NewTab(url));
+                }
+                wry::NewWindowResponse::Deny
+            })
+            .with_ipc_handler(move |request| {
+                if let Some(url) = request.body().strip_prefix("newtab:")
+                    && newtab_allowed(url, &recent)
+                {
+                    push(&k_ipc, BrowserEvent::NewTab(url.to_string()));
+                }
+            });
+        platform::open_with(key, builder, window, cx)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, url, profile, persist, window, cx);
+        Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
+/// A builder on `profile`'s cookie jar and storage. macOS keys a persistent data store by a
+/// 16-byte id (macOS 14 and later; older systems fall back to the shared store); Windows keeps a
+/// directory per profile.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn profiled_builder(
+    profile: crate::state::browser::Profile,
+    persist: bool,
+) -> wry::WebViewBuilder<'static> {
+    // Ephemeral: a non-persistent store, so nothing reaches disk and there is no profile to name.
+    if !persist {
+        return wry::WebViewBuilder::new().with_incognito(true);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use wry::WebViewBuilderExtDarwin as _;
+        wry::WebViewBuilder::new().with_data_store_identifier(profile.data_id())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Leaked once per profile: the context has to outlive the webview built over it, and a
+        // handful of profiles per process is all there ever is.
+        thread_local! {
+            static CONTEXTS: std::cell::RefCell<
+                std::collections::HashMap<crate::state::browser::Profile, *mut wry::WebContext>,
+            > = std::cell::RefCell::new(std::collections::HashMap::new());
+        }
+        let context = CONTEXTS.with(|contexts| {
+            *contexts.borrow_mut().entry(profile).or_insert_with(|| {
+                Box::into_raw(Box::new(wry::WebContext::new(Some(windows_profile_dir(profile)))))
+            })
+        });
+        // SAFETY: the context is leaked, so it outlives every webview, and it is only ever handed
+        // out on this one (UI) thread.
+        wry::WebViewBuilder::new_with_web_context(unsafe { &mut *context })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_profile_dir(profile: crate::state::browser::Profile) -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default())
+        .join("Ubiq")
+        .join("browser")
+        .join(profile.dir_name())
+}
+
+/// Page zoom for the webview behind `key`.
+pub fn zoom(key: &str, factor: f64, cx: &App) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let view = platform::view(key).ok_or("no browser behind this tab")?;
+        view.read(cx).raw().zoom(factor).map_err(|err| err.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, factor, cx);
+        Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
+/// Clear a profile's cookies, storage and cache. `live` is a webview built on it, when one is up:
+/// its store is in use, so it is cleared in place. With none, the store itself is removed.
+pub fn reset_profile(live: Option<&str>, profile: crate::state::browser::Profile, cx: &App) {
+    if let Some(key) = live {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        if let Some(view) = platform::view(key) {
+            if let Err(err) = view.read(cx).raw().clear_all_browsing_data() {
+                tracing::warn!("browser: could not clear the profile: {err}");
+            }
+        }
+        let _ = (key, cx);
+        return;
+    }
+    let _ = cx;
+    #[cfg(target_os = "macos")]
+    {
+        use wry::WebViewExtDarwin as _;
+        wry::WebView::remove_data_store(&profile.data_id(), |result| {
+            if let Err(err) = result {
+                tracing::debug!("browser: no data store to remove: {err}");
+            }
+        });
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_dir_all(windows_profile_dir(profile));
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = profile;
+}
+
+/// Run script in the page behind `key`.
+pub fn eval(key: &str, js: &str, cx: &App) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let view = platform::view(key).ok_or("no browser behind this tab")?;
+        view.read(cx)
+            .raw()
+            .evaluate_script(js)
+            .map_err(|err| err.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, js, cx);
+        Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
+/// [`eval`] with the script's result — a JSON-encoded string — handed to `callback`. The callback
+/// runs on the webview's own thread and has to be `Send`.
+pub fn eval_with_callback(
+    key: &str,
+    js: &str,
+    cx: &App,
+    callback: impl Fn(String) + Send + 'static,
+) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let view = platform::view(key).ok_or("no browser behind this tab")?;
+        view.read(cx)
+            .raw()
+            .evaluate_script_with_callback(js, callback)
+            .map_err(|err| err.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, js, cx, callback);
+        Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
+/// [`eval_with_callback`] whose result comes back through [`take_events`] as
+/// [`BrowserEvent::Script`] under `token` — the way to answer on the UI thread from a callback that
+/// runs on the webview's.
+pub fn eval_token(key: &str, js: &str, token: u64, cx: &App) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let owner = key.to_string();
+        eval_with_callback(key, js, cx, move |raw| {
+            push(&owner, BrowserEvent::Script { token, raw })
+        })
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, js, token, cx);
+        Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
+/// Whether [`screenshot`] can do anything on this platform.
+pub const SCREENSHOT: bool = cfg!(target_os = "macos");
+
+/// Snapshot the visible page; the PNG arrives as [`BrowserEvent::Screenshot`]. macOS only, through
+/// `WKWebView takeSnapshotWithConfiguration:completionHandler:`.
+pub fn screenshot(key: &str, cx: &App) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSImage;
+        use objc2_foundation::NSError;
+        use objc2_web_kit::WKSnapshotConfiguration;
+        use wry::WebViewExtMacOS as _;
+
+        let view = platform::view(key).ok_or("no browser behind this tab")?;
+        let webview = view.read(cx).raw().webview();
+        let owner = key.to_string();
+        let handler = block2::RcBlock::new(move |image: *mut NSImage, _: *mut NSError| {
+            let png = unsafe { image.as_ref() }
+                .and_then(|image| image.TIFFRepresentation())
+                .and_then(|tiff| {
+                    let img =
+                        image::load_from_memory_with_format(&tiff.to_vec(), image::ImageFormat::Tiff)
+                            .ok()?;
+                    let mut out = std::io::Cursor::new(Vec::new());
+                    img.write_to(&mut out, image::ImageFormat::Png).ok()?;
+                    Some(out.into_inner())
+                })
+                .unwrap_or_default();
+            push(&owner, BrowserEvent::Screenshot(png));
+        });
+        let mtm = objc2::MainThreadMarker::new().ok_or("not on the main thread")?;
+        let config = unsafe { WKSnapshotConfiguration::new(mtm) };
+        unsafe {
+            webview.takeSnapshotWithConfiguration_completionHandler(Some(&config), &handler)
+        };
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (key, cx);
+        Err("screenshots are not available on this platform".to_string())
+    }
+}
+
+/// Navigate the page behind `key`.
+pub fn load(key: &str, url: &str, cx: &App) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let view = platform::view(key).ok_or("no browser behind this tab")?;
+        view.read(cx)
+            .raw()
+            .load_url(url)
+            .map_err(|err| err.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, url, cx);
+        Err("an embedded browser is not available on this platform".to_string())
+    }
+}
+
+/// Where the page behind `key` is now.
+pub fn current_url(key: &str, cx: &App) -> Option<String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        platform::view(key)?.read(cx).raw().url().ok()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (key, cx);
+        None
     }
 }
 

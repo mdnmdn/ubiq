@@ -5,7 +5,7 @@ kind: tech
 status: current
 summary: One entry per structural decision — what was chosen, why, and what it costs — cited as `Dnn` across this library.
 read_when: you are about to argue with a rule, reverse a design choice, or make one a reasonable person might later reverse
-updated: 2026-10-25
+updated: 2026-10-28
 verified: 2026-10-08
 depends_on: [tech-architecture]
 review_cycle: quarterly
@@ -5534,6 +5534,26 @@ per process is what a person opening two windows expects.
 **Cost:** a flow cannot be authored without a rebuild, an id once recorded is never reconsidered
 (a rewritten flow needs a new id to be seen again), and a second window of the process never shows
 a launch flow its first window skipped.
+
+### D224 — A browser command goes to one window the host picks, and the browser is a raw webview
+
+An agent's `ubiq-browser` call is carried out by a window, because only a window holds a web view.
+The host addresses the command to exactly one: the window that owns the calling agent's conversation
+or pane, else one that has the project open, else the call fails with `no browser window`. The
+window answers with `BrowserReply`, or the host gives up after 30 seconds. The browser tab itself is
+a raw `wry` webview over a dock editor (`ui/web_view.rs`'s `open_browser`), not a `web_export`
+tenant: it loads arbitrary sites, so it has no loopback origin, no bridge and no CSP of ours, and it
+is reached by the one message family in `crates/ubiq-proto/src/browser.rs`. The server is in no
+default MCP set; an agent definition names it, as with `ubiq-archify`.
+
+**Why:** a broadcast would run `browser_navigate` in every window that has the project, and a
+window-agnostic host cannot know which webview the agent meant; the owning window is the one the
+person is watching. The web-panel machinery exists to make a tenant we ship safe and unaware of the
+outside, which is the opposite of a page the user typed.
+
+**Cost:** a project open in two windows gives the agent only the window the host chose, with no way
+for the agent to name another; browser tabs are not part of a saved arrangement; and the page is
+whatever the platform webview is, with none of the tenant's confinement.
 
 ## Related docs
 

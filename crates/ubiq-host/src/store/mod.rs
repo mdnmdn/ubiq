@@ -20,6 +20,8 @@
 //! [`project_dir`] is the only place that answers it: under the config root for a Ubiq-managed
 //! project, inside the project's own `.ubiq/` for a project-managed one.
 
+/// One project's browsing history — a concrete file, view state's durability.
+pub mod browser_history;
 pub mod file;
 pub mod harness;
 pub mod memory;

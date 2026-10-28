@@ -14,6 +14,7 @@ use crate::ask::{AskClosed, AskOutcome, AskQuestion};
 use crate::assist::{
     AiModelList, AiProviderDraft, AiProviderInfo, AssistLimits, AssistReason, SuggestSubject,
 };
+use crate::browser::{BrowserCmd, BrowserHistoryEntry};
 use crate::catalog::{
     CatalogMcp, RegistryMcpInfo, RemoteSkillInfo, SkillAdd, SkillInfo, SkillSourceInfo,
 };
@@ -37,7 +38,7 @@ use crate::db::{
 };
 use crate::help::HelpCatalog;
 use crate::ids::{
-    AiProviderId, AnnotationId, AskId, BlockId, CloneId, CommentId, ConnectId, ConnectionId, DbConnId,
+    AiProviderId, AnnotationId, AskId, BlockId, BrowserReqId, CloneId, CommentId, ConnectId, ConnectionId, DbConnId,
     DbExportId, DbProbeId, DbQueryId, DbSessionId, KbSourceId, NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
     SshProfileId, StepId, SuggestId, TaskId, TaskSrcQueryId, ToolId,
 };
@@ -2086,6 +2087,53 @@ pub enum Message {
         ok: bool,
     },
 
+    // ── Browser family: UI → host ───────────────────────────────────
+    // The internal browser. Project-scoped like the knowledge-base family: every variant carries
+    // `project_id` and none a pane — a browser tab is an editor tab, named by the opaque `tab`
+    // string the window hands out, never a pseudo-terminal.
+    /// Send this project's history to the asker, as [`Message::BrowserHistory`].
+    BrowserHistoryGet {
+        project_id: ProjectId,
+    },
+    /// A page finished loading: record the visit. Answered with [`Message::BrowserHistory`] to
+    /// every window.
+    BrowserHistoryAdd {
+        project_id: ProjectId,
+        url: String,
+        title: String,
+    },
+    /// Forget this project's history. Answered with an empty [`Message::BrowserHistory`] to every
+    /// window.
+    BrowserHistoryClear {
+        project_id: ProjectId,
+    },
+    /// The window's answer to a [`Message::BrowserCommand`]: the command's JSON result, or a
+    /// sentence the agent reads as the tool's error. The first reply for a `req_id` wins; any
+    /// other is dropped. `project_id` is the command's own, echoed so a window attached to several
+    /// hosts routes it back to the one that asked.
+    BrowserReply {
+        project_id: ProjectId,
+        req_id: BrowserReqId,
+        result: Result<String, String>,
+    },
+
+    // ── Browser family: host → UI ───────────────────────────────────
+    /// One project's history, most recent first, at most [`crate::browser::HISTORY_CAP`] rows.
+    /// To the asker for a [`Message::BrowserHistoryGet`], to every window after any change.
+    BrowserHistory {
+        project_id: ProjectId,
+        entries: Vec<BrowserHistoryEntry>,
+    },
+    /// An agent's `ubiq-browser` tool call, for one window to carry out: the window owning the
+    /// calling agent's conversation or pane, else one window that has the project open. Answered
+    /// with exactly one [`Message::BrowserReply`] naming the same `req_id`, within
+    /// [`crate::browser::BROWSER_TIMEOUT_SECS`].
+    BrowserCommand {
+        project_id: ProjectId,
+        req_id: BrowserReqId,
+        cmd: BrowserCmd,
+    },
+
     // ── Database family: UI → host ──────────────────────────────────
     // A project's saved connections and what is behind them. Every variant carries `project_id` —
     // the knowledge-base family's discipline — and none carries a pane: the objects are named by
@@ -3726,6 +3774,12 @@ impl Message {
             | Message::KbPath { project_id, .. }
             | Message::ArchifyShow { project_id, .. }
             | Message::ArchifyToolCall { project_id, .. }
+            | Message::BrowserHistoryGet { project_id }
+            | Message::BrowserHistoryAdd { project_id, .. }
+            | Message::BrowserHistoryClear { project_id }
+            | Message::BrowserReply { project_id, .. }
+            | Message::BrowserHistory { project_id, .. }
+            | Message::BrowserCommand { project_id, .. }
             | Message::DbConnections { project_id, .. }
             | Message::SaveDbConnection { project_id, .. }
             | Message::DeleteDbConnection { project_id, .. }

@@ -301,6 +301,16 @@ variant towards the interface carries a decrypted password** (`SecretEdit`, `Pas
 one towards the host carries it in a `Secret`. `DbQuery` answers once per statement; `DbCancel`
 answers nothing and the running reply ends `Cancelled`.
 
+### 17. Browser — the internal browser tab and `ubiq-browser`
+
+`BrowserHistoryGet`, `BrowserHistoryAdd`, `BrowserHistoryClear`, `BrowserHistory` (the address
+field's history, one row per URL, 1000 at most) and `BrowserCommand`/`BrowserReply` (an agent's
+tool call carried out by a window). **Every variant names a project and none names a pane.** The
+records are `ubiq-proto/src/browser.rs`'s; the id is `BrowserReqId`, minted host-side. **A command
+goes to exactly one window, chosen by the host** (the calling agent's, else one with the project
+open, else the call fails) and is answered once within 30 seconds — the opposite of the archify
+broadcast. `BrowserReply` echoes `project_id` so a multi-host window routes it back to the asker.
+
 ## The records
 
 Thirty-five records travel inside payloads; the transport contract lists every field. The
@@ -333,6 +343,7 @@ Fifteen kinds, each a `#[serde(transparent)]` newtype over a `Ulid`, all minted 
 | `ProjectId` | host | Stable across rename, recolour and a move on disk |
 | `SearchId`, `ConnectId`, `CloneId`, `RepoQueryId`, `SuggestId` | interface | Stale-answer discipline: a reply naming an id nobody holds is discarded |
 | `DbSessionId`, `DbQueryId`, `DbProbeId` | interface | One per table or SQL tab, per run (also what Stop cancels by), per Test — same discipline |
+| `BrowserReqId` | host | One per `ubiq-browser` call; the first reply naming it wins |
 | `DbConnId` | host | Minted on the first save; stable across a rename |
 | `ConnectionId`, `OauthAppId`, `AiProviderId` | host | Exist only once something is written — an abandoned flow leaves no id |
 

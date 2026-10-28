@@ -431,6 +431,14 @@ pub struct ViewPrefs {
     /// `OptIn`. `#[serde(default)]` like every field added after the first release.
     #[serde(default)]
     pub opted_in_modes: Vec<RailMode>,
+    /// Whether this project's internal-browser tabs keep their own cookies and storage rather than
+    /// the Ubiq-wide profile's. `default` (off) like every field added after the first release.
+    #[serde(default)]
+    pub browser_private: bool,
+    /// Whether that private profile is kept on disk; off, its tabs are ephemeral. Read only while
+    /// `browser_private` is on.
+    #[serde(default = "crate::state::settings::default_true")]
+    pub browser_persist: bool,
     /// The places written down in this project. Each destination is stored as its `ubiq://` text,
     /// and one that no longer parses is dropped rather than costing the blob — see
     /// [`crate::state::nav::kept_bookmarks`].
@@ -529,6 +537,8 @@ impl Default for ViewPrefs {
             editor_wrap: None,
             hidden_modes: Vec::new(),
             opted_in_modes: Vec::new(),
+            browser_private: false,
+            browser_persist: true,
             bookmarks: Vec::new(),
             recents: Vec::new(),
             tool_favorites: Vec::new(),

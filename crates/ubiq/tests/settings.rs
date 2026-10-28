@@ -34,6 +34,8 @@ use ubiq_proto::settings::{HOST_SETTINGS_SCHEMA, HostSettings, SettingsLayer};
 fn a_blob_survives_the_round_trip() {
     let settings = UiSettings {
         schema: settings::SCHEMA,
+        search_engine: ubiq::state::browser::SearchEngine::default(),
+        browser_persist: true,
         explorer_preview: false,
         explorer_hidden: true,
         capture_enabled: false,

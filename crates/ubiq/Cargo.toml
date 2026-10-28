@@ -233,7 +233,16 @@ objc2-app-kit = { version = "0.3", features = [
     "NSPasteboard",
     "NSResponder",
 ] }
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSString", "NSURL"] }
+# The browser tab's "Copy screenshot": `WKWebView takeSnapshotWithConfiguration:` hands back an
+# `NSImage` through a block. Both are already in the graph behind `lb-wry`; pinned to the versions
+# it resolves so these are the same types as `WryWebView`'s `WKWebView`.
+objc2-web-kit = { version = "=0.3.2", default-features = false, features = [
+    "WKWebView",
+    "WKSnapshotConfiguration",
+    "block2",
+] }
+block2 = "=0.6.2"
 # The frame type behind gpui's `ScreenCaptureFrame` on macOS is an
 # `objc2_core_foundation::CFRetained<objc2_core_video::CVImageBuffer>`, and this is what reads
 # its pixels. Already in the graph behind gpui — named here because `app/capture.rs` decodes a

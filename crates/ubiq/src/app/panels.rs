@@ -933,6 +933,10 @@ impl AppState {
         for (kind, panel) in &self.panels {
             let key = kind.tab_key().or_else(|| kind.kb_key());
             let db_tab = kind.db_key();
+            let browser_open = kind.browser_key().is_some_and(|key| {
+                self.open_project(cx)
+                    .is_some_and(|open| open.browser.tab(key).is_some())
+            });
             let board_enabled = kind.board_key().is_some_and(|id| {
                 self.open_project(cx).is_some_and(|open| {
                     open.board.boards.tabs().iter().any(|b| b.id.as_str() == id)
@@ -946,6 +950,7 @@ impl AppState {
                 file_open: match db_tab {
                     Some(key) => db.is_some_and(|db| db.holds_tab(key)),
                     None if kind.board_key().is_some() => board_enabled,
+                    None if kind.browser_key().is_some() => browser_open,
                     None => key.is_some_and(|key| files.contains_key(key)),
                 },
                 any_file_open: match rail_mode {

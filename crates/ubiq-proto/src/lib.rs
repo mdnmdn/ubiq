@@ -14,6 +14,8 @@
 //! - `blocks`: splitting a markdown document into the blocks an annotation anchors to — shared
 //!   logic rather than a message, because the host's index and the window's optimistic cache have
 //!   to split a document identically and neither half may depend on the other
+//! - `browser`: the internal browser — a project's browsing history, and the commands an agent
+//!   drives a browser tab with
 //! - `catalog`: the skills and MCP servers a user keeps in a catalog, and the sources to find more
 //! - `connectors`: an authenticated identity at an external service, and the providers there are
 //! - `db`: a project's databases — the model re-exported from `ubiq-db`, and the records the
@@ -53,6 +55,7 @@ pub mod acp;
 pub mod ask;
 pub mod assist;
 pub mod blocks;
+pub mod browser;
 pub mod bus;
 pub mod carrier;
 pub mod catalog;

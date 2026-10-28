@@ -1778,7 +1778,7 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         // A displayed SQL or table tab is the one ⌘W means, ahead of a file tab behind it.
-        if self.close_active_db_tab(cx) {
+        if self.close_active_db_tab(cx) || self.close_active_browser_tab(cx) {
             return;
         }
         let Some(project) = self.project(cx) else {

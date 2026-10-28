@@ -42,6 +42,10 @@
 //!   through [`crate::db::agent::AgentDb`] and answering in TOON — each call on a thread of its own,
 //!   at most eight at once, like the other threaded calls (`D202`)
 //!
+//! - `browser`: the `ubiq-browser` server, driving the project's internal browser tabs: each call
+//!   says [`ubiq_proto::messages::Message::BrowserCommand`], parks on [`crate::browser::Commands`]
+//!   on a thread of its own, and returns what the window replied — or a timeout
+//!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
 //! [`ubiq_proto::messages::Message::RaiseNotification`]; a task a tool created, changed or deleted
@@ -50,6 +54,7 @@
 
 mod archify;
 mod ask;
+mod browser;
 pub mod catalogue;
 mod help;
 mod kb;
@@ -163,6 +168,21 @@ pub struct HelpReach {
 #[derive(Clone)]
 pub struct ArchifyReach {
     pub everyone: Mailbox,
+}
+
+/// How the browser tools reach a window: the table a call waits in until the window's
+/// [`ubiq_proto::messages::Message::BrowserReply`] arrives. The command itself goes out through
+/// the listener's [`ubiq_proto::bus::Voice`], and the coordinator addresses it — the tool knows
+/// nothing about clients. `Arc` for [`AskReach`]'s reason: the coordinator releases into the same
+/// table the call thread waits in.
+///
+/// Every clone shares one count of calls in flight, capped at [`browser::MAX_CALLS`] — the SQL
+/// servers' discipline (`D202`): each call holds a thread for up to the timeout, so the next one
+/// past the cap is refused as busy rather than queued.
+#[derive(Clone)]
+pub struct BrowserReach {
+    pub commands: Arc<crate::browser::Commands>,
+    inflight: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// How the ask tools reach the user: the table a parked call waits in, and the table a registered

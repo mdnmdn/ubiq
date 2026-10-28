@@ -14,6 +14,7 @@ pub mod agents;
 pub mod archify;
 pub mod ask;
 pub mod board;
+pub mod browser;
 pub mod catalog;
 pub mod chat;
 pub mod clone;

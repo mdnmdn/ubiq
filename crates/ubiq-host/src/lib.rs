@@ -48,6 +48,8 @@
 //! - `conversation_record`: a conversation's launch recipe on disk, so a marked one outlives the
 //!   process (behind `harness`)
 //! - `watch`: what changed on disk in an open project, said without being asked
+//! - `browser`: the internal browser's host half — the per-project history worker, and the table
+//!   an agent's `ubiq-browser` command waits in until a window replies
 //! - `mcp`: the MCP surface Ubiq exposes to the agents it hosts — one loopback listener, the
 //!   built-in servers behind it, and the registry that says which agent is calling (behind
 //!   `harness`)
@@ -90,6 +92,7 @@ pub mod ask;
 #[cfg(feature = "harness")]
 pub mod assist;
 pub mod atomic;
+pub mod browser;
 pub mod carrier;
 #[cfg(feature = "harness")]
 pub mod catalog;

@@ -496,6 +496,9 @@ impl AppState {
             match action {
                 NavAction::Clone(url) => self.open_clone(Some(url), window, cx),
                 NavAction::Search(term) => self.search_for(term, window, cx),
+                NavAction::OpenBrowser(url) => {
+                    self.open_browser(&url, true, cx);
+                }
             }
             return;
         }

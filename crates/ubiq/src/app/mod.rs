@@ -346,6 +346,8 @@ pub struct OpenProject {
     /// The project's databases: its saved connections, the structure tree, and the table and SQL
     /// tabs open over them. See [`crate::state::db`].
     pub db: crate::state::db::DbState,
+    /// The project's internal-browser tabs and the pages they have visited.
+    pub browser: crate::state::browser::BrowserState,
     /// The host's work for this project, as this window last heard it. Empty rather than absent
     /// until the `ListWork` is answered, so a project whose work has never arrived draws as empty
     /// rather than as a project with no work.
@@ -520,6 +522,7 @@ impl OpenProject {
             editor: EditorPaneState::empty(),
             kb: KbState::default(),
             db: crate::state::db::DbState::default(),
+            browser: crate::state::browser::BrowserState::default(),
             work: WorkProjection::empty(),
             agents: AgentsView::default(),
             conversations: HashMap::new(),
@@ -868,6 +871,16 @@ pub struct AppState {
     /// siblings — flat and single-select against a forest with a picked set — and either may be
     /// raised without the other.
     pub navigator: Option<NavigatorState>,
+    /// The internal browser's address dropdown, while one is down: which tab's, and the row under
+    /// the cursor. One at a time, and window-level because the sweep that hides child webviews
+    /// reads it without a project in hand.
+    pub browser_dropdown: Option<browser::Dropdown>,
+    /// Whether this window's browser-event drain loop is running.
+    browser_polling: bool,
+    /// Browser commands waiting on a script's answer, by the token the script was started under.
+    browser_pending: HashMap<u64, browser::PendingReply>,
+    /// The browser tab's open `⋯` menu: which tab, and where it was clicked.
+    pub browser_more: Option<(String, (f32, f32))>,
 
     /// Whether this window should take a project from the first catalogue that arrives. True only
     /// for the window the binary opened.
@@ -1419,6 +1432,7 @@ mod agents;
 mod ask;
 mod board;
 mod boot;
+pub mod browser;
 mod capture;
 mod catalog;
 mod chat;
@@ -1720,6 +1734,7 @@ pub fn install_key_bindings(cx: &mut App) {
     // says why.
     cx.bind_keys(crate::ui::file_picker::key_bindings());
     cx.bind_keys(crate::ui::navigator::key_bindings());
+    cx.bind_keys(crate::ui::browser::key_bindings());
     cx.bind_keys(crate::ui::run_tool_menu::key_bindings());
     cx.bind_keys(crate::ui::explorer::key_bindings());
     cx.bind_keys(crate::ui::ask::key_bindings());

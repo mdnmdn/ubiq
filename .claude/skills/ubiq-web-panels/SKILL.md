@@ -25,6 +25,8 @@ opened, never fallen into.
               ◀─ ready ── the loader lifts ── Open{document,palette} ─▶ … ◀─ changed / save
 ```
 
+**The internal browser tab is not a tenant.** `PanelKind::Browser` (`ui/browser.rs`) calls `ui/web_view.rs`'s `open_browser` and bypasses `web_export` entirely — no loopback origin, no bridge, no chrome page, no CSP, no `EnsureWebBundle` — because it loads whatever the user types. Nothing here applies to it; `D224`.
+
 Three tenants exist: `demo` (static chrome, no vendor bytes), `excalidraw` (templated chrome, an
 npm package mirrored off jsDelivr) and `drawio` (static chrome framing a whole mirrored webapp in
 an iframe, off GitHub's tree API instead — jsDelivr will not list a package that large). The recipe

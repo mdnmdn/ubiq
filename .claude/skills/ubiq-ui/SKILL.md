@@ -62,7 +62,7 @@ message in `crates/ubiq-proto/src/messages.rs`. `just ui` enforces it.
 - **A side panel defaults to the dock (`PanelKind`, `state/dock.rs`).** Only a panel meaningful in
   exactly one rail mode stays out of it — brought inline by that mode's own render function instead
   of given a `PanelKind`, so it can never be dragged loose or left on screen after the mode
-  changes.
+  changes. `PanelKind::Browser` is the one editor tab that is a raw webview (`ui/browser.rs`); a webview is a native view over the window, so an overlay that must cover it goes through `ui::shell::overlaid`.
 - **A list row's verbs are `kit::row_action`, never text buttons.** `RowAction::{Test, StopTest,
   Edit, Rename, Clone, Delete}` fixes icon and tooltip; `.tip("Forget")` rewords a `Delete`,
   `.enabled(false)` greys one out. Order: Test/StopTest · Edit · Rename · Clone · Delete. A

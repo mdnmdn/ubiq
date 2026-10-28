@@ -14,6 +14,8 @@ pub mod all_projects;
 pub mod archify;
 pub mod ask;
 pub mod board;
+pub mod browser;
+pub mod browser_settings;
 pub mod catalog;
 pub mod chat;
 pub mod clone;

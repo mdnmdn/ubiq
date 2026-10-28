@@ -208,6 +208,13 @@ fn default_tab_close() -> TabClose {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UiSettings {
     pub schema: u32,
+    /// Where the internal browser's address field sends words that are not an address.
+    /// `default` like every field added after the first release: no schema bump.
+    #[serde(default)]
+    pub search_engine: crate::state::browser::SearchEngine,
+    /// Whether the common browser profile is kept on disk. Off, tabs on it are ephemeral.
+    #[serde(default = "default_true")]
+    pub browser_persist: bool,
     /// Single click and Enter open a temporary preview tab. Off, they open permanently.
     #[serde(default = "default_true")]
     pub explorer_preview: bool,
@@ -347,7 +354,7 @@ fn default_md_char_scale() -> f32 {
     1.0
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
@@ -355,6 +362,8 @@ impl Default for UiSettings {
     fn default() -> Self {
         Self {
             schema: SCHEMA,
+            search_engine: crate::state::browser::SearchEngine::default(),
+            browser_persist: true,
             explorer_preview: true,
             explorer_hidden: false,
             capture_enabled: true,

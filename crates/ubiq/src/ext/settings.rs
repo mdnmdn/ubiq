@@ -197,6 +197,8 @@ pub fn base_registry() -> Registry<SettingsSectionSpec> {
     // the way the demo above is and with nothing in this module or in `ui::sink::project` touched
     // to add it. That is what makes the container's claim testable rather than asserted.
     crate::ui::tasksrc::settings_section(&mut reg);
+    // The internal browser's two pages, registered the same way.
+    crate::ui::browser_settings::settings_sections(&mut reg);
     // Archify's "Diagrams" page, registered the same way.
     crate::ui::archify::settings::register(&mut reg);
     reg

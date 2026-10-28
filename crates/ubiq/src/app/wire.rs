@@ -597,6 +597,9 @@ impl AppState {
         let Some(message) = self.receive_notifications(host, message, cx) else {
             return;
         };
+        let Some(message) = self.receive_browser(message, cx) else {
+            return;
+        };
         let Some(message) = self.receive_web_assets(message, cx) else {
             return;
         };

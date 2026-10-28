@@ -7,7 +7,7 @@
 //! The chrome does not move. The titlebar, the rail and the status bar are the frame the dock is
 //! drawn inside, and `D18`'s window edge is theirs rather than the dock's.
 
-use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{App, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 
 use crate::app::{
     AppState, FocusFileFilter, ImageRedo, ImageUndo, ImportRemoteTasks, OpenHelp, PointAtSomething,
@@ -658,7 +658,7 @@ pub fn render(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -
         // Last child of the root, and it draws nothing: it prepaints after every panel and every
         // overlay above, which is the only moment at which the window knows which embedded
         // browsers were actually on screen this frame. See `crate::ui::web_view`.
-        .child(crate::ui::web_view::sweeper(overlaid(app)))
+        .child(crate::ui::web_view::sweeper(overlaid(app, cx)))
 }
 
 /// The question a terminal tab's Close asks before it ends the harness.
@@ -846,7 +846,7 @@ fn git_confirm(
 /// A child webview is a native view the platform stacks over the whole window, so it cannot be
 /// covered by a modal the way an element can — the window has to take it off screen instead. The
 /// list is the overlays above, and a new one belongs here as well as there.
-fn overlaid(app: &AppState) -> bool {
+fn overlaid(app: &AppState, cx: &App) -> bool {
     let workbench = &app.workbench;
     workbench.project_settings.is_some()
         || workbench.settings.open
@@ -872,4 +872,12 @@ fn overlaid(app: &AppState) -> bool {
         // The wizard's dialog and its callout alike: a child webview would sit over either.
         || workbench.onboarding.is_some()
         || app.file_picker.is_some()
+        // Anchored lists are drawn by GPUI and a child webview would cover them.
+        || app.navigator.is_some()
+        // The address list only counts once it has rows: an empty one draws nothing, and focusing
+        // the field must not hide the page under it.
+        || app
+            .browser_dropdown
+            .as_ref()
+            .is_some_and(|drop| !app.browser_suggestions(&drop.key, cx).is_empty())
 }

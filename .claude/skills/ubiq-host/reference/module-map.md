@@ -113,6 +113,7 @@ Four traits in `store/mod.rs`, and two concrete types beside them:
 | `PreferenceStore` | Opaque. The host stores a string it never reads; a failed write is a log line |
 | `SettingsStore` | Two layers: `Ui` opaque, `Host` parsed (JSON on the wire, TOML on disk) — `D46` |
 | `FileHarnessCache` (`store/harness.rs`) | A *cache*, not a catalogue: missing, corrupt or too-new loads as empty and the next probe rewrites it |
+| `browser_history` (`store/browser_history.rs`) | A project's browsing history at `local/browser-history.json`, behind the worker in `browser.rs`: a file that will not parse is preserved aside, one from a newer Ubiq is read as empty and never overwritten |
 | `Usage` (`store/usage.rs`) | A database, because it accumulates and is unbounded — `D78` |
 
 `StoreError` has four shapes, and the distinctions are load-bearing: `Io`, `Parse { preserved_as }`
@@ -165,7 +166,8 @@ and agents stay its mocks.
 | `shell_integration.rs` | `handle(action)` on `cli_shortcut`'s shape, behind `desktop`; on Windows three HKCU `Software\Classes` verbs marked `UbiqTarget`, elsewhere `supported: false` (`D198`) | A stored flag — the registry is read back every time |
 | `links.rs` | `LinkScanner::new` / `feed`, `TAIL_CAP = 4 KiB`, `SEEN_CAP = 16` | A URL parser or a VT parser |
 | `watch/mod.rs` | `Job { project_id, root, excludes, index, reply_to }`, `Watcher`, `start(job)`, `QUIET = 150ms`, `BOUND = 64` | An absolute path on the wire, or an opinion about what a reader redraws |
-| `mcp/` | One loopback listener (`D102`), the catalogue (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`), the registry, and task tools that share `work::Handle` (`D120`); `mcp/sql/` is the `ubiq-sql-read`/`ubiq-sql-write` pair — `encode` (TOON), `blobs` (the `(agent, id)` cache) and the tools over `db::AgentDb`, each call on its own thread, at most 8 (`D202`) | A round trip through the coordinator |
+| `browser.rs` | The internal browser's host half: the history worker and `Commands`, the table an `ubiq-browser` call waits in (30s, `client_gone` releases a window's rows); the coordinator picks the window (`D224`) | A web view, or a window choice made anywhere but the coordinator |
+| `mcp/` | One loopback listener (`D102`), the catalogue (`test`, `project-info`, `manage-ubiq-tasks`, `use-task`, and `ubiq-browser` — `mcp/browser.rs`, twelve tools, in no default set, eight concurrent calls), the registry, and task tools that share `work::Handle` (`D120`); `mcp/sql/` is the `ubiq-sql-read`/`ubiq-sql-write` pair — `encode` (TOON), `blobs` (the `(agent, id)` cache) and the tools over `db::AgentDb`, each call on its own thread, at most 8 (`D202`) | A round trip through the coordinator |
 
 `shells::repair_path` is `D62`: a desktop-launched host asks the user's login shell for its `PATH`
 once, with `-lic`, because the environment a Finder launch inherits is exactly the one that cannot

@@ -364,6 +364,11 @@ struct Coordinator {
     /// a row, the conversation's pump raises it at the turn boundary, and this thread turns the
     /// answer into the next turn's prompt (`D175`, [`crate::armed`]).
     armed: Arc<crate::armed::Armed>,
+    /// Every `ubiq-browser` command an agent is waiting on a window for. `Arc` for [`Self::asks`]'s
+    /// reason: the listener's call thread waits in it, this thread addresses and releases.
+    browser_commands: Arc<crate::browser::Commands>,
+    /// The per-project browsing history, on a worker thread of its own.
+    browser_history: crate::browser::History,
     /// The launch recipe for every agent this window has asked for, kept for the agent's whole
     /// life rather than only until its first launch. Before a first [`Message::PromptAgent`] it is
     /// what P3's loader is waiting on; after `UnloadConversation` it is what
@@ -951,6 +956,11 @@ impl Coordinator {
         // The registered dialogs, shared the same way and with the same two halves — armed on the
         // listener's thread, raised on a pump's, answered on this one.
         let armed = Arc::new(crate::armed::Armed::new());
+        // The browser commands, shared the same way: the `ubiq-browser` call thread waits in the
+        // table, this one addresses each command and releases it on the window's reply.
+        let browser_commands = Arc::new(crate::browser::Commands::new());
+        let browser_history =
+            crate::browser::History::start(root.path.clone(), host.mailbox(To::Everyone));
         // The database family, built here so the SQL servers can be handed a handle on it: they run
         // on the listener's own threads and reach the same sessions and editors a window does
         // (`D202`). Settings are shared from here so a connection's SSH profile is read from them at
@@ -1001,6 +1011,7 @@ impl Coordinator {
             Some(crate::mcp::ArchifyReach {
                 everyone: host.mailbox(To::Everyone),
             }),
+            Some(crate::mcp::BrowserReach::new(browser_commands.clone())),
         )
         .inspect_err(|error| {
             tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
@@ -1237,6 +1248,8 @@ impl Coordinator {
             doc_backoff: HashMap::new(),
             asks,
             armed,
+            browser_commands,
+            browser_history,
             pending_conversations,
             logins: HashMap::new(),
             device_logins: HashMap::new(),
@@ -1458,6 +1471,8 @@ impl Coordinator {
         self.web_assets.client_gone(client);
         // Its database sessions close, and what they were running is stopped.
         self.db.client_gone(client);
+        // A browser command it was carrying out will never be answered.
+        self.browser_commands.client_gone(client);
     }
 
     /// A project has moved to another window: everything running in it is now that window's.
@@ -1576,6 +1591,27 @@ impl Coordinator {
                 .map(|(_, handle)| handle.clone()),
         );
         taken
+    }
+
+    /// The one window a browser command from `caller` (an agent's URL segment) goes to: the window
+    /// owning that conversation or pane, else one window that has the project open, else none.
+    /// The lowest client id among those watching, so the choice is stable between two calls.
+    fn browser_target(&self, caller: &str, project_id: ProjectId) -> Option<ClientId> {
+        if let Ok(agent_id) = caller.parse::<AgentId>()
+            && let Some((owner, _)) = self.conversation_owners.get(&agent_id)
+        {
+            return Some(*owner);
+        }
+        if let Ok(pane_id) = caller.parse::<PaneId>()
+            && let Some(owner) = self.owners.get(&pane_id)
+        {
+            return Some(*owner);
+        }
+        self.watchers
+            .keys()
+            .filter(|(_, watched)| *watched == project_id)
+            .map(|(owner, _)| *owner)
+            .min()
     }
 
     /// Whether this window is the one that owns the pane. A message about somebody else's pane is
@@ -3889,6 +3925,80 @@ impl Coordinator {
                     cancel.store(true, Ordering::Relaxed);
                     tracing::info!(search = %search_id, project = %project_id, "search cancelled");
                 }
+            }
+
+            // ── the browser family ──────────────────────────────────
+            // History is the worker's: this thread hands a job over and returns. A project the
+            // catalogue does not hold gets nothing — no directory is resolved, nothing written
+            // for an id a window made up or one that was just forgotten (`board_job`'s check).
+            Message::BrowserHistoryGet { project_id }
+            | Message::BrowserHistoryAdd { project_id, .. }
+            | Message::BrowserHistoryClear { project_id }
+                if self.projects.record(project_id).is_none() =>
+            {
+                tracing::debug!(project = %project_id, "browser history for no such project");
+            }
+            Message::BrowserHistoryGet { project_id } => {
+                self.browser_history.submit(crate::browser::Job::Get {
+                    project_id,
+                    asker: self.host.mailbox(To::Client(client)),
+                });
+            }
+            Message::BrowserHistoryAdd {
+                project_id,
+                url,
+                title,
+            } => {
+                self.browser_history.submit(crate::browser::Job::Add {
+                    project_id,
+                    url,
+                    title,
+                    at: chrono::Utc::now(),
+                });
+            }
+            Message::BrowserHistoryClear { project_id } => {
+                self.browser_history
+                    .submit(crate::browser::Job::Clear { project_id });
+            }
+            // Raised by a `ubiq-browser` tool call through the host's own voice, not by a window:
+            // this thread is the half that knows which window owns what, so it does the
+            // addressing — the `AskUser` arm's shape (`D138`). Exactly one window is asked.
+            Message::BrowserCommand {
+                project_id,
+                req_id,
+                cmd,
+            } => {
+                if !client.is_host_voice() {
+                    tracing::warn!("{client} sent a BrowserCommand, which only the host says");
+                    return;
+                }
+                let Some(caller) = self.browser_commands.caller(req_id) else {
+                    return;
+                };
+                match self.browser_target(&caller, project_id) {
+                    Some(owner) => {
+                        self.browser_commands.sent_to(req_id, owner);
+                        self.host.send(
+                            To::Client(owner),
+                            Message::BrowserCommand {
+                                project_id,
+                                req_id,
+                                cmd,
+                            },
+                        );
+                    }
+                    None => {
+                        self.browser_commands
+                            .finish(req_id, Err(crate::browser::NO_WINDOW.to_string()));
+                    }
+                }
+            }
+            Message::BrowserReply {
+                project_id: _,
+                req_id,
+                result,
+            } => {
+                self.browser_commands.reply(client, req_id, result);
             }
 
             // ── the database family ─────────────────────────────────

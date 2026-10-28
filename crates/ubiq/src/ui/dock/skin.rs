@@ -471,6 +471,14 @@ impl TabGroupRenderer for Skin {
                     );
                 }
 
+                if let Some(icon) = info.icon.clone() {
+                    tab = tab.child(
+                        Icon::new(icon)
+                            .with_size(Size::Size(theme::icon_sm()))
+                            .text_color(info.title_colour),
+                    );
+                }
+
                 tab = tab.child(info.label.clone());
 
                 if info.bookmarks > 0 {

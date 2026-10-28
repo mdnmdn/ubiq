@@ -31,6 +31,8 @@ pub enum Group {
     /// cursor opens on: Enter twice is a search, which is the shortest thing the field can mean.
     Search,
     Uri,
+    /// A web address, or the word `browser`, offered as a page to open in the internal browser.
+    Browser,
     /// A repository URL, offered as a clone rather than as a place. The only group whose row goes
     /// nowhere: it opens the clone modal instead — see [`NavAction`].
     Clone,
@@ -47,6 +49,7 @@ impl Group {
         match self {
             Group::Search => "Search",
             Group::Uri => "Link",
+            Group::Browser => "Browser",
             Group::Clone => "Clone",
             Group::Recent => "Recent",
             Group::Bookmark => "Bookmarks",
@@ -83,6 +86,8 @@ pub enum NavAction {
     Clone(String),
     /// Run the project content search for this term.
     Search(String),
+    /// Open this address in a new internal-browser tab. Empty is the start page.
+    OpenBrowser(String),
 }
 
 /// The navigator, while it is up: what was typed, and which row the keyboard is on.
@@ -111,6 +116,17 @@ pub fn rows(
     name_of: &dyn Fn(ProjectId) -> Option<String>,
 ) -> Vec<NavRow> {
     let query = query.trim();
+    let browser_row = crate::state::browser::nav_target(query).map(|target| NavRow {
+        group: Group::Browser,
+        label: "Open in internal browser".to_string(),
+        detail: match target.is_empty() {
+            true => "start page".to_string(),
+            false => target.clone(),
+        },
+        dest: None,
+        adrift: false,
+        action: Some(NavAction::OpenBrowser(target)),
+    });
 
     // A pasted link is an answer rather than a filter: it names one place, so the list collapses
     // to it.
@@ -139,7 +155,7 @@ pub fn rows(
     // A repository URL is likewise an answer rather than a filter: it names one repository, so
     // the list collapses to the one thing that can be done with it.
     if let Some(parsed) = parse_repo_url(query) {
-        return vec![NavRow {
+        let mut found = vec![NavRow {
             group: Group::Clone,
             label: format!("Clone {}/{}", parsed.owner, parsed.name),
             detail: parsed.host.clone(),
@@ -147,12 +163,23 @@ pub fn rows(
             adrift: false,
             action: Some(NavAction::Clone(query.to_string())),
         }];
+        // A repository is also a page: the clone stays first, the browser row beside it.
+        found.extend(browser_row);
+        return found;
     }
 
     let needle = query.to_lowercase();
     let mut out = Vec::new();
 
-    // Always first, and never filtered: it *is* what was typed.
+    // An explicit ask (a scheme, or the `browser` word) comes before the search; a bare string
+    // that merely looks like an address does not, or Enter would hijack ordinary searches.
+    let explicit = crate::state::browser::nav_explicit(query);
+    let mut browser_row = browser_row;
+    if explicit {
+        out.extend(browser_row.take());
+    }
+
+    // Always first (after an address), and never filtered: it *is* what was typed.
     if !query.is_empty() {
         out.push(NavRow {
             group: Group::Search,
@@ -163,6 +190,9 @@ pub fn rows(
             action: Some(NavAction::Search(query.to_string())),
         });
     }
+
+    // The speculative browser row goes after the search row, before the other groups.
+    out.extend(browser_row.take());
 
     keep(
         &mut out,

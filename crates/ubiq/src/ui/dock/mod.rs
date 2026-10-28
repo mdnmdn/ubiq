@@ -51,7 +51,7 @@ use crate::state::git::{CHANGES_WIDTH, SIDEBAR_WIDTH};
 use crate::state::settings::TabClose;
 use crate::theme;
 use crate::ui::{
-    agents, board, chat, db, editor, empty, explorer, git, help, kb, logs, mission, outline, rail,
+    agents, board, browser, chat, db, editor, empty, explorer, git, help, kb, logs, mission, outline, rail,
     search, terminal,
 };
 
@@ -335,6 +335,7 @@ impl WorkbenchPanel {
                         tooltip: None,
                         bookmarks: app.bookmark_count(key, cx),
                         pinned: file.pinned,
+                        icon: None,
                     }
                 }
                 // The tab of a file this window no longer holds. It is hidden rather than drawn,
@@ -394,6 +395,7 @@ impl WorkbenchPanel {
             // dirty dot and their running pulse are the panel packages' to say.
             PanelKind::DbTable(key) => db::table::tab(app, key, cx),
             PanelKind::DbSql(key) => db::sql::tab(app, key),
+            PanelKind::Browser(key) => browser::tab(app, key, cx),
             // One slot, two things in it: the tab says which, the way a file's tab says what it is
             // looking at.
             PanelKind::Task => TabInfo {
@@ -519,6 +521,8 @@ pub struct TabInfo {
     /// Protected from close. Drawn as a small glyph before the label; `false` for every kind that
     /// offers no pin at all.
     pub pinned: bool,
+    /// A glyph drawn before the label. `None` for every kind but the browser's.
+    pub icon: Option<gpui_component::IconName>,
 }
 
 impl Default for TabInfo {
@@ -533,6 +537,7 @@ impl Default for TabInfo {
             tooltip: None,
             bookmarks: 0,
             pinned: false,
+            icon: None,
         }
     }
 }
@@ -646,6 +651,7 @@ impl BasePanel for WorkbenchPanel {
             && kind.tab_key().is_none()
             && kind.kb_key().is_none()
             && kind.db_key().is_none()
+            && kind.browser_key().is_none()
             && kind.chat_id().is_none()
         {
             return;
@@ -688,6 +694,7 @@ impl BasePanel for WorkbenchPanel {
                 PanelKind::File(key) => app.closed_file_panel(key, cx),
                 PanelKind::Kb(key) => app.closed_kb_panel(key, cx),
                 PanelKind::DbTable(_) | PanelKind::DbSql(_) => app.closed_db_panel(&kind, cx),
+                PanelKind::Browser(_) => app.closed_browser_panel(&kind, cx),
                 PanelKind::Chat(id) => {
                     // The agent has to be read before the tab goes: `closed_chat_tab` takes the
                     // tab out of the project, and the attachment goes with it.
@@ -822,6 +829,7 @@ fn body(
         PanelKind::DbExplorer => db::explorer::render(app, cx),
         PanelKind::DbTable(key) => db::table::render(app, key, cx),
         PanelKind::DbSql(key) => db::sql::render(app, key, cx),
+        PanelKind::Browser(key) => browser::render(app, key, window, cx),
         PanelKind::Task => board::panel(app, window, cx),
         PanelKind::Board(_) => drop_target(centre(app, window, cx), cx),
         PanelKind::AgentsExplorer => agents::sidebar::render(app, cx).into_any_element(),
