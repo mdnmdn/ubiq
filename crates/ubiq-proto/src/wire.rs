@@ -114,7 +114,17 @@ pub fn decode(body: &[u8]) -> Result<Message, WireError> {
 
 /// Write one message as a length-prefixed frame: 4 bytes of big-endian length, then the body.
 pub fn write_frame<W: Write>(w: &mut W, message: &Message) -> Result<(), WireError> {
-    let body = encode(message)?;
+    write_value_frame(w, message)
+}
+
+/// [`write_frame`] for any serialisable value — the same prefix and the same `to_vec_named` body,
+/// for a stream that carries something other than [`Message`] (the tunnel channel's
+/// [`crate::tunnel::TunnelFrame`]).
+pub fn write_value_frame<W: Write, T: serde::Serialize>(
+    w: &mut W,
+    value: &T,
+) -> Result<(), WireError> {
+    let body = rmp_serde::to_vec_named(value).map_err(WireError::Encode)?;
     let len = u32::try_from(body.len()).map_err(|_| WireError::FrameTooLarge(u32::MAX))?;
     w.write_all(&len.to_be_bytes())?;
     w.write_all(&body)?;
@@ -129,6 +139,13 @@ pub fn write_frame<W: Write>(w: &mut W, message: &Message) -> Result<(), WireErr
 /// cleanly between frames, not a failure; a partial prefix or a partial body is a real error,
 /// because the stream was already inside a frame.
 pub fn read_frame<R: Read>(r: &mut R) -> Result<Message, WireError> {
+    read_value_frame(r)
+}
+
+/// [`read_frame`] for any deserialisable value, with the same ceiling and the same clean-EOF rule.
+pub fn read_value_frame<R: Read, T: serde::de::DeserializeOwned>(
+    r: &mut R,
+) -> Result<T, WireError> {
     let mut len_buf = [0u8; LEN_PREFIX];
     read_exact_or_eof(r, &mut len_buf)??;
     let len = u32::from_be_bytes(len_buf);
@@ -137,7 +154,7 @@ pub fn read_frame<R: Read>(r: &mut R) -> Result<Message, WireError> {
     }
     let mut body = vec![0u8; len as usize];
     r.read_exact(&mut body)?;
-    decode(&body)
+    rmp_serde::from_slice(&body).map_err(WireError::Decode)
 }
 
 /// Read exactly `buf.len()` bytes, distinguishing "nothing at all was read" (clean end of stream)
@@ -277,6 +294,31 @@ mod tests {
             },
             Message::ProjectAdded {
                 project: snapshot(),
+            },
+            Message::RemoteToolCall {
+                call_id: crate::ids::RemoteCallId::generate(),
+                project_id: ProjectId::generate(),
+                remote: Some("r1".into()),
+                root: None,
+                op: crate::remote_tools::RemoteOp::Info,
+            },
+            Message::RemoteToolResult {
+                call_id: crate::ids::RemoteCallId::generate(),
+                project_id: ProjectId::generate(),
+                result: Ok(crate::remote_tools::RemoteOutput::Info(Box::new(
+                    crate::remote_tools::RemoteInfo {
+                        os: "linux".into(),
+                        arch: "x86_64".into(),
+                        hostname: "box".into(),
+                        shell: Some("/bin/bash".into()),
+                        roots: vec![crate::remote_tools::RemoteRoot {
+                            name: "srv".into(),
+                            path: "/srv".into(),
+                            read_only: true,
+                        }],
+                        tools: vec![("rg".into(), "14.1.0".into())],
+                    },
+                ))),
             },
         ];
         for message in messages {

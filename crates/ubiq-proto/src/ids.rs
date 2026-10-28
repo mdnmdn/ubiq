@@ -392,3 +392,18 @@ ulid_id! {
     /// reply, or one after the timeout) is discarded.
     BrowserReqId
 }
+
+ulid_id! {
+    /// One remote tool call, from the `RemoteToolCall` an agent's `ubiq-remote` tool call sent to
+    /// the `RemoteToolResult` that ends it. Minted **host-side**, by the MCP listener that parks the
+    /// call — [`BrowserReqId`]'s discipline: a result naming a call the host no longer holds is
+    /// discarded. The window and the drone only echo it.
+    RemoteCallId
+}
+
+ulid_id! {
+    /// One tunnelled TCP stream on a window ↔ drone tunnel channel (never the bus), from its
+    /// `TunnelFrame::Open` to the `TunnelFrame::Close` that ends it. Minted by the **window**, which accepted the local socket: every frame of the
+    /// stream names it, and a frame naming a stream the far end does not hold is dropped.
+    TunnelStreamId
+}

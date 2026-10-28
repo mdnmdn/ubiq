@@ -786,21 +786,50 @@ pub fn tape_dir() -> std::path::PathBuf {
 /// A message as the tape holds it: every [`crate::messages::Secret`] written as `"***"`, and a
 /// knowledge-base document's body replaced by its length. The tape is dumped to a file, and a
 /// protected wiki's page is plaintext only in host memory (`D206`); the tape cannot tell a
-/// protected source from another, so every KB body goes. `None` for one that will not serialise.
+/// protected source from another, so every KB body goes. A remote tool's file contents and command
+/// output go the same way (`D225`): they are a far machine's data, and the tape is a local file. `None` for one that will not serialise.
 fn tape_value(message: &Message) -> Option<serde_json::Value> {
+    use crate::remote_tools::{RemoteOp, RemoteOutput};
+
     let mut value = crate::messages::redacting_secrets(|| serde_json::to_value(message)).ok()?;
-    let body = match message {
-        Message::WriteKbFile { contents, .. } => Some(("contents", contents.len())),
-        Message::KbFileContents { contents, .. } => Some(("contents", contents.bytes.len())),
-        _ => None,
-    };
-    if let Some((field, len)) = body
-        && let Some(payload) = value.get_mut("payload").and_then(|p| p.as_object_mut())
-    {
-        payload.insert(
-            field.to_string(),
-            serde_json::Value::String(format!("<{len} bytes, not taped>")),
-        );
+    // JSON pointers under `/payload`, each with the length the placeholder states.
+    let mut bodies: Vec<(String, usize)> = Vec::new();
+    match message {
+        Message::WriteKbFile { contents, .. } => bodies.push(("/contents".into(), contents.len())),
+        Message::KbFileContents { contents, .. } => {
+            bodies.push(("/contents".into(), contents.bytes.len()))
+        }
+        Message::RemoteToolCall { op, .. } => match op {
+            RemoteOp::Write { content, .. } => bodies.push(("/op/content".into(), content.len())),
+            RemoteOp::Edit { old, new, .. } => {
+                bodies.push(("/op/old".into(), old.len()));
+                bodies.push(("/op/new".into(), new.len()));
+            }
+            _ => {}
+        },
+        Message::RemoteToolResult {
+            result: Ok(output), ..
+        } => match output {
+            RemoteOutput::Read { content, .. } => {
+                bodies.push(("/result/Ok/content".into(), content.len()))
+            }
+            RemoteOutput::Grep { matches, .. } => {
+                for (at, hit) in matches.iter().enumerate() {
+                    bodies.push((format!("/result/Ok/matches/{at}/text"), hit.text.len()));
+                }
+            }
+            RemoteOutput::Run(run) => {
+                bodies.push(("/result/Ok/stdout".into(), run.stdout.len()));
+                bodies.push(("/result/Ok/stderr".into(), run.stderr.len()));
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+    for (pointer, len) in bodies {
+        if let Some(slot) = value.pointer_mut(&format!("/payload{pointer}")) {
+            *slot = serde_json::Value::String(format!("<{len} bytes, not taped>"));
+        }
     }
     Some(value)
 }
@@ -931,5 +960,73 @@ mod tests {
         assert_eq!(taped["payload"]["new"], "***");
         let taped = tape_value(&messages[3]).unwrap();
         assert_eq!(taped["payload"]["contents"], "<17 bytes, not taped>");
+    }
+
+    /// A remote tool's contents are redacted, not skipped (`D225`): the message is still taped,
+    /// with its ids and its op.
+    #[test]
+    fn the_tape_holds_no_remote_contents() {
+        use crate::ids::{ProjectId, RemoteCallId};
+        use crate::remote_tools::{RemoteMatch, RemoteOp, RemoteOutput, RemoteRun};
+
+        let project_id = ProjectId::generate();
+        let call_id = RemoteCallId::generate();
+        let result = |output| Message::RemoteToolResult {
+            call_id,
+            project_id,
+            result: Ok(output),
+        };
+        let messages = [
+            Message::RemoteToolCall {
+                call_id,
+                project_id,
+                remote: None,
+                root: None,
+                op: RemoteOp::Write {
+                    path: "a.txt".into(),
+                    content: "hunter2-write".into(),
+                    overwrite: true,
+                },
+            },
+            Message::RemoteToolCall {
+                call_id,
+                project_id,
+                remote: Some("r1".into()),
+                root: Some("logs".into()),
+                op: RemoteOp::Edit {
+                    path: "a.txt".into(),
+                    old: "hunter2-old".into(),
+                    new: "hunter2-new".into(),
+                    replace_all: false,
+                },
+            },
+            result(RemoteOutput::Read {
+                content: "hunter2-read".into(),
+                truncated: false,
+            }),
+            result(RemoteOutput::Grep {
+                matches: vec![RemoteMatch {
+                    path: "a.txt".into(),
+                    line: 1,
+                    text: "hunter2-grep".into(),
+                }],
+                truncated: false,
+            }),
+            result(RemoteOutput::Run(Box::new(RemoteRun {
+                exit_code: Some(0),
+                stdout: "hunter2-out".into(),
+                stderr: "hunter2-err".into(),
+                truncated: false,
+                timed_out: false,
+            }))),
+        ];
+        for message in &messages {
+            let taped = tape_value(message).unwrap().to_string();
+            assert!(!taped.contains("hunter2"), "taped: {taped}");
+            assert!(!taped.contains("[104,"), "taped: {taped}");
+        }
+        let taped = tape_value(&messages[0]).unwrap();
+        assert_eq!(taped["payload"]["op"]["path"], "a.txt");
+        assert_eq!(taped["payload"]["op"]["content"], "<13 bytes, not taped>");
     }
 }

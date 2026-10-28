@@ -663,6 +663,7 @@ impl AppState {
             mcps: request.mcps.clone(),
             skills: Vec::new(),
             grants: Vec::new(),
+            remote: None,
             // The host's launch, not an agent's: nothing spawned this one.
             spawned_by: None,
         });

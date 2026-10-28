@@ -284,6 +284,8 @@ mod tests {
                 path: path.into(),
                 preset: DronePreset::Attached,
             },
+            tunnels: Vec::new(),
+            tunnel_rate_bps: None,
         }
     }
 

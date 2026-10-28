@@ -31,6 +31,8 @@ fn a_record_with_saved_hosts_round_trips() {
                 scheme: RemoteScheme::Http,
                 trust_insecure: false,
                 carrier: RemoteCarrier::Socket,
+                tunnels: Vec::new(),
+                tunnel_rate_bps: None,
             },
             SavedRemoteHost {
                 id: String::new(),
@@ -39,6 +41,18 @@ fn a_record_with_saved_hosts_round_trips() {
                 scheme: RemoteScheme::Https,
                 trust_insecure: true,
                 carrier: RemoteCarrier::Socket,
+                tunnels: vec![ubiq_proto::settings::TunnelSpec {
+                    id: "t1".to_string(),
+                    kind: ubiq_proto::settings::TunnelKind::Http,
+                    local_port: 8080,
+                    host: "localhost".to_string(),
+                    port: 3000,
+                    upstream_tls: false,
+                    host_rewrite: None,
+                    insecure: false,
+                    enabled: true,
+                }],
+                tunnel_rate_bps: Some(1_000_000),
             },
         ],
         ..HostSettings::default()
@@ -66,6 +80,8 @@ fn a_saved_host_has_no_field_a_token_could_land_in() {
         scheme: RemoteScheme::Http,
         trust_insecure: false,
         carrier: RemoteCarrier::Socket,
+        tunnels: Vec::new(),
+        tunnel_rate_bps: None,
     };
     let json = serde_json::to_value(&record).unwrap();
     let object = json
@@ -83,6 +99,9 @@ fn a_saved_host_has_no_field_a_token_could_land_in() {
             "scheme",
             "trust_insecure",
             "carrier",
+            // Where a port forwards to and how fast — addresses and flags, never a credential.
+            "tunnels",
+            "tunnel_rate_bps",
         ]),
         "a saved host must carry nothing beyond identity and connectivity \u{2014} in particular, no token"
     );

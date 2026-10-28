@@ -153,6 +153,8 @@ fn a_saved_host_keeps_the_drone_path_a_dial_used(cx: &mut gpui::TestAppContext) 
                     preset: DronePreset::Session,
                     drone_path: None,
                 },
+                tunnels: Vec::new(),
+                tunnel_rate_bps: None,
             });
 
         // The first connect dialled the bare remote `PATH`, found nothing, and deployed.

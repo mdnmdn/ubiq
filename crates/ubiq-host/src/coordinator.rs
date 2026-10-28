@@ -3548,6 +3548,9 @@ impl Coordinator {
                 skills,
                 spawned_by,
                 grants,
+                // Not yet honoured: injecting `ubiq-remote` and the per-remote cwd is a later
+                // phase of the remote-tool family (`D226`).
+                remote: _,
             } => {
                 self.start_conversation(
                     client,

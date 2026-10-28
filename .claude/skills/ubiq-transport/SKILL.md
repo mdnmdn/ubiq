@@ -69,7 +69,8 @@ Your change updates the documents it touched in the same commit. `just docs-touc
   `Display`, no `Deref`, no `AsRef<str>`; `Debug` writes `Secret(***)`; `expose()` is the one way
   out, so every leak site is one grep. The log sink and the tape both serialise whole messages;
   the tape does it inside `messages::redacting_secrets`, which writes every `Secret` as `"***"`,
-  and drops KB page bodies (`bus::tape_value`).
+  and replaces KB page bodies and remote-tool file contents and command output with their
+  length (`bus::tape_value`, `D225`).
 
 ## Checklist — adding or changing a message
 
@@ -115,6 +116,9 @@ never reuse an existing kind because the shape matches.
   viewer *except* `TerminalOutput` / `TerminalInput` / `TerminalResize` — a JSON encoder between
   the pseudo-terminal and the screen would stall the harness. Don't add a family to that skip list
   and don't take one off it.
+- **Forwarded ports are not on the bus** (`D227`). `tunnel::TunnelFrame` runs on a second
+  channel per carrier, framed with `wire::write_value_frame` / `read_value_frame`; never add a
+  tunnel variant to `Message`.
 - **Ordering is per pane and per agent, never global.** Two messages for the same pane arrive in
   order; across panes nothing is promised. `ConversationUpdate.seq` is per-agent, monotonic, from 1.
 - **The file family and the host browse family share one worker and one queue**, so answers come

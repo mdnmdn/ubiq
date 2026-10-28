@@ -42,6 +42,15 @@ pub const PING_INTERVAL: Duration = Duration::from_secs(20);
 /// countdown from something close to when its client actually left.
 pub const MISSED_PINGS_BEFORE_GONE: u32 = 3;
 
+/// The capability a drone advertises when it answers the remote-tool family
+/// ([`Message::RemoteToolCall`]) — what an agent bound to the drone reaches it through.
+pub const CAP_TOOLS: &str = "tools";
+
+/// The capability a drone advertises when it can serve the tunnel channel
+/// ([`crate::tunnel::TunnelFrame`]) — a dedicated channel beside the bus's, dialling a TCP port on
+/// its side for a socket the window accepted on this one.
+pub const CAP_TUNNEL: &str = "tunnel";
+
 /// What a pump should do with one frame it has just read.
 #[derive(Debug)]
 pub enum Beat {

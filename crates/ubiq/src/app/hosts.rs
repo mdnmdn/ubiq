@@ -1083,6 +1083,8 @@ mod tests {
             scheme: RemoteScheme::Http,
             trust_insecure: false,
             carrier: ubiq_proto::settings::RemoteCarrier::Socket,
+            tunnels: Vec::new(),
+            tunnel_rate_bps: None,
         }
     }
 

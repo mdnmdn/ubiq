@@ -5555,6 +5555,59 @@ outside, which is the opposite of a page the user typed.
 for the agent to name another; browser tabs are not part of a saved arrangement; and the page is
 whatever the platform webview is, with none of the tenant's confinement.
 
+### D225 — The tape redacts remote-tool contents, and still records the message
+
+`bus::tape_value` replaces a `RemoteOp::Write`'s `content`, a `RemoteOp::Edit`'s `old` and `new`, and
+a result's read `content`, grep `text` and run `stdout`/`stderr` with `<N bytes, not taped>` — the
+treatment a KB page body gets — rather than leaving the family off the tape the way the pane hot
+path is.
+
+**Why:** the family carries a far machine's data — a file on a drone, a command's output — and the
+tape is a local file a person attaches to a bug report. Skipping the messages instead would hide
+the thing a tape is for: which call went where, and whether it was answered.
+
+**Cost:** a tape cannot show what a tool read or wrote, so a bug in the contents themselves is
+undiagnosable from it; the redaction is a list of fields in `tape_value` that a new content field
+on the family has to join by hand.
+
+### D226 — Remote tools are relayed by the window, not reached by the host
+
+An agent's `ubiq-remote` tool call leaves the host's MCP listener as `RemoteToolCall`, goes to one
+window, and the window forwards it unchanged to the drone `remote` names, and the drone's
+`RemoteToolResult` back the same way. The window interprets neither. The pair carries its own
+`RemoteOp`, capability-gated as `tools`, in place of `D138`'s host-side client of the file family
+and `D137`'s `RunCommand`/`CommandFinished` pair. It stays a thin façade at the far end: the drone
+answers each op by delegating to the file worker and search tool it runs for the interface, and only `run`
+and `info` are new there.
+
+**Why:** a drone is attached to the window, not to the host (`D116`) — the host does not know one
+exists and holds no link to it, so a host-side client of the drone, which `D138` assumed, has
+nothing to be a client of. Moving the link into the host would undo `D116` for one feature. One
+opaque pair keeps the window a pipe — it needs no knowledge of what a tool does — and gives the
+model ops shaped like the file tools it knows (read by line, edit by unique replacement,
+run with an exit code) rather than an interface-shaped tree-and-version protocol. Delegating keeps
+path safety and refusals in one place.
+
+**Cost:** a remote tool works only while a window holding that drone's link is open, and the drone
+has a second vocabulary to translate into its handlers beside the file family's.
+
+### D227 — Tunnels run on a parallel channel per carrier, not on the bus
+
+A forwarded port's TCP streams never become `Message` variants. Each carrier opens a second,
+dedicated channel beside the bus's — over RDP a second dynamic virtual channel, `ubiq::tunnel::v1`,
+bridged by the `--rdp` child to a Unix socket of its own; over `ssh` a second exec — carrying
+`tunnel::TunnelFrame` in the bus's own length-prefixed MessagePack framing, credit-limited per
+stream and per channel. A drone that can serve it advertises `tunnel`.
+
+**Why:** it keeps terminal traffic unaffected. The bus is one ordered, unbounded stream per link
+that the panes share, so a download on it would queue in front of every keystroke and every redraw,
+and credit on the bus could only slow it, never let a pane overtake it. On its own channel the
+carrier's own multiplexing does that, and tunnel bytes pass no hub, no tape and no dispatch.
+
+**Cost:** every carrier needs a second channel, set up, torn down and bridged on its own, and a
+carrier that cannot open one — a plain socket host today — has no tunnels; the framing is shared
+but the channel's lifecycle is a second thing to get right per carrier.
+
 ## Related docs
 
 - [`architecture.md`](./architecture.md) — the rules D3 to D6 produce

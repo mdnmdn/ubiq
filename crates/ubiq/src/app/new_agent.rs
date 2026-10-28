@@ -887,6 +887,7 @@ impl AppState {
             mcps: form.mcps.clone(),
             skills: form.skills.clone(),
             grants: form.grants.clone(),
+            remote: None,
             // The user started this one, so nobody asked for it. `spawned_by` is only ever set
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,

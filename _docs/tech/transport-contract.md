@@ -3,11 +3,11 @@ id: tech-transport
 title: Transport contract
 kind: tech
 status: draft
-summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, browser, connector, repository, task-source, assist, notification, web asset and carrier families, the framing rules, and the procedure for adding a variant.
+summary: The complete message set the UI and the coordinator exchange — the pane, session, project, file, git, work, conversation, search, account, quota, agent definition (with its skills and MCP catalog), command-line, host browse, database, browser, remote-tool, connector, repository, task-source, assist, notification, web asset and carrier families, the tunnel channel beside the bus, the framing rules, and the procedure for adding a variant.
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-10-28
 verified: 2026-10-28
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/browser.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/browser.rs, crates/ubiq-proto/src/remote_tools.rs, crates/ubiq-proto/src/tunnel.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -936,6 +936,54 @@ the call with `the browser window did not answer within 30s`; a window that clos
 command addressed to it. A navigation command replies once the navigation has *started*;
 `browser_wait_load` is host-side and polls `Info`. The server holds at most eight calls at once.
 
+## The remote-tool family
+
+An agent bound to a drone (`StartConversation.remote`) reaching it through the `ubiq-remote` MCP
+server. Two variants, project-scoped on the browser family's footing and carrying no pane id. The
+records are in `crates/ubiq-proto/src/remote_tools.rs`; the call id is `RemoteCallId`, minted
+host-side by the listener that parks the call.
+
+| Message | Direction | Payload | Responds with |
+|---|---|---|---|
+| `RemoteToolCall` | host → UI, then UI → drone | `call_id`, `project_id`, `remote?`, `root?`, `op` | `RemoteToolResult` |
+| `RemoteToolResult` | drone → UI, then UI → host | `call_id`, `project_id`, `result` | — |
+
+**The window relays, and reads nothing** (`D226`). The host's MCP listener cannot reach a drone: the
+link is the window's (`D116`), and the host does not know a drone exists. So the host sends the call
+to one window, the window forwards it unchanged to the drone `remote` names — `SavedRemoteHost.id`,
+or the remote the agent was started bound to when `None` — and forwards the drone's result back to
+the host that asked. `project_id` is the calling agent's local project, echoed on the result for the
+same reason `BrowserReply` echoes it: a window attached to several hosts routes the answer by it.
+
+**`op` is a `RemoteOp`**, internally tagged by `kind`: `info`, `list { path, depth? }`,
+`read { path, offset, limit }` (lines; `limit` `0` is up to the cap), `write { path, content,
+overwrite }`, `edit { path, old, new, replace_all }`, `glob { pattern, path? }`,
+`grep { pattern, path?, glob?, case_insensitive, max_results }` and
+`run { cmd, cwd?, timeout_ms, shell? }`. **Every path is root-relative** (`D136`): it names a place
+under the root `root` names — by `RemoteRoot.name` as `info` lists it, the drone's first (usually
+only) root when `None` — and confinement and a root's read-only flag are the drone's to enforce. `write` refuses an existing file unless `overwrite`, the explicit flag standing where the
+file family's `expected` hash does (`G268`); `edit` refuses an `old` that is not unique unless
+`replace_all`. `run` is a process, never a pane (`D137`).
+
+**`result` is `Result<RemoteOutput, String>`**, `Err` a sentence the agent reads as the tool's
+error. `RemoteOutput` has one variant per op under the same tag: `info` (`RemoteInfo` — `os`,
+`arch`, `hostname`, `shell?`, `roots` of `RemoteRoot { name, path, read_only }`, `tools` as
+`(name, version)` pairs), `list { entries, truncated }` of `RemoteEntry { path, kind, size? }`,
+`read { content, truncated }`, `write { bytes, created }`, `edit { replacements }`,
+`glob { paths, truncated }`, `grep { matches, truncated }` of `RemoteMatch { path, line, text }`,
+and `run` (`RemoteRun` — `exit_code?`, `stdout`, `stderr`, `truncated`, `timed_out`). `info` and
+`run` are boxed, the widest answers. A read returns at most `REMOTE_READ_CAP` (128 KiB); a run keeps
+the last `REMOTE_RUN_TAIL_CAP` (64 KiB) of each stream, because the end of a log is where its error
+is. A drone answers the family only when it advertises `tools`.
+
+**A thin façade, not a second file system.** The drone answers each op by delegating to the
+handlers it already runs for the interface — the file worker for `list`, `read`, `write` and
+`edit`, its search tool for `glob` and `grep` — so path safety, confinement and refusals are those
+handlers', not a reimplementation in front of them; only `run` and `info` are new on the drone.
+
+**On the contract, unanswered.** Nothing sends either variant, the coordinator and the drone
+relay refuse them through their catch-alls, and the window has no relay arm (`G461`).
+
 ## The database family
 
 A project's saved database connections, the structure behind them, and the tables and SQL run
@@ -1464,7 +1512,7 @@ is what multiplexes several of them down one channel.
 
 | Message | Direction | Payload | Responds with |
 |---|---|---|---|
-| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps`, `skills`, `grants`, `spawned_by?` | `ConversationStarted` or `ConversationError` |
+| `StartConversation` | UI → host | `agent_id`, `project_id`, `session_id`, `rel_path?`, `agent_type`, `account?`, `definition?`, `model?`, `thinking?`, `mode?`, `mcps`, `skills`, `grants`, `spawned_by?`, `remote?` | `ConversationStarted` or `ConversationError` |
 | `PromptAgent` | UI → host | `agent_id`, `text` | — |
 | `CancelTurn` | UI → host | `agent_id` | — |
 | `AnswerPermission` | UI → host | `agent_id`, `request_id`, `option_id` | — |
@@ -1509,6 +1557,11 @@ definition's grants — a project's own shadowing the global ones, as `mcps` do 
 the isolation read-write set, on top of `HostSettings.extra_grants`, and does so only while host
 isolation is on. A path is absolute or `~`-prefixed. The mission launchers send none, and a launch's
 grants are not stored on the conversation row (`G409`).
+
+**`remote` binds the agent to a saved remote host**, by `SavedRemoteHost.id`, with
+`#[serde(default)]`. Set, the host is to inject the `ubiq-remote` MCP server — whose calls are the
+remote-tool family — and run the harness in `<project>/.ubiq/remote/<label>/`. The field is on the
+contract and the coordinator does not read it (`G461`).
 
 **`ReviveConversation` is one message for two paths, and the run directory is why.** That directory
 *is* the conversation: it holds the harness's own session store, so resuming a session id inside a
@@ -2736,6 +2789,14 @@ section, the picker and Disconnect carry it with no change of their own. `HOST_S
 pointed at an address it never had, which is a row that looks connectable and is not — worse than
 one that is gone.
 
+**A saved host carries the ports its link forwards.** `SavedRemoteHost.tunnels` is a list of
+`TunnelSpec { id, kind, local_port, host, port, upstream_tls, host_rewrite?, insecure, enabled }` —
+`kind` `tcp` (bytes untouched) or `http` (the `Host` header rewritable, `None` sending `host`, and the
+upstream wrappable in TLS, `insecure` skipping its certificate check) — and
+`tunnel_rate_bps?` caps the link's tunnel traffic, `None` unlimited. Both are `#[serde(default)]`,
+addresses and flags with nothing a credential could land in. `HOST_SETTINGS_SCHEMA` is 24 for them:
+an older build drops every forwarded port on its next write.
+
 **`preset` says whether that drone detaches, and for how long it outlives a dropped link.**
 `DronePreset` is `Attached` (`--stdio`, no socket — dies with this `ssh`), `Session` (detaches with
 the default ten-minute linger — survives a dropped link, not Ubiq quitting) or `Managed` (detaches
@@ -3312,6 +3373,42 @@ without touching the archive again.
 ordinary outcome — `reason` is a sentence written to be shown to a user, and the interface draws a
 built-in page that names `just help-bundle` rather than a failure.
 
+## The tunnel channel — not a family
+
+Forwarded ports **never ride the bus** (`D227`). A `SavedRemoteHost.tunnels` entry's TCP streams run
+on a dedicated channel beside the one the bus uses, opened per carrier: over RDP a second dynamic
+virtual channel, `ubiq::tunnel::v1` (`tunnel::TUNNEL_CHANNEL`), which the `--rdp` child bridges to a
+Unix socket of its own; over `ssh` a second exec. No `Message` variant exists for it, so nothing
+here passes the hub, the tape or either dispatch, and a busy tunnel cannot queue in front of a
+keystroke on the bus.
+
+The channel speaks `tunnel::TunnelFrame`, framed exactly as a message is — 4-byte big-endian length,
+`to_vec_named` MessagePack, the same `MAX_FRAME` ceiling and clean-EOF rule, through
+`wire::write_value_frame` / `wire::read_value_frame` (`tunnel::write_frame` / `read_frame`). The
+frames, internally tagged by `type`:
+
+| Frame | Direction | Payload | Answered with |
+|---|---|---|---|
+| `hello` | either, first | `version` (`TUNNEL_VERSION`, 1), `rate_bps?` | — |
+| `open` | UI → drone | `stream`, `host`, `port`, `window` | `opened` or `refused` |
+| `opened` | drone → UI | `stream` | — |
+| `refused` | drone → UI | `stream`, `error` | — |
+| `data` | either | `stream`, `bytes` | `ack` |
+| `ack` | either | `stream`, `bytes` | — |
+| `close` | either | `stream`, `half`, `error?` | — |
+
+`stream` is a `TunnelStreamId`, minted by the window that accepted the local socket. **Flow is
+credit-based:** `open.window` is the bytes the drone may send before an ack — `TUNNEL_STREAM_WINDOW`,
+64 KiB, by default — and a receiver returns `ack { bytes }` only once it has written them to its
+socket, so a slow consumer slows its producer. Across every stream a channel holds at most
+`TUNNEL_LINK_IN_FLIGHT` (256 KiB) unacknowledged; a chunk is at most `TUNNEL_CHUNK_MAX` (16 KiB), and
+`bytes` is `serde_bytes`. `hello.rate_bps` carries `SavedRemoteHost.tunnel_rate_bps`, `None`
+unlimited. `close { half: write }` is TCP's half-close, which an HTTP client that sends its request
+and waits for the answer depends on; `both` ends the stream. A frame naming a stream the far end
+does not hold is dropped. A drone that can serve the channel advertises `tunnel`.
+
+**Defined, and spoken by nothing** — no channel, listener, dialer or bridge exists (`G462`).
+
 ## The carrier family
 
 The nineteenth family, and the only one no dispatch ever sees. Four variants that establish a byte
@@ -3361,7 +3458,11 @@ binary landed on, probed at start (`D135`). It refuses version control, persiste
 harness, and names neither: a capability the drone would only refuse has the interface offer the
 user something that answers with a refusal. A set of strings rather than a bitfield is what lets the
 list grow without a schema bump — a peer that has never heard a name simply does not ask for it —
-and `DroneIdentity::has` is how a reader asks, which nothing outside a test does (`G265`).
+and `DroneIdentity::has` is how a reader asks, which nothing outside a test does (`G265`). Two
+names are reserved for families no drone answers: `tools` (`carrier::CAP_TOOLS`, the remote-tool
+family) and `tunnel` (`carrier::CAP_TUNNEL`, the tunnel channel, which is not on the bus at all).
+Neither needs a `message_schema` bump: a drone that does not advertise the name is never sent the
+family nor opened the channel, which is the whole job the number would have done.
 
 **The heartbeat is a message pair, not a frame type** (`D118`). A frame type below the message would
 change `[u32 length][msgpack]` for every build that already exists, for a feature two variants on a
@@ -3444,6 +3545,8 @@ ever dropped.
    family.
    If it says something about **Ubiq itself, addressed to a destination outside the user's own
    world**, the feedback family.
+   If it is an **agent's tool call for a drone**, the remote-tool family. A forwarded port's bytes
+   are no variant at all: they belong on the tunnel channel, off the bus.
 2. Add the variant to the enum in `crates/ubiq-proto/src/messages.rs`, with an owned payload — no
    borrowed data, no handles, nothing that fails to serialise.
 3. Add a row to the table above, in the same commit.

@@ -406,6 +406,52 @@ pub struct SavedRemoteHost {
     /// is what every record written before a drone existed is.
     #[serde(default)]
     pub carrier: RemoteCarrier,
+    /// The ports this host's link forwards while it is attached — each one a local listener the
+    /// window opens and carries over the tunnel channel ([`crate::tunnel`], beside the bus, `D227`) to the far side. Empty for every record
+    /// written before tunnels existed.
+    #[serde(default)]
+    pub tunnels: Vec<TunnelSpec>,
+    /// A ceiling on tunnel traffic over this link, in bytes per second, shared by every stream.
+    /// `None` is unlimited.
+    #[serde(default)]
+    pub tunnel_rate_bps: Option<u64>,
+}
+
+/// One forwarded port on a saved remote host: `local_port` here reaches `host:port` there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TunnelSpec {
+    /// Stable id, minted UI-side on first save, the [`SavedRemoteHost::id`] discipline.
+    pub id: String,
+    pub kind: TunnelKind,
+    /// The port the window listens on, on loopback.
+    pub local_port: u16,
+    /// Where the drone dials, resolved on the far machine — `localhost` is the drone's own.
+    pub host: String,
+    pub port: u16,
+    /// [`TunnelKind::Http`] only: the upstream speaks TLS, so plain HTTP on the local port is
+    /// wrapped before it reaches it.
+    #[serde(default)]
+    pub upstream_tls: bool,
+    /// [`TunnelKind::Http`] only: the `Host` header sent upstream. `None` uses [`Self::host`].
+    #[serde(default)]
+    pub host_rewrite: Option<String>,
+    /// With `upstream_tls`: skip the upstream's certificate check.
+    #[serde(default)]
+    pub insecure: bool,
+    /// Whether the window opens this listener on attach. A disabled spec is kept, not forwarded.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// What a [`TunnelSpec`] forwards.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TunnelKind {
+    /// Raw bytes, both ways, untouched.
+    #[default]
+    Tcp,
+    /// HTTP, so the `Host` header can be rewritten and the upstream wrapped in TLS.
+    Http,
 }
 
 /// How a saved remote host's frames are carried.
@@ -580,7 +626,11 @@ pub enum RemoteScheme {
 ///
 /// Twenty-three adds [`HostSettings::restore_conversations`]. It defaults to on, so an older build
 /// dropping it turns automatic restore back on for a user who had switched it off.
-pub const HOST_SETTINGS_SCHEMA: u32 = 23;
+///
+/// Twenty-four adds [`SavedRemoteHost::tunnels`] and [`SavedRemoteHost::tunnel_rate_bps`]. An
+/// older build drops both on its next write, and every forwarded port a user set up is gone — on
+/// seventeen's footing: lost configuration, re-typable, with nothing stranded in the keychain.
+pub const HOST_SETTINGS_SCHEMA: u32 = 24;
 
 fn isolate_agents_default() -> bool {
     true

@@ -5,7 +5,7 @@ kind: wip
 status: current
 summary: The working note for the drone's tenth phase — the drone as a fifth MCP server, with `drone_*` tools over the bus, capability-gated, a new `shell` message pair and a per-root read-only mode. Designed, and none of it written. Carries the gaps the nine built phases left open too, chief among them that nothing has been run against a real `ssh`, `scp` or `sshd`.
 read_when: you are picking up the drone work — building phase 10, or closing one of the gaps the built phases left
-updated: 2026-09-16
+updated: 2026-10-28
 verified: 2026-09-25
 code_anchors: [crates/ubiq-host/src/mcp/server.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/tools.rs, crates/ubiq-host/src/mcp/registry.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-proto/src/carrier.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-proto/src/messages.rs]
 depends_on: [feat-drone, tech-transport, tech-architecture, inbox-drone-runtime]
@@ -24,6 +24,14 @@ whose §1 is unfinished, and the shelved
 most of.
 
 ## Phase 10 — the drone as a tool the agent can reach
+
+**The contract has moved on from the design below, and only the contract is built.** `D226`
+replaces the façade over the file family and the `RunCommand`/`CommandFinished` pair with one
+remote-tool family the window relays — `RemoteToolCall`/`RemoteToolResult` over a `RemoteOp`,
+capability `tools` — and `StartConversation.remote` binds an agent to a drone; a tunnel channel for
+forwarded ports runs beside the bus, not on it (`D227`). Both are in
+[`../tech/transport-contract.md`](../tech/transport-contract.md) and answered by nothing
+(`G461`, `G462`). Where the paragraphs below disagree with `D226`, `D226` holds.
 
 **Designed, not built.** Every built phase serves the *interface* — a tree, a file, a search hit
 land in a window because a person clicked something. Phase 10 gives the *agent inside a pane* the

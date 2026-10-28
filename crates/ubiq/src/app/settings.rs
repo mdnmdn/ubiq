@@ -102,6 +102,9 @@ impl AppState {
                 scheme,
                 trust_insecure,
                 carrier,
+                // Not this form's: `upsert_host` keeps an existing record's tunnels.
+                tunnels: Vec::new(),
+                tunnel_rate_bps: None,
             },
         );
         self.remember_host_settings();

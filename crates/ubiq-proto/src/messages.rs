@@ -40,7 +40,7 @@ use crate::help::HelpCatalog;
 use crate::ids::{
     AiProviderId, AnnotationId, AskId, BlockId, BrowserReqId, CloneId, CommentId, ConnectId, ConnectionId, DbConnId,
     DbExportId, DbProbeId, DbQueryId, DbSessionId, KbSourceId, NotificationId, OauthAppId, PaneId, ProjectId, RepoQueryId, SearchId, SessionId, SpawnId,
-    SshProfileId, StepId, SuggestId, TaskId, TaskSrcQueryId, ToolId,
+    RemoteCallId, SshProfileId, StepId, SuggestId, TaskId, TaskSrcQueryId, ToolId,
 };
 use crate::kb::{KbSource, KbSourceState, KbSourceStatus};
 use crate::mcp::McpInfo;
@@ -61,6 +61,7 @@ use crate::projects::{
     StorageMode,
 };
 use crate::quota::{QuotaSnapshot, QuotaSource};
+use crate::remote_tools::{RemoteOp, RemoteOutput};
 use crate::repos::{CloneError, CloneRequest, CloneStage, RemoteRepo, RepoSource};
 use crate::search::{self, Batch, Query, Source};
 use crate::settings::SettingsLayer;
@@ -3114,6 +3115,12 @@ pub enum Message {
         /// normal case.
         #[serde(default)]
         grants: Vec<crate::settings::Grant>,
+        /// The saved remote this agent is bound to, by [`crate::settings::SavedRemoteHost::id`].
+        /// Set, the host injects the `ubiq-remote` MCP server — whose calls travel as
+        /// [`Message::RemoteToolCall`] naming this remote — and runs the harness in
+        /// `<project>/.ubiq/remote/<label>/`. Absent is an ordinary local agent.
+        #[serde(default)]
+        remote: Option<String>,
     },
     /// A turn. Nothing is appended by the sender: the line is drawn when it comes back as a
     /// [`ConvUpdate::UserChunk`], which is what the harness actually received.
@@ -3663,6 +3670,36 @@ pub enum Message {
         reason: String,
     },
 
+    // ── Remote-tool family: host → window → drone, and back ─────────
+    // An agent's `ubiq-remote` tool call. The host's MCP listener cannot reach a drone — the link is
+    // the window's (`D116`) — so the call goes to one window, which relays it to the drone the
+    // `remote` names without reading it, and relays the result back the same way (`D226`). A thin
+    // façade: the drone answers each op by delegating to its existing file and search handlers.
+    // Project-scoped like the browser family: `project_id` is the calling agent's, echoed so a
+    // window attached to several hosts routes the result to the one that asked; no pane id.
+    /// One tool call. Host → window, then window → drone, unchanged. Answered with exactly one
+    /// [`Message::RemoteToolResult`] naming the same `call_id`.
+    RemoteToolCall {
+        call_id: RemoteCallId,
+        project_id: ProjectId,
+        /// The saved remote to run it on, by [`crate::settings::SavedRemoteHost::id`]. `None` is
+        /// the one the agent was started bound to ([`Message::StartConversation`]'s `remote`).
+        remote: Option<String>,
+        /// Which of the drone's roots the op's paths are relative to, by
+        /// [`crate::remote_tools::RemoteRoot::name`]. `None` is the drone's first — usually only —
+        /// root.
+        #[serde(default)]
+        root: Option<String>,
+        op: RemoteOp,
+    },
+    /// The answer to a [`Message::RemoteToolCall`]: drone → window, then window → host. `Err` is a
+    /// sentence the agent reads as the tool's error. The first result for a `call_id` wins.
+    RemoteToolResult {
+        call_id: RemoteCallId,
+        project_id: ProjectId,
+        result: Result<RemoteOutput, String>,
+    },
+
     // ── Carrier family: transport only, never dispatched ────────────
     //
     // The four variants below are the only ones in this enum that no dispatch ever sees. They are
@@ -3780,6 +3817,8 @@ impl Message {
             | Message::BrowserReply { project_id, .. }
             | Message::BrowserHistory { project_id, .. }
             | Message::BrowserCommand { project_id, .. }
+            | Message::RemoteToolCall { project_id, .. }
+            | Message::RemoteToolResult { project_id, .. }
             | Message::DbConnections { project_id, .. }
             | Message::SaveDbConnection { project_id, .. }
             | Message::DeleteDbConnection { project_id, .. }
