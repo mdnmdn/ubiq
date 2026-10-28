@@ -1473,7 +1473,33 @@ mod stats;
 mod tasksrc;
 mod themes;
 pub use themes::theme_name_valid;
+#[cfg(unix)]
 pub mod unix_connect;
+
+/// Non-Unix stub: a settings file still names a socket path, but there is nothing to dial it with.
+/// The real module is Unix-only (`#[cfg(unix)]` above); this keeps `remote_connect`'s call sites
+/// compiling on every platform.
+#[cfg(not(unix))]
+pub mod unix_connect {
+    use ubiq_proto::bus::Client;
+    use ubiq_proto::carrier::DroneIdentity;
+
+    use super::remote_connect::ConnectFailure;
+
+    /// What a successful dial hands back: the `Client` the bus registers and what the drone said
+    /// about itself.
+    pub struct UnixDial {
+        pub client: Client,
+        pub identity: DroneIdentity,
+    }
+
+    /// Always fails: no Unix sockets on this platform.
+    pub fn dial_unix(path: &str) -> Result<UnixDial, ConnectFailure> {
+        Err(ConnectFailure::Unreachable(format!(
+            "local sockets are not supported on this platform ({path})"
+        )))
+    }
+}
 mod vim;
 mod web_panel;
 mod wire;
