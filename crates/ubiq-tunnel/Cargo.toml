@@ -1,0 +1,23 @@
+[package]
+name = "ubiq-tunnel"
+version = "0.1.0"
+edition = "2024"
+license-file = "../../LICENSE"
+description = "Ubiq: forwarded ports over the tunnel channel — the multiplexer, the window's listeners, the drone's dialer. A leaf: std threads, no GPUI, no host."
+publish = false
+
+# Every dependency here is already in the lock through another crate; this one adds none of its own.
+[dependencies]
+# `TunnelFrame`, its constants and its framing, and `TunnelSpec` — the contract this crate speaks.
+ubiq-proto = { path = "../ubiq-proto" }
+# The writer's two queues (control and data) and the per-stream inbound queues.
+flume = "0.12"
+parking_lot = "0.12"
+tracing = "0.1"
+# The HTTP kind's request-head parser: the Host rewrite and the request boundaries.
+httparse = "1"
+# `upstream_tls`: plain HTTP on the local port, TLS to the far one. The same rustls and the same
+# `ring` provider the interface's dialer uses, so there is one TLS stack in the build.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+webpki-roots = "1"

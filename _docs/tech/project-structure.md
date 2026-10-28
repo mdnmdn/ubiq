@@ -7,7 +7,7 @@ summary: Every folder in the workspace, what belongs in it, what must never go i
 read_when: you are adding a file and are not certain where it goes, or you are new to the repository
 updated: 2026-10-28
 verified: 2026-10-28
-code_anchors: [crates/ubiq-proto/src/browser.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq/src/app/browser.rs, Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
+code_anchors: [crates/ubiq-proto/src/browser.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq/src/app/browser.rs, Cargo.toml, crates/ubiq-host/src/store/usage.rs, crates/ubiq-host/src/store/project_dir.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/lib.rs, crates/ubiq/Cargo.toml, crates/ubiq-proto/Cargo.toml, crates/ubiq-host/Cargo.toml, crates/ubiq-app/Cargo.toml, crates/ubiq-drone/Cargo.toml, crates/ubiq-tunnel/Cargo.toml, vendor/gpui-terminal/Cargo.toml, _tools/icns.py]
 depends_on: [tech-architecture]
 review_cycle: quarterly
 ---
@@ -32,6 +32,7 @@ ubiq/
 │   ├── ubiq-db/         the database engine: model, SQL analysis, edit rendering, drivers behind a feature
 │   ├── ubiq-md/         the markdown engine: a source-ranged block table, a leaf with no GPUI
 │   ├── ubiq-draw/       the drawing engine: one diagram model, Excalidraw and draw.io onto it, a leaf
+│   ├── ubiq-tunnel/     forwarded ports over the tunnel channel: the mux, the window's listeners, the drone's dialer
 │   ├── ubiq/            the desktop interface (GPUI)
 │   ├── ubiq-app/        the binary, the only thing that names both halves
 │   ├── ubiq-drone/      the windowless binary that serves one machine over a byte stream
@@ -348,6 +349,7 @@ interface does not depend on the host, so a module in the wrong crate does not c
 | `ubiq-db/src/` | The database engine: `model.rs`/`plan.rs` (the types the wire carries), `conn.rs`, `value.rs`, `sql.rs`, `edit.rs`, and, behind the `drivers` feature, `driver/` — the four engines | A GPUI type, an Ubiq crate, or a driver outside `driver/` |
 | `ubiq-md/src/` | The markdown engine: `build.rs` (the block table), `find.rs`, `autolink.rs`; every block carries its source byte range | A GPUI type or an Ubiq crate |
 | `ubiq-draw/src/` | The drawing engine (`D222`): `model.rs` (the group tree a painter walks), `excalidraw.rs` (the scene parser and its stacking order), `drawio.rs` (mxGraph, compressed and multi-page), `colour.rs`, `codec.rs` | A GPUI type, an Ubiq crate, or a theme colour |
+| `ubiq-tunnel/src/` | Forwarded ports (`D227`) over any `Read`/`Write` duplex, std threads: `mux.rs` (the multiplexer, its credit and in-flight cap), `rate.rs` (the link's token bucket), `local.rs` (`TunnelManager`, the window's loopback listeners and their status), `remote.rs` (`serve` and its `AllowList`, the drone's dialer), `http.rs` (the HTTP kind's `Host` rewrite), `tls.rs` (`upstream_tls`), `pipe.rs` (a socket spliced to a stream). Depends on `ubiq-proto` only | A GPUI type, a host or drone type, a carrier's channel setup, or a `Message` |
 | `ubiq-host/src/db/` | A project's databases, host side: `mod.rs`'s `Db` service, `store.rs` (`db.toml`), `secrets.rs` (the sealed passwords), `session.rs` (a worker thread per tab) and `jobs.rs` (each message as a job, the read-only layers), behind the `db` feature | A call on the coordinator's thread, a decrypted password sent to the interface |
 | `ubiq-host/src/kb/` | A project's knowledge-base roots: `mod.rs`'s `Kb` holds the list (one TOML file per project, in `store.rs`) and derives each root's state; `sync.rs` fetches or refreshes a git root on a thread of its own, behind `git`. Listing and reading still run on `files/`'s worker | A project's own tree — that is `files/` — or a second implementation of the glob `KbRoot::admits` is |
 | `ubiq-host/src/files/browse.rs` | Listing one absolute directory on the host's own filesystem before any project exists — the host browse family's worker logic, with its own 2,000-entry ceiling independent of the file family's | A project-relative path, or the containment `path.rs` enforces once a project's root is known |
