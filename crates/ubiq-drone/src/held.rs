@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use ubiq_host::carrier::{self, Closer};
 use ubiq_proto::bus;
-use ubiq_proto::carrier::{greet, hello};
+use ubiq_proto::carrier::{HandshakeError, greet, hello};
 
 use crate::linger::{Linger, Live};
 use crate::relay::{Relay, Root};
@@ -207,9 +207,18 @@ fn serve_one(link: Link, hub: bus::Hub, live: &Live) {
     }
     let (mut reader, mut writer) = (ReadOnly(reader), WriteOnly(writer));
     let introduction = hello(env!("CARGO_PKG_VERSION"), &crate::capabilities());
-    if let Err(refusal) = greet(&mut reader, &mut writer, &introduction) {
-        tracing::warn!("the attaching client refused this drone: {refusal}");
-        return;
+    match greet(&mut reader, &mut writer, &introduction) {
+        Ok(()) => {}
+        // A refusal is the client's verdict on this build (schema or version): every retry gets
+        // the same answer, so the drone ends instead of reopening its channel forever.
+        Err(refusal @ HandshakeError::Refused(_)) => {
+            tracing::error!("the attaching client refused this drone, exiting: {refusal}");
+            std::process::exit(1);
+        }
+        Err(failure) => {
+            tracing::warn!("the attaching client did not complete the handshake: {failure}");
+            return;
+        }
     }
     carrier::pump(Box::new(reader), Box::new(writer), closer, hub);
     tracing::info!("an attached client has gone");

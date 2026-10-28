@@ -45,7 +45,8 @@ pub const MAX_FRAME: usize = 64 * 1024 * 1024;
 /// the author of a breaking change bumps it — and it buys one thing when honoured: the mismatch is
 /// reported as a sentence at connect time rather than as a decode failure in the middle of a
 /// session.
-pub const MESSAGE_SCHEMA: u32 = 1;
+/// 2: `ServeProject`, the drone's one catalogue write.
+pub const MESSAGE_SCHEMA: u32 = 2;
 
 const LEN_PREFIX: usize = 4;
 

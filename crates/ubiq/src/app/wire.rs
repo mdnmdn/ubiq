@@ -719,7 +719,11 @@ impl AppState {
                     let before = self.bus.host_of_project(id);
                     self.bus.note_project(id, host);
                     if host == HostRef::Local {
+                        let was = self.bus.is_pinned(id);
                         self.bus.note_pinned(id, project.record.runs_on.is_some());
+                        if !was {
+                            self.serve_if_pinned(&project.record);
+                        }
                     }
                     if self.projects.contains_key(&id) && self.bus.host_of_project(id) != before {
                         moved.push(id);
@@ -743,6 +747,7 @@ impl AppState {
                 self.bus.note_project(id, host);
                 if host == HostRef::Local {
                     self.bus.note_pinned(id, project.record.runs_on.is_some());
+                    self.serve_if_pinned(&project.record);
                 }
                 self.note_definition_scope(&project.record);
                 cx.global_mut::<WindowRegistry>().apply(project);
@@ -774,6 +779,8 @@ impl AppState {
                 if host == HostRef::Local {
                     self.bus
                         .note_pinned(project.record.id, project.record.runs_on.is_some());
+                    // A re-pin — or a pin to another machine — while that machine is attached.
+                    self.serve_if_pinned(&project.record);
                 }
                 self.note_definition_scope(&project.record);
                 cx.global_mut::<WindowRegistry>().apply(project);
@@ -808,6 +815,16 @@ impl AppState {
 
             Message::ProjectError { project_id, error } => {
                 tracing::error!("project {project_id:?}: {error}");
+                // A drone refusing to serve a pinned folder (`ServeProject`) is a fact about the
+                // row, said on it — not a banner that pops the picker on every reconnect.
+                if host != HostRef::Local
+                    && let Some(id) = project_id
+                    && self.bus.is_pinned_unserved(id)
+                {
+                    cx.global_mut::<WindowRegistry>().mark_unreadable(id, error);
+                    cx.notify();
+                    return None;
+                }
                 self.workbench.project_error = Some(error);
                 self.adding = false;
                 self.workbench.open_menu = Some(MenuId::Project);

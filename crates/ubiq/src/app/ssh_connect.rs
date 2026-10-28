@@ -132,7 +132,11 @@ pub fn dial_ssh_reporting(
     params: &SshDialParams,
     report: &mut dyn FnMut(DeployStep),
 ) -> Result<SshDial, ConnectFailure> {
-    let given = params.drone_path.clone();
+    // An earlier build's upload is not launched: it would be refused at the handshake.
+    let given = params
+        .drone_path
+        .clone()
+        .filter(|path| !stale_cache_path(path));
     match dial_once(params, given.as_deref()) {
         Ok((client, identity)) => Ok(SshDial {
             client,
@@ -468,9 +472,9 @@ pub fn ensure_drone_reporting(
     let local_path = resolve_local_binary(triple)?;
 
     report(DeployStep::Uploading);
-    let version = ubiq_proto::drone::manifest::VERSION;
-    let remote_dir = remote_cache_dir(version);
-    let remote_path = remote_cache_path(version);
+    let version = cache_key();
+    let remote_dir = remote_cache_dir(&version);
+    let remote_path = remote_cache_path(&version);
     run_ssh_command(
         profile,
         config_root,
@@ -536,6 +540,24 @@ fn repo_root() -> std::path::PathBuf {
 /// both read `~` as that user's home, so nothing here has to resolve it first.
 fn remote_cache_dir(version: &str) -> String {
     format!("~/.cache/ubiq/drone/{version}")
+}
+
+/// What an upload is keyed by: the drone's version **and** the message schema it speaks. The
+/// version alone is not enough — a schema bump at the same version would otherwise reuse a binary
+/// this build refuses at the handshake.
+fn cache_key() -> String {
+    format!(
+        "{}-schema{}",
+        ubiq_proto::drone::manifest::VERSION,
+        ubiq_proto::wire::MESSAGE_SCHEMA
+    )
+}
+
+/// Whether a saved drone path is an upload from a build whose key is not this one's — a binary
+/// under the cache directory that this build would refuse. Such a path is not the user's answer
+/// but an old deploy's, so a dial ignores it rather than launching it.
+fn stale_cache_path(path: &str) -> bool {
+    path.starts_with("~/.cache/ubiq/drone/") && path != remote_cache_path(&cache_key())
 }
 
 /// [`remote_cache_dir`], plus the binary's own name.
@@ -1207,6 +1229,15 @@ mod tests {
 
     /// The remote cache a deploy writes to and reads back from — keyed by version, under the
     /// remote user's own cache directory, exactly as the module doc names it.
+    #[test]
+    fn an_upload_from_another_schema_is_stale_and_a_users_own_path_is_not() {
+        let current = remote_cache_path(&cache_key());
+        assert!(current.contains(&format!("schema{}", ubiq_proto::wire::MESSAGE_SCHEMA)));
+        assert!(!stale_cache_path(&current));
+        assert!(stale_cache_path("~/.cache/ubiq/drone/0.4.0/ubiq-drone"));
+        assert!(!stale_cache_path("/opt/ubiq/ubiq-drone"));
+    }
+
     #[test]
     fn the_remote_cache_path_is_versioned_under_the_users_cache_dir() {
         assert_eq!(remote_cache_dir("0.4.0"), "~/.cache/ubiq/drone/0.4.0");

@@ -307,6 +307,7 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
         // whole of what the host has said as the tooltip. Local projects carry nothing: the
         // local machine is the default, and marking every row would mark nothing.
         .children(host_badge(app, project))
+        .children(remote_dot(app, project))
         // The name takes the room the row has, and carries the whole path as its tooltip whether
         // or not the row was wide enough to print the folder beside it.
         .child(
@@ -445,6 +446,31 @@ fn row(app: &AppState, project: ProjectId, group: Group, cx: &mut Context<AppSta
     });
 
     line.on_click(click).into_any_element()
+}
+
+/// The connection dot beside a remote project's name: green while a drone serves it, grey while
+/// it is pinned to a drone and none does. Local projects carry none.
+fn remote_dot(app: &AppState, project: ProjectId) -> Option<AnyElement> {
+    let (colour, tip) = if app.project_pinned_unserved(project) {
+        (
+            theme::text_faint(),
+            "Remote project: its host is not attached",
+        )
+    } else if app.project_host(project) != HostRef::Local {
+        (theme::success(), "Remote project: its host is attached")
+    } else {
+        return None;
+    };
+    Some(
+        div()
+            .id(ElementId::Name(format!("project-remote-{project}").into()))
+            .size(px(6.))
+            .flex_none()
+            .rounded_full()
+            .bg(colour)
+            .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip).build(window, cx))
+            .into_any_element(),
+    )
 }
 
 /// A remote project's host mark: the network icon plus the OS letter, or nothing for a local

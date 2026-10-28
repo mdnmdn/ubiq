@@ -43,6 +43,26 @@ use super::ssh_connect;
 use super::unix_connect;
 use super::*;
 
+/// Which machine a saved remote reaches, in the words a [`DroneOrigin`] names one by.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Reach {
+    /// The SSH profile it was dialled through, if it was.
+    profile: Option<SshProfileId>,
+    /// The contributed carrier and target that claim it, if one does.
+    via: Option<ubiq_proto::projects::OriginVia>,
+}
+
+impl Reach {
+    /// Whether an origin names this machine: by its carrier and target when it has a `via`, by
+    /// its SSH profile otherwise. The folder plays no part — a drone serves what it is asked.
+    fn names(&self, origin: &DroneOrigin) -> bool {
+        match &origin.via {
+            Some(via) => self.via.as_ref() == Some(via),
+            None => origin.profile.is_some() && self.profile == origin.profile,
+        }
+    }
+}
+
 // ── Transport ───────────────────────────────────────────────────────────────
 
 /// How long a dial waits — for the TCP handshake, and separately for each line of the HTTP
@@ -1102,35 +1122,88 @@ impl AppState {
         self.remember_host_settings();
     }
 
-    /// Whether some host this window is already attached to is the drone an origin names.
+    /// Which machine the saved remote `save_id` reaches, in the two words an origin can name one
+    /// by: its SSH profile, or the contributed carrier and target that claim it (`ext::origin`).
     ///
-    /// The live connection carries a saved entry's id, and the saved entry carries the carrier,
-    /// so the match runs through `remote_hosts` rather than through a field on `RemoteConn`:
-    /// how a connection's bytes arrive is the saved host's business, not the live one's.
+    /// The match runs through `remote_hosts` rather than through a field on `RemoteConn`: how a
+    /// connection's bytes arrive is the saved host's business, not the live one's.
     ///
-    /// **And is serving `project`.** The same profile and folder is not enough: a drone dialled
-    /// from the folder browser carries no `--root-id`, so it announces the folder under an id of
-    /// its own and the project would stay routed to the local host. Only a connection whose own
-    /// catalogue named this project's id is adopted; otherwise a fresh drone is dialled.
-    pub(super) fn drone_attached(&self, project: ProjectId, origin: &DroneOrigin) -> bool {
-        self.bus.remote_conns().iter().any(|conn| {
-            self.bus.project_host(project) == HostRef::Remote(conn.id)
-                && self
-                    .workbench
-                    .settings
-                    .host
-                    .remote_hosts
-                    .iter()
-                    .any(|saved| {
-                        saved.id == conn.save_id
-                            && matches!(
-                                &saved.carrier,
-                                RemoteCarrier::Ssh { profile, root, .. }
-                                    if origin.profile == Some(*profile)
-                                        && root.trim() == origin.root.trim()
-                            )
-                    })
-        })
+    /// `claims` asks the contributed carriers too, which may read their own files: an SSH origin
+    /// passes `false` and never pays for it.
+    fn reach_of(&self, save_id: &str, claims: bool) -> Reach {
+        let profile = self
+            .workbench
+            .settings
+            .host
+            .remote_hosts
+            .iter()
+            .find(|saved| saved.id == save_id)
+            .and_then(|saved| match &saved.carrier {
+                RemoteCarrier::Ssh { profile, .. } => Some(*profile),
+                _ => None,
+            });
+        Reach {
+            profile,
+            via: claims
+                .then(|| crate::ext::origin::claim(self, save_id))
+                .flatten(),
+        }
+    }
+
+    /// The live connection to the machine an origin names, if this window holds one — attached
+    /// or reconnecting. **Any** drone on that machine will do, whatever it was launched with: it
+    /// is asked to serve the folder ([`Self::serve_on`]), so the folder is not part of the match.
+    pub(super) fn origin_host(&self, origin: &DroneOrigin) -> Option<HostId> {
+        self.bus
+            .remote_conns()
+            .iter()
+            .find(|conn| {
+                self.reach_of(&conn.save_id, origin.via.is_some())
+                    .names(origin)
+            })
+            .map(|conn| conn.id)
+    }
+
+    /// Ask a drone to serve one project's folder under the catalogue's own id. Addressed, not
+    /// sent: `Bus::send` would resolve a pinned, unserved project to nowhere. The drone answers
+    /// with its catalogue, and the `ProjectList` arm moves the project's serving to it.
+    pub(super) fn serve_on(&self, host: HostId, project: ProjectId, origin: &DroneOrigin) {
+        self.bus.send_to(
+            HostRef::Remote(host),
+            Message::ServeProject {
+                project_id: project,
+                // The user's string: a trailing space is not a different folder.
+                path: origin.root.trim().to_string(),
+            },
+        );
+    }
+
+    /// A local record that pins its project — newly, or to another machine — while a host on that
+    /// machine is already attached: ask it to serve, since no attach is coming to do it.
+    pub(super) fn serve_if_pinned(&self, record: &ubiq_proto::projects::ProjectRecord) {
+        let Some(origin) = record.runs_on.as_ref().filter(|o| o.check().is_ok()) else {
+            return;
+        };
+        if let Some(host) = self.origin_host(origin)
+            && self.bus.project_host(record.id) != HostRef::Remote(host)
+        {
+            self.serve_on(host, record.id, origin);
+        }
+    }
+
+    /// Ask a just-attached drone to serve every project pinned to its machine.
+    fn serve_pinned(&self, host: HostId, cx: &App) {
+        let Some(save_id) = self.bus.remote(host).map(|conn| conn.save_id.clone()) else {
+            return;
+        };
+        let reach = self.reach_of(&save_id, true);
+        for snapshot in WindowRegistry::read(cx).all() {
+            if let Some(origin) = &snapshot.record.runs_on
+                && reach.names(origin)
+            {
+                self.serve_on(host, snapshot.record.id, origin);
+            }
+        }
     }
 
     /// Launch the drone a project names, because opening the project is what asks for it.
@@ -1247,8 +1320,14 @@ impl AppState {
             }
             Err(failure) => {
                 tracing::warn!("project drone dial failed: {failure}");
+                // A refusal is the drone's own sentence, which cannot name the machine it is on —
+                // a schema mismatch's "the drone is older: replace its binary" is useless without it.
+                let said = match &failure {
+                    ConnectFailure::Refused(_) => format!("the drone on {address}: {failure}"),
+                    _ => failure.to_string(),
+                };
                 cx.global_mut::<WindowRegistry>()
-                    .mark_unreadable(project, failure.to_string());
+                    .mark_unreadable(project, said);
             }
         }
         cx.notify();
@@ -1628,6 +1707,9 @@ impl AppState {
         // left it — attaching a host is not choosing it.
         self.bus
             .send_to(HostRef::Remote(host_id), Message::ListProjects);
+        // Then every project pinned to this machine, whatever the drone was launched with: what
+        // it serves is what it is asked to, and its answers move each project's serving here.
+        self.serve_pinned(host_id, cx);
         // And its own readings, so the manager panel has facts without opening the Control
         // screen: the greeting carries the machine, the poll carries the moment.
         self.bus
@@ -2075,6 +2157,44 @@ fn classify_probe_frame(message: &Message) -> ProbeFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A connection reaches an origin by its SSH profile, or by the carrier and target that claim
+    /// it — never by the folder, which any drone on that machine is asked to serve.
+    #[test]
+    fn a_connection_reaches_an_origin_by_machine_not_by_folder() {
+        use ubiq_proto::projects::OriginVia;
+        use ubiq_proto::settings::DronePreset;
+        let profile = SshProfileId::generate();
+        let origin = |profile, via| DroneOrigin {
+            profile,
+            root: "/srv/a".into(),
+            preset: DronePreset::Session,
+            linger_secs: None,
+            via,
+        };
+        let via = OriginVia {
+            kind: "rdp".into(),
+            target: "t1".into(),
+        };
+        let ssh = Reach {
+            profile: Some(profile),
+            via: None,
+        };
+        assert!(ssh.names(&origin(Some(profile), None)));
+        assert!(!ssh.names(&origin(Some(SshProfileId::generate()), None)));
+        assert!(!ssh.names(&origin(None, Some(via.clone()))));
+        let claimed = Reach {
+            profile: None,
+            via: Some(via.clone()),
+        };
+        assert!(claimed.names(&origin(None, Some(via))));
+        let other = OriginVia {
+            kind: "rdp".into(),
+            target: "t2".into(),
+        };
+        assert!(!claimed.names(&origin(None, Some(other))));
+        assert!(!Reach::default().names(&origin(None, None)));
+    }
 
     /// Pinned down with no socket at all: this is exactly the request
     /// `ubiq_host::remote::read_request` parses — a `GET /attach?token=…` with an `Upgrade: ubiq`

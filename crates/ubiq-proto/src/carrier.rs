@@ -307,9 +307,16 @@ pub fn welcome<R: Read, W: Write>(
 /// The sentence a schema mismatch is refused with. A modal shows it verbatim, so it names both
 /// numbers, both versions, and the thing the user can actually do about it.
 fn schema_refusal(identity: &DroneIdentity) -> String {
+    // An older drone is the ordinary case — one left running, or lingering, from before an
+    // update — and the fix is to end it so the next connect starts this build's.
+    let advice = if identity.message_schema < MESSAGE_SCHEMA {
+        "The drone is older: replace its binary with this version's, end the running drone process, and connect again."
+    } else {
+        "The drone is newer; update this Ubiq or deploy a drone built from the same revision."
+    };
     format!(
         "This Ubiq speaks message schema {MESSAGE_SCHEMA}; the drone on the other end \
-         (ubiq-drone {}, {}) speaks {}. Deploy a drone built from the same revision.",
+         (ubiq-drone {}, {}) speaks {}. {advice}",
         identity.drone_version, identity.triplet, identity.message_schema
     )
 }

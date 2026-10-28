@@ -98,11 +98,11 @@ pub struct Relay {
     meta: Arc<Mutex<HostMeta>>,
     /// The catalogue, in memory and nowhere else.
     ///
-    /// A plain `Vec` rather than a `ProjectStore` behind it, because a drone has no *write* half
-    /// to the catalogue at all: it is seeded from `--root` and never added to, renamed, re-pointed
-    /// or forgotten — those are the user's decisions about their own machine and stay with the
-    /// coordinator. A store would be a trait object with one implementation and nothing that ever
-    /// calls `upsert`.
+    /// A plain `Vec` rather than a `ProjectStore` behind it, because a drone has no real *write*
+    /// half to the catalogue: it is seeded from `--root`, grows by `ServeProject` under ids the
+    /// window already holds, and is never renamed, re-pointed or forgotten — those are the user's
+    /// decisions about their own machine and stay with the coordinator. Nothing is written down:
+    /// a restarted drone serves what it is asked again.
     records: Vec<ProjectRecord>,
     /// Where this drone would keep disposable files if it kept any. Reported as the config root
     /// and as the shared workarea, and sampled for free space — it is not a config root in the
@@ -159,7 +159,8 @@ impl Relay {
             tracing::warn!("could not reserve {}: {error}", scratch.display());
         }
 
-        // No `--root` is a drone with an empty catalogue, not an error: it can still serve a
+        // No `--root` is a drone with an empty catalogue, not an error: it serves what a window
+        // asks it to (`ServeProject`), and meanwhile it can still serve a
         // terminal and browse the machine, which is what the host-browse family is for.
         let records = roots.iter().map(record_for).collect();
         Self {
@@ -541,10 +542,11 @@ impl Relay {
                 );
             }
 
-            // ── the project family, read-only ───────────────────────
-            // A drone's catalogue is what it was launched with. Adding, forgetting, renaming and
-            // re-pointing are the user's own decisions about their own machine and belong to the
-            // coordinator; they are refused below with the rest.
+            // ── the project family ──────────────────────────────────
+            // A drone's catalogue is what it was launched with (`--root`) plus whatever a window
+            // asked it to serve since. Adding, forgetting, renaming and re-pointing are the user's
+            // own decisions about their own machine and belong to the coordinator; they are
+            // refused below with the rest.
             Message::ListProjects => {
                 host.send(
                     To::Client(client),
@@ -552,6 +554,9 @@ impl Relay {
                         projects: self.snapshots(),
                     },
                 );
+            }
+            Message::ServeProject { project_id, path } => {
+                self.serve(host, client, project_id, path)
             }
 
             // ── the host browse family ──────────────────────────────
@@ -705,6 +710,41 @@ impl Relay {
                 }
             },
         }
+    }
+
+    /// Serve the folder at `path` under `project_id`, replacing whatever that id named before.
+    ///
+    /// The window's own id rather than a minted one, for the reason `--root-id` exists: the
+    /// interface sees one row. A folder that is not a directory here is refused rather than taken
+    /// in — unlike a `--root`, there is a row on the asking side already to carry the refusal.
+    /// Told to every client, as a local host tells every window about a catalogue change.
+    fn serve(&mut self, host: &HostEnd, client: ClientId, project_id: ProjectId, path: String) {
+        let root = Root {
+            path: PathBuf::from(&path),
+            id: Some(project_id),
+        };
+        if !root.path.is_dir() {
+            host.send(
+                To::Client(client),
+                Message::ProjectError {
+                    project_id: Some(project_id),
+                    error: format!("{path} is not a folder on this machine"),
+                },
+            );
+            return;
+        }
+        let record = record_for(&root);
+        match self.records.iter_mut().find(|known| known.id == project_id) {
+            Some(known) => *known = record,
+            None => self.records.push(record),
+        }
+        tracing::info!(project = %project_id, "serving {path}");
+        host.send(
+            To::Everyone,
+            Message::ProjectList {
+                projects: self.snapshots(),
+            },
+        );
     }
 
     /// Every project, probed.
@@ -1125,7 +1165,8 @@ fn refusal(message: &Message) -> Option<Message> {
 
         // ── the catalogue's write half, and the blobs beside it ──
         // Refused rather than served: what is in a drone's catalogue is what it was launched
-        // with, and a settings or preference blob belongs to the machine the user is at.
+        // with or asked to serve (`ServeProject`, under the window's own id), and a settings or
+        // preference blob belongs to the machine the user is at.
         AddProject { .. }
         | ForgetProject { .. }
         | UpdateProject { .. }

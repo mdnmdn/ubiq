@@ -278,6 +278,10 @@ Open remote project, worded exactly as the picker's foot words them; picking one
 `AppState` method the picker's row would — `ui::menus::new_project` is the one list the menu draws
 and a pick resolves against.
 
+**A remote project's row carries a connection dot before its name**: green while a drone serves it,
+grey (`text_faint`) while it is pinned to a drone and none does; local projects carry none
+(`ui::project_menu::remote_dot`, read from `AppState::project_pinned_unserved` and `project_host`).
+
 **Every row is one line, and the name has the right of way.** The name takes the space it can; the
 path, when it has a parent, is the last component with a leading `.../`, and it is printed **only
 when what is left over holds it** — a folder is the answer to "which of these two is it", which is

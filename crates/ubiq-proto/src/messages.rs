@@ -1323,6 +1323,19 @@ pub enum Message {
     RefreshProject {
         project_id: ProjectId,
     },
+    /// A drone's one catalogue write: serve the folder at `path` — a path on the *drone's*
+    /// machine — under `project_id`, the id the interface's own catalogue already holds for it.
+    ///
+    /// What a window sends an attached drone for every project pinned to it (`runs_on`), so a
+    /// drone serves whatever it is asked to rather than only the `--root` it was launched with.
+    /// Idempotent: a second ask for the same id replaces the folder it names. Answered with the
+    /// drone's whole [`Message::ProjectList`] to every client, or a [`Message::ProjectError`] when
+    /// `path` is not a directory there. A local host refuses it: its catalogue is the user's,
+    /// written through [`Message::AddProject`].
+    ServeProject {
+        project_id: ProjectId,
+        path: String,
+    },
     /// Read back what the interface stored for a scope.
     GetPreferences {
         scope: Scope,
@@ -3673,6 +3686,7 @@ impl Message {
             | Message::OpenedProject { project_id, .. }
             | Message::AdoptProject { project_id, .. }
             | Message::RefreshProject { project_id, .. }
+            | Message::ServeProject { project_id, .. }
             | Message::ProjectForgotten { project_id, .. }
             | Message::ProjectTree { project_id, .. }
             | Message::ReadProjectFile { project_id, .. }

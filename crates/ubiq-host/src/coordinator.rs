@@ -1888,6 +1888,15 @@ impl Coordinator {
                 self.watch_project(client, project_id);
             }
             Message::AdoptProject { project_id } => self.adopt_project(client, project_id),
+            // A drone's verb. This catalogue is the user's own, written through `AddProject`, and
+            // a window never sends it here — the bus addresses it to a drone by name.
+            Message::ServeProject { project_id, .. } => self.host.send(
+                To::Client(client),
+                Message::ProjectError {
+                    project_id: Some(project_id),
+                    error: "a local host serves only its own catalogue".to_string(),
+                },
+            ),
             Message::RefreshProject { project_id } => {
                 let replies = self.projects.refresh(project_id);
                 self.answer(client, replies);

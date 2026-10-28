@@ -47,9 +47,11 @@ pub struct OriginCarrierSpec {
     /// folder browser asks it of the host it browsed, so the folder picked there becomes a local
     /// project pinned to that target.
     pub claims: fn(&AppState, &str) -> Option<String>,
-    /// Launch or adopt the drone this project's origin names. Called on every open, so adopting
-    /// an already-attached drone that serves the project is the carrier's to notice. A failure is
-    /// the carrier's to put on the row, through `WindowRegistry::mark_unreadable`.
+    /// Launch the drone this project's origin names. Called on an open only when no live
+    /// connection is one [`Self::claims`] names as the origin's target: the base adopts that one
+    /// itself and asks it to serve the folder (`ServeProject`), as it does for every pinned
+    /// project when such a connection attaches. A failure is the carrier's to put on the row,
+    /// through `WindowRegistry::mark_unreadable`.
     pub launch: fn(&mut AppState, ProjectId, &DroneOrigin, &mut Context<AppState>),
 }
 

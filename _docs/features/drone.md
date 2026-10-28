@@ -5,7 +5,7 @@ kind: feature
 status: current
 summary: One small executable Ubiq places on a machine it is not running on, serving that machine's terminal, files, search and machine facts over a single duplex byte stream — attached as an ordinary host over an SSH exec channel, with three lifetimes, a per-project origin, and a hash-pinned binary the interface uploads when the remote `PATH` has none.
 read_when: you are changing how Ubiq reaches a machine it is not running on — the drone binary, its handshake, its lifetime, its deployment, or the SSH profiles and surfaces behind it
-updated: 2026-10-27
+updated: 2026-10-28
 verified: 2026-10-27
 code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/ssh.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ext/origin.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
 depends_on: [tech-architecture, tech-transport, tech-structure, wip-drone]
@@ -143,6 +143,9 @@ whose socket does not answer is pruned — file and socket both — as it is fou
 that lists is a caller about to decide whether to start one.
 
 **The socket is keyed by root folder and `--root-id`**, so a drone started for a folder without an id is never adopted by a launch that names one.
+**`--root` is optional.** A drone launched with none starts with an empty catalogue and serves what
+a window asks it to; its key is the empty list's, so there is one rootless drone per user per
+machine at a stable path. Folders served at runtime never change the key.
 
 **Starting adopts rather than failing.** Binding a path a live drone answers on is success with
 nothing served, and a path that answers nothing is removed and rebound. That is what makes the one
@@ -163,9 +166,30 @@ a **contributed carrier**: an edition registers one through the origin-carrier c
 (`ext::origin`) with its kind, its list of targets, which saved remote it claims as its own drone,
 and a launch hook. The base registers none. Saving an origin writes the record and stops; nothing
 dials until the project is opened. Opening it launches or adopts the drone from the interface's side
-of the bus — for a profile, adopting a host that is attached for that same profile and folder *and* whose catalogue announced this project's id (a drone dialled from the folder browser carries no `--root-id`, so it is not adopted and a fresh one is dialled); for a
-contributed carrier, whatever its launch hook decides. An origin naming a carrier this build lacks
-puts a sentence on the row.
+of the bus. **Any host already attached to the origin's machine is adopted, whatever it was
+launched with** — a saved host on the same SSH profile, or one the origin's contributed carrier
+claims as that target — and asked to serve the folder. Only with none is a drone launched: a dial
+for a profile, the launch hook for a contributed carrier. An origin naming a carrier this build
+lacks puts a sentence on the row.
+
+**A drone serves what it is asked to.** `ServeProject { project_id, path }` is a drone's one
+catalogue write: serve the far folder under the id the local catalogue already holds. The window
+sends it for one project as it is opened against an attached host, and for every project pinned to
+a machine as a host on it attaches — reconnects included, since a restarted drone remembers
+nothing. The drone answers every client with its whole `ProjectList`, which moves the project's
+serving to it and re-asks the open tree; a folder that is not a directory there is refused with a
+`ProjectError`. Idempotent: asking again replaces the folder that id named. A local host refuses
+it — its catalogue is written through `AddProject`. Until a drone serves it, a pinned project's
+folder and pane requests are dropped rather than sent to the local host, which would read the same
+path on the wrong machine. The window sends it once per attach and per (re-)pin, and skips it when
+the project is already served there. A refusal of it lands on the project's row, not the banner.
+
+**An upload is keyed by drone version and message schema** (`~/.cache/ubiq/drone/<version>-schema<n>/`),
+and a saved drone path under that cache with another key is ignored, so a binary this build would
+refuse is never relaunched. A drone still running from an older schema is refused at the handshake
+with "the drone is older: replace its binary…", which a project's row says with the host's name. A
+held drone refused that way logs once at error level and exits rather than reopening its channel;
+an I/O failure in the handshake still just waits for the next client.
 
 **A folder picked on a drone becomes a local project.** A drone keeps no catalogue, so the remote
 folder browser's commit on a drone does not ask it to add one: it adds a local record pinned to the
@@ -312,8 +336,8 @@ the lean host build and the multi-host bus are
 
 **On the far machine.** `crates/ubiq-drone/src/main.rs` hand-rolls its argv; `relay.rs` is the run
 loop that stands in for the coordinator at a fraction of its surface — the pty map with its owners
-and focus, a file worker, a machine-facts sampler and a seeded catalogue held as a plain vector,
-since a relay has no write half to it. Standard output is flushed on every write, because a
+and focus, a file worker, a machine-facts sampler and a catalogue held as a plain vector — seeded
+from `--root`, grown by `ServeProject` (`Relay::serve`), never written down. Standard output is flushed on every write, because a
 length-prefixed binary frame carries no newline and an unflushed answer would leave the drone
 looking hung; logging goes to standard error, which the frames do not own. The config root and
 workarea are a per-pid folder under the temporary directory. `socket.rs` holds the listen, attach
@@ -346,7 +370,9 @@ itself and cannot name the host crate; the host re-exports it under the old name
 listing, wholesale replacement and host drop alike; `disconnect_host()` reads the rows a lost host
 served before dropping it, and marks each survivor unreadable.
 `AppState::ensure_drone()` in `crates/ubiq/src/app/projects.rs` is the launch-or-adopt path for a
-project with an origin, and `project_pinned_to()` is how the reconnect loop and the connect modal
+project with an origin; `origin_host()` in `remote_connect.rs` finds an attached host on the
+origin's machine, `serve_on()` sends the serve request, and `attach_remote()` calls
+`serve_pinned()` for every pinned project on the machine it just attached. `project_pinned_to()` is how the reconnect loop and the connect modal
 find the pinned id. Reconnect dispatches on carrier: a socket host dials with its token, an
 SSH carrier re-runs the dial with the saved profile, root and preset — cheap and non-destructive,
 because the launch line adopts. Only the **Attached** preset has nothing to reattach to.

@@ -8,7 +8,10 @@
 //!
 //! The path is derived from a hash of the roots the drone was launched with, so two windows
 //! opening the same project cannot start rival drones for it — they collide on the socket and the
-//! second one attaches to the first.
+//! second one attaches to the first. A drone launched with **no** roots hashes the empty list, so
+//! there is one rootless drone per user per machine, at a stable path: every window that starts
+//! one attaches to the same process and asks it to serve its folders (`ServeProject`). Folders
+//! served that way never change the key — the socket is what the drone was launched with.
 //!
 //! - [`listen`] is the drone: it binds, serves every attach on the same hub, and returns when the
 //!   relay's linger expires.

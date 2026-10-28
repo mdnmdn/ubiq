@@ -520,6 +520,11 @@ impl Bus {
         }
     }
 
+    /// Whether a project's row pins it to a drone, served or not.
+    pub fn is_pinned(&self, id: ProjectId) -> bool {
+        self.pinned_remote.borrow().contains(&id)
+    }
+
     /// Whether a project's row pins it to a drone and no drone is serving it right now.
     pub fn is_pinned_unserved(&self, id: ProjectId) -> bool {
         self.pinned_remote.borrow().contains(&id)

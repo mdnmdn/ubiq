@@ -112,8 +112,9 @@ impl AppState {
     /// learning a drone exists at all — attaching one is adding a host to this window, which is
     /// the interface's business and nothing the catalogue can do on its own.
     ///
-    /// A host already attached for the origin's profile and folder is adopted: it is already
-    /// serving that root, and a second `ssh` to it would start a rival drone for the same folder.
+    /// A host already attached to the origin's machine — through its SSH profile, or a carrier's
+    /// target — is adopted, whatever it was launched with: it is asked to serve the folder, and a
+    /// second drone for the same machine is never started. Only with none is one launched.
     pub(super) fn ensure_drone(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let Some(origin) = WindowRegistry::read(cx)
             .project(project)
@@ -128,7 +129,14 @@ impl AppState {
             cx.notify();
             return;
         }
-        // A contributed carrier launches, or adopts, its own drone — see `ext::origin`.
+        if let Some(host) = self.origin_host(&origin) {
+            // Already served there: nothing to ask on every switch back to the project.
+            if self.bus.project_host(project) != HostRef::Remote(host) {
+                self.serve_on(host, project, &origin);
+            }
+            return;
+        }
+        // A contributed carrier launches its own drone — see `ext::origin`.
         if let Some(via) = &origin.via {
             match crate::ext::origin::carrier(&via.kind) {
                 Some(spec) => (spec.launch)(self, project, &origin, cx),
@@ -143,9 +151,6 @@ impl AppState {
                     cx.notify();
                 }
             }
-            return;
-        }
-        if self.drone_attached(project, &origin) {
             return;
         }
         self.dial_project_drone(project, origin, cx);

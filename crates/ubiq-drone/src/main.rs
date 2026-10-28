@@ -22,7 +22,9 @@ ubiq-drone — one machine's terminal, files and facts, over one duplex byte str
                        multiplexer. What the multiplexer itself runs.
     --linger <spec>    how long a drone with no client waits: 0, a number of seconds
                        (10m, 2h), or never. The default is 10m, and an attach re-asserts it
-    --root <path>      add a project at <path>; may be given more than once
+    --root <path>      add a project at <path>; may be given more than once. Optional: a drone
+                       with none starts empty and serves what a window asks it to
+                       (ServeProject); its socket is then the one rootless drone's
     --root-id <ulid>   bind the preceding --root to this id, so the interface sees one project
                        rather than two; without it the drone mints a fresh one, as it always has
     --list             print every running drone this machine knows of, as JSON, and exit

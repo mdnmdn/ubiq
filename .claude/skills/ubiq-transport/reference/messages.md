@@ -94,7 +94,9 @@ which one is typing.
 `ListProjects`/`ProjectList`, `AddProject`/`ProjectAdded`, `ForgetProject`/`ProjectForgotten`,
 `UpdateProject`, `LocateProject`, `OpenedProject`, `RefreshProject` (→ `ProjectChanged`),
 `ProjectError`, `GetPreferences`/`Preferences`, `SetPreferences`, `GetSettings`/`Settings`,
-`SetSettings`/`SettingsError`.
+`SetSettings`/`SettingsError`. `ServeProject` (→ `ProjectList` to every client, or `ProjectError`)
+is a drone's one catalogue write — serve this far folder under the window's own id; a local host
+refuses it, and the window addresses it with `Bus::send_to`, never `send`.
 
 - **The only broadcast family.** `ProjectAdded`, `ProjectChanged`, `ProjectForgotten` reach every
   attached window, so every picker agrees by construction. `ProjectList`, `Preferences` and

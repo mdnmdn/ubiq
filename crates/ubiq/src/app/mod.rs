@@ -1963,6 +1963,14 @@ struct OpenWindows(HashMap<WindowId, WeakEntity<AppState>>);
 
 impl Global for OpenWindows {}
 
+impl AppState {
+    /// Whether the project is pinned to a drone and no drone serves it now — the project
+    /// picker's grey dot. Read-only over the bus's own state.
+    pub fn project_pinned_unserved(&self, project: ProjectId) -> bool {
+        self.bus.is_pinned_unserved(project)
+    }
+}
+
 impl OpenWindows {
     fn register(id: WindowId, view: WeakEntity<AppState>, cx: &mut App) {
         if !cx.has_global::<Self>() {
