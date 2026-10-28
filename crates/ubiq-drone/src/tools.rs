@@ -34,6 +34,9 @@ const LIST_CAP: usize = 2_000;
 const GLOB_CAP: usize = 2_000;
 const GREP_CAP: usize = 1_000;
 
+/// How long `run` waits for the output readers after the process ends.
+const READER_JOIN: Duration = Duration::from_secs(2);
+
 /// How long a tool's `--version` may take before it is reported absent.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
@@ -216,35 +219,86 @@ fn list(root: &Path, rel: &str, depth: Option<u32>) -> Result<RemoteOutput, Stri
     Ok(RemoteOutput::List { entries, truncated })
 }
 
+/// Read one line, keeping at most `keep` bytes of it and discarding the rest. Returns the kept
+/// bytes (newline included when it fit) and whether anything was discarded; `None` at end of file.
+fn read_line_capped(
+    reader: &mut impl std::io::BufRead,
+    keep: usize,
+) -> std::io::Result<Option<(Vec<u8>, bool)>> {
+    let mut line = Vec::new();
+    let mut cut = false;
+    let mut any = false;
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.is_empty() {
+            break;
+        }
+        any = true;
+        let (chunk, done) = match buf.iter().position(|&byte| byte == b'\n') {
+            Some(at) => (at + 1, true),
+            None => (buf.len(), false),
+        };
+        let room = keep.saturating_sub(line.len());
+        if chunk > room {
+            cut = true;
+        }
+        line.extend_from_slice(&buf[..chunk.min(room)]);
+        reader.consume(chunk);
+        if done {
+            break;
+        }
+    }
+    Ok(any.then_some((line, cut)))
+}
+
+/// Stream the file line by line, so any `offset` is reachable whatever the file's size.
+/// `truncated` is true only when more lines remain past what is returned.
 fn read(root: &Path, rel: &str, offset: u64, limit: u64) -> Result<RemoteOutput, String> {
-    let file = files::contents(root, rel, None).map_err(refuse)?;
-    if file.is_binary {
+    use std::io::BufRead as _;
+
+    let target = path::resolve(root, rel).map_err(refuse)?;
+    let file = std::fs::File::open(&target).map_err(|error| format!("{rel}: {error}"))?;
+    if !file.metadata().map_err(|error| format!("{rel}: {error}"))?.is_file() {
+        return Err(format!("{rel} is not a file"));
+    }
+    let mut reader = std::io::BufReader::new(file);
+    let head = reader.fill_buf().map_err(|error| format!("{rel}: {error}"))?;
+    if head[..head.len().min(8192)].contains(&0) {
         return Err(format!("{rel} is a binary file"));
     }
-    let text = String::from_utf8_lossy(&file.bytes);
+    let io = |error: std::io::Error| format!("{rel}: {error}");
+    let mut index = 0u64;
     let mut content = String::new();
-    let mut truncated = file.truncated;
-    for (index, line) in text.split_inclusive('\n').enumerate() {
-        if (index as u64) < offset {
+    loop {
+        if limit > 0 && index >= offset + limit {
+            let more = reader.fill_buf().map_err(io)?;
+            return Ok(RemoteOutput::Read { content, truncated: !more.is_empty() });
+        }
+        let Some((bytes, cut)) = read_line_capped(&mut reader, REMOTE_READ_CAP).map_err(io)? else {
+            return Ok(RemoteOutput::Read { content, truncated: false });
+        };
+        let here = index;
+        index += 1;
+        if here < offset {
             continue;
         }
-        if limit > 0 && index as u64 >= offset + limit {
-            truncated = true;
-            break;
-        }
-        if content.len() + line.len() > REMOTE_READ_CAP {
-            // A cut line is still progress: take what fits, on a character boundary.
-            let mut end = REMOTE_READ_CAP - content.len();
-            while !line.is_char_boundary(end) {
-                end -= 1;
+        let mut line = String::from_utf8_lossy(&bytes).into_owned();
+        if cut {
+            // The rest of an overlong line is dropped, said so, and the next line is next.
+            if !line.ends_with('\n') {
+                line.push('\n');
             }
-            content.push_str(&line[..end]);
-            truncated = true;
-            break;
+            line.insert_str(
+                line.len() - 1,
+                &format!(" [line cut at {REMOTE_READ_CAP} bytes]"),
+            );
         }
-        content.push_str(line);
+        if !content.is_empty() && content.len() + line.len() > REMOTE_READ_CAP {
+            // This line starts the next page: `offset` continues at it.
+            return Ok(RemoteOutput::Read { content, truncated: true });
+        }
+        content.push_str(&line);
     }
-    Ok(RemoteOutput::Read { content, truncated })
 }
 
 fn write(root: &Path, rel: &str, content: &str, overwrite: bool) -> Result<RemoteOutput, String> {
@@ -417,10 +471,12 @@ struct Tail {
     cut: bool,
 }
 
-fn drain(mut stream: impl std::io::Read + Send + 'static) -> Arc<Mutex<Tail>> {
+fn drain(
+    mut stream: impl std::io::Read + Send + 'static,
+) -> (Arc<Mutex<Tail>>, std::thread::JoinHandle<()>) {
     let tail = Arc::new(Mutex::new(Tail::default()));
     let shared = tail.clone();
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
         let mut buffer = [0u8; 8192];
         while let Ok(n) = stream.read(&mut buffer) {
             if n == 0 {
@@ -435,7 +491,18 @@ fn drain(mut stream: impl std::io::Read + Send + 'static) -> Arc<Mutex<Tail>> {
             }
         }
     });
-    tail
+    (tail, handle)
+}
+
+/// Wait for a reader to see end of stream, but not past `deadline`: a grandchild that inherited
+/// the pipe keeps it open, and must not hang the answer.
+fn join_by(handle: std::thread::JoinHandle<()>, deadline: Instant) {
+    while !handle.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    if handle.is_finished() {
+        let _ = handle.join();
+    }
 }
 
 fn take(tail: &Arc<Mutex<Tail>>) -> (String, bool) {
@@ -527,8 +594,8 @@ fn run(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("could not start the shell: {error}"))?;
-    let out = drain(child.stdout.take().expect("piped"));
-    let err = drain(child.stderr.take().expect("piped"));
+    let (out, out_reader) = drain(child.stdout.take().expect("piped"));
+    let (err, err_reader) = drain(child.stderr.take().expect("piped"));
 
     let timeout = Duration::from_millis(timeout_ms.max(1));
     let started = Instant::now();
@@ -544,8 +611,10 @@ fn run(
             None => std::thread::sleep(Duration::from_millis(10)),
         }
     };
-    // Let the readers take the last bytes the pipes held.
-    std::thread::sleep(Duration::from_millis(30));
+    // Let the readers take the last bytes the pipes held, within a bound.
+    let deadline = Instant::now() + READER_JOIN;
+    join_by(out_reader, deadline);
+    join_by(err_reader, deadline);
     let (stdout, cut_out) = take(&out);
     let (stderr, cut_err) = take(&err);
     Ok(RemoteOutput::Run(Box::new(RemoteRun {
@@ -669,6 +738,31 @@ mod tests {
                 truncated: true
             })
         );
+    }
+
+    #[test]
+    fn read_pages_past_the_cap_and_cuts_long_lines() {
+        let (dir, roots) = fixture();
+        let big: String = (0..60_000).map(|n| format!("line {n}\n")).collect();
+        std::fs::write(dir.path().join("big.txt"), &big).unwrap();
+        let read = |offset, limit| {
+            call(&roots, RemoteOp::Read { path: "big.txt".into(), offset, limit })
+        };
+        let Ok(RemoteOutput::Read { content, truncated }) = read(59_990, 0) else { panic!() };
+        assert!(content.starts_with("line 59990\n") && content.ends_with("line 59999\n"));
+        assert!(!truncated);
+        let Ok(RemoteOutput::Read { truncated, .. }) = read(0, 0) else { panic!() };
+        assert!(truncated);
+        let Ok(RemoteOutput::Read { truncated, .. }) = read(59_998, 2) else { panic!() };
+        assert!(!truncated);
+
+        std::fs::write(dir.path().join("w.txt"), format!("{}\nnext\n", "x".repeat(300_000))).unwrap();
+        let out = call(&roots, RemoteOp::Read { path: "w.txt".into(), offset: 0, limit: 0 });
+        let Ok(RemoteOutput::Read { content, truncated }) = out else { panic!() };
+        // The cut line fills the page; `next` is the following page, at offset 1.
+        assert!(content.contains("[line cut at") && truncated);
+        let out = call(&roots, RemoteOp::Read { path: "w.txt".into(), offset: 1, limit: 0 });
+        assert_eq!(out, Ok(RemoteOutput::Read { content: "next\n".into(), truncated: false }));
     }
 
     #[test]

@@ -297,7 +297,20 @@ pub fn call(
         root,
         op,
     });
-    let output = reach.calls.wait(call_id, &waiting, bound)?;
+    let mutating = matches!(tool, "remote_write" | "remote_edit");
+    let output = reach
+        .calls
+        .wait(call_id, &waiting, bound)
+        .map_err(|error| {
+            if mutating && error.starts_with("the remote did not answer") {
+                format!(
+                    "{error}; the outcome is unknown: the change may or may not have been applied. \
+                     Verify with remote_read before retrying"
+                )
+            } else {
+                error
+            }
+        })?;
     Ok(Value::String(format(&output, read_offset)))
 }
 

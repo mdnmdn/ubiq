@@ -805,6 +805,7 @@ fn tape_value(message: &Message) -> Option<serde_json::Value> {
                 bodies.push(("/op/old".into(), old.len()));
                 bodies.push(("/op/new".into(), new.len()));
             }
+            RemoteOp::Run { cmd, .. } => bodies.push(("/op/cmd".into(), cmd.len())),
             _ => {}
         },
         Message::RemoteToolResult {
@@ -998,6 +999,18 @@ mod tests {
                     old: "hunter2-old".into(),
                     new: "hunter2-new".into(),
                     replace_all: false,
+                },
+            },
+            Message::RemoteToolCall {
+                call_id,
+                project_id,
+                remote: None,
+                root: None,
+                op: RemoteOp::Run {
+                    cmd: "echo hunter2-cmd".into(),
+                    cwd: None,
+                    timeout_ms: 1000,
+                    shell: None,
                 },
             },
             result(RemoteOutput::Read {
