@@ -26,7 +26,8 @@ use ubiq_proto::notifications::{Family, Level, NotificationRequest};
 
 use super::catalogue::{
     MANAGE_UBIQ_TASKS, PROJECT_INFO, TEST, UBIQ_ARCHIFY, UBIQ_ASK, UBIQ_BROWSER, UBIQ_DOC,
-    UBIQ_HELP, UBIQ_KB, UBIQ_MISSION, UBIQ_PLAN, UBIQ_SQL_READ, UBIQ_SQL_WRITE, USE_TASK,
+    UBIQ_HELP, UBIQ_KB, UBIQ_MISSION, UBIQ_PLAN, UBIQ_REMOTE, UBIQ_SQL_READ, UBIQ_SQL_WRITE,
+    USE_TASK,
 };
 use super::registry::AgentFacts;
 use super::{
@@ -112,6 +113,8 @@ pub fn call(
         // A browser call with a reach never gets here: [`super::server::handle`] serves it on a
         // thread of its own, because it waits on a window. Only a build with no reach lands here.
         (UBIQ_BROWSER, _) => Err("this host has no browser for agents to reach".to_string()),
+        // The same for a remote call: served on its own thread when the listener has a reach.
+        (UBIQ_REMOTE, _) => Err("this host has no remote machines for agents to reach".to_string()),
         _ => Err(format!("unknown tool: {server}/{tool}")),
     }
 }

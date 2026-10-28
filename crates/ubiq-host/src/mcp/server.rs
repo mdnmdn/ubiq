@@ -42,8 +42,8 @@ use ubiq_proto::bus::Voice;
 use super::catalogue::{self, ServerSpec};
 use super::registry::{AgentFacts, Registry};
 use super::{
-    ArchifyReach, AskReach, BrowserReach, HelpReach, KbReach, MissionReach, PlanReach, SqlReach,
-    WorkAccess,
+    ArchifyReach, AskReach, BrowserReach, HelpReach, KbReach, MissionReach, PlanReach, RemoteReach,
+    SqlReach, WorkAccess,
 };
 
 /// How often the serving thread wakes to check whether it should stop. Bounds shutdown latency
@@ -114,6 +114,7 @@ pub fn start(
     sql: Option<SqlReach>,
     archify: Option<ArchifyReach>,
     browser: Option<BrowserReach>,
+    remote: Option<RemoteReach>,
 ) -> anyhow::Result<Serving> {
     let http = tiny_http::Server::http("127.0.0.1:0")
         .map_err(|error| anyhow::anyhow!("binding the MCP listener: {error}"))?;
@@ -141,6 +142,7 @@ pub fn start(
                 sql,
                 archify,
                 browser,
+                remote,
                 stop_thread,
             )
         })
@@ -174,6 +176,7 @@ fn serve(
     sql: Option<SqlReach>,
     archify: Option<ArchifyReach>,
     browser: Option<BrowserReach>,
+    remote: Option<RemoteReach>,
     stop: Arc<AtomicBool>,
 ) {
     while !stop.load(Ordering::SeqCst) {
@@ -191,6 +194,7 @@ fn serve(
                 sql.as_ref(),
                 archify.as_ref(),
                 browser.as_ref(),
+                remote.as_ref(),
             ),
             Ok(None) => continue,
             Err(_) => break,
@@ -214,6 +218,7 @@ fn handle(
     sql: Option<&SqlReach>,
     archify: Option<&ArchifyReach>,
     browser: Option<&BrowserReach>,
+    remote: Option<&RemoteReach>,
 ) {
     let Some((key, server)) = route(request.url()) else {
         let _ = request.respond(not_found());
@@ -384,6 +389,45 @@ fn handle(
             });
         if let Err(error) = spawned {
             tracing::error!("a browser call could not be served on a thread of its own: {error}");
+        }
+        return;
+    }
+
+    // A remote call waits on a drone through a window — a `remote_run` for as long as its own
+    // timeout — so it is served exactly as a browser call is: a thread of its own, at most
+    // [`remote::MAX_CALLS`] at once, the next refused as busy (`D202`, `D226`).
+    if spec.name == catalogue::UBIQ_REMOTE
+        && method == "tools/call"
+        && let Some(reach) = remote
+    {
+        let Some(slot) = reach.claim() else {
+            let busy = tool_error(&format!(
+                "busy: {} remote calls are already running; wait for one to finish and retry",
+                super::remote::MAX_CALLS
+            ));
+            let _ = request.respond(json_response(&envelope(&id, busy)));
+            return;
+        };
+        let reach = reach.clone();
+        let voice = voice.clone();
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let spawned = std::thread::Builder::new()
+            .name("ubiq-remote-call".to_string())
+            .spawn(move || {
+                let _slot = slot;
+                let result = super::remote::call(&name, &arguments, &facts, &voice, &reach);
+                let _ = request.respond(json_response(&envelope(&id, tool_result(result))));
+            });
+        if let Err(error) = spawned {
+            tracing::error!("a remote call could not be served on a thread of its own: {error}");
         }
         return;
     }
@@ -771,6 +815,7 @@ mod tests {
     fn facts() -> AgentFacts {
         AgentFacts {
             mission: None,
+            remote: None,
             key: KEY.to_string(),
             name: "claude 1".to_string(),
             harness: "Claude Code".to_string(),
@@ -809,6 +854,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         (serving, hub, host)
@@ -830,6 +876,7 @@ mod tests {
             registry,
             host.voice(),
             Some(access),
+            None,
             None,
             None,
             None,
@@ -892,6 +939,7 @@ mod tests {
             host.voice(),
             None,
             Some(reach),
+            None,
             None,
             None,
             None,
@@ -1609,6 +1657,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("the listener binds");
         let _keep = (&hub, &host);
@@ -1725,6 +1774,7 @@ mod tests {
             host.voice(),
             None,
             Some(reach),
+            None,
             None,
             None,
             None,
@@ -2024,6 +2074,7 @@ mod tests {
             None,
             None,
             Some(reach),
+            None,
             None,
             None,
             None,
@@ -2360,6 +2411,7 @@ mod tests {
                 asks: Arc::clone(&asks),
                 armed: Arc::clone(&armed),
             }),
+            None,
             None,
             None,
             None,

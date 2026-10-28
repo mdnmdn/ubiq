@@ -744,6 +744,7 @@ mod tests {
                 cwd: path.clone(),
                 session: None,
                 mission: None,
+                remote: None,
                 project: ProjectFacts {
                     id: PROJECT.to_string(),
                     name: "P".to_string(),

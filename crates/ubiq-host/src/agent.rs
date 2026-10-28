@@ -237,6 +237,10 @@ pub struct ConverseOptions {
     /// Extra folders this run may write when isolation is on, as typed (absolute or
     /// `~`-prefixed). The launch's own; the definition's are read in `compose_run`.
     pub extra_rw: Vec<String>,
+    /// Always-on instructions Ubiq adds to whatever the definition resolved — appended to the
+    /// spec's `initial.instructions`, which the library writes wherever this harness reads them.
+    /// Set for an agent bound to a remote (`D226`); `None` everywhere else.
+    pub instructions: Option<String>,
 }
 
 /// A sign-in into an account's config home (`D194`) that has been prepared and not yet
@@ -1418,6 +1422,7 @@ impl Agents {
     ) -> Result<Composed> {
         let harness = harness::resolve(agent_type)
             .ok_or_else(|| anyhow!("unknown agent type '{agent_type}'"))?;
+        let extra_instructions = options.instructions.take();
 
         // The folders this run may write beyond the host-wide grants: the definition's own, read
         // through the run's scope, then this launch's. Only a confined run has a policy to add to.
@@ -1557,6 +1562,20 @@ impl Agents {
             &definitions,
         )
         .with_context(|| format!("composing a {agent_type} run"))?;
+        // Ubiq's own instructions go after the definition's, never in place of them: where they
+        // land is the library's answer, so no harness detail is named here.
+        if let Some(extra) = extra_instructions {
+            let initial = spec
+                .initial
+                .get_or_insert_with(|| agent_manager::spec::Instructions {
+                    instructions: None,
+                    prompt: None,
+                });
+            initial.instructions = Some(match initial.instructions.take() {
+                Some(existing) if !existing.trim().is_empty() => format!("{existing}\n\n{extra}"),
+                _ => extra,
+            });
+        }
         // The account `resolve` actually landed on — the one this run picked, or the definition's,
         // or none — because under `D194` that is what the config home is keyed by. Read off the
         // spec rather than re-derived: an account id nothing answers to has already degraded to

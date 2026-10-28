@@ -66,6 +66,11 @@ pub const UBIQ_ARCHIFY: &str = "ubiq-archify";
 /// agent belongs to — open, navigate, read, evaluate. Not in a default set — a definition names it.
 pub const UBIQ_BROWSER: &str = "ubiq-browser";
 
+/// The slug of the remote server: work on the drone the agent was started bound to — read, write,
+/// edit, search and run there (`D226`). Not in a default set: the host injects it into a launch
+/// whose `StartConversation.remote` is set.
+pub const UBIQ_REMOTE: &str = "ubiq-remote";
+
 /// The slug of the SQL server that only reads: every connection the user let agents use, run under
 /// the engine's read-only guard (`D202`). Not in a default set — a definition names it.
 pub const UBIQ_SQL_READ: &str = "ubiq-sql-read";
@@ -1663,6 +1668,128 @@ pub const SERVERS: &[ServerSpec] = &[
         ],
     },
     ServerSpec {
+        name: UBIQ_REMOTE,
+        title: "Remote machine",
+        description: "Work on the remote machine this agent is bound to: list, read, write and edit files, search them, and run commands there. Every path is relative to one of the remote's roots — call remote_info first to see them — and `root` picks one by name (omit it for the first). The local working directory is a scratch folder, not the remote. Every call fails when no Ubiq window holding the remote's link is open.",
+        tools: &[
+            ToolSpec {
+                name: "remote_info",
+                description: "The remote machine: hostname, OS and architecture, its shell, the roots paths are relative to (and which are read-only), and the tools on its PATH. Call it first.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "remote_list",
+                description: "The entries under a folder, one per line: a folder ends in '/', a file is followed by its size in bytes.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Root-relative folder. Omit for the root itself."},
+                        "depth": {"type": "integer", "minimum": 1, "description": "How many levels down. Omit for one."},
+                        "root": {"type": "string", "description": "The remote root, by the name remote_info lists. Omit for the first."}
+                    },
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "remote_read",
+                description: "A text file's lines, numbered like cat -n. At most 128 KiB per call; a cut answer says the offset to continue from.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Root-relative file."},
+                        "offset": {"type": "integer", "minimum": 0, "description": "Lines to skip. Default 0."},
+                        "limit": {"type": "integer", "minimum": 0, "description": "Most lines to return. 0 or omitted is up to the cap."},
+                        "root": {"type": "string", "description": "The remote root, by the name remote_info lists. Omit for the first."}
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "remote_write",
+                description: "Write a whole file. An existing file is refused unless overwrite is true. A read-only root refuses every write.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Root-relative file."},
+                        "content": {"type": "string", "description": "The file's whole new content."},
+                        "overwrite": {"type": "boolean", "description": "Replace a file that exists. Default false."},
+                        "root": {"type": "string", "description": "The remote root, by the name remote_info lists. Omit for the first."}
+                    },
+                    "required": ["path", "content"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "remote_edit",
+                description: "Replace old with new in a file. Without replace_all, old must occur exactly once — include enough context to make it unique. Returns the number of replacements.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Root-relative file."},
+                        "old": {"type": "string", "description": "The exact text to replace."},
+                        "new": {"type": "string", "description": "What replaces it."},
+                        "replace_all": {"type": "boolean", "description": "Replace every occurrence. Default false."},
+                        "root": {"type": "string", "description": "The remote root, by the name remote_info lists. Omit for the first."}
+                    },
+                    "required": ["path", "old", "new"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "remote_glob",
+                description: "Root-relative paths matching a glob pattern (e.g. '**/*.rs'), one per line.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "pattern": {"type": "string", "description": "The glob pattern."},
+                        "path": {"type": "string", "description": "Root-relative folder to search under. Omit for the root."},
+                        "root": {"type": "string", "description": "The remote root, by the name remote_info lists. Omit for the first."}
+                    },
+                    "required": ["pattern"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "remote_grep",
+                description: "Lines matching a regular expression, as path:line: text.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "pattern": {"type": "string", "description": "The regular expression."},
+                        "path": {"type": "string", "description": "Root-relative folder or file to search. Omit for the root."},
+                        "glob": {"type": "string", "description": "Only files matching this glob, e.g. '*.py'."},
+                        "case_insensitive": {"type": "boolean", "description": "Default false."},
+                        "max_results": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 200},
+                        "root": {"type": "string", "description": "The remote root, by the name remote_info lists. Omit for the first."}
+                    },
+                    "required": ["pattern"],
+                    "additionalProperties": false
+                }"#,
+            },
+            ToolSpec {
+                name: "remote_run",
+                description: "Run a shell command on the remote machine, as a process with no terminal, killed after timeout_ms. Returns the exit code and the tails of stdout and stderr (64 KiB each), with flags when output was cut or the command timed out.",
+                schema: r#"{
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string", "description": "The command line, run through the shell."},
+                        "cwd": {"type": "string", "description": "Root-relative folder to run in. Omit for the root."},
+                        "timeout_ms": {"type": "integer", "minimum": 1000, "maximum": 600000, "default": 120000},
+                        "shell": {"type": "string", "description": "The shell to run it through. Omit for the remote's own."},
+                        "root": {"type": "string", "description": "The remote root, by the name remote_info lists. Omit for the first."}
+                    },
+                    "required": ["cmd"],
+                    "additionalProperties": false
+                }"#,
+            },
+        ],
+    },
+    ServerSpec {
         name: UBIQ_ASK,
         title: "Ask the user",
         description: "Ask the person watching a structured question. Use it when a choice is theirs to make — an approach, a trade-off, a name — rather than guessing and writing something they did not ask for. The call returns instantly and cannot time out; the dialog is shown the moment your turn ends and their answer arrives as your next turn.",
@@ -1894,6 +2021,35 @@ mod tests {
             assert!(!set.contains(&UBIQ_BROWSER));
         }
         assert_eq!(server(UBIQ_BROWSER).unwrap().tools.len(), 12);
+    }
+
+    #[test]
+    fn the_remote_server_is_in_no_default_set_and_every_tool_maps_to_an_op() {
+        for set in [
+            PLANNER_MCPS,
+            WORKER_MCPS,
+            DOC_MCPS,
+            LAUNCH_PLANNER_MCPS,
+            LAUNCH_WORKER_MCPS,
+            LAUNCH_MISSION_REVIEWER_MCPS,
+        ] {
+            assert!(!set.contains(&UBIQ_REMOTE));
+        }
+        let spec = server(UBIQ_REMOTE).unwrap();
+        assert_eq!(spec.tools.len(), 8);
+        for tool in spec.tools {
+            // Every tool's required arguments, filled with something, are enough to build its op.
+            let schema: Value = serde_json::from_str(tool.schema).unwrap();
+            let mut arguments = serde_json::Map::new();
+            for field in schema["required"].as_array().into_iter().flatten() {
+                arguments.insert(field.as_str().unwrap().to_string(), "x".into());
+            }
+            assert!(
+                super::super::remote::op_for(tool.name, &Value::Object(arguments)).is_ok(),
+                "{}",
+                tool.name
+            );
+        }
     }
 
     #[test]

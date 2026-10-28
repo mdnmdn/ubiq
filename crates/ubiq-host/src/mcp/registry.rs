@@ -53,6 +53,10 @@ pub struct AgentFacts {
     /// one writer. An agent is in the mission of the task it is assigned to: the parent itself or
     /// one of its children.
     pub mission: Option<TaskId>,
+    /// The saved remote this agent is bound to, by `SavedRemoteHost::id`, from
+    /// `StartConversation.remote` — what every `ubiq-remote` call names, so the model never picks
+    /// the machine (`D226`). `None` for an ordinary local agent, and always for a pane.
+    pub remote: Option<String>,
 }
 
 /// The project half of the same snapshot, as `project_info` answers it.

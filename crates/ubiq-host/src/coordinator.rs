@@ -367,6 +367,9 @@ struct Coordinator {
     /// Every `ubiq-browser` command an agent is waiting on a window for. `Arc` for [`Self::asks`]'s
     /// reason: the listener's call thread waits in it, this thread addresses and releases.
     browser_commands: Arc<crate::browser::Commands>,
+    /// Every `ubiq-remote` call an agent is waiting on a window to relay to its drone — the
+    /// browser commands' table and reason, keyed by `RemoteCallId` (`D226`).
+    remote_calls: Arc<crate::mcp::RemoteCalls>,
     /// The per-project browsing history, on a worker thread of its own.
     browser_history: crate::browser::History,
     /// The launch recipe for every agent this window has asked for, kept for the agent's whole
@@ -485,6 +488,18 @@ struct PendingConversation {
     /// The extra read-write folders this launch asked for, from
     /// [`Message::StartConversation::grants`], carried through to [`ConverseOptions::extra_rw`].
     extra_rw: Vec<String>,
+    /// The saved remote this conversation is bound to, from
+    /// [`Message::StartConversation::remote`]: registered on its MCP row so every `ubiq-remote`
+    /// call names it, and turned into the run's remote instructions on every launch (`D226`).
+    remote: Option<RemoteBinding>,
+}
+
+/// An agent's binding to a saved remote host: the id the calls carry, and the label its working
+/// folder and its instructions name.
+#[derive(Clone, Debug)]
+struct RemoteBinding {
+    id: String,
+    label: String,
 }
 
 /// The paths of the read-write grants a launch carried. A grant on a start is a write grant by
@@ -959,6 +974,8 @@ impl Coordinator {
         // The browser commands, shared the same way: the `ubiq-browser` call thread waits in the
         // table, this one addresses each command and releases it on the window's reply.
         let browser_commands = Arc::new(crate::browser::Commands::new());
+        // The remote calls, shared the same way and for the same reason.
+        let remote_calls = Arc::new(crate::mcp::RemoteCalls::new());
         let browser_history =
             crate::browser::History::start(root.path.clone(), host.mailbox(To::Everyone));
         // The database family, built here so the SQL servers can be handed a handle on it: they run
@@ -1012,6 +1029,7 @@ impl Coordinator {
                 everyone: host.mailbox(To::Everyone),
             }),
             Some(crate::mcp::BrowserReach::new(browser_commands.clone())),
+            Some(crate::mcp::RemoteReach::new(remote_calls.clone())),
         )
         .inspect_err(|error| {
             tracing::warn!("Ubiq's own MCP servers are not available: {error:#}");
@@ -1163,6 +1181,8 @@ impl Coordinator {
                         mcps: Vec::new(),
                         skills: Vec::new(),
                         extra_rw: Vec::new(),
+                        // Not persisted either: a revived remote agent comes back unbound (`G461`).
+                        remote: None,
                     },
                 )
             })
@@ -1249,6 +1269,7 @@ impl Coordinator {
             asks,
             armed,
             browser_commands,
+            remote_calls,
             browser_history,
             pending_conversations,
             logins: HashMap::new(),
@@ -1473,6 +1494,8 @@ impl Coordinator {
         self.db.client_gone(client);
         // A browser command it was carrying out will never be answered.
         self.browser_commands.client_gone(client);
+        // And no remote call it was relaying will be answered either.
+        self.remote_calls.client_gone(client);
     }
 
     /// A project has moved to another window: everything running in it is now that window's.
@@ -3548,9 +3571,7 @@ impl Coordinator {
                 skills,
                 spawned_by,
                 grants,
-                // Not yet honoured: injecting `ubiq-remote` and the per-remote cwd is a later
-                // phase of the remote-tool family (`D226`).
-                remote: _,
+                remote,
             } => {
                 self.start_conversation(
                     client,
@@ -3568,6 +3589,7 @@ impl Coordinator {
                     skills,
                     spawned_by,
                     rw_paths(grants),
+                    remote,
                 );
             }
             Message::PromptAgent { agent_id, text } => {
@@ -4003,6 +4025,50 @@ impl Coordinator {
             } => {
                 self.browser_commands.reply(client, req_id, result);
             }
+            // Raised by a `ubiq-remote` tool call through the host's own voice, addressed here to
+            // the one window that owns the calling agent — `BrowserCommand`'s shape. The window
+            // relays it to the drone unread and relays the drone's result back (`D226`).
+            Message::RemoteToolCall {
+                call_id,
+                project_id,
+                remote,
+                root,
+                op,
+            } => {
+                if !client.is_host_voice() {
+                    tracing::warn!("{client} sent a RemoteToolCall, which only the host says");
+                    return;
+                }
+                let Some(caller) = self.remote_calls.caller(call_id) else {
+                    return;
+                };
+                match self.browser_target(&caller, project_id) {
+                    Some(owner) => {
+                        self.remote_calls.sent_to(call_id, owner);
+                        self.host.send(
+                            To::Client(owner),
+                            Message::RemoteToolCall {
+                                call_id,
+                                project_id,
+                                remote,
+                                root,
+                                op,
+                            },
+                        );
+                    }
+                    None => {
+                        self.remote_calls
+                            .finish(call_id, Err(crate::mcp::remote::NO_WINDOW.to_string()));
+                    }
+                }
+            }
+            Message::RemoteToolResult {
+                project_id: _,
+                call_id,
+                result,
+            } => {
+                self.remote_calls.reply(client, call_id, result);
+            }
 
             // ── the database family ─────────────────────────────────
             // Every driver call blocks, so none is made here: `Db` queues each on a session thread
@@ -4073,9 +4139,49 @@ impl Coordinator {
         skills: Vec<String>,
         spawned_by: Option<AgentId>,
         extra_rw: Vec<String>,
+        remote: Option<String>,
     ) {
         let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
             return;
+        };
+        // An agent bound to a remote runs in a scratch folder of its own under the project, not in
+        // `rel_path` — the folder is deliberately not the target system — and is handed the
+        // `ubiq-remote` server whose calls name the remote (`D226`).
+        let mut mcps = mcps;
+        let (cwd, remote) = match remote.filter(|id| !id.trim().is_empty()) {
+            None => (cwd, None),
+            Some(id) => {
+                let label = self
+                    .settings
+                    .host()
+                    .remote_hosts
+                    .into_iter()
+                    .find(|saved| saved.id == id)
+                    .map(|saved| saved.name)
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| id.clone());
+                let root = self
+                    .projects
+                    .record(project_id)
+                    .map(|record| PathBuf::from(&record.path))
+                    .unwrap_or_else(|| cwd.clone());
+                let workdir = crate::mcp::remote::workdir(&root, &label);
+                if let Err(error) = std::fs::create_dir_all(&workdir) {
+                    self.refuse_conversation(
+                        client,
+                        agent_id,
+                        format!("{}: {error}", workdir.display()),
+                    );
+                    return;
+                }
+                if !mcps
+                    .iter()
+                    .any(|name| name == crate::mcp::catalogue::UBIQ_REMOTE)
+                {
+                    mcps.push(crate::mcp::catalogue::UBIQ_REMOTE.to_string());
+                }
+                (workdir, Some(RemoteBinding { id, label }))
+            }
         };
 
         if !self.agents.is_agent_type(&agent_type) {
@@ -4243,6 +4349,7 @@ impl Coordinator {
                 mcps,
                 skills,
                 extra_rw,
+                remote,
             },
         );
         self.remember_conversation(agent_id);
@@ -4388,6 +4495,7 @@ impl Coordinator {
             session: pending.resume.clone(),
             project,
             mission,
+            remote: pending.remote.as_ref().map(|binding| binding.id.clone()),
         });
 
         let (composed, bridge) = match self.agents.converse(
@@ -4409,6 +4517,10 @@ impl Coordinator {
                 mcps: pending.mcps.clone(),
                 skills: pending.skills.clone(),
                 extra_rw: pending.extra_rw.clone(),
+                instructions: pending
+                    .remote
+                    .as_ref()
+                    .map(|binding| crate::mcp::remote::instructions(&binding.label)),
             },
         ) {
             Ok(started) => started,
@@ -4970,6 +5082,9 @@ impl Coordinator {
             // a link nobody made.
             None,
             Vec::new(),
+            // The binding is not on the row either: a revived remote agent comes back as an
+            // ordinary local one (`G461`).
+            None,
         );
         // `start_conversation` refuses on its own terms — an unknown harness, an unreadable folder
         // — and says so; there is nothing here to add if it did.
@@ -7287,6 +7402,7 @@ impl Coordinator {
             prompt: None,
             resume: None,
             fork: false,
+            instructions: None,
         };
         // An agent type the library knows is composed — its skills, its throwaway configuration
         // and the policy it runs under all come from there. Anything else is a program name,
@@ -7341,6 +7457,8 @@ impl Coordinator {
                 // A pane is not an agent card: it has no `WorkAgent`, so nothing can assign it to
                 // a task and it is never in a mission.
                 mission: None,
+                // Nor is it ever bound to a remote: only a conversation is (`D226`).
+                remote: None,
             });
         }
 
@@ -8629,6 +8747,7 @@ mod tests {
                 mcps: Vec::new(),
                 skills: Vec::new(),
                 extra_rw: Vec::new(),
+                remote: None,
             },
         );
         let mailbox = coordinator.host.mailbox(To::Client(client.id()));

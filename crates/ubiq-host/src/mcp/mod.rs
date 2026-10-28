@@ -45,6 +45,9 @@
 //! - `browser`: the `ubiq-browser` server, driving the project's internal browser tabs: each call
 //!   says [`ubiq_proto::messages::Message::BrowserCommand`], parks on [`crate::browser::Commands`]
 //!   on a thread of its own, and returns what the window replied — or a timeout
+//! - `remote`: the `ubiq-remote` server, an agent bound to a drone working on the far machine on
+//!   the browser's shape: each call says [`ubiq_proto::messages::Message::RemoteToolCall`], parks
+//!   on [`RemoteCalls`], and returns the drone's relayed result as compact text (`D226`)
 //!
 //! The boundary this sits inside is the ordinary one: nothing here draws. A notification a tool
 //! raised goes through [`ubiq_proto::bus::Voice`] as
@@ -61,6 +64,7 @@ mod kb;
 mod mission;
 mod plan;
 pub mod registry;
+pub mod remote;
 pub mod server;
 #[cfg(feature = "db")]
 pub mod sql;
@@ -84,6 +88,7 @@ pub enum SqlReach {}
 
 pub use catalogue::{catalogue, knows};
 pub use registry::{AgentFacts, ProjectFacts, Registry};
+pub use remote::RemoteCalls;
 pub use server::{Serving, start};
 
 /// How the task tools reach the board, and how they tell every window what they changed.
@@ -182,6 +187,15 @@ pub struct ArchifyReach {
 #[derive(Clone)]
 pub struct BrowserReach {
     pub commands: Arc<crate::browser::Commands>,
+    inflight: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// How the remote tools reach a drone: the table a call waits in until the window relays the
+/// drone's [`ubiq_proto::messages::Message::RemoteToolResult`]. [`BrowserReach`]'s shape and cap
+/// ([`remote::MAX_CALLS`]), for its reasons.
+#[derive(Clone)]
+pub struct RemoteReach {
+    pub calls: Arc<RemoteCalls>,
     inflight: Arc<std::sync::atomic::AtomicUsize>,
 }
 

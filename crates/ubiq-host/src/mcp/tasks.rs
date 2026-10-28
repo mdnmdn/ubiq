@@ -1103,6 +1103,7 @@ mod tests {
             mode: Some("default".to_string()),
             cwd: "/tmp/project".to_string(),
             mission: None,
+            remote: None,
             session: None,
             project: ProjectFacts {
                 id: PROJECT.to_string(),

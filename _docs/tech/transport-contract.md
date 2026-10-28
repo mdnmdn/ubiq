@@ -7,7 +7,7 @@ summary: The complete message set the UI and the coordinator exchange — the pa
 read_when: you are adding, changing or removing a message, or wiring either half to the bus
 updated: 2026-10-28
 verified: 2026-10-28
-code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/browser.rs, crates/ubiq-proto/src/remote_tools.rs, crates/ubiq-proto/src/tunnel.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
+code_anchors: [crates/ubiq-proto/src/messages.rs, crates/ubiq-proto/src/ask.rs, crates/ubiq-host/src/ask.rs, crates/ubiq-host/src/armed.rs, crates/ubiq-host/src/mcp/ask.rs, crates/ubiq-proto/src/quota.rs, crates/ubiq-host/src/quota.rs, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq-proto/src/connectors.rs, crates/ubiq-proto/src/ids.rs, crates/ubiq-proto/src/browser.rs, crates/ubiq-proto/src/remote_tools.rs, crates/ubiq-proto/src/tunnel.rs, crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq-host/src/mcp/remote.rs, crates/ubiq-proto/src/db.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/feedback.rs, crates/ubiq-host/src/feedback/mod.rs, crates/ubiq-host/src/feedback/api.rs, crates/ubiq-host/src/feedback/issues.rs, crates/ubiq-host/src/feedback/keychain.rs, crates/ubiq-proto/src/update.rs, crates/ubiq-host/src/updates/mod.rs, crates/ubiq-host/src/updates/feed.rs, crates/ubiq-host/src/updates/apply.rs, crates/ubiq-proto/src/files.rs, crates/ubiq-proto/src/git.rs, crates/ubiq-proto/src/work.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-proto/src/conversation.rs, crates/ubiq-proto/src/repos.rs, crates/ubiq-proto/src/tasksrc.rs, crates/ubiq-proto/src/stats.rs, crates/ubiq-proto/src/assist.rs, crates/ubiq-proto/src/notifications.rs, crates/ubiq-proto/src/tools.rs, crates/ubiq-host/src/notifications/mod.rs, crates/ubiq-host/src/assist/mod.rs, crates/ubiq-host/src/assist/api.rs, crates/ubiq-host/src/assist/providers.rs, crates/ubiq-host/src/assist/subject.rs, crates/ubiq-host/src/assist/stub.rs, crates/ubiq-host/src/conversation.rs, crates/ubiq-host/src/conversation_record.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-proto/src/mcp.rs, crates/ubiq-proto/src/catalog.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-proto/src/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-proto/src/mission.rs, crates/ubiq-host/src/mission/mod.rs, crates/ubiq-host/src/mission/runner.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-host/src/mcp/mission.rs, crates/ubiq-host/src/mcp/catalogue.rs, crates/ubiq-host/src/mcp/registry.rs]
 depends_on: [tech-architecture]
 review_cycle: monthly
 ---
@@ -981,8 +981,18 @@ handlers it already runs for the interface — the file worker for `list`, `read
 `edit`, its search tool for `glob` and `grep` — so path safety, confinement and refusals are those
 handlers', not a reimplementation in front of them; only `run` and `info` are new on the drone.
 
-**On the contract, unanswered.** Nothing sends either variant, the coordinator and the drone
-relay refuse them through their catch-alls, and the window has no relay arm (`G461`).
+**The host's half is the browser family's.** An agent's `ubiq-remote` tool call (`remote_info`,
+`remote_list`, `remote_read`, `remote_write`, `remote_edit`, `remote_glob`, `remote_grep`,
+`remote_run`, each taking an optional `root`) files a row keyed by a fresh `call_id` and says
+`RemoteToolCall` through the host's own voice; the coordinator sends it to exactly one window — the
+one owning the calling agent, else the lowest-numbered window watching the project — with `remote`
+always `Some`, the agent's bound `SavedRemoteHost.id` (the model never names a machine). A
+`RemoteToolCall` from a window is warned about and dropped. Only the window it was sent to may end
+the call with `RemoteToolResult`; the first result wins, a later one is discarded. A file op waits
+30 s, `remote_run` its `timeout_ms` (default 120 s, clamped to 1–600 s) plus 15 s; a window that
+closes ends every call sent to it. At most eight calls are in flight. The output reaches the model
+as compact text — a read numbered like `cat -n` from its `offset`, a run as its exit and the two
+stream tails. The window has no relay arm yet (`G461`).
 
 ## The database family
 
@@ -1559,9 +1569,12 @@ isolation is on. A path is absolute or `~`-prefixed. The mission launchers send 
 grants are not stored on the conversation row (`G409`).
 
 **`remote` binds the agent to a saved remote host**, by `SavedRemoteHost.id`, with
-`#[serde(default)]`. Set, the host is to inject the `ubiq-remote` MCP server — whose calls are the
-remote-tool family — and run the harness in `<project>/.ubiq/remote/<label>/`. The field is on the
-contract and the coordinator does not read it (`G461`).
+`#[serde(default)]`. Set, the host injects the `ubiq-remote` MCP server — whose calls are the
+remote-tool family — records the id on the agent's MCP row, runs the harness in
+`<project>/.ubiq/remote/<label>/` (created; `label` is the saved host's name, else its id, as one
+sanitised path segment) instead of `rel_path`, and appends instructions naming the remote to the
+run's always-on instructions. The binding is not on the conversation row, so a revive comes back
+unbound (`G461`).
 
 **`ReviveConversation` is one message for two paths, and the run directory is why.** That directory
 *is* the conversation: it holds the harness's own session store, so resuming a session id inside a

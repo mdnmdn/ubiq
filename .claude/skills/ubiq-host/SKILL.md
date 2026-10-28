@@ -62,7 +62,8 @@ Your change updates the documents it touched, in the same commit. `just docs-tou
    and never reads (`D30`, architecture rule 6). The Git screen's `WriteProjectGit` is the
    exception that mutates the repository the user asked it to (`D122`).
 10. **The host names no harness config path and hard-codes no launch.** `agent-manager` answers
-    all of it; `agent.rs` overrides exactly four fields of what `resolve` returns.
+    all of it; `agent.rs` overrides exactly four fields of what `resolve` returns, and appends
+    only to `initial.instructions` (a remote-bound agent's prompt, `D226`).
 
 ## The run loop
 
