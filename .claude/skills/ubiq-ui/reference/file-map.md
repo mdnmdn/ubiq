@@ -66,6 +66,7 @@ this far: a pane is an ID, a title, and an emulator reading one end of the bus.
 | `boot.rs` | Window opening; `open_project_window` is the only place a window is created |
 | `hosts.rs` | The multiplexer: one window's connection to every host it is attached to |
 | `remote_connect.rs` | Reaching a remote host from the UI, and the client half of that wire |
+| `remote_tools.rs` | Relaying the host's `RemoteToolCall` to the drone link it names, and the result back (`D226`) |
 | `host_browse.rs` | Filling the shared file picker from a remote host's filesystem, before a project exists on it |
 | `projects.rs`, `clone.rs` | Opening, switching and cloning projects |
 | `about.rs` | The About modal: open, close, switch tab, ask `QueryReleases`, `take_update` |

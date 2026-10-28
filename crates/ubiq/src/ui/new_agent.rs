@@ -887,6 +887,35 @@ pub fn body(app: &AppState, window: &mut Window, cx: &mut Context<AppState>) -> 
         )),
     );
 
+    // 5a' ─ run against an attached remote: shown only for a start while a drone that serves
+    // remote tools is attached. The host picks the working folder.
+    let tool_remotes = app.tool_remotes();
+    if live && matches!(form.purpose, Purpose::Start) && !tool_remotes.is_empty() {
+        let mut remote_rows: Vec<(String, Option<Option<String>>)> =
+            vec![("Local".to_string(), Some(None))];
+        remote_rows.extend(
+            tool_remotes
+                .into_iter()
+                .map(|(id, label)| (label, Some(Some(id)))),
+        );
+        rows = rows.child(picker_row(
+            app,
+            &view,
+            &form,
+            "new-agent-remote",
+            "Run against remote",
+            "The agent's file, search and run tools act on the remote machine.",
+            "Local",
+            remote_rows,
+            Some(form.remote.clone()),
+            OpenList::Remote,
+            true,
+            window,
+            cx,
+            |this, remote, window, cx| this.pick_new_agent_remote(remote, window, cx),
+        ));
+    }
+
     // 5b ─ the one flag a saved setup can carry that a bare start cannot: whether this is fit to
     // run as a planning assistant. Only the definition form asks — a start form has nothing to save
     // the answer onto — and the new-mission dialog's picker is what reads it back.

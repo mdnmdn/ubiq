@@ -608,6 +608,19 @@ impl AppState {
         self.close_new_agent_list(window, cx);
     }
 
+    /// Bind this start to an attached remote (`Some(save_id)`), or back to local (`None`).
+    pub fn pick_new_agent_remote(
+        &mut self,
+        remote: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(form) = self.new_agent_form_mut() {
+            form.remote = remote;
+        }
+        self.close_new_agent_list(window, cx);
+    }
+
     /// Tick or untick one MCP server. Unlike every other answer here the list stays down: a
     /// checklist is filled in with several gestures, and one that closed on the first tick would
     /// have to be reopened for each of the rest.
@@ -887,7 +900,11 @@ impl AppState {
             mcps: form.mcps.clone(),
             skills: form.skills.clone(),
             grants: form.grants.clone(),
-            remote: None,
+            // Bound only while that remote is still attached and serves tools.
+            remote: form
+                .remote
+                .clone()
+                .filter(|save_id| self.bus.serves_tools(save_id)),
             // The user started this one, so nobody asked for it. `spawned_by` is only ever set
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,

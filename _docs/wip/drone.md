@@ -32,7 +32,7 @@ capability `tools` — and `StartConversation.remote` binds an agent to a drone;
 forwarded ports runs beside the bus, not on it (`D227`). Both are in
 [`../tech/transport-contract.md`](../tech/transport-contract.md). The host's half is built too: the
 `ubiq-remote` server (`crates/ubiq-host/src/mcp/remote.rs`) and the coordinator's binding of
-`StartConversation.remote`; the window's relay is not (`G461`, `G462`). Where the paragraphs below disagree with `D226`, `D226` holds.
+`StartConversation.remote`; the window's relay is too (`G461`, `G462`). Where the paragraphs below disagree with `D226`, `D226` holds.
 
 **Designed, not built.** Every built phase serves the *interface* — a tree, a file, a search hit
 land in a window because a person clicked something. Phase 10 gives the *agent inside a pane* the

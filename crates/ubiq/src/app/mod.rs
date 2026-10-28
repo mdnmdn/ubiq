@@ -1478,6 +1478,7 @@ mod plan;
 mod projects;
 mod remote_connect;
 mod remote_hosts;
+mod remote_tools;
 mod settings;
 mod shell;
 mod sink;

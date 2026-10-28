@@ -480,6 +480,7 @@ impl AppState {
         // Read while this host is still on the bus: the rows it was only *serving* survive it,
         // and after `drop_remote` there is nothing left to ask which those were.
         let served = self.bus.local_rows_served_by(id);
+        self.bus.fail_tool_calls(id);
         for pane_id in self.bus.drop_remote(id) {
             self.close_pane(pane_id, cx);
             // `close_pane` gives up on a pane whose project this window does not hold open, so it
@@ -595,6 +596,9 @@ impl AppState {
             return;
         };
         let Some(message) = self.receive_notifications(host, message, cx) else {
+            return;
+        };
+        let Some(message) = self.receive_remote_tools(host, message) else {
             return;
         };
         let Some(message) = self.receive_browser(message, cx) else {

@@ -29,7 +29,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ubiq_proto::bus::{Client, Outbox, PaneInput};
-use ubiq_proto::ids::{PaneId, ProjectId};
+use ubiq_proto::carrier::CAP_TOOLS;
+use ubiq_proto::ids::{PaneId, ProjectId, RemoteCallId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::settings::{RemoteScheme, SavedRemoteHost};
 use ubiq_proto::stats::HostStats;
@@ -82,6 +83,9 @@ pub struct RemoteConn {
     /// What the connection is doing now. The remote-hosts panel draws this; the reconnect loop
     /// in `app::remote_connect` moves it.
     pub status: ConnStatus,
+    /// What the drone advertised in its hello (`ubiq_proto::carrier::CAP_TOOLS`, …). Empty for a
+    /// connection that is not a drone, and until [`Bus::set_remote_caps`] files them.
+    pub caps: Vec<String>,
 }
 
 /// What a live remote connection is doing. `Attached` is the steady state; anything else is the
@@ -279,6 +283,18 @@ pub struct Bus {
     /// Mints the next [`HostId`]. Process-local to this `Bus`, which is fine — a `HostId` is only
     /// ever compared against other ids this same `Bus` minted.
     next_host_id: AtomicU64,
+    /// Remote-tool calls relayed to a drone and not yet answered: where the result goes back to
+    /// (`D226`). The first result removes the entry, so a second or a late one is dropped.
+    tool_calls: RefCell<HashMap<RemoteCallId, PendingToolCall>>,
+}
+
+/// One relayed [`Message::RemoteToolCall`] awaiting its result.
+struct PendingToolCall {
+    /// The host the call came from, and so where its result returns.
+    origin: HostRef,
+    /// The drone link it was forwarded to.
+    link: HostId,
+    project_id: ProjectId,
 }
 
 impl Bus {
@@ -295,6 +311,7 @@ impl Bus {
             pinned_remote: RefCell::new(HashSet::new()),
             remote_meta: RefCell::new(HashMap::new()),
             next_host_id: AtomicU64::new(0),
+            tool_calls: RefCell::new(HashMap::new()),
         }
     }
 
@@ -584,6 +601,7 @@ impl Bus {
             address,
             scheme,
             status: ConnStatus::Attached,
+            caps: Vec::new(),
         });
         (id, from_host)
     }
@@ -671,6 +689,123 @@ impl Bus {
     /// Every live connection, for the remote-hosts panel.
     pub fn remote_conns(&self) -> &[RemoteConn] {
         &self.remotes
+    }
+
+    /// File what a drone advertised in its hello against its connection.
+    pub fn set_remote_caps(&mut self, id: HostId, caps: Vec<String>) {
+        if let Some(remote) = self.remotes.iter_mut().find(|remote| remote.id == id) {
+            remote.caps = caps;
+        }
+    }
+
+    /// The attached link of the saved host `save_id` that serves remote tools, or the sentence
+    /// the agent reads as the tool's error.
+    pub fn tool_link(&self, save_id: &str) -> Result<HostId, String> {
+        let Some(conn) = self
+            .remotes
+            .iter()
+            .find(|remote| !save_id.is_empty() && remote.save_id == save_id)
+        else {
+            return Err(format!("remote {save_id} is not connected"));
+        };
+        if conn.status != ConnStatus::Attached {
+            return Err(format!("remote {} is not connected", conn.label));
+        }
+        if !conn.caps.iter().any(|cap| cap == CAP_TOOLS) {
+            return Err(format!("remote {} does not support tools", conn.label));
+        }
+        Ok(conn.id)
+    }
+
+    /// Whether the saved host `save_id` is attached and serves remote tools — what the new-agent
+    /// modal's "Run against remote" choice offers.
+    pub fn serves_tools(&self, save_id: &str) -> bool {
+        self.tool_link(save_id).is_ok()
+    }
+
+    /// Relay a [`Message::RemoteToolCall`] that arrived from `origin` to the drone link its
+    /// `remote` names, unchanged. With no such link the caller gets a `RemoteToolResult` error at
+    /// once. Anything else is ignored.
+    pub fn relay_tool_call(&self, origin: HostRef, message: Message) {
+        let Message::RemoteToolCall {
+            call_id,
+            project_id,
+            remote,
+            ..
+        } = &message
+        else {
+            return;
+        };
+        let (call_id, project_id) = (*call_id, *project_id);
+        let link = match remote.as_deref() {
+            Some(save_id) => self.tool_link(save_id),
+            None => Err("this agent is not bound to a remote".to_string()),
+        };
+        match link {
+            Ok(link) => {
+                self.tool_calls.borrow_mut().insert(
+                    call_id,
+                    PendingToolCall {
+                        origin,
+                        link,
+                        project_id,
+                    },
+                );
+                self.send_to(HostRef::Remote(link), message);
+            }
+            Err(error) => self.send_to(
+                origin,
+                Message::RemoteToolResult {
+                    call_id,
+                    project_id,
+                    result: Err(error),
+                },
+            ),
+        }
+    }
+
+    /// Relay a [`Message::RemoteToolResult`] a drone sent back to the host its call came from,
+    /// unchanged. A result for no pending call, or from a link other than the one asked, is dropped.
+    pub fn relay_tool_result(&self, from: HostRef, message: Message) {
+        let Message::RemoteToolResult { call_id, .. } = &message else {
+            return;
+        };
+        let mut calls = self.tool_calls.borrow_mut();
+        let HostRef::Remote(link) = from else {
+            return;
+        };
+        if calls.get(call_id).is_none_or(|call| call.link != link) {
+            return;
+        }
+        if let Some(call) = calls.remove(call_id) {
+            drop(calls);
+            self.send_to(call.origin, message);
+        }
+    }
+
+    /// Answer every call still parked on `link` with an error, because the link is going.
+    pub fn fail_tool_calls(&self, link: HostId) {
+        let dead: Vec<(RemoteCallId, PendingToolCall)> = {
+            let mut calls = self.tool_calls.borrow_mut();
+            let ids: Vec<RemoteCallId> = calls
+                .iter()
+                .filter(|(_, call)| call.link == link)
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| calls.remove(&id).map(|call| (id, call)))
+                .collect()
+        };
+        for (call_id, call) in dead {
+            self.send_to(
+                call.origin,
+                Message::RemoteToolResult {
+                    call_id,
+                    project_id: call.project_id,
+                    result: Err("the remote disconnected before it answered".to_string()),
+                },
+            );
+        }
     }
 
     /// Move a live connection's status. The reconnect loop owns these transitions; the panel
@@ -764,6 +899,17 @@ impl crate::app::AppState {
                 scheme: conn.scheme,
                 status: conn.status.clone(),
             })
+            .collect()
+    }
+
+    /// The attached remotes a new agent can run against — `(saved id, label)`, those that serve
+    /// remote tools. Empty hides the new-agent modal's "Run against remote" choice.
+    pub fn tool_remotes(&self) -> Vec<(String, String)> {
+        self.bus
+            .remote_conns()
+            .iter()
+            .filter(|conn| self.bus.serves_tools(&conn.save_id))
+            .map(|conn| (conn.save_id.clone(), conn.label.clone()))
             .collect()
     }
 
@@ -1073,6 +1219,83 @@ mod tests {
             })
         ));
         assert!(local_end.said().try_recv().is_err());
+    }
+
+    fn tool_call(call_id: RemoteCallId, project_id: ProjectId, remote: &str) -> Message {
+        Message::RemoteToolCall {
+            call_id,
+            project_id,
+            remote: Some(remote.to_string()),
+            root: None,
+            op: ubiq_proto::remote_tools::RemoteOp::Info,
+        }
+    }
+
+    fn drone(bus: &mut Bus, save_id: &str, caps: &[&str]) -> (HostId, ubiq_proto::bus::Detached) {
+        let (client, end) = ubiq_proto::bus::detached();
+        let (id, _from_host) = bus.register_remote(
+            client,
+            save_id.to_string(),
+            save_id.to_string(),
+            save_id.to_string(),
+            RemoteScheme::Http,
+        );
+        bus.set_remote_caps(id, caps.iter().map(|c| c.to_string()).collect());
+        (id, end)
+    }
+
+    /// A call goes unchanged to the link whose saved id it names, and the result returns to the
+    /// host the call came from — once.
+    #[test]
+    fn tool_call_relays_to_the_named_link_and_back() {
+        let (local, local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (_other, other_end) = drone(&mut bus, "a", &[CAP_TOOLS]);
+        let (link, link_end) = drone(&mut bus, "b", &[CAP_TOOLS]);
+        let (call_id, project_id) = (RemoteCallId::generate(), a_project_id());
+        let call = tool_call(call_id, project_id, "b");
+
+        bus.relay_tool_call(HostRef::Local, call.clone());
+        assert!(matches!(
+            link_end.said().try_recv(),
+            Ok(ubiq_proto::bus::FromClient::Said { message, .. }) if format!("{message:?}") == format!("{call:?}")
+        ));
+        assert!(other_end.said().try_recv().is_err());
+
+        let result = Message::RemoteToolResult {
+            call_id,
+            project_id,
+            result: Err("x".into()),
+        };
+        bus.relay_tool_result(HostRef::Remote(link), result.clone());
+        assert!(matches!(
+            local_end.said().try_recv(),
+            Ok(ubiq_proto::bus::FromClient::Said { message, .. }) if format!("{message:?}") == format!("{result:?}")
+        ));
+        bus.relay_tool_result(HostRef::Remote(link), result);
+        assert!(local_end.said().try_recv().is_err());
+    }
+
+    /// No attached link, or one without the tools capability, answers the caller at once.
+    #[test]
+    fn tool_call_without_a_tool_link_errors_back() {
+        let (local, local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (_id, link_end) = drone(&mut bus, "b", &[]);
+        for remote in ["missing", "b"] {
+            bus.relay_tool_call(
+                HostRef::Local,
+                tool_call(RemoteCallId::generate(), a_project_id(), remote),
+            );
+            assert!(matches!(
+                local_end.said().try_recv(),
+                Ok(ubiq_proto::bus::FromClient::Said {
+                    message: Message::RemoteToolResult { result: Err(_), .. },
+                    ..
+                })
+            ));
+        }
+        assert!(link_end.said().try_recv().is_err());
     }
 
     fn a_saved_host(name: &str, address: &str) -> SavedRemoteHost {

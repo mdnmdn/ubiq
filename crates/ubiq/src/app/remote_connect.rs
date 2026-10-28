@@ -1308,7 +1308,7 @@ impl AppState {
                     },
                     cx,
                 );
-                self.attach_remote(
+                let host_id = self.attach_remote(
                     client,
                     label,
                     saved,
@@ -1316,6 +1316,7 @@ impl AppState {
                     RemoteScheme::Http,
                     cx,
                 );
+                self.bus.set_remote_caps(host_id, identity.capabilities);
                 self.workbench.settings.failed_hosts.remove(&address);
             }
             Err(failure) => {
@@ -1516,7 +1517,7 @@ impl AppState {
                     },
                     cx,
                 );
-                self.attach_remote(
+                let host_id = self.attach_remote(
                     client,
                     label.clone(),
                     saved,
@@ -1524,6 +1525,7 @@ impl AppState {
                     RemoteScheme::Http,
                     cx,
                 );
+                self.bus.set_remote_caps(host_id, identity.capabilities);
                 self.workbench.settings.failed_hosts.remove(&address);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
@@ -1623,7 +1625,7 @@ impl AppState {
                     },
                     cx,
                 );
-                self.attach_remote(
+                let host_id = self.attach_remote(
                     dial.client,
                     label.clone(),
                     saved,
@@ -1631,6 +1633,8 @@ impl AppState {
                     RemoteScheme::Http,
                     cx,
                 );
+                self.bus
+                    .set_remote_caps(host_id, dial.identity.capabilities);
                 self.workbench.settings.failed_hosts.remove(&path);
                 if let Some(state) = &mut self.workbench.remote_connect {
                     state.step = RemoteConnectStep::Connected { label };
@@ -1696,7 +1700,7 @@ impl AppState {
         address: String,
         scheme: RemoteScheme,
         cx: &mut Context<Self>,
-    ) {
+    ) -> HostId {
         let (host_id, from_host) = self
             .bus
             .register_remote(client, label, save_id, address, scheme);
@@ -1714,6 +1718,7 @@ impl AppState {
         // screen: the greeting carries the machine, the poll carries the moment.
         self.bus
             .send_to(HostRef::Remote(host_id), Message::ListStats);
+        host_id
     }
 
     // ── Reconnects ──────────────────────────────────────────────────────────
@@ -1982,7 +1987,10 @@ impl AppState {
                 // been the last thing on that machine's `PATH`. Filed against the same entry the
                 // first connect saved, so the loop does not re-deploy on every later attempt.
                 self.remember_drone_path(&save_id, dial.drone_path);
-                self.attach_remote(dial.client, label, save_id, address, RemoteScheme::Http, cx);
+                let host_id =
+                    self.attach_remote(dial.client, label, save_id, address, RemoteScheme::Http, cx);
+                self.bus
+                    .set_remote_caps(host_id, dial.identity.capabilities);
             }
             Err(failure) => {
                 let attempt = state.attempt + 1;

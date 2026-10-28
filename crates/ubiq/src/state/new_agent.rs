@@ -81,6 +81,8 @@ pub enum OpenList {
     Thinking,
     Mode,
     Subagents,
+    /// The saved remote a start is bound to (`StartConversation::remote`).
+    Remote,
     /// The one list here that is not a picker: several servers may be ticked at once, so it is a
     /// checklist rather than a choice. It uses the same discriminant anyway, because "exactly one
     /// list is down" is the form's rule regardless of what the list is made of.
@@ -128,6 +130,9 @@ pub struct NewAgentForm {
     /// `SetConversationPersistent` right behind its `StartConversation`. Only a start on a harness
     /// that `keeps_sessions` offers it; a definition form never does, and does not save it.
     pub persistent: bool,
+    /// The saved remote this start runs against, by `SavedRemoteHost::id` — `None` is local.
+    /// Sent as `StartConversation::remote`; the host picks the working folder.
+    pub remote: Option<String>,
     /// Whether this setup is fit to run as a planning assistant — [`AgentDefinition::mission_assistant`].
     /// Drawn only under [`Purpose::AgentDefinition`]: a bare start has nothing to save the flag onto, and
     /// the new-mission dialog's picker is what reads it back.
@@ -335,6 +340,7 @@ impl NewAgentForm {
             thinking: None,
             mode: None,
             persistent: false,
+            remote: None,
             mission_assistant: false,
             tags: Vec::new(),
             disabled: false,

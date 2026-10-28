@@ -992,7 +992,11 @@ the call with `RemoteToolResult`; the first result wins, a later one is discarde
 30 s, `remote_run` its `timeout_ms` (default 120 s, clamped to 1–600 s) plus 15 s; a window that
 closes ends every call sent to it. At most eight calls are in flight. The output reaches the model
 as compact text — a read numbered like `cat -n` from its `offset`, a run as its exit and the two
-stream tails. The window has no relay arm yet (`G461`).
+stream tails. The window relays both ways without reading either (`crates/ubiq/src/app/remote_tools.rs`,
+`Bus::relay_tool_call`): a call goes to the drone link whose `SavedRemoteHost.id` equals `remote`,
+and the result returns to the host it came from, the first winning. A `remote` with no attached link,
+or one whose drone did not advertise `tools`, is answered at once with an `Err` sentence; a link
+lost with a call parked on it answers it the same way.
 
 ## The database family
 
@@ -1574,7 +1578,7 @@ remote-tool family — records the id on the agent's MCP row, runs the harness i
 `<project>/.ubiq/remote/<label>/` (created; `label` is the saved host's name, else its id, as one
 sanitised path segment) instead of `rel_path`, and appends instructions naming the remote to the
 run's always-on instructions. The binding is not on the conversation row, so a revive comes back
-unbound (`G461`).
+unbound (`G461`). The New agent dialog offers *Run against remote* while a drone advertising `tools` is attached.
 
 **`ReviveConversation` is one message for two paths, and the run directory is why.** That directory
 *is* the conversation: it holds the harness's own session store, so resuming a session id inside a
