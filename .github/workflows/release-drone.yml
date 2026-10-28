@@ -1,0 +1,54 @@
+name: release-drone
+
+# The drone (`ubiq-drone`), one lean binary per triple, published beside the app. Native runners
+# where one exists; the Intel macOS binary is cross-built on the arm64 runner.
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, triple: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, triple: aarch64-unknown-linux-gnu }
+          - { os: macos-26, triple: aarch64-apple-darwin }
+          - { os: macos-26, triple: x86_64-apple-darwin }
+          - { os: windows-latest, triple: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: drone-${{ matrix.triple }}
+      - name: Build
+        shell: bash
+        run: cargo build -p ubiq-drone --release --target "${{ matrix.triple }}"
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="target/${{ matrix.triple }}/release"
+          name="Ubiq-drone-${{ matrix.triple }}"
+          if [[ "${{ matrix.triple }}" == *windows* ]]; then
+            7z a "$name.zip" "./$out/ubiq-drone.exe"
+          else
+            tar -C "$out" -czf "$name.tar.gz" ubiq-drone
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-drone-${{ matrix.triple }}
+          if-no-files-found: error
+          path: |
+            Ubiq-drone-${{ matrix.triple }}.tar.gz
+            Ubiq-drone-${{ matrix.triple }}.zip

@@ -21,6 +21,10 @@ on:
         description: Build Linux
         type: boolean
         default: true
+      drone:
+        description: Build the drones
+        type: boolean
+        default: true
       channel:
         description: Release channel (stable and beta need a tag ref)
         type: choice
@@ -43,6 +47,7 @@ jobs:
       macos: ${{ steps.p.outputs.macos }}
       windows: ${{ steps.p.outputs.windows }}
       linux: ${{ steps.p.outputs.linux }}
+      drone: ${{ steps.p.outputs.drone }}
     steps:
       - uses: actions/checkout@v4
       - id: m
@@ -86,14 +91,16 @@ jobs:
           MACOS: ${{ inputs.macos }}
           WINDOWS: ${{ inputs.windows }}
           LINUX: ${{ inputs.linux }}
+          DRONE: ${{ inputs.drone }}
         run: |
           set -euo pipefail
-          if [ "$EVENT" = push ]; then MACOS=true WINDOWS=true LINUX=true; fi
-          [ "$MACOS$WINDOWS$LINUX" != falsefalsefalse ] || { echo "::error::select at least one platform"; exit 1; }
+          if [ "$EVENT" = push ]; then MACOS=true WINDOWS=true LINUX=true DRONE=true; fi
+          [ "$MACOS$WINDOWS$LINUX$DRONE" != falsefalsefalsefalse ] || { echo "::error::select at least one platform or the drones"; exit 1; }
           {
             echo "macos=$MACOS"
             echo "windows=$WINDOWS"
             echo "linux=$LINUX"
+            echo "drone=$DRONE"
           } >> "$GITHUB_OUTPUT"
 
   macos:
@@ -129,9 +136,18 @@ jobs:
       version: ${{ needs.meta.outputs.version }}
       channel: ${{ needs.meta.outputs.channel }}
 
+  drone:
+    needs: meta
+    if: needs.meta.outputs.drone == 'true'
+    uses: ./.github/workflows/release-drone.yml
+    permissions:
+      contents: read
+    with:
+      version: ${{ needs.meta.outputs.version }}
+
   # One GitHub release carrying every platform this run built.
   publish:
-    needs: [meta, macos, windows, linux]
+    needs: [meta, macos, windows, linux, drone]
     # A platform that was not requested is skipped. The release is created when at least one
     # requested platform succeeded (a partial release is warned about below); it is skipped only
     # when every requested one failed or was cancelled. `meta` refuses a run with none selected.
@@ -140,7 +156,8 @@ jobs:
       needs.meta.result == 'success' &&
       (needs.macos.result == 'success' ||
        needs.windows.result == 'success' ||
-       needs.linux.result == 'success')
+       needs.linux.result == 'success' ||
+       needs.drone.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -158,8 +175,9 @@ jobs:
           MACOS: ${{ needs.macos.result }}
           WINDOWS: ${{ needs.windows.result }}
           LINUX: ${{ needs.linux.result }}
+          DRONE: ${{ needs.drone.result }}
         run: |
-          for p in macos:"$MACOS" windows:"$WINDOWS" linux:"$LINUX"; do
+          for p in macos:"$MACOS" windows:"$WINDOWS" linux:"$LINUX" drone:"$DRONE"; do
             case "${p#*:}" in
               success|skipped) ;;
               *) echo "::warning::partial release: ${p%%:*} ${p#*:} - no ${p%%:*} artifacts" ;;
