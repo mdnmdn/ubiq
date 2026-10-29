@@ -13,7 +13,7 @@ use std::time::Duration;
 use gpui::{
     Animation, AnimationExt as _, AnyElement, Context, Focusable as _, InteractiveElement, IntoElement, KeyBinding,
     MouseButton, ParentElement, StatefulInteractiveElement as _, Styled, Transformation, anchored,
-    deferred, div, percentage, point, pulsating_between, px,
+    deferred, div, percentage, point, px,
 };
 use gpui_component::input::Input;
 use gpui_component::{Icon, IconName, Sizable as _, Size};
@@ -23,7 +23,6 @@ use crate::state::MenuId;
 use crate::state::browser::{self, BrowserTab};
 use crate::theme;
 use crate::ui::dock::TabInfo;
-use crate::ui::kit::controls::pulse_animation;
 use crate::ui::kit::{
     ContextItem, context_menu, elided, field, file_row, icon_button, icon_button_tip, row_font,
 };
@@ -156,9 +155,9 @@ fn bar(
     cx: &mut Context<AppState>,
 ) -> AnyElement {
     let key = tab.key.clone();
-    let (back, forward, stop, go) = (key.clone(), key.clone(), key.clone(), key.clone());
+    let (back, forward, go) = (key.clone(), key.clone(), key.clone());
 
-    let mut row = div()
+    let row = div()
         .h(px(HEADER))
         .flex()
         .flex_none()
@@ -184,11 +183,8 @@ fn bar(
                 this.browser_forward(&forward, cx);
             }),
         ))
-        .child(loader(&key, loading));
+        .child(load_button(&key, loading, cx));
 
-    if loading {
-        row = row.child(stop_button(&key, stop, cx));
-    }
     row.child(address(app, tab, window, cx))
         // Enter's twin, for a mouse that just pasted: goes to what the field says — the page
         // itself when nothing was changed, so it doubles as reload.
@@ -308,16 +304,36 @@ fn more(app: &AppState, tab: &BrowserTab, cx: &mut Context<AppState>) -> AnyElem
     root.into_any_element()
 }
 
-/// The 30px slot after the arrows: a spinning loader while the page loads, a quiet globe after.
-fn loader(key: &str, loading: bool) -> AnyElement {
-    let slot = div()
+/// The one load control after the arrows: while the page loads it is the spinner and a click stops
+/// the load; once the load has finished or been stopped it is the Reload button.
+fn load_button(key: &str, loading: bool, cx: &mut Context<AppState>) -> AnyElement {
+    let target = key.to_string();
+    if !loading {
+        return icon_button_tip(
+            eid("browser-reload", key),
+            IconName::RotateCw,
+            "Reload",
+            true,
+            cx.listener(move |this, _, _, cx| {
+                this.browser_reload(&target, cx);
+            }),
+        )
+        .into_any_element();
+    }
+    div()
+        .id(eid("browser-stop", key))
         .size(px(30.))
         .flex()
         .flex_none()
         .items_center()
-        .justify_center();
-    match loading {
-        true => slot.child(
+        .justify_center()
+        .cursor_pointer()
+        .hover(|this| this.bg(theme::hover()))
+        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Stop loading").build(window, cx))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.browser_stop(&target, cx);
+        }))
+        .child(
             Icon::new(IconName::LoaderCircle)
                 .with_size(Size::Small)
                 .text_color(theme::accent())
@@ -325,42 +341,6 @@ fn loader(key: &str, loading: bool) -> AnyElement {
                     eid("browser-spin", key),
                     Animation::new(Duration::from_millis(900)).repeat(),
                     |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
-                ),
-        ),
-        false => slot.child(
-            Icon::new(IconName::Globe)
-                .with_size(Size::Small)
-                .text_color(theme::text_faint()),
-        ),
-    }
-    .into_any_element()
-}
-
-/// The red, pulsing, round stop button; only drawn while the page is loading.
-fn stop_button(key: &str, target: String, cx: &mut Context<AppState>) -> AnyElement {
-    div()
-        .id(eid("browser-stop", key))
-        .w(px(24.))
-        .h_full()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .cursor_pointer()
-        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Stop loading").build(window, cx))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.browser_stop(&target, cx);
-        }))
-        .child(
-            div()
-                .size(px(12.))
-                .rounded_full()
-                .bg(theme::danger())
-                .with_animation(
-                    eid("browser-stop-pulse", key),
-                    pulse_animation(Duration::from_millis(1_000))
-                        .with_easing(pulsating_between(0.35, 1.0)),
-                    |dot, delta| dot.opacity(delta),
                 ),
         )
         .into_any_element()

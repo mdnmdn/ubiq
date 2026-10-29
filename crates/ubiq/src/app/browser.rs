@@ -266,7 +266,14 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search, or enter an address\u{2026}")
+            // An address has no control or private-use characters. AppKit hands an arrow, Home,
+            // F5 … to gpui as U+001C–U+001F / U+F700–U+F8FF; when such a key reaches the platform
+            // text path while this field still holds gpui's focus (the page has the native
+            // keyboard, gpui's focus has not followed yet), the field would type it. The field
+            // refuses the edit instead; the key itself still belongs to the page.
+            InputState::new(window, cx)
+                .placeholder("Search, or enter an address\u{2026}")
+                .validate(|text, _| !text.chars().any(is_key_glyph))
         });
         let tab_key = key.to_string();
         let subscription = cx.subscribe_in(
@@ -844,6 +851,12 @@ const PROBE_JS: &str = "JSON.stringify({b: window.navigation ? navigation.canGoB
 
 /// Decode what a callback hands back: a JSON value, which for a script that returned a string is
 /// a JSON string literal.
+/// A character AppKit uses to *name* a non-printing key (arrows U+001C–U+001F, delete U+007F, the
+/// function-key block U+F700–U+F8FF), never text a person typed into an address.
+fn is_key_glyph(c: char) -> bool {
+    c.is_control() || ('\u{F700}'..='\u{F8FF}').contains(&c)
+}
+
 fn unquote(raw: &str) -> String {
     serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
 }
