@@ -5,8 +5,8 @@ kind: tech
 status: current
 summary: The two halves — coordinator and UI — the single bus between them, the rules neither may break, and why the split is drawn before it is needed.
 read_when: you are about to add a capability that crosses the UI/coordinator line, or you want to know why the code is shaped this way
-updated: 2026-10-28
-verified: 2026-10-28
+updated: 2026-10-29
+verified: 2026-10-29
 code_anchors: [crates/ubiq-host/src/browser.rs, crates/ubiq-host/src/mcp/browser.rs, crates/ubiq-host/Cargo.toml, crates/ubiq-host/src/web_assets/mod.rs, crates/ubiq/src/lib.rs, crates/ubiq/src/ext/mod.rs, crates/ubiq/src/ext/id.rs, crates/ubiq/src/ext/registry.rs, crates/ubiq/src/ext/ids.rs, crates/ubiq/src/ext/settings.rs, crates/ubiq/src/ext/rail.rs, crates/ubiq/src/ext/menu.rs, crates/ubiq/src/version.rs, crates/ubiq-app/src/lib.rs, crates/ubiq-app/src/main.rs, crates/ubiq/src/app/mod.rs, crates/ubiq/src/app/boot.rs, crates/ubiq/src/app/wire.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/state/remote.rs, crates/ubiq/src/state/windows.rs, crates/ubiq-proto/src/bus.rs, crates/ubiq-proto/src/wire.rs, crates/ubiq-host/src/remote.rs, crates/ubiq-host/src/coordinator.rs, crates/ubiq-proto/src/log.rs, crates/ubiq-host/src/lib.rs, crates/ubiq-proto/src/lib.rs, crates/ubiq-host/src/work/mod.rs, crates/ubiq-host/src/files/mod.rs, crates/ubiq-host/src/files/diff.rs, crates/ubiq-host/src/kb/mod.rs, crates/ubiq-host/src/git/mod.rs, crates/ubiq-host/src/git/observe.rs, crates/ubiq-host/src/repos/mod.rs, crates/ubiq-host/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq-host/src/store/mod.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-host/src/store/memory.rs, crates/ubiq-host/src/watch/mod.rs, crates/ubiq-host/src/links.rs, crates/ubiq/src/web_export/mod.rs, crates/ubiq-host/src/mcp/mod.rs, crates/ubiq-host/src/mcp/tasks.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-host/src/mcp/plan.rs, crates/ubiq-host/src/plan/mod.rs, crates/ubiq-host/src/store/plan.rs, crates/ubiq/src/ext/runner.rs, crates/ubiq/src/ext/viewer.rs]
 review_cycle: quarterly
 ---
@@ -404,10 +404,12 @@ the `HostRef` it came from before `receive()` and its per-family handlers ever s
 can record which host a pane or project belongs to as it first hears of one, and removes the
 connection from `Bus` if its channel disconnects.
 
-**Routing follows a fixed order: pane, then project, then whichever host is active.** `Bus::resolve`
-tries the message's pane first, because a pane is a running harness on one specific host and its
-input, resize or close reaching any other host does nothing to the process actually running it;
-project second, because a project is hosted on one machine even while none of its panes are open;
+**Routing follows a fixed order: pane, then conversation, then project, then whichever host is
+active.** `Bus::resolve` tries the message's pane first, because a pane is a running harness on one
+specific host and its input, resize or close reaching any other host does nothing to the process
+actually running it; a conversation's follow-ups (`PromptAgent`, `CancelTurn`, the answers, the
+lifecycle and settings messages) second, by the host `Bus::note_agent` filed when the start or
+revive was sent and when `ConversationStarted` arrived, for the same reason; project third, because a project is hosted on one machine even while none of its panes are open;
 and, only for a message naming neither — a fresh terminal, a fresh project — the active host, since
 there is nothing to resolve *from*. `send_to` bypasses resolution for the one case it cannot cover:
 talking to a host before any project on it exists, to browse its repositories or its filesystem.
@@ -419,7 +421,11 @@ named, whatever host is serving it (`D132`). `projects_not_on`, `replace_all_exc
 `drop_remote` all ask it rather than reading `projects`, so a drone's `ProjectList` neither evicts
 the pinned row nor duplicates it, and the row survives the drone going away as
 `ProjectHealth::Unreadable` naming what is not attached. `note_project` still files the drone as the
-project's *host*, which is what puts a pane on the far machine.
+project's *host*, which is what puts a pane on the far machine. `StartConversation` and
+`ReviveConversation` go to the row's owner too: a drone has no harness library, so an agent in a
+project one serves runs here, bound to it (`D226`). So do the work, board and mission families
+(`is_work_message`) — the agents they assign live on the owner's coordinator, and a drone keeps no
+tasks — and none of these is dropped while the drone is away.
 
 **A `HostId` is UI-local and never enters the contract.** `hosts.rs` mints it, and it never
 serialises, never crosses the bus, and is never carried in a `Message`. A host has no way to learn

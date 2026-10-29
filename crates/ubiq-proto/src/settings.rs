@@ -429,18 +429,165 @@ pub struct TunnelSpec {
     pub host: String,
     pub port: u16,
     /// [`TunnelKind::Http`] only: the upstream speaks TLS, so plain HTTP on the local port is
-    /// wrapped before it reaches it.
+    /// wrapped before it reaches it. With `host` and `port`, the parts of
+    /// [`Self::remote_url`] — the URL is what the form shows, these three are what is stored.
     #[serde(default)]
     pub upstream_tls: bool,
-    /// [`TunnelKind::Http`] only: the `Host` header sent upstream. `None` uses [`Self::host`].
-    #[serde(default)]
-    pub host_rewrite: Option<String>,
     /// With `upstream_tls`: skip the upstream's certificate check.
     #[serde(default)]
     pub insecure: bool,
     /// Whether the window opens this listener on attach. A disabled spec is kept, not forwarded.
     #[serde(default)]
     pub enabled: bool,
+    /// [`TunnelKind::Http`] only: send the upstream's own `Host` (and `Origin` / `Referer`)
+    /// instead of the browser's `localhost` ones. On unless turned off.
+    #[serde(default = "tunnel_rewrite_host_default")]
+    pub rewrite_host: bool,
+    /// [`TunnelKind::Http`] only, with `rewrite_host`: the `Host` sent upstream instead of the
+    /// URL's — a virtual host behind an address. `None` (or blank) uses [`Self::remote_authority`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_rewrite: Option<String>,
+    /// [`TunnelKind::Http`] only, experimental: replace the upstream's origin with the local one
+    /// in response bodies whose `Content-Type` matches [`Self::content_types`].
+    #[serde(default)]
+    pub rewrite_content: bool,
+    /// The `Content-Type` patterns `rewrite_content` processes; `*` matches any run of characters.
+    #[serde(default = "TunnelSpec::default_content_types")]
+    pub content_types: Vec<String>,
+}
+
+fn tunnel_rewrite_host_default() -> bool {
+    true
+}
+
+impl TunnelSpec {
+    /// The content types a fresh spec rewrites: the text formats a URL is written into.
+    pub fn default_content_types() -> Vec<String> {
+        [
+            "text/html",
+            "text/css",
+            "text/javascript",
+            "application/javascript",
+            "application/x-javascript",
+            "application/json",
+            "application/*+json",
+            "application/manifest+json",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
+    }
+
+    /// The upstream's origin, `https://api.x` or `http://10.0.0.1:8080` — the port left off when
+    /// it is the scheme's, a v6 address bracketed.
+    pub fn remote_origin(&self) -> String {
+        let scheme = if self.upstream_tls { "https" } else { "http" };
+        format!("{scheme}://{}", self.remote_authority())
+    }
+
+    /// `host[:port]` as a `Host` header names the upstream: the scheme's port left off.
+    pub fn remote_authority(&self) -> String {
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        let default_port = if self.upstream_tls { 443 } else { 80 };
+        if self.port == default_port {
+            host
+        } else {
+            format!("{host}:{}", self.port)
+        }
+    }
+
+    /// The upstream as the form shows it: [`Self::remote_origin`] with a trailing `/`.
+    pub fn remote_url(&self) -> String {
+        if self.host.is_empty() || self.port == 0 {
+            return String::new();
+        }
+        format!("{}/", self.remote_origin())
+    }
+
+    /// Read `http[s]://host[:port][/]` into `upstream_tls`, `host` and `port`. No scheme is
+    /// `http`; no port is the scheme's. A path, query or credentials are refused: a tunnel
+    /// forwards a whole origin.
+    pub fn set_remote_url(&mut self, url: &str) -> Result<(), String> {
+        let (tls, host, port) = parse_remote_url(url)?;
+        self.upstream_tls = tls;
+        self.host = host;
+        self.port = port;
+        Ok(())
+    }
+}
+
+/// [`TunnelSpec::set_remote_url`]'s parser: `(tls, host, port)`, the host unbracketed.
+pub fn parse_remote_url(url: &str) -> Result<(bool, String, u16), String> {
+    let url = url.trim();
+    let (tls, rest) = match url.split_once("://") {
+        Some((scheme, rest)) => match scheme.to_ascii_lowercase().as_str() {
+            "http" => (false, rest),
+            "https" => (true, rest),
+            other => return Err(format!("{other}:// is not http:// or https://")),
+        },
+        None => (false, url),
+    };
+    let (authority, path) = match rest.find(['/', '?', '#']) {
+        Some(i) => rest.split_at(i),
+        None => (rest, ""),
+    };
+    if !path.is_empty() && path != "/" {
+        return Err(format!(
+            "{url}: a tunnel forwards a whole origin, without a path"
+        ));
+    }
+    if authority.contains('@') {
+        return Err(format!("{url}: credentials do not belong in the URL"));
+    }
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(v6) => {
+            let (addr, after) = v6
+                .split_once(']')
+                .ok_or_else(|| format!("{url}: an unclosed ["))?;
+            match after {
+                "" => (addr, None),
+                p => (
+                    addr,
+                    Some(
+                        p.strip_prefix(':')
+                            .ok_or_else(|| format!("{url}: text after ]"))?,
+                    ),
+                ),
+            }
+        }
+        None if authority.matches(':').count() > 1 => {
+            return Err(format!("{url}: an IPv6 address goes in brackets, [::1]"));
+        }
+        None => match authority.rsplit_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        },
+    };
+    if host.is_empty() {
+        return Err(if url.is_empty() {
+            "the remote URL is empty".to_string()
+        } else {
+            format!("{url}: no host")
+        });
+    }
+    let port = match port {
+        None => {
+            if tls {
+                443
+            } else {
+                80
+            }
+        }
+        Some(p) => match p.parse::<u16>() {
+            Ok(p) if p != 0 => p,
+            _ => return Err(format!("{url}: {p} is not a port")),
+        },
+    };
+    Ok((tls, host.to_ascii_lowercase(), port))
 }
 
 /// What a [`TunnelSpec`] forwards.
@@ -450,7 +597,8 @@ pub enum TunnelKind {
     /// Raw bytes, both ways, untouched.
     #[default]
     Tcp,
-    /// HTTP, so the `Host` header can be rewritten and the upstream wrapped in TLS.
+    /// HTTP, so the `Host` header and the host-bearing response headers can be rewritten, the
+    /// upstream wrapped in TLS, and — experimentally — response bodies rewritten.
     Http,
 }
 

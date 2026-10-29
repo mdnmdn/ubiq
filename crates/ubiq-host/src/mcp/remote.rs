@@ -63,6 +63,13 @@ pub fn workdir(project_root: &Path, label: &str) -> PathBuf {
         .join(sanitise(label))
 }
 
+/// [`workdir`] for a project with no folder on this machine — one a drone serves: the same
+/// per-remote scratch folder, under the project's own data directory
+/// ([`crate::store::project_dir::ProjectData::remote_scratch`]) rather than its folder.
+pub fn drone_workdir(scratch: &Path, label: &str) -> PathBuf {
+    scratch.join(sanitise(label))
+}
+
 /// A label as one safe path segment: anything but ASCII alphanumerics, `-`, `_` and `.` becomes
 /// `-`, and a segment that would be empty or a dot-name is `remote`.
 pub fn sanitise(label: &str) -> String {
@@ -748,6 +755,10 @@ mod tests {
         assert_eq!(
             workdir(Path::new("/p"), "a/b"),
             Path::new("/p/.ubiq/remote/a-b")
+        );
+        assert_eq!(
+            drone_workdir(Path::new("/cfg/projects/x/local/remote"), "win box"),
+            Path::new("/cfg/projects/x/local/remote/win-box")
         );
     }
 

@@ -34,6 +34,7 @@ use ubiq_proto::ids::{PaneId, ProjectId, RemoteCallId};
 use ubiq_proto::messages::Message;
 use ubiq_proto::settings::{RemoteScheme, SavedRemoteHost};
 use ubiq_proto::stats::HostStats;
+use ubiq_proto::work::AgentId;
 
 /// Which host something is about: the one every window is always attached to, or one of the
 /// remote ones attached beside it.
@@ -240,6 +241,82 @@ fn is_record_message(message: &Message) -> bool {
     )
 }
 
+/// The messages that start or revive a conversation — routed to the row's owner too, because a
+/// drone has no harness library: an agent in a project a drone serves is a harness on the row
+/// owner's machine, bound to that drone (`D226`).
+fn is_conversation_start(message: &Message) -> bool {
+    matches!(
+        message,
+        Message::StartConversation { .. } | Message::ReviveConversation { .. }
+    )
+}
+
+/// What goes to the row's owner rather than to whoever serves the folder.
+fn is_owner_message(message: &Message) -> bool {
+    is_record_message(message) || is_conversation_start(message) || is_work_message(message)
+}
+
+/// The work, board and mission families a window sends — routed to the row's owner, because the
+/// agents they assign and the stores they write are the owner's, never a drone's (which answers
+/// them `NOT_HERE` or with empty lists). A board's envelope is whatever it carries.
+fn is_work_message(message: &Message) -> bool {
+    match message {
+        Message::OnBoard { message, .. } => is_work_message(message),
+        _ => matches!(
+            message,
+            Message::ListWork { .. }
+                | Message::CreateTask { .. }
+                | Message::UpdateTask { .. }
+                | Message::SetTaskField { .. }
+                | Message::MoveTask { .. }
+                | Message::AssignTask { .. }
+                | Message::DeleteTask { .. }
+                | Message::ArchiveTasks { .. }
+                | Message::AddStep { .. }
+                | Message::RenameStep { .. }
+                | Message::RemoveStep { .. }
+                | Message::MoveStep { .. }
+                | Message::ToggleStep { .. }
+                | Message::AddComment { .. }
+                | Message::AssignAgent { .. }
+                | Message::SendToAgent { .. }
+                | Message::DocAgentQueue { .. }
+                | Message::ListBoards { .. }
+                | Message::CreateBoard { .. }
+                | Message::SetBoardEnabled { .. }
+                | Message::DeleteBoard { .. }
+                | Message::ListMissions { .. }
+                | Message::CreateMission { .. }
+                | Message::SetMissionField { .. }
+                | Message::MissionControl { .. }
+                | Message::MissionTask { .. }
+                | Message::AddGuidance { .. }
+                | Message::LoadHistory { .. }
+        ),
+    }
+}
+
+/// The conversation a window → host message is about, for the conversation-family messages that
+/// name an agent and no project — [`pane_id_of`]'s shape, for the same reason.
+fn conversation_follow_up(message: &Message) -> Option<AgentId> {
+    match message {
+        Message::PromptAgent { agent_id, .. }
+        | Message::CancelTurn { agent_id, .. }
+        | Message::AnswerPermission { agent_id, .. }
+        | Message::AnswerAsk { agent_id, .. }
+        | Message::AbortConversation { agent_id, .. }
+        | Message::EndConversation { agent_id, .. }
+        | Message::UnloadConversation { agent_id, .. }
+        | Message::ResumeConversation { agent_id, .. }
+        | Message::RenameConversation { agent_id, .. }
+        | Message::SetAgentConfig { agent_id, .. }
+        | Message::SetConversationAcceptAll { agent_id, .. }
+        | Message::SetConversationDebugDump { agent_id, .. }
+        | Message::SetConversationPersistent { agent_id, .. } => Some(*agent_id),
+        _ => None,
+    }
+}
+
 /// A window's connection to every host it is attached to.
 ///
 /// Replaces the `ubiq_proto::bus::Client` field `AppState` used to hold. `local` takes over
@@ -267,6 +344,10 @@ pub struct Bus {
     /// Every project this window has been told about, and which host reported it. Same shape and
     /// the same reason as `panes`.
     projects: RefCell<HashMap<ProjectId, HostRef>>,
+    /// Every conversation this window started or was told started, and which host runs it — so a
+    /// turn, a cancel or an answer, none of which names a project, reaches the host that has the
+    /// harness rather than whichever the Hosts dropdown points at. Same shape as `panes`.
+    agents: RefCell<HashMap<AgentId, HostRef>>,
     /// Every project id the *local* catalogue has ever named, whatever host serves it now.
     ///
     /// The one thing in this bus that is not a host's wholesale property — see
@@ -307,6 +388,7 @@ impl Bus {
             active: HostRef::Local,
             panes: RefCell::new(HashMap::new()),
             projects: RefCell::new(HashMap::new()),
+            agents: RefCell::new(HashMap::new()),
             owned_locally: RefCell::new(HashSet::new()),
             pinned_remote: RefCell::new(HashSet::new()),
             remote_meta: RefCell::new(HashMap::new()),
@@ -347,10 +429,20 @@ impl Bus {
         {
             return *host;
         }
+        // A conversation's follow-ups name no project: they go where the conversation runs.
+        if let Some(agent_id) = conversation_follow_up(message)
+            && let Some(host) = self.agents.borrow().get(&agent_id)
+        {
+            return *host;
+        }
         if let Some(project_id) = message.project_id() {
             // The record's own half goes to whoever owns the *row* (`D132`): a drone serving a
             // locally-owned project holds no catalogue, and refuses all five.
-            if is_record_message(message) {
+            // A conversation runs where the row is too: a drone has no harness library, so an
+            // agent in a project it serves is a local harness bound to it (`D226`, `R7`).
+            // And so does the work: the agents it assigns live on the row owner's coordinator, and
+            // a drone keeps no tasks, boards or missions.
+            if is_owner_message(message) {
                 return self.row_owner(project_id);
             }
             if let Some(host) = self.projects.borrow().get(&project_id) {
@@ -372,6 +464,11 @@ impl Bus {
                 "dropped a request for a project whose drone is not attached: {message:?}"
             );
             return;
+        }
+        if let Message::StartConversation { agent_id, .. }
+        | Message::ReviveConversation { agent_id, .. } = &message
+        {
+            self.note_agent(*agent_id, host);
         }
         self.send_to(host, message);
     }
@@ -447,6 +544,17 @@ impl Bus {
     /// that first announced it.
     pub fn note_pane(&self, pane_id: PaneId, host: HostRef) {
         self.panes.borrow_mut().insert(pane_id, host);
+    }
+
+    /// Record which host runs a conversation — as it is started or revived from here, and as any
+    /// host reports one started (`ConversationStarted`), so its follow-ups route there.
+    pub fn note_agent(&self, agent_id: AgentId, host: HostRef) {
+        self.agents.borrow_mut().insert(agent_id, host);
+    }
+
+    /// Forget a conversation, once it is deleted — `forget_pane`'s reason.
+    pub fn forget_agent(&self, agent_id: AgentId) {
+        self.agents.borrow_mut().remove(&agent_id);
     }
 
     /// Forget a pane, once it has closed. Not required for correctness — an unresolved pane falls
@@ -549,9 +657,10 @@ impl Bus {
     }
 
     /// Whether `message` is project-scoped for a drone-pinned project that no drone is serving
-    /// right now. Everything is, except the record's own half, which the local catalogue owns.
+    /// right now. Everything is, except what goes to the row's owner whoever serves the folder:
+    /// the record's own half, the conversations and the work.
     fn unserved_pinned(&self, message: &Message) -> bool {
-        !is_record_message(message)
+        !is_owner_message(message)
             && message
                 .project_id()
                 .is_some_and(|id| self.is_pinned_unserved(id))
@@ -634,6 +743,7 @@ impl Bus {
             false
         });
         self.remote_meta.borrow_mut().remove(&id);
+        self.agents.borrow_mut().retain(|_, owner| *owner != host);
         if self.active == host {
             self.active = HostRef::Local;
         }
@@ -715,6 +825,22 @@ impl Bus {
             return Err(format!("remote {} does not support tools", conn.label));
         }
         Ok(conn.id)
+    }
+
+    /// The saved id of the remote serving `project_id` right now, for a project whose row is
+    /// this machine's — a `runs_on` project a drone serves. `None` for one served here, or by a
+    /// connection dialled from no saved entry.
+    pub fn serving_save_id(&self, project_id: ProjectId) -> Option<String> {
+        if self.row_owner(project_id) != HostRef::Local {
+            return None;
+        }
+        let HostRef::Remote(id) = self.project_host(project_id) else {
+            return None;
+        };
+        self.remotes
+            .iter()
+            .find(|remote| remote.id == id && !remote.save_id.is_empty())
+            .map(|remote| remote.save_id.clone())
     }
 
     /// Whether the saved host `save_id` is attached and serves remote tools — what the new-agent
@@ -911,6 +1037,15 @@ impl crate::app::AppState {
             .filter(|conn| self.bus.serves_tools(&conn.save_id))
             .map(|conn| (conn.save_id.clone(), conn.label.clone()))
             .collect()
+    }
+
+    /// The saved remote a conversation in `project_id` is bound to by where the project is: the
+    /// drone serving it, while that drone serves remote tools (`R7`). `None` for a project served
+    /// here — a pick on the new-agent form is the only binding one of those gets.
+    pub fn drone_binding(&self, project_id: ProjectId) -> Option<String> {
+        self.bus
+            .serving_save_id(project_id)
+            .filter(|save_id| self.bus.serves_tools(save_id))
     }
 
     /// What a remote has said about itself, for the manager panel and the picker's tooltips.
@@ -1575,7 +1710,21 @@ mod tests {
             HostRef::Local
         );
         assert_eq!(
+            bus.resolve(&Message::ProjectTree {
+                project_id: pinned,
+                rel_path: String::new(),
+                depth: 1,
+                prefetch: false,
+            }),
+            HostRef::Remote(drone)
+        );
+        // The work is the owner's too: its agents run here, and a drone keeps no tasks.
+        assert_eq!(
             bus.resolve(&Message::ListWork { project_id: pinned }),
+            HostRef::Local
+        );
+        assert_eq!(
+            bus.resolve(&Message::ListWork { project_id: theirs }),
             HostRef::Remote(drone)
         );
         // A drone's own row is the drone's, record and all.
@@ -1583,6 +1732,69 @@ mod tests {
             bus.resolve(&Message::OpenedProject { project_id: theirs }),
             HostRef::Remote(drone)
         );
+    }
+
+    /// An agent in a project a drone serves is a harness on the row owner's machine, bound to
+    /// that drone (`R7`): the start goes to the local host, and the drone it binds is the one
+    /// serving the row. A drone's own row stays the drone's.
+    #[test]
+    fn a_conversation_in_a_drone_served_row_starts_locally_bound_to_its_drone() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (drone, _) = bus.register_remote(
+            ubiq_proto::bus::detached().0,
+            "drone".to_string(),
+            "rdp-box".to_string(),
+            String::new(),
+            RemoteScheme::Http,
+        );
+
+        let pinned = a_project_id();
+        let theirs = a_project_id();
+        bus.note_project(pinned, HostRef::Local);
+        bus.note_project(pinned, HostRef::Remote(drone));
+        bus.note_project(theirs, HostRef::Remote(drone));
+
+        let revive = |project_id| Message::ReviveConversation {
+            source: AgentId::generate(),
+            agent_id: AgentId::generate(),
+            project_id,
+            session_id: ubiq_proto::ids::SessionId::generate(),
+            remote: None,
+        };
+        assert_eq!(bus.resolve(&revive(pinned)), HostRef::Local);
+        assert_eq!(bus.resolve(&revive(theirs)), HostRef::Remote(drone));
+
+        assert_eq!(bus.serving_save_id(pinned), Some("rdp-box".to_string()));
+        assert_eq!(bus.serving_save_id(theirs), None);
+        let local_only = a_project_id();
+        bus.note_project(local_only, HostRef::Local);
+        assert_eq!(bus.serving_save_id(local_only), None);
+    }
+
+    /// A conversation's follow-ups name no project, so they follow the host that runs it — not
+    /// the Hosts dropdown. One this window was never told about still falls back to `active`.
+    #[test]
+    fn a_conversation_follow_up_goes_where_the_conversation_runs() {
+        let (local, _local_end) = ubiq_proto::bus::detached();
+        let mut bus = Bus::new(local);
+        let (remote, _) = test_remote(&mut bus, ubiq_proto::bus::detached().0, "far");
+        bus.set_active(HostRef::Remote(remote));
+
+        let ours = AgentId::generate();
+        bus.note_agent(ours, HostRef::Local);
+        let cancel = |agent_id| Message::CancelTurn { agent_id };
+        assert_eq!(bus.resolve(&cancel(ours)), HostRef::Local);
+        assert_eq!(
+            bus.resolve(&cancel(AgentId::generate())),
+            HostRef::Remote(remote)
+        );
+
+        // A remote's conversations go with it.
+        let theirs = AgentId::generate();
+        bus.note_agent(theirs, HostRef::Remote(remote));
+        bus.drop_remote(remote);
+        assert_eq!(bus.resolve(&cancel(theirs)), HostRef::Local);
     }
 
     /// A drone going away is not the catalogue forgetting anything: the row it was serving stays,

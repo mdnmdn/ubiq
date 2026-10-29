@@ -810,10 +810,16 @@ impl AppState {
     /// Shared by [`Self::start_new_agent`] and [`Self::start_new_agent_in_terminal`]: both read the
     /// same target out of the same form and refuse the same two ways, and only what they build from
     /// the answer differs — a conversation for one, a bare pane for the other.
+    ///
+    /// The fourth answer is the drone a start is bound to whatever the form picked: the saved id
+    /// of the remote serving a project whose folder is on a far machine (`R7`). The harness runs
+    /// here and reaches that machine through `ubiq-remote` (`D226`); a terminal start has no way
+    /// to carry the binding, so `terminal` refuses such a project instead.
     fn take_startable_new_agent(
         &mut self,
+        terminal: bool,
         cx: &mut Context<Self>,
-    ) -> Option<(NewAgentForm, ProjectId, Option<String>)> {
+    ) -> Option<(NewAgentForm, ProjectId, Option<String>, Option<String>)> {
         // The Teams toolbar can aim a start at any project the window holds; every other way in
         // aims at the active one and says so by having no project field at all.
         //
@@ -825,19 +831,32 @@ impl AppState {
             .new_agent_project
             .filter(|id| self.projects.contains_key(id))
             .or_else(|| self.project(cx))?;
-        // A drone has no harness library (`R7`): say so here, with the form left up, rather than
-        // sending a start the far side can only fail.
-        if self.bus.project_host(project_id) != HostRef::Local {
-            self.workbench.project_error =
-                Some("agents are not available on a drone yet (R7)".to_string());
-            self.workbench.open_menu = Some(MenuId::Project);
-            cx.notify();
-            return None;
-        }
         if self.bus.is_pinned_unserved(project_id) {
             self.show_remote_not_attached(cx);
             return None;
         }
+        // A drone has no harness library: an agent in a project one serves is a harness here,
+        // bound to that drone (`R7`). Each refusal is said with the form left up, rather than
+        // sending a start the far side can only fail.
+        let drone = if self.bus.project_host(project_id) == HostRef::Local {
+            None
+        } else {
+            // Not `drone_binding`: each way it answers `None` is a different sentence here.
+            let serving = self.bus.serving_save_id(project_id);
+            let refusal = match &serving {
+                _ if terminal => "a terminal agent cannot reach a remote machine: start it as a chat",
+                Some(save_id) if self.bus.serves_tools(save_id) => "",
+                Some(_) => "the remote serving this project does not offer tools",
+                None => "agents run on this machine only for a project it owns",
+            };
+            if !refusal.is_empty() {
+                self.workbench.project_error = Some(refusal.to_string());
+                self.workbench.open_menu = Some(MenuId::Project);
+                cx.notify();
+                return None;
+            }
+            serving
+        };
         // `form.prompt` is the chosen definition's own agent prompt, seeded by the pick and never
         // edited on a start — it is what the preamble folds.
         let form = self.workbench.new_agent.take()?;
@@ -868,7 +887,7 @@ impl AppState {
         // project. The refusals above are before this on purpose: they put the form back up, and
         // the project it is still being composed against goes back with it.
         self.new_agent_project = None;
-        Some((form, project_id, definition))
+        Some((form, project_id, definition, drone))
     }
 
     /// Start the conversation the form describes, and answer the id it was given.
@@ -884,7 +903,7 @@ impl AppState {
             .value()
             .trim()
             .to_string();
-        let (form, project_id, definition) = self.take_startable_new_agent(cx)?;
+        let (form, project_id, definition, drone) = self.take_startable_new_agent(false, cx)?;
         let agent_id = AgentId::generate();
         self.bus.send(Message::StartConversation {
             agent_id,
@@ -900,11 +919,13 @@ impl AppState {
             mcps: form.mcps.clone(),
             skills: form.skills.clone(),
             grants: form.grants.clone(),
-            // Bound only while that remote is still attached and serves tools.
-            remote: form
-                .remote
-                .clone()
-                .filter(|save_id| self.bus.serves_tools(save_id)),
+            // The drone serving the project, when one does; else the form's pick, bound only while
+            // that remote is still attached and serves tools.
+            remote: drone.or_else(|| {
+                form.remote
+                    .clone()
+                    .filter(|save_id| self.bus.serves_tools(save_id))
+            }),
             // The user started this one, so nobody asked for it. `spawned_by` is only ever set
             // where a window answers a `MissionSpawnRequest`.
             spawned_by: None,
@@ -981,7 +1002,7 @@ impl AppState {
     /// there is no first turn to fold anything in front of. The opening prompt and the subagent
     /// ceiling the form carries are simply not said.
     pub fn start_new_agent_in_terminal(&mut self, cx: &mut Context<Self>) {
-        let Some((form, project_id, definition)) = self.take_startable_new_agent(cx) else {
+        let Some((form, project_id, definition, _)) = self.take_startable_new_agent(true, cx) else {
             return;
         };
         let picks = AgentPicks {

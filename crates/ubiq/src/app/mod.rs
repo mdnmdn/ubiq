@@ -411,6 +411,10 @@ pub struct OpenProject {
     /// automatic restore is off: each tab draws a *Restore* page until the user asks
     /// ([`AppState::restore_stopped_chat`]). Kept in the blob while it waits.
     pub stopped_chats: HashSet<AgentId>,
+    /// The conversations a restore owes a revive and could not send yet, because the drone
+    /// serving this project is not attached with its tools (`R7`) — sent by
+    /// [`AppState::revive_deferred`] once it serves the project.
+    deferred_revives: Vec<AgentId>,
     /// Folders a blob said were open and that are still out of reach, because a deep folder cannot
     /// be opened before its parents have been listed.
     wanted: Vec<String>,
@@ -537,6 +541,7 @@ impl OpenProject {
             restored: false,
             persistent_settled: false,
             stopped_chats: HashSet::new(),
+            deferred_revives: Vec::new(),
             wanted: Vec::new(),
             git: None,
             git_truncated: false,

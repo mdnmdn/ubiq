@@ -17,7 +17,7 @@ use parking_lot::Mutex;
 use rustls::pki_types::ServerName;
 use ubiq_proto::settings::{TunnelKind, TunnelSpec};
 
-use crate::http::HostRewriter;
+use crate::http::{self, Rewrite};
 use crate::mux::Mux;
 use crate::pipe::{self, Counters};
 use crate::tls;
@@ -245,9 +245,9 @@ fn connection(shared: &Shared, tunnel: &Tunnel, socket: TcpStream) {
         }
     };
     match spec.kind {
-        TunnelKind::Tcp => pipe::pipe(&mux, socket, stream, None, Some(counters.clone())),
+        TunnelKind::Tcp => pipe::pipe(&mux, socket, stream, None, None, Some(counters.clone())),
         TunnelKind::Http => {
-            let mut rewriter = HostRewriter::new(host_header(spec));
+            let (mut requests, responses) = http::rewriters(Rewrite::new(spec));
             if spec.upstream_tls {
                 let server = match ServerName::try_from(spec.host.clone()) {
                     Ok(name) => name,
@@ -266,45 +266,24 @@ fn connection(shared: &Shared, tunnel: &Tunnel, socket: TcpStream) {
                     &mux,
                     socket,
                     stream,
-                    rewriter,
+                    (requests, responses),
                     tls::client_config(spec.insecure),
                     server,
                     counters.clone(),
                 );
             } else {
                 let transform: pipe::Transform =
-                    Box::new(move |input, out| rewriter.feed(input, out));
+                    Box::new(move |input, out| requests.feed(input, out));
                 pipe::pipe(
                     &mux,
                     socket,
                     stream,
                     Some(transform),
+                    Some(responses),
                     Some(counters.clone()),
                 );
             }
         }
-    }
-}
-
-/// The `Host` an HTTP spec sends: the rewrite, or `host[:port]` with the scheme's port left off.
-fn host_header(spec: &TunnelSpec) -> String {
-    if let Some(rewrite) = spec
-        .host_rewrite
-        .as_deref()
-        .filter(|h| !h.trim().is_empty())
-    {
-        return rewrite.trim().to_string();
-    }
-    let host = if spec.host.contains(':') && !spec.host.starts_with('[') {
-        format!("[{}]", spec.host)
-    } else {
-        spec.host.clone()
-    };
-    let default_port = if spec.upstream_tls { 443 } else { 80 };
-    if spec.port == default_port {
-        host
-    } else {
-        format!("{host}:{}", spec.port)
     }
 }
 
@@ -328,34 +307,4 @@ fn refuse(mut socket: TcpStream, kind: TunnelKind, error: String, counters: &Cou
     let mut sink = [0u8; 4096];
     while matches!(socket.read(&mut sink), Ok(n) if n > 0) {}
     let _ = socket.shutdown(Shutdown::Both);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn spec(host: &str, port: u16, tls: bool, rewrite: Option<&str>) -> TunnelSpec {
-        TunnelSpec {
-            id: "t".into(),
-            kind: TunnelKind::Http,
-            local_port: 0,
-            host: host.into(),
-            port,
-            upstream_tls: tls,
-            host_rewrite: rewrite.map(Into::into),
-            insecure: false,
-            enabled: true,
-        }
-    }
-
-    #[test]
-    fn the_host_header_leaves_the_scheme_port_off_and_brackets_v6() {
-        assert_eq!(host_header(&spec("api.x", 443, true, None)), "api.x");
-        assert_eq!(host_header(&spec("api.x", 443, false, None)), "api.x:443");
-        assert_eq!(host_header(&spec("::1", 8080, false, None)), "[::1]:8080");
-        assert_eq!(
-            host_header(&spec("10.0.0.1", 80, false, Some("svc"))),
-            "svc"
-        );
-    }
 }

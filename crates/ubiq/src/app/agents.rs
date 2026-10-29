@@ -1166,6 +1166,7 @@ impl AppState {
             agent_id: AgentId::generate(),
             project_id,
             session_id: self.session,
+            remote: self.drone_binding(project_id),
         });
         cx.notify();
     }

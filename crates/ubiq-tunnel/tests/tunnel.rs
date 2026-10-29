@@ -61,9 +61,12 @@ fn spec(kind: TunnelKind, target: u16) -> TunnelSpec {
         host: "127.0.0.1".into(),
         port: target,
         upstream_tls: false,
-        host_rewrite: None,
         insecure: false,
         enabled: true,
+        rewrite_host: true,
+        host_rewrite: None,
+        rewrite_content: false,
+        content_types: TunnelSpec::default_content_types(),
     }
 }
 
@@ -254,8 +257,7 @@ fn recording_server() -> (u16, std::sync::mpsc::Receiver<Vec<u8>>) {
 fn http_rewrites_host_on_pipelined_and_chunked_requests() {
     let (window, _drone) = served(None, AllowList::any());
     let (target, recorded) = recording_server();
-    let mut spec = spec(TunnelKind::Http, target);
-    spec.host_rewrite = Some("api.example.com".into());
+    let spec = spec(TunnelKind::Http, target);
     let _manager = TunnelManager::start(std::slice::from_ref(&spec), Some(window));
 
     let sent = b"POST /a HTTP/1.1\r\nHost: localhost\r\nContent-Length: 12\r\n\r\nHost: inside\
@@ -267,10 +269,70 @@ GET /c HTTP/1.1\r\nUser-Agent: t\r\n\r\n";
     }
     s.shutdown(Shutdown::Write).unwrap();
     let got = recorded.recv_timeout(Duration::from_secs(10)).unwrap();
-    let want = b"POST /a HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 12\r\n\r\nHost: inside\
-POST /b HTTP/1.1\r\nHost: api.example.com\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nHost: \r\n0\r\n\r\n\
-GET /c HTTP/1.1\r\nUser-Agent: t\r\nHost: api.example.com\r\n\r\n";
-    assert_eq!(String::from_utf8_lossy(&got), String::from_utf8_lossy(want));
+    let want = format!(
+        "POST /a HTTP/1.1\r\nHost: 127.0.0.1:{target}\r\nContent-Length: 12\r\n\r\nHost: inside\
+POST /b HTTP/1.1\r\nHost: 127.0.0.1:{target}\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nHost: \r\n0\r\n\r\n\
+GET /c HTTP/1.1\r\nUser-Agent: t\r\nHost: 127.0.0.1:{target}\r\n\r\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&got), want);
+}
+
+/// A server that reads one request head and answers with `respond(its own origin)`.
+fn answering_server(respond: fn(&str) -> String) -> (u16, std::sync::mpsc::Receiver<Vec<u8>>) {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let (mut s, _) = l.accept().unwrap();
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") && s.read(&mut byte).unwrap() == 1 {
+            head.push(byte[0]);
+        }
+        tx.send(head).unwrap();
+        let origin = format!("http://127.0.0.1:{port}");
+        s.write_all(respond(&origin).as_bytes()).unwrap();
+        let _ = s.shutdown(Shutdown::Write);
+    });
+    (port, rx)
+}
+
+#[test]
+fn http_points_redirects_and_bodies_back_at_the_tunnel() {
+    let (window, _drone) = served(None, AllowList::any());
+    let (target, recorded) = answering_server(|origin| {
+        let body = format!("<a href=\"{origin}/b\">b</a>");
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: {origin}/next\r\nContent-Type: text/html\r\n\
+             Content-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    });
+    let mut spec = spec(TunnelKind::Http, target);
+    spec.rewrite_content = true;
+    let _manager = TunnelManager::start(std::slice::from_ref(&spec), Some(window));
+
+    let local = spec.local_port;
+    let answer = round_trip(
+        local,
+        format!("GET / HTTP/1.1\r\nHost: localhost:{local}\r\nAccept-Encoding: gzip\r\n\r\n")
+            .as_bytes(),
+    );
+    let answer = String::from_utf8_lossy(&answer);
+    let body = format!("<a href=\"http://localhost:{local}/b\">b</a>");
+    assert_eq!(
+        answer,
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: http://localhost:{local}/next\r\n\
+             Content-Type: text/html\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    );
+    let head = recorded.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&head),
+        format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{target}\r\nAccept-Encoding: identity\r\n\r\n")
+    );
 }
 
 #[test]

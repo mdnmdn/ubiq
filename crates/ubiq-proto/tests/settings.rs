@@ -48,9 +48,12 @@ fn a_record_with_saved_hosts_round_trips() {
                     host: "localhost".to_string(),
                     port: 3000,
                     upstream_tls: false,
-                    host_rewrite: None,
                     insecure: false,
                     enabled: true,
+                    rewrite_host: true,
+                    host_rewrite: None,
+                    rewrite_content: true,
+                    content_types: vec!["text/*".to_string()],
                 }],
                 tunnel_rate_bps: Some(1_000_000),
             },
@@ -192,4 +195,59 @@ fn a_unix_carrier_round_trips_and_defaults_its_preset() {
 
     let old: RemoteCarrier = serde_json::from_str(r#"{"kind":"socket"}"#).unwrap();
     assert_eq!(old, RemoteCarrier::Socket);
+}
+
+/// A tunnel saved before the URL form and its rewrite flags reads with the Host rewrite on, the
+/// content rewrite off and the default types — and an old `host_rewrite` override is kept.
+#[test]
+fn a_tunnel_from_before_the_rewrite_flags_still_reads() {
+    use ubiq_proto::settings::TunnelSpec;
+    let json = r#"{"id":"t1","kind":"http","local_port":8080,"host":"api.x","port":8443,
+        "upstream_tls":true,"host_rewrite":"svc","insecure":false,"enabled":true}"#;
+    let spec: TunnelSpec = serde_json::from_str(json).unwrap();
+    assert!(spec.rewrite_host);
+    assert_eq!(spec.host_rewrite.as_deref(), Some("svc"));
+    assert!(!spec.rewrite_content);
+    assert_eq!(spec.content_types, TunnelSpec::default_content_types());
+    assert_eq!(spec.remote_url(), "https://api.x:8443/");
+}
+
+#[test]
+fn a_remote_url_parses_with_the_scheme_port_by_default() {
+    use ubiq_proto::settings::parse_remote_url;
+    let ok = |url: &str| parse_remote_url(url).unwrap();
+    assert_eq!(ok("https://host:23/"), (true, "host".into(), 23));
+    assert_eq!(ok("http://host"), (false, "host".into(), 80));
+    assert_eq!(ok("HTTPS://Api.X"), (true, "api.x".into(), 443));
+    assert_eq!(ok("web:3000"), (false, "web".into(), 3000));
+    assert_eq!(ok(" http://[::1]:8080/ "), (false, "::1".into(), 8080));
+    assert_eq!(ok("https://[fe80::1]"), (true, "fe80::1".into(), 443));
+    for bad in [
+        "",
+        "ftp://host",
+        "http://",
+        "http://host:0",
+        "http://host:x",
+        "http://host:99999",
+        "http://host/api",
+        "http://user:pw@host",
+        "http://[::1",
+        "http://fe80::1",
+        "::1:8080",
+    ] {
+        assert!(parse_remote_url(bad).is_err(), "{bad}");
+    }
+
+    let mut spec: ubiq_proto::settings::TunnelSpec =
+        serde_json::from_str(r#"{"id":"t","kind":"http","local_port":1,"host":"","port":0}"#)
+            .unwrap();
+    for url in [
+        "https://api.x/",
+        "http://10.0.0.1:8080/",
+        "http://[::1]:3000/",
+    ] {
+        spec.set_remote_url(url).unwrap();
+        assert_eq!(spec.remote_url(), url);
+    }
+    assert_eq!(spec.remote_origin(), "http://[::1]:3000");
 }

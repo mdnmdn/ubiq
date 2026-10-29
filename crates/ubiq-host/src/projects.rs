@@ -265,6 +265,12 @@ impl Projects {
         project_dir::ProjectData::under_config(&self.root, id).workarea()
     }
 
+    /// Where agents bound to a remote keep their scratch folders when the project has no folder
+    /// here — a drone-served one. Under the config root, whatever the project's storage mode.
+    pub fn remote_scratch(&self, id: ProjectId) -> PathBuf {
+        project_dir::ProjectData::under_config(&self.root, id).remote_scratch()
+    }
+
     /// Where this project's index lives.
     ///
     /// A sibling of [`Self::workarea`] and the mirror of it: that directory belongs to the

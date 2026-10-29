@@ -5,8 +5,8 @@ kind: feature
 status: draft
 summary: The rail's Agents mode — a row of parallel columns, each a transcript and a composer over one live conversation, tabs that group agents into a column, the bench of agents no column is showing, the sidebar that lists every conversation the window holds, the three-dots menu over a live agent, and the New agent form all three surfaces raise.
 read_when: you are changing the agents screen — its columns, its tabs, what a tab drag means, the bench, the sidebar, a column's composer or footer, or the New agent form
-updated: 2026-10-25
-verified: 2026-10-28
+updated: 2026-10-29
+verified: 2026-10-29
 code_anchors: [crates/ubiq/src/state/workbench.rs, crates/ubiq/src/state/agents.rs, crates/ubiq/src/app/agents.rs, crates/ubiq/src/state/new_agent.rs, crates/ubiq/src/app/new_agent.rs, crates/ubiq/src/ui/new_agent.rs, crates/ubiq/src/state/conversation.rs, crates/ubiq/src/ui/conversation/mod.rs, crates/ubiq/tests/conversation.rs, crates/ubiq/src/ui/agents/mod.rs, crates/ubiq/src/ui/agents/sidebar.rs, crates/ubiq/src/ui/agents/column.rs, crates/ubiq/src/state/status.rs, crates/ubiq/src/ui/work.rs, crates/ubiq/src/ui/teams/status.rs, crates/ubiq/tests/agents.rs, crates/ubiq/src/app/mission.rs]
 depends_on: [feat-workbench, tech-ui, feat-chat]
 review_cycle: monthly
@@ -281,7 +281,7 @@ that survives a restart is built (`D97`). The flag lives on a row keyed by the c
 does not exist until the start has been answered, so the form carries the intent through
 `StartConversation` and sends `SetConversationPersistent` right behind it; the three-dots menu's
 *Make persistent* marks a running one. On a harness that does not keep its sessions, and on a
-definition form, the row is drawn faint and takes no click (`ui/new_agent.rs`). A start also shows *Run against remote* — a select defaulting to Local, drawn only while an attached drone advertises `tools` — which sets `StartConversation.remote` to the saved host's id (`D226`).
+definition form, the row is drawn faint and takes no click (`ui/new_agent.rs`). A start also shows *Run against remote* — a select defaulting to Local, drawn only while an attached drone advertises `tools` — which sets `StartConversation.remote` to the saved host's id (`D226`). In a project a drone serves the start is bound to that drone whatever the select says, and *Start in terminal* is refused — see [`drone.md`](./drone.md)'s *What a drone refuses*.
 
 **The initial prompt is sent for the user.** The dialog's optional `Initial prompt` field is held
 until `Message::ConversationStarted` and then sent as the conversation's first user message, the

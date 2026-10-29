@@ -619,6 +619,7 @@ impl AppState {
                         agent_id: agent,
                         project_id,
                         session_id: self.session,
+                        remote: self.drone_binding(project_id),
                     });
                 }
                 self.bus.send(Message::AssignAgent {
@@ -663,7 +664,9 @@ impl AppState {
             mcps: request.mcps.clone(),
             skills: Vec::new(),
             grants: Vec::new(),
-            remote: None,
+            // Bound to the drone serving the project, when one does — the harness runs here and
+            // the folder is on the far machine (`R7`).
+            remote: self.drone_binding(project_id),
             // The host's launch, not an agent's: nothing spawned this one.
             spawned_by: None,
         });

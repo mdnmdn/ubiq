@@ -745,6 +745,7 @@ impl AppState {
                 self.sync_projects(cx);
                 for id in moved {
                     self.ask_root_tree(id);
+                    self.revive_deferred(id);
                 }
             }
 
@@ -2448,7 +2449,7 @@ impl AppState {
     /// Answers with the message when it belongs to another family.
     fn receive_conversation(
         &mut self,
-        _host: HostRef,
+        host: HostRef,
         message: Message,
         cx: &mut Context<Self>,
     ) -> Option<Message> {
@@ -2459,6 +2460,8 @@ impl AppState {
                 session,
                 accepts_input,
             } => {
+                // Its follow-ups name no project: they go to the host that runs it.
+                self.bus.note_agent(agent.id, host);
                 self.workbench.work_error = None;
                 // The default account (no id) has no accounts-page row to ask for its plan, so the
                 // first conversation on it does — from the host's cache unless nothing is held.
@@ -2728,6 +2731,9 @@ impl AppState {
             // here: the dock panel has to leave the tree too, and the composer slot has to be
             // cleared before it is handed on.
             Message::ConversationDeleted { agent_id } => {
+                // Gone for good, so nothing will be routed for it again. `ConversationEnded` keeps
+                // its entry: an ended conversation is still deleted or revived through its host.
+                self.bus.forget_agent(agent_id);
                 let open = self
                     .projects
                     .values_mut()

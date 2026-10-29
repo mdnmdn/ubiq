@@ -175,6 +175,7 @@ impl AppState {
             agent_id: agent,
             project_id: project,
             session_id: self.session,
+            remote: self.drone_binding(project),
         });
         cx.notify();
     }

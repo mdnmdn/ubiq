@@ -3925,8 +3925,9 @@ impl Coordinator {
                 agent_id,
                 project_id,
                 session_id,
+                remote,
             } => {
-                self.revive_conversation(client, source, agent_id, project_id, session_id);
+                self.revive_conversation(client, source, agent_id, project_id, session_id, remote);
             }
 
             // ── the search family ───────────────────────────────────
@@ -4143,15 +4144,39 @@ impl Coordinator {
         extra_rw: Vec<String>,
         remote: Option<String>,
     ) {
-        let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
-            return;
+        // A drone-served project's folder is on the far machine, so there is no local folder to
+        // resolve — the harness still runs here, bound to the drone (`R7`), or not at all.
+        let drone_served = self
+            .projects
+            .record(project_id)
+            .is_some_and(|record| record.runs_on.is_some());
+        let local_cwd = if drone_served {
+            None
+        } else {
+            let Some(cwd) = self.resolve_cwd(client, project_id, rel_path.as_deref()) else {
+                return;
+            };
+            Some(cwd)
         };
         // An agent bound to a remote runs in a scratch folder of its own under the project, not in
         // `rel_path` — the folder is deliberately not the target system — and is handed the
-        // `ubiq-remote` server whose calls name the remote (`D226`).
+        // `ubiq-remote` server whose calls name the remote (`D226`). A drone-served project has no
+        // folder here, so its scratch folder sits under the project's data directory instead.
         let mut mcps = mcps;
         let (cwd, remote) = match remote.filter(|id| !id.trim().is_empty()) {
-            None => (cwd, None),
+            None => match local_cwd {
+                Some(cwd) => (cwd, None),
+                None => {
+                    self.refuse_conversation(
+                        client,
+                        agent_id,
+                        "this project's folder is on a remote machine: an agent here has to be \
+                         bound to the remote that serves it"
+                            .to_string(),
+                    );
+                    return;
+                }
+            },
             Some(id) => {
                 let label = self
                     .settings
@@ -4162,12 +4187,20 @@ impl Coordinator {
                     .map(|saved| saved.name)
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or_else(|| id.clone());
-                let root = self
-                    .projects
-                    .record(project_id)
-                    .map(|record| PathBuf::from(&record.path))
-                    .unwrap_or_else(|| cwd.clone());
-                let workdir = crate::mcp::remote::workdir(&root, &label);
+                let workdir = match &local_cwd {
+                    None => crate::mcp::remote::drone_workdir(
+                        &self.projects.remote_scratch(project_id),
+                        &label,
+                    ),
+                    Some(cwd) => {
+                        let root = self
+                            .projects
+                            .record(project_id)
+                            .map(|record| PathBuf::from(&record.path))
+                            .unwrap_or_else(|| cwd.clone());
+                        crate::mcp::remote::workdir(&root, &label)
+                    }
+                };
                 if let Err(error) = std::fs::create_dir_all(&workdir) {
                     self.refuse_conversation(
                         client,
@@ -4443,7 +4476,17 @@ impl Coordinator {
             .map(|record| crate::mcp::ProjectFacts {
                 id: record.id.to_string(),
                 name: record.name.clone(),
-                path: record.path.clone(),
+                // A drone-served project's path is the far machine's: a local server reading it
+                // here would land on whatever folder of the same name this machine has. Its
+                // agents' scratch root stands in — Ubiq's own data, never the user's (`R7`).
+                path: match record.runs_on {
+                    Some(_) => self
+                        .projects
+                        .remote_scratch(record.id)
+                        .to_string_lossy()
+                        .into_owned(),
+                    None => record.path.clone(),
+                },
                 colour: record.colour,
             })
             .unwrap_or_default()
@@ -4962,7 +5005,16 @@ impl Coordinator {
         agent_id: AgentId,
         project_id: ProjectId,
         session_id: SessionId,
+        remote: Option<String>,
     ) {
+        // The window's binding first — it knows which drone serves the project — then the live
+        // recipe's. A row after a restart carries none (`G461`).
+        let remote = remote.filter(|id| !id.trim().is_empty()).or_else(|| {
+            self.pending_conversations
+                .get(&source)
+                .and_then(|pending| pending.remote.as_ref())
+                .map(|binding| binding.id.clone())
+        });
         // The live recipe first, the row second: a conversation still in this process has picks the
         // row may not have caught up with, and a row is what is left after a restart.
         let facts = self
@@ -5036,7 +5088,10 @@ impl Coordinator {
 
         // Back to a project-relative path, so the start below validates the folder exactly as a
         // fresh one does rather than trusting what a row on disk says.
+        // A drone-served project's folder is not here, and its agents' scratch folder is not inside
+        // it: the start below places the run again from the binding.
         let rel_path = match self.projects.record(project_id) {
+            Some(record) if record.runs_on.is_some() => None,
             Some(record) => match cwd.strip_prefix(&record.path) {
                 Ok(rel) if rel.as_os_str().is_empty() => None,
                 Ok(rel) => Some(rel.to_string_lossy().into_owned()),
@@ -5084,9 +5139,8 @@ impl Coordinator {
             // a link nobody made.
             None,
             Vec::new(),
-            // The binding is not on the row either: a revived remote agent comes back as an
-            // ordinary local one (`G461`).
-            None,
+            // The binding is not on the row: the window's, or the live recipe's, above (`G461`).
+            remote,
         );
         // `start_conversation` refuses on its own terms — an unknown harness, an unreadable folder
         // — and says so; there is nothing here to add if it did.
@@ -9585,6 +9639,7 @@ mod tests {
             agent_id,
             project_id,
             SessionId::generate(),
+            None,
         );
 
         // The recipe below would read the same if the start had refused and left the seeded row in
@@ -9653,6 +9708,7 @@ mod tests {
             agent_id,
             project_id,
             SessionId::generate(),
+            None,
         );
 
         let said = drain_all(&client);
@@ -9703,6 +9759,7 @@ mod tests {
                 forked,
                 project_id,
                 SessionId::generate(),
+                None,
             );
 
             assert!(

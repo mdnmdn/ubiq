@@ -14,7 +14,7 @@ use ubiq_proto::files::{DiffBase, DiffRowKind, FileDiff, FileError};
 
 /// Working-tree comparison. Commit-to-commit diffs pass the two ids to [`diff_sides`].
 fn diff(root: &Path, rel_path: &str, base: DiffBase) -> Result<FileDiff, FileError> {
-    diff_sides(root, rel_path, base, None, None)
+    diff_sides(root, rel_path, base, None, None, false)
 }
 
 /// Run one git command in `dir`, ignoring whatever the machine's own configuration says.
@@ -419,6 +419,7 @@ fn commits_compares_two_blobs_and_a_deleted_file_still_answers() {
         DiffBase::Commits,
         Some(&first),
         Some(&second),
+        false,
     )
     .unwrap();
     assert_eq!(answer.base, DiffBase::Commits);
@@ -440,6 +441,7 @@ fn commits_compares_two_blobs_and_a_deleted_file_still_answers() {
         DiffBase::Commits,
         Some(&second),
         Some(&third),
+        false,
     )
     .unwrap();
     assert!(
@@ -463,7 +465,7 @@ fn commits_compares_two_blobs_and_a_deleted_file_still_answers() {
 #[test]
 fn a_commit_diff_without_both_ids_fails() {
     let dir = repository();
-    let error = diff_sides(dir.path(), "file.txt", DiffBase::Commits, None, None).unwrap_err();
+    let error = diff_sides(dir.path(), "file.txt", DiffBase::Commits, None, None, false).unwrap_err();
     assert!(
         matches!(&error, FileError::Failed(reason) if reason.contains("commit")),
         "answered {error:?}"

@@ -1433,9 +1433,20 @@ impl AppState {
         // while automatic restore is on; off, it reopens on a *Restore* page and waits. A
         // persistent one is brought back either way, as it always was.
         let automatic = self.workbench.settings.host.restore_conversations;
+        let remote = self.drone_binding(project);
+        // A drone-pinned project's agents need its drone to come back bound; on a first open it
+        // is usually not attached yet, so the revives wait for it (`revive_deferred`).
+        let wait = remote.is_none() && self.bus.is_pinned(project);
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
         for agent in agents {
             if !automatic && view.chats_restorable.contains(&agent.to_string()) {
                 open.stopped_chats.insert(agent);
+                continue;
+            }
+            if wait {
+                open.deferred_revives.push(agent);
                 continue;
             }
             self.bus.send(Message::ReviveConversation {
@@ -1443,9 +1454,31 @@ impl AppState {
                 agent_id: agent,
                 project_id: project,
                 session_id: self.session,
+                remote: remote.clone(),
             });
         }
         self.sync_chat_panels(project);
+    }
+
+    /// Send the revives a restore held back for a drone-pinned project, once its drone serves it
+    /// with tools. Called whenever a project's serving host moves; does nothing while the drone
+    /// is still not ready, so the next move tries again.
+    pub(super) fn revive_deferred(&mut self, project: ProjectId) {
+        let Some(remote) = self.drone_binding(project) else {
+            return;
+        };
+        let Some(open) = self.projects.get_mut(&project) else {
+            return;
+        };
+        for agent in std::mem::take(&mut open.deferred_revives) {
+            self.bus.send(Message::ReviveConversation {
+                source: agent,
+                agent_id: agent,
+                project_id: project,
+                session_id: self.session,
+                remote: Some(remote.clone()),
+            });
+        }
     }
 
     /// Write down what this window looks like now, for the project on screen. Debounced by the

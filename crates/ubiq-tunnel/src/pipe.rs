@@ -9,6 +9,7 @@ use std::thread;
 use parking_lot::Mutex;
 use ubiq_proto::tunnel::TUNNEL_CHUNK_MAX;
 
+use crate::http::ResponseRewriter;
 use crate::mux::{Mux, Recv, TunnelStream};
 
 /// What a request direction may do to the bytes before they enter the tunnel — the HTTP kind's
@@ -41,12 +42,13 @@ fn add(counters: &Option<Arc<Counters>>, pick: fn(&Counters) -> &AtomicU64, n: u
 }
 
 /// Splice `local` and `stream` until both directions end. Blocks; the local-to-tunnel direction
-/// runs on a thread of its own.
+/// runs on a thread of its own. `response` rewrites the other direction, the HTTP kind's.
 pub(crate) fn pipe(
     mux: &Mux,
     local: TcpStream,
     stream: TunnelStream,
     transform: Option<Transform>,
+    response: Option<ResponseRewriter>,
     counters: Option<Arc<Counters>>,
 ) {
     let stream = Arc::new(stream);
@@ -63,7 +65,7 @@ pub(crate) fn pipe(
     if up.is_none() {
         stream.reset(Some("could not split the local socket".into()));
     }
-    pump_down(local, &stream, &counters);
+    pump_down(local, &stream, response, &counters);
     if let Some(up) = up {
         let _ = up.join();
     }
@@ -101,9 +103,14 @@ fn pump_up(
                     if let Some(c) = counters {
                         c.error(e.to_string());
                     }
-                    stream.reset(Some(e.to_string()));
-                    crate::http::answer_refusal(&mut local, &e);
-                    let _ = local.shutdown(Shutdown::Both);
+                    if crate::http::is_refusal(&e) {
+                        // The upstream still owes the requests before this one: let it finish,
+                        // and the download direction sends the refusal after them.
+                        stream.close_write();
+                    } else {
+                        stream.reset(Some(e.to_string()));
+                        let _ = local.shutdown(Shutdown::Both);
+                    }
                     return;
                 }
                 &out[..]
@@ -117,11 +124,34 @@ fn pump_up(
     }
 }
 
-fn pump_down(mut local: TcpStream, stream: &TunnelStream, counters: &Option<Arc<Counters>>) {
+fn pump_down(
+    mut local: TcpStream,
+    stream: &TunnelStream,
+    mut response: Option<ResponseRewriter>,
+    counters: &Option<Arc<Counters>>,
+) {
+    let mut out = Vec::new();
     loop {
         match stream.recv() {
             Recv::Data(bytes) => {
-                if let Err(e) = local.write_all(&bytes) {
+                let written = match response.as_mut() {
+                    Some(r) => {
+                        out.clear();
+                        r.feed(&bytes, &mut out);
+                        let farewell = r.farewell();
+                        let written = local.write_all(&out);
+                        if let Some(answer) = farewell {
+                            // A refused request, and nothing before it still owed: answer, close.
+                            let _ = local.write_all(&answer);
+                            let _ = local.shutdown(Shutdown::Both);
+                            stream.reset(None);
+                            return;
+                        }
+                        written
+                    }
+                    None => local.write_all(&bytes),
+                };
+                if let Err(e) = written {
                     stream.reset(Some(format!("the local socket failed: {e}")));
                     let _ = local.shutdown(Shutdown::Both);
                     return;
@@ -130,6 +160,11 @@ fn pump_down(mut local: TcpStream, stream: &TunnelStream, counters: &Option<Arc<
                 stream.ack(bytes.len());
             }
             Recv::Eof => {
+                if let Some(r) = response.as_mut() {
+                    out.clear();
+                    r.finish(&mut out);
+                    let _ = local.write_all(&out);
+                }
                 let _ = local.shutdown(Shutdown::Write);
                 return;
             }

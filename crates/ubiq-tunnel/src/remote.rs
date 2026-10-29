@@ -106,7 +106,7 @@ fn dial_and_pipe(mux: &Mux, allow: &AllowList, open: Incoming) {
         Ok(socket) => {
             let _ = socket.set_nodelay(true);
             let stream = open.accept();
-            pipe::pipe(mux, socket, stream, None, None);
+            pipe::pipe(mux, socket, stream, None, None, None);
         }
         Err(e) => open.refuse(format!("could not reach {host}:{port}: {e}")),
     }

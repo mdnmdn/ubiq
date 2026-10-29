@@ -3304,6 +3304,12 @@ pub enum Message {
         agent_id: AgentId,
         project_id: ProjectId,
         session_id: SessionId,
+        /// The saved remote to bind the revived conversation to, as
+        /// [`Message::StartConversation`]'s `remote` — the drone serving a project whose folder is
+        /// on a far machine. `None` keeps the binding the live recipe holds, if any (`G461`).
+        /// Additive, so `MESSAGE_SCHEMA` does not move.
+        #[serde(default)]
+        remote: Option<String>,
     },
 
     // ── Conversation family: host → UI ──────────────────────────────

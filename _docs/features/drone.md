@@ -5,8 +5,8 @@ kind: feature
 status: current
 summary: One small executable Ubiq places on a machine it is not running on, serving that machine's terminal, files, search and machine facts over a single duplex byte stream — attached as an ordinary host over an SSH exec channel, with three lifetimes, a per-project origin, and a hash-pinned binary the interface uploads when the remote `PATH` has none.
 read_when: you are changing how Ubiq reaches a machine it is not running on — the drone binary, its handshake, its lifetime, its deployment, or the SSH profiles and surfaces behind it
-updated: 2026-10-28
-verified: 2026-10-27
+updated: 2026-10-29
+verified: 2026-10-29
 code_anchors: [crates/ubiq-drone/src/main.rs, crates/ubiq-drone/src/lib.rs, crates/ubiq-drone/src/relay.rs, crates/ubiq-drone/src/socket.rs, crates/ubiq-drone/src/held.rs, crates/ubiq-drone/src/linger.rs, crates/ubiq-drone/src/state.rs, crates/ubiq-drone/src/search.rs, crates/ubiq-drone/src/scrollback.rs, crates/ubiq-host/src/carrier.rs, crates/ubiq-proto/src/carrier.rs, crates/ubiq-proto/src/drone/mod.rs, crates/ubiq-proto/src/drone/manifest.rs, crates/ubiq-proto/src/settings.rs, crates/ubiq-proto/src/ssh.rs, crates/ubiq-proto/src/projects.rs, crates/ubiq-host/src/settings.rs, crates/ubiq/src/app/ssh_connect.rs, crates/ubiq/src/app/unix_connect.rs, crates/ubiq/src/app/remote_connect.rs, crates/ubiq/src/app/hosts.rs, crates/ubiq/src/app/projects.rs, crates/ubiq/src/ui/remote_connect.rs, crates/ubiq/src/ui/settings.rs, crates/ubiq/src/ui/sink/project.rs, crates/ubiq/src/app/host_browse.rs, crates/ubiq/src/ext/origin.rs, crates/ubiq-host/src/store/file.rs, crates/ubiq-app/src/lib.rs, _tools/drone.py]
 depends_on: [tech-architecture, tech-transport, tech-structure, wip-drone]
 review_cycle: monthly
@@ -265,10 +265,21 @@ catch-all arm, so a message added later is refused rather than dropped — the A
 variant to refuse with — the notification family, the command-line shortcut and shell integration —
 and those log a warning and drop. Three asks the window makes on every attach or project open are answered rather
 than refused: `ListStats` with the machine's own readings (uptime, load, memory, disk; no usage
-meter), and `ListBoards` / `ListMissions` with empty lists. Starting an agent, as a conversation
-or as a terminal harness, for a project a drone serves is refused by the window itself — the project
-menu's banner reads "agents are not available on a drone yet (R7)" and nothing is sent. A
-`PaneError` from any drone spawn is shown on the same banner.
+meter), and `ListBoards` / `ListMissions` with empty lists. A drone has no harness library, so an
+agent in a project a drone serves is a **harness on this machine bound to that drone** (`D226`):
+the window sends `StartConversation` and `ReviveConversation` to the row's owner, not the drone
+(`Bus::resolve`), and the new-agent form binds `remote` to the saved remote serving the project
+whatever its own *Run against remote* says. The host runs it in
+`<config>/projects/<id>/local/remote/<label>/` — the project has no folder here — with
+`ubiq-remote` injected and the remote instructions appended; a start in such a project with no
+`remote` is refused. A revive is bound the same way (`ReviveConversation.remote`), and a mission's
+launch too; a restore that finds the drone not yet attached holds its revives until the drone's
+`ProjectList` serves the project (`revive_deferred`). The conversation's follow-ups route to the
+host that runs it, not the Hosts dropdown, and the project's tasks, boards and missions to the row's
+owner. The host's own MCP servers that read a project folder (plans, archify, the knowledge base,
+`project-info`) are handed the project's `local/remote/` scratch root instead of the far path. The form refuses, on the project menu's banner, a terminal start (a pane
+carries no binding), a serving remote that does not advertise `tools`, and a project whose row is a
+remote's own. A `PaneError` from any drone spawn is shown on the same banner.
 
 A project already open when a drone starts serving it (the drone's `ProjectList` moves its host)
 has its root listing asked again from the drone: the tree requested at open went to the previous

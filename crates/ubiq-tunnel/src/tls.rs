@@ -23,7 +23,7 @@ use rustls::ClientConnection;
 use rustls::pki_types::ServerName;
 use ubiq_proto::tunnel::TUNNEL_CHUNK_MAX;
 
-use crate::http::HostRewriter;
+use crate::http::{RequestRewriter, ResponseRewriter};
 use crate::mux::{Mux, Recv, TunnelStream};
 use crate::pipe::Counters;
 
@@ -230,14 +230,14 @@ pub(crate) fn pipe_tls(
     mux: &Mux,
     mut local: TcpStream,
     stream: TunnelStream,
-    rewriter: HostRewriter,
+    rewriters: (RequestRewriter, ResponseRewriter),
     config: Arc<rustls::ClientConfig>,
     server: ServerName<'static>,
     counters: Arc<Counters>,
 ) {
     let stream = Arc::new(stream);
     let result = run(
-        mux, &mut local, &stream, rewriter, config, server, &counters,
+        mux, &mut local, &stream, rewriters, config, server, &counters,
     );
     match result {
         Ok(()) => stream.close_write(),
@@ -253,7 +253,7 @@ fn run(
     mux: &Mux,
     local: &mut TcpStream,
     stream: &Arc<TunnelStream>,
-    mut rewriter: HostRewriter,
+    (mut rewriter, mut response): (RequestRewriter, ResponseRewriter),
     config: Arc<rustls::ClientConfig>,
     server: ServerName<'static>,
     counters: &Arc<Counters>,
@@ -294,10 +294,13 @@ fn run(
                         out.clear();
                         match rewriter.feed(&buf[..n], &mut out) {
                             Ok(()) => Event::Local(std::mem::take(&mut out)),
-                            Err(e) => {
-                                crate::http::answer_refusal(&mut reader, &e);
-                                Event::LocalError(e.to_string())
+                            // A refusal is answered by the response side once it is idle; the
+                            // upstream is told the requests are over, as at an EOF.
+                            Err(e) if crate::http::is_refusal(&e) => {
+                                feed_counters.error(e.to_string());
+                                Event::LocalEof
                             }
+                            Err(e) => Event::LocalError(e.to_string()),
                         }
                     }
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
@@ -332,6 +335,18 @@ fn run(
     let mut local_done = false;
     let mut remote_done = false;
     let mut plain = vec![0u8; TUNNEL_CHUNK_MAX];
+    let mut rewritten = Vec::new();
+    // The response rewriter's last word once the server is done, before the local half-close.
+    let mut ended = false;
+    let mut end_response = |local: &mut TcpStream, response: &mut ResponseRewriter| {
+        if !ended {
+            ended = true;
+            let mut rest = Vec::new();
+            response.finish(&mut rest);
+            let _ = local.write_all(&rest);
+        }
+        let _ = local.shutdown(Shutdown::Write);
+    };
     loop {
         flush(&mut conn, &out_tx, &backlog)?;
         if local_done && remote_done {
@@ -367,12 +382,14 @@ fn run(
                         match conn.reader().read(&mut plain) {
                             Ok(0) => {
                                 // The server's close_notify: no more response.
-                                let _ = local.shutdown(Shutdown::Write);
+                                end_response(local, &mut response);
                                 break;
                             }
                             Ok(n) => {
+                                rewritten.clear();
+                                response.feed(&plain[..n], &mut rewritten);
                                 local
-                                    .write_all(&plain[..n])
+                                    .write_all(&rewritten)
                                     .map_err(|e| format!("the local socket failed: {e}"))?;
                                 counters
                                     .down
@@ -384,10 +401,16 @@ fn run(
                     }
                 }
                 stream.ack(bytes.len());
+                if let Some(answer) = response.farewell() {
+                    let _ = local.write_all(&answer);
+                    let _ = local.shutdown(Shutdown::Both);
+                    stream.reset(None);
+                    return Ok(());
+                }
             }
             Event::RemoteEof => {
                 remote_done = true;
-                let _ = local.shutdown(Shutdown::Write);
+                end_response(local, &mut response);
             }
             Event::RemoteReset(e) => {
                 return Err(e.unwrap_or_else(|| "the far end reset the stream".into()));

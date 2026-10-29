@@ -482,6 +482,12 @@ impl ProjectData {
     pub fn kb_clones(&self) -> PathBuf {
         self.local().join("kb")
     }
+
+    /// The scratch folders of agents bound to a remote, one per remote, for a project with no
+    /// folder on this machine — a drone-served one (`D226`, `R7`). Disposable by design.
+    pub fn remote_scratch(&self) -> PathBuf {
+        self.local().join("remote")
+    }
 }
 
 /// What [`migrate`] moves, and where: the flat shape that came before, to the grouped one.

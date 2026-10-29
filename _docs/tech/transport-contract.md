@@ -1549,7 +1549,7 @@ is what multiplexes several of them down one channel.
 | `SetConversationAcceptAll` | UI → host | `agent_id`, `accept_all` | `AgentChanged` |
 | `SetConversationDebugDump` | UI → host | `agent_id`, `debug_dump` | `AgentChanged` |
 | `RenameConversation` | UI → host | `agent_id`, `name` | `AgentChanged` |
-| `ReviveConversation` | UI → host | `source`, `agent_id`, `project_id`, `session_id` | `ConversationStarted` or `ConversationError` |
+| `ReviveConversation` | UI → host | `source`, `agent_id`, `project_id`, `session_id`, `remote` (`serde(default)`: the drone serving the project; `None` keeps the live recipe's binding) | `ConversationStarted` or `ConversationError` |
 | `ConversationStarted` | host → UI | `project_id`, `agent`, `session`, `accepts_input` | — |
 | `ConversationUpdate` | host → UI | `agent_id`, `seq`, `update` | — |
 | `ConversationEnded` | host → UI | `agent_id`, `stop_reason` | — |
@@ -2814,12 +2814,19 @@ pointed at an address it never had, which is a row that looks connectable and is
 one that is gone.
 
 **A saved host carries the ports its link forwards.** `SavedRemoteHost.tunnels` is a list of
-`TunnelSpec { id, kind, local_port, host, port, upstream_tls, host_rewrite?, insecure, enabled }` —
-`kind` `tcp` (bytes untouched) or `http` (the `Host` header rewritable, `None` sending `host`, and the
-upstream wrappable in TLS, `insecure` skipping its certificate check) — and
-`tunnel_rate_bps?` caps the link's tunnel traffic, `None` unlimited. Both are `#[serde(default)]`,
-addresses and flags with nothing a credential could land in. `HOST_SETTINGS_SCHEMA` is 24 for them:
-an older build drops every forwarded port on its next write.
+`TunnelSpec { id, kind, local_port, host, port, upstream_tls, insecure, enabled, rewrite_host,
+host_rewrite?, rewrite_content, content_types }` — `kind` `tcp` (bytes untouched) or `http`. For `http`, `host`,
+`port` and `upstream_tls` are the parts of one remote URL (`TunnelSpec::remote_url` /
+`set_remote_url`: `http[s]://host[:port][/]`, no port meaning the scheme's, no path), `insecure`
+skips the upstream's certificate check, `rewrite_host` (default on) sends the upstream's own `Host`
+(or `host_rewrite`, when set — a virtual host behind an address) and renames a local `Origin` /
+`Referer`, and `rewrite_content` (default off, experimental) rewrites
+the upstream's origin in response bodies whose `Content-Type` matches a `content_types` glob
+(default: HTML, CSS, JavaScript, JSON). `tunnel_rate_bps?` caps the link's tunnel traffic, `None`
+unlimited. All are `#[serde(default)]`, addresses and flags with nothing a credential could land in.
+`HOST_SETTINGS_SCHEMA` is 24 for them: an older build drops every forwarded port on its next write.
+The three new rewrite fields need no bump: an older build drops them and the spec reads back as a
+Host-rewriting tunnel with no content rewrite.
 
 **`preset` says whether that drone detaches, and for how long it outlives a dropped link.**
 `DronePreset` is `Attached` (`--stdio`, no socket — dies with this `ssh`), `Session` (detaches with
@@ -3435,7 +3442,17 @@ does not hold is dropped. A drone that can serve the channel advertises `tunnel`
 `crates/ubiq-tunnel` speaks it — the multiplexer, the window's listeners and the drone's dialer —
 over any duplex it is handed. An HTTP-kind listener is guarded against DNS rebinding: a request
 whose incoming `Host` is not `localhost`, `127.0.0.1` or `[::1]` (any port) is answered `403` and
-the stream reset, without a byte of the request crossing the channel. **No carrier hands it one yet**: no channel or bridge exists, and
+the stream reset, without a byte of the request crossing the channel. It parses both directions
+(`http.rs`): requests get the upstream's `Host`, `Origin` and `Referer`; responses get the local
+origin — the request's own `Host` — in `Location`, `Content-Location`, `Refresh`, `Link` and
+`Access-Control-Allow-Origin`, and lose a `Set-Cookie`'s `Domain`. With `rewrite_content`, requests
+ask for `Accept-Encoding: identity` and a matching, unencoded response body is held whole (decoded
+from `chunked`, at most 2 MiB, larger passing unrewritten; `text/event-stream` never held), has
+the origin replaced (the JSON-escaped `\/` spelling too) and goes out with a fresh
+`Content-Length`. A `101`, a `CONNECT`'s `2xx` or anything unparseable turns the response raw. A
+request with a `Transfer-Encoding` not ending in `chunked` or with conflicting `Content-Length`s is
+answered `400`; that answer, like the `403`, is sent by the response side once every response owed
+before it is out, so it never lands inside one. **No carrier hands it one yet**: no channel or bridge exists, and
 nothing outside that crate names it (`G462`).
 
 ## The carrier family
